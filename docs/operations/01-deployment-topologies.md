@@ -103,6 +103,66 @@ flowchart LR
     n2 --> ss
 ```
 
+#### Quickstart
+
+The scripted quickstart, `examples/quickstart/quickstart.sh`, Planned (M1), measures SM-7: the time from download to the first proxied request, 10 minutes or less (target) on a clean machine ([Vision](../vision/01-vision-and-positioning.md#success-metrics)), M1 exit criterion 4. It runs T1's single Node without the CLI: one file-mode `ruralzd` from the release archive, the `memory` State Store and a local Upstream. Stage 10 runs it with `make quickstart` on a fresh runner without Go that holds only the `ruralzd` archive, its `SHA256SUMS` and the repository's `examples/quickstart/` ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)). It needs bash, curl, tar, `sha256sum` or `shasum`, and python3 for the Upstream, so it runs on Linux and macOS, the platforms with a `ruralzd` archive.
+
+| Step | What the script does |
+|---|---|
+| 1. Archive | Takes the archive `RURALZ_QUICKSTART_ARCHIVE` names and the `SHA256SUMS` beside it; when the variable is empty, downloads `ruralzd_<version>_<os>_<arch>.tar.gz` for the host and `SHA256SUMS` from the repository's latest GitHub release. It checks the archive against `SHA256SUMS`, stopping on a mismatch, and unpacks `ruralzd` into a temporary directory |
+| 2. Upstream | Starts `python3 -m http.server` on 127.0.0.1:9000, serving a temporary directory whose `index.html` holds one known line |
+| 3. Node | Starts `ruralzd` with `RURALZ_CONFIG` set to the script's own directory, `examples/quickstart/`, a temporary `RURALZ_DATA_DIR`, and `RURALZ_FETCH_ALLOW=127.0.0.1`, because a Node otherwise refuses loopback Endpoints ([Security and identity](../architecture/08-security-and-identity.md#secrets), rule 6) |
+| 4. Readiness | Polls `http://127.0.0.1:9901/readyz` every 0.5 s (target) until it answers 200 |
+| 5. Success | Sends `GET http://127.0.0.1:8080/` until the answer is 200 with the known line as its body and `x-quickstart: ruralz`, which only the Route's `headers` Policy adds, so the response passed the Filter Chain. It then prints `first proxied request after <seconds> s`, counted from its own start, which `make quickstart` holds against `QUICKSTART_MAX_SECONDS` (600 s, SM-7's 10 minutes), stops both processes and exits 0 |
+| 6. Failure | When a process exits early or 600 s pass (target), prints the last `/readyz` body and the `ruralzd` log, stops both processes and exits 1 |
+
+`examples/quickstart/ruralz.yaml`, the quickstart Bundle, which uses only M1 features and no `stateStore`, so the Node runs `memory` with its startup warning:
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: quickstart
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: hello
+spec:
+  protocol: http
+  endpoints:
+    - address: "127.0.0.1:9000"         # python3 -m http.server, started by quickstart.sh
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quickstart-header
+spec:
+  type: headers
+  config:
+    response:
+      set: [{name: x-quickstart, value: ruralz}]   # only the Filter Chain adds it
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hello
+spec:
+  match:
+    path: {prefix: /}
+  policies:
+    - name: quickstart-header
+  upstreams:
+    - name: hello
+```
+
+A Go test keeps `examples/quickstart/ruralz.yaml` identical to this block, renders it with the other example Bundles, and checks what the script relies on: the one Endpoint 127.0.0.1:9000 and `quickstart-header` on every response of Route `hello` ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#generator-rules)).
+
 ### T3: Cluster of Nodes managed by Ruralz Control
 
 Three `ruralz-control` replicas, or five (Sizing defaults), form the Raft Control Store on 8092 ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed); all serve 8090 and 8091, only the leader watching Git, signing, enrolling and running Rollouts ([Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles)). In an outage (P3) Nodes keep serving, restarted ones boot Last-Known-Good within 5 s (target), and new ones stay not ready: Clusters SHOULD keep 30% headroom above peak (target) ([Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability)).
@@ -245,11 +305,12 @@ flowchart TB
 
 | File | Contents |
 |---|---|
-| `ruralzd.service` | `Type=notify`, `NotifyAccess=all`; data directory `/var/lib/ruralz` and admin token (a systemd credential) outside `RURALZ_SECRET_ROOT`; `ExecReload` runs the helper; `TimeoutStopSec=40` |
-| `ruralzd-handover` | Starts the new binary in the unit's cgroup; exits 0 once `holder.json` names it, 1 if it exits first, and stops it and exits 1 after 75 s (target) |
-| `ruralzd.env`, `99-ruralzd.conf` | Example `EnvironmentFile`; sysctl `net.ipv4.tcp_migrate_req = 1` |
+| `ruralzd.service` | `Type=notify`, `NotifyAccess=all`, user and group `ruralz`; data directory `/var/lib/ruralz` (`StateDirectory=`, mode 0700); settings from `/etc/ruralzd/ruralzd.env`; the admin token, kept in `/etc/ruralzd/admin-token`, is the systemd credential `admin-token` read from `/run/credentials/ruralzd.service/`, both outside `RURALZ_SECRET_ROOT`; `ExecReload` runs the helper on `/usr/local/bin/ruralzd`; `TimeoutStartSec=90`, which reloads share, above the helper's wait; `TimeoutStopSec=40`; `KillMode=control-group`; `Restart=on-failure`, so a crash or SIGKILL boots Last-Known-Good; hardening: no new privileges, only `CAP_NET_BIND_SERVICE`, `ProtectSystem=strict` with writes only to the data directory, and the kernel, device and namespace protections; systemd 247 or newer |
+| `ruralzd-handover` | `ruralzd-handover BINARY [TIMEOUT_SECONDS]`: starts `BINARY` in the unit's cgroup with the unit's environment; exits 0 once `holder.json` names it (it reads only `pid`), 1 if it exits first, and after 75 s (target) stops it with SIGTERM, then SIGKILL 10 s later, and exits 1; a usage error exits 2. It checks every 0.2 s and counts those sleeps, so a clock step never shortens the wait |
+| `ruralzd.sysusers` | The sysusers.d entry for `/etc/sysusers.d/ruralzd.conf`: `systemd-sysusers` creates the system user and group `ruralz`, with an automatic system ID, home `/var/lib/ruralz` and no login shell |
+| `ruralzd.env`, `99-ruralzd.conf` | Example `EnvironmentFile` for `/etc/ruralzd/ruralzd.env`, mode 0600: `RURALZ_CONFIG` and the optional M1 settings; sysctl `net.ipv4.tcp_migrate_req = 1` for `/etc/sysctl.d/` |
 
-`systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)).
+The binary and the helper install as `/usr/local/bin/ruralzd` and `/usr/local/bin/ruralzd-handover`, and `systemd-sysusers` creates the user from the sysusers.d entry. `systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 

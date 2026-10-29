@@ -40,7 +40,7 @@ Chosen option: "YAML 1.2 validated by a published JSON Schema (draft 2020-12), w
 |---|---|---|
 | Envelope | `apiVersion: ruralz/v1alpha1`, `kind` (ten kinds), `metadata`, `spec`; `camelCase` keys and `PascalCase` kinds, except `$patch` | Planned (M0) |
 | Schema | Draft 2020-12 authoring view (accepts `${VAR}` strings) and strict rendered view, generated from one source, with `x-ruralz-*` keywords | Planned (M0) |
-| Restricted profile | Rejects non-UTF-8, byte order marks, YAML syntax errors and oversize or over-deep input, counted while parsing (RZ-CFG-001; defaults 64 MiB of source, 20,000 resources, 64 nesting levels and 1,000,000 nodes per document with five quarters of that per file (target), Node limits never below CLI defaults), duplicate keys (RZ-CFG-002), anchors, aliases, merge keys (RZ-CFG-003) and custom tags and `%TAG` (RZ-CFG-004) | Planned (M1) |
+| Restricted profile | Rejects non-UTF-8, byte order marks, YAML syntax errors and oversize or over-deep input, counted while parsing (RZ-CFG-001; defaults 64 MiB of source, 20,000 resources, 64 nesting levels, 1,000,000 nodes per document and 200 nodes per resource of the resource limit across one load's files, 4,000,000 at the default (target), Node limits never below CLI defaults), duplicate keys (RZ-CFG-002), anchors, aliases, merge keys (RZ-CFG-003) and custom tags and `%TAG` (RZ-CFG-004) | Planned (M1) |
 | Parser | Ruralz code in `internal/config/profile` reads the YAML 1.2.2 productions in one pass, with no token stage. Plain scalars are typed from their text by the YAML 1.2 core schema (null, true/false, decimal, `0o` and `0x` integers, floats, else string); a substituted whole-value `${VAR}`, quoted or JSON too, takes the rendered view's field type. Where libyaml-based parsers read YAML otherwise, YAML 1.2 wins: tabs never indent, the lines of a quoted scalar or flow collection are indented past their block collection, a comment needs white space before it, and reserved directives are ignored | Planned (M1) |
 | JSON | `.json` files share the loader, schema and Revision digest | Planned (M1) |
 | Bundle merge | Base files form a union; `overlays/<env>/` patch by `x-ruralz-list` strategic merge; `${VAR}` substitution runs once, between merge and validation | Planned (M1) |
@@ -90,7 +90,7 @@ flowchart LR
 - Bad, because authors lose anchors, replaced by Policies by reference and overlays.
 - Bad, because Ruralz alone maintains block scalars, folding, flow edge cases, tabs, positions and messages, with no external users or advisory channel, and keeps the suite runner, the differential and the fuzz targets current.
 - Bad, because YAML that libyaml-based tools accept can fail here, such as a closing bracket at its key's column or `"a"#c`; the differential's list of deviation classes names each case.
-- Bad, because the per-file node budget is flat: one file holding all 20,000 resources reaches it when they average more than 62 nodes (target) (OQ-configuration-model-18).
+- Good, because one node budget for all of a load's files, which scales with the resource limit, bounds its trees however many files hold them, while one file may use all of it: a rendered one-file Bundle of 20,000 resources may average 200 nodes each (target).
 - Bad, because peak loader memory at the default size and depth limits is a hypothesis until the hostile-input fixtures measure it.
 - Bad, because two schema views and seven custom keywords must stay in step, and apiVersion migration drops comments.
 
@@ -156,4 +156,4 @@ flowchart LR
 - Owning document: [Configuration model](../architecture/02-configuration-model.md#restricted-yaml-profile).
 - Evidence: the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
 - Related decisions: [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
-- Open elsewhere: OQ-configuration-model-10, OQ-configuration-model-2 and OQ-configuration-model-18.
+- Open elsewhere: OQ-configuration-model-10 and OQ-configuration-model-2.

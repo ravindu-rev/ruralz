@@ -99,14 +99,14 @@ IDs are stable; component documents cite them and MUST NOT add an unauthenticate
 
 ## Transport security
 
-Every TLS hop verifies the server certificate; no field disables it. Cleartext, where the table allows it (amending TB-1, TB-3, TB-4 and TB-12: OQ-security-and-identity-29), is a degraded state and audit finding. Per TB-4, a Node rejects a non-loopback State Store URL without credentials, with RZ-CFG-026 until OQ-security-and-identity-30 names a code.
+Every TLS hop verifies the server certificate; no field disables it. Cleartext, where the table allows it (amending TB-1, TB-3, TB-4 and TB-12: OQ-security-and-identity-29), is a degraded state and audit finding. Per TB-4, a Node rejects with RZ-CFG-042 a State Store URL that names a host other than a loopback literal and carries neither a user name nor a password, as it does a URL whose scheme or parameters would break a rule here ([Scalability and distributed state](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)).
 
 | Hop | Protocol | Peer authentication | Planned |
 |---|---|---|---|
 | Client, TCP 8443 | TLS 1.3 by default; `tls.minVersion: "1.2"` allowed | Server certificate; client certificate for `auth.mtls` | Planned (M1) |
 | Client, UDP 8443 | HTTP/3, TLS 1.3 | As above | Planned (M3) |
 | Client, 8080 | Cleartext, SHOULD serve only redirects or traffic behind a TLS-terminating load balancer | Consumer credentials | Planned (M1) |
-| Upstream, `AIProvider`, State Store, OTLP (TB-3, TB-4, TB-12) | TLS 1.2 or newer with `Upstream.spec.tls`, an `https` URL or `rediss://`; else cleartext | Server verified; optional client certificate; State Store credentials | Planned (M1) |
+| Upstream, `AIProvider`, State Store, OTLP (TB-3, TB-4, TB-12) | TLS 1.2 or newer with `Upstream.spec.tls`, an `https` URL, or `rediss://` with optional `stateStore.tls` (`stateStore.cache.tls` for the cache connection) for every State Store server, cluster node and sentinel; else cleartext | Server verified; optional client certificate; State Store credentials | Planned (M1) |
 | Vault, Kubernetes API (TB-3, TB-7) | TLS 1.2 or newer, never cleartext | Server verified; Vault authentication (OQ-security-and-identity-10); namespace-scoped service account | Planned (M2) |
 | IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037) | Server verified | Planned (M1) |
 | Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9901 Planned (M1); 9902 Planned (M2) |
@@ -306,6 +306,8 @@ spec:
     rule: 'consumer != null && consumer.tier == "gold"'   # Tier gate with existing fields
 ```
 
+An `authz.cel` rule runs once per request: in `onRequestBody` when it reads `request.body`, which makes the body a gate, else in `onRequestHeaders`. `true` admits; `false` denies with 403 RZ-AUTH-010; a runtime error, the cost limit and the comprehension stop included, is 403 RZ-AUTH-015; each decision counts in `ruralz_auth_decisions_total`. Before a body rule runs, a decoded body over its cap is 413 RZ-RT-003 and a spent buffer budget 503 RZ-RT-004, neither a decision; a body that is not JSON reads as null. An empty `rule` is RZ-CFG-005.
+
 ### OPA and Cedar schemas
 
 This document authors both engine schemas ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), Planned (M2) and proposed for Configuration model registration with OQ-security-and-identity-13 (c); until then, no example uses them.
@@ -385,7 +387,7 @@ Components MUST follow rules 1 to 9, Planned (M1) on Nodes and the CLI, the Rura
 5. A `file` reference resolves only when its path, before and after resolving symlinks, lies under `RURALZ_SECRET_ROOT`, default `/etc/ruralz`, and `env` only for `RURALZ_STATE_STORE_URL` and `RURALZ_SECRET_*`; a violation is RZ-CFG-026, as is, on Unix, a `file` secret writable by group or others, whatever its owner. A Node refuses to start if the root contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, an admin or Enrollment token file, the MAC key file or the Vault credential.
 6. Every Node connection for the Bundle (`jwksUrl`, `tokenUrl`, `baseUrl`, Endpoints, discovery results) refuses 0.0.0.0/8, ::/128, 127.0.0.0/8, ::1, 169.254.0.0/16, fe80::/10 and fd00:ec2::254, IPv4-mapped and NAT64 forms included, at connect time and on each redirect hop, unless `RURALZ_FETCH_ALLOW`, comma-separated addresses and CIDRs (an unparsable entry refuses start), holds them. It never follows `https` to `http` or a `tokenUrl` redirect, and ignores proxy variables unless the list holds `env-proxy`.
 7. Adding a `secretRef` or changing a secret's destination has diff impact `security`.
-8. Each `secretRef` use has one static destination, and a reference with two is RZ-CFG-041 in every binary ([Secret-to-destination binding](02-configuration-model.md#secret-to-destination-binding)); the State Store dialer dials only its URL's host.
+8. Each `secretRef` use has one static destination, and a reference with two is RZ-CFG-041 in every binary ([Secret-to-destination binding](02-configuration-model.md#secret-to-destination-binding)); the State Store dialer dials only its URL's hosts and the servers their cluster or sentinels announce, the State Store's own members, which promotions and new shards add without a Revision.
 9. With `RURALZ_STATE_STORE_MAC_KEY_FILE` set (an absolute path outside the secret root to a regular file owned by the effective user or root, with no group or other permission bits, read at start), every opaque entry Nodes share through the State Store, Response Cache entries in M1, carries an HMAC-SHA-256 tag over key, field and value; a missing or wrong tag reads as a miss. The key MUST hold at least 32 bytes after one final LF or CR LF is removed; generate it as text, such as `openssl rand -hex 32`, since a binary key ending in 0x0A loses that byte. Counters carry no tag, as State Store scripts cannot compute one; a new key turns entries into misses.
 
 *Figure 3: secret resolution through `secretRef` on activation and rotation.*
@@ -596,7 +598,7 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-27 | Codes for cap overflow and tombstoned rollbacks; target count? | (a) Two `RZ-CP` codes, 10 targets (proposed); (b) Existing codes | control-plane-and-gitops | Yes, Planned (M2) |
 | OQ-security-and-identity-28 | Where does transport-time signing live? | (a) Hook after the last `onUpstreamRequest` Filter, amending pack sections 8.12 and 10 (proposed); (b) Forbid later mutation | security-and-identity | Yes, for `auth.upstream-sigv4` |
 | OQ-security-and-identity-29 | Should TB-1, TB-3, TB-4 and TB-12 read "TLS when configured; cleartext reported"? | (a) Yes (proposed); (b) Require TLS | system-overview | No |
-| OQ-security-and-identity-30 | Which codes reject the engine ceiling and an uncredentialed State Store URL? | (a) New RZ-CFG codes (proposed); (b) RZ-CFG-015 and RZ-CFG-026 | configuration-model | Yes, Planned (M2) |
+| OQ-security-and-identity-30 | Which code rejects the engine ceiling? | (a) A new RZ-CFG code (proposed); (b) RZ-CFG-015 | configuration-model | Yes, Planned (M2) |
 | OQ-security-and-identity-31 | Should pack 8.4 (8091 and 8092 rows, section 2 Control Stream row) and System overview's TB-3, TB-5, TB-7, TB-8 and TB-11 adopt the `Enroll` and `Join` [transports](#transport-security) and the [boundary mapping](#threat-model-and-trust-boundaries) above? | (a) Amend (proposed); (b) New TB IDs | system-overview | Yes, Planned (M2) |
 | OQ-security-and-identity-32 | What partitions an unbound identity without a subject? | (a) No principal (current); (b) `client_id` or `azp` (JWT) or the URI SAN (mTLS), merging a client application's users | security-and-identity | No |
 | OQ-security-and-identity-33 | Which field gives a trusted hop's address when a proxy manages only `X-Forwarded-For` and the client sends its own `Forwarded`? | (a) A per-prefix `trustedProxies` setting naming each proxy's field (schema change); (b) `X-Forwarded-For` first; (c) `Forwarded` first (current) | security-and-identity | No |

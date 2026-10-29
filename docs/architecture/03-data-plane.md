@@ -114,9 +114,9 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | HTTP/3 unread request data | 1 MiB connection receive window (target); QUIC flow control counts every stream byte, HEADERS frames included (RFC 9000) |
 | HTTP/3 header reads | quic-go reads a stream's headers before the handler runs ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)), so each stream gets a header-read deadline of `ReadHeaderTimeout` from stream open, and expiry resets the stream. Body and write deadlines follow the row above, pending quic-go support (OQ-data-plane-14) |
 | HTTP/3 per-connection memory | About 9.25 MiB before a handler runs (hypothesis): 32 streams at the 256 KiB header ceiling, the 1 MiB receive window, and 256 KiB of QUIC, TLS and packet buffers; this equals 16 × 592 KiB |
-| Per in-flight unit | Its header block, at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis) |
+| Per in-flight unit | Its header block with the request target, at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis) |
 | In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued |
-| Header block | `Server.MaxHeaderBytes` 256 KiB (target) |
+| Header block | `Server.MaxHeaderBytes` 256 KiB (target), counting the request target: `net/http` counts the HTTP/1.1 request line, and in HTTP/2 every field of the header list, pseudo-header fields included |
 | Upstream response header block | `Transport.MaxResponseHeaderBytes` 256 KiB, the same ceiling (target); a larger block fails the attempt as a protocol error (error kind `reset`) |
 | Bodies and buffered bytes | `limits.maxRequestBodyBytes`, `limits.maxResponseBodyBytes`, step `maxBodyBytes`; `limits.maxBufferedBytes` reserved as bytes arrive |
 | One streamed chunk | 1 MiB (target), reserved from the stream share while held |
@@ -145,7 +145,7 @@ Listeners come from `Gateway.spec.listeners` with `protocol` `http` or `https`, 
 
 h2c is prior knowledge only ([source](https://go.dev/doc/go1.24)); the `x/net/http2` `Server` is deprecated ([source](https://github.com/golang/go/issues/78064)), so HTTP/2 is configured only through `HTTP2Config`.
 
-A header block above the 256 KiB process ceiling (target) is refused by `net/http` before any handler, with a plain 431. Below it, the handler returns 431 `RZ-RT-002` as a problem document for a block over the pinned snapshot's `limits.maxRequestHeaderBytes` or more than 256 fields (target); a larger Revision value is capped, as a degraded state.
+A header block above the 256 KiB process ceiling (target) is refused by `net/http` before any handler, with a plain 431. Below it, the handler returns 431 `RZ-RT-002` as a problem document for a block over the pinned snapshot's `limits.maxRequestHeaderBytes` or more than 256 fields (target); a larger Revision value is capped, as a degraded state. Both limits count the request target with the fields: the HTTP/1.1 request line, or the HTTP/2 and HTTP/3 pseudo-header fields, so one number bounds the method, host, path and query with the headers, as every CEL expression reads them ([Limits](02-configuration-model.md#limits)).
 
 Conflicting framing (both `Transfer-Encoding` and `Content-Length`, or a coding other than `chunked`) and hop-by-hop fields are never forwarded; conflicting framing that reaches the handler gets 400 `RZ-RT-017`, and `CONNECT` matches no Route.
 
@@ -172,7 +172,7 @@ Paths are normalized first, from the escaped target, for the Router, CEL, `authz
 
 ### Precedence
 
-Two Routes with identical match criteria are rejected at validation (RZ-CFG-023). Other overlaps resolve by this total order, highest first:
+Two Routes with identical match criteria on a common listener are rejected at validation (RZ-CFG-023); each listener's Router compiles only its own Routes. Other overlaps resolve by this total order, highest first:
 
 | Rank | Criterion | Order within the criterion |
 |---|---|---|
@@ -305,6 +305,17 @@ A subscribed stream reserves 32 KiB (target) from the stream share before commit
 
 A Filter returns continue, respond, or cannot decide (a failed or timed-out State Store call or remote dependency, a Plugin trap or limit, or a runtime error in a Policy `config` CEL field), and `failureMode` then applies ([Failure semantics](#failure-semantics)). Other CEL fields follow the Configuration model's [CEL table](02-configuration-model.md#allowed-places). Each failure increments `ruralz_filter_failures_total` ([Observability](10-observability.md)) and marks the span `ruralz.filter.<name>`.
 
+### Headers Policy
+
+A `headers` Policy, Planned (M1), removes, sets and adds header fields with the `config` and validation the [Configuration model](02-configuration-model.md#policy) fixes. Each side runs only when it holds an entry, in the Phase of its scope:
+
+| Side | Gateway and Route scope | Upstream scope |
+|---|---|---|
+| `config.request` | `onRequestHeaders`, on the client request | `onUpstreamRequest`, on each attempt's outgoing request |
+| `config.response` | `onResponse`, on the client response, generated responses included | `onUpstreamResponseHeaders`, on each attempt's response; an attempt that got no response is left alone, since its edits reach nothing |
+
+A side evaluates every `valueExpression` first, over the message as it reached the Policy, then applies `remove[]`, `set[]` and `add[]`, so no entry reads another's output and a failure edits nothing. Names compare ignoring case and are written in canonical form; lines a header map holds for one field under keys that differ only in case are first merged under the canonical key, its own lines first, so `remove[]` leaves no line behind and `add[]` appends after every line. A computed value is trimmed of spaces and tabs, and an empty result sets an empty field. A CEL runtime error, or a computed value with a control byte other than a tab or over 8 KiB (target), is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase and 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped. The Policy never calls the State Store.
+
 ### Transform Policies
 
 `transform.request` and `transform.response`, both Planned (M1), rewrite bodies, headers and the query string with CEL and regular expressions instead of a template language. This section authors their `config` schema (pack 3) for registration by the [Configuration model](02-configuration-model.md#policy), with a CEL row per expression field. Both types are gates ([Body buffering and limits](02-configuration-model.md#body-buffering-and-limits)).
@@ -331,7 +342,7 @@ A Policy applies `body`, then `arrayOps[]`, `set[]`, `remove[]` and `replace[]`,
 
 *Base* is the Configuration model's set ([Variables](02-configuration-model.md#variables)). `request.body` and `response.body` are JSON as `dyn`; a body that is empty, not valid JSON, or whose one `Content-Type` field line is not `application/json` or a `+json` type is null, so only `replace[]` without `path`, header and query operations and a `body` that ignores it apply. In `onUpstreamRequest`, `request` describes the attempt's outgoing request as it reached the Policy: its headers, query and current body. Reading an XML response is OQ-data-plane-17.
 
-Limits: each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store.
+Limits: each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). A `transform.request` `set[]` entry with target `header` or `query` takes the [headers Policy](#headers-policy) caps: a `name` over 256 bytes (target) is RZ-CFG-005, and a computed value over 8 KiB (target) is cannot decide, so the bytes such entries add to a request are bounded. The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store.
 
 A CEL runtime error, a JSON operation on a null body, a path through a non-object or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the body passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
 
@@ -403,7 +414,7 @@ A snapshot is the compiled, immutable form of one Revision: Routers, Filter Chai
 The config loader activates a Revision off the request path, in the order of [Compile before swap](01-system-overview.md#compile-before-swap):
 
 1. Verify the full `sha256` digest (RZ-CFG-027; RZ-CFG-028 for a Plugin artifact) and the signature ([ADR-0017](../adr/0017-artifact-signing.md); RZ-CFG-033); a watched directory is unsigned (pack 8.14), and trust policy `off` is a degraded state.
-2. Validate, resolve every `secretRef` (RZ-CFG-026), build Routers and chains, compile CEL and Plugins by digest.
+2. Validate, resolve every `secretRef` (RZ-CFG-026), build Routers and chains, compile CEL under the Revision's input caps ([Limits](02-configuration-model.md#limits)) and Plugins by digest.
 3. Carry over unchanged pools, Plugin instances and token buckets by identity and hash; warm only new ones; bind added or changed listeners (RZ-CFG-039).
 4. Publish the snapshot with one atomic pointer store: the Hot Reload.
 5. ACK over the Control Stream in Control mode ([ADR-0007](../adr/0007-control-stream-protocol.md)); the ACK means active, not durable.
@@ -540,7 +551,7 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | Code | Status | Meaning |
 |---|---|---|
 | RZ-RT-001 | 404 | No Route matched on this listener |
-| RZ-RT-002 | 431 | Request headers exceed `limits.maxRequestHeaderBytes` |
+| RZ-RT-002 | 431 | Request target and headers exceed `limits.maxRequestHeaderBytes` |
 | RZ-RT-003 | 413 | Request body exceeds `limits.maxRequestBodyBytes` |
 | RZ-RT-004 | 503 | The buffer budget cannot cover a gate, step body or stream reservation |
 | RZ-RT-005 | 503 | The Node in-flight ceiling is full |
@@ -579,3 +590,4 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
 | OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
+| OQ-data-plane-18 | Does a `transform.response` `set[]` entry with target `header` take the headers Policy caps, 256-byte names and 8 KiB values (target), as `transform.request` does? | (a) No cap of its own beyond the response header block (current); (b) the same caps as `transform.request` (proposed) | data-plane | No |

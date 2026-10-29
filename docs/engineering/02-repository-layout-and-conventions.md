@@ -151,7 +151,7 @@ L2    config/{schemaidx,registry}    identity    filter/auth    secret/resolver 
       clientaddr    egress    tlsconf    adminauth    redact    signing    cli/{command,completion}
 L1    expr    secret    config/{tree,hub}    telemetry/emit    statestore    filter    gateway/snapshot
 L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{diag,revision}    telemetry/catalog
-      ulid    jsonval    httpfield    sfv    routematch    pkg/config/v1alpha1    api/schema
+      ulid    jsonval    httpfield    sfv    routematch    netaddr    pkg/config/v1alpha1    api/schema
 test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/handlertest
       statestore/statestoretest{,/redisserver,/respproxy}
       testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus}
@@ -289,7 +289,7 @@ formatters:
 
 `internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
 
-Other standard-library programs: `internal/tool/commitcheck` checks DCO sign-off on every non-merge commit of a range and the Conventional Commits title; `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and prints each artifact's `THIRD_PARTY_LICENSES`; `telemetrygen` generates alert rules and Grafana dashboards (stage 3 drift); `benchgate` and `sizegate` gate stage 9, `fuzzplan` shards nightly fuzzing, and `releasekit` and `releasegate` package and gate stage 12.
+Other standard-library programs: `internal/tool/commitcheck` checks DCO sign-off and `Deprecated:` footers on every non-merge commit of a range and the Conventional Commits title; `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and writes each artifact's `THIRD_PARTY_LICENSES` and `NOTICE` (`-notices`); `telemetrygen` generates alert rules and Grafana dashboards (stage 3 drift); `benchgate` and `sizegate` gate stage 9, `fuzzplan` shards nightly fuzzing, and `releasekit` and `releasegate` package and gate stage 12.
 
 ## API and protobuf definitions
 
@@ -405,7 +405,7 @@ A Go zero value cannot tell an absent field from an explicit `false` or `0`, so,
 
 - `required` comes only from `+ruralz:required`, never from a missing `omitempty`.
 - Every optional bool and number, and every optional field whose default is not the Go zero value, is a pointer, so an authored `overridable: false` decodes as set.
-- The loader applies the embedded schema's `default` values only to nil pointers and absent fields.
+- Stage G (`internal/config/defaults`) applies the embedded schema's `default` values only to nil pointers and absent fields; the loader (`internal/config/loader`, stages A to E) writes no default, so an absent field stays absent until then.
 - The `ruralz.canonical.v1` encoder is schema-driven, never relying on `encoding/json` `omitempty`: it writes materialized defaults and omits a field with `x-ruralz-since` above 0 only when it equals its default ([canonical form](../architecture/02-configuration-model.md#canonical-form-and-revision)).
 - A golden test proves that an explicit `overridable: false` survives canonicalization and changes the Revision.
 
@@ -449,7 +449,7 @@ type PolicySpec struct {
 
 - `schemagen` uses only the standard library (`reflect` for structure, `go/parser` and `go/doc` for comments and markers). Adopting a third-party generator needs a catalog row first (foundation pack section 7).
 - Output is deterministic: keys sorted, two-space indentation, LF line endings, a trailing newline, no timestamps. Regenerating on any OS yields identical bytes, and stage 3 fails on any diff.
-- A Go test meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6` and validates every Bundle under `examples/`, Planned (M1).
+- A Go test in `internal/config/schemaview` meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6` and validates `examples/`, Planned (M1): every document of a Bundle or of `examples/control/` against the authoring view, and every Bundle rendered without `--env` and for each Environment of `examples/control/` with no diagnostic, warnings included. `examples/shop-bundle/` and `examples/control/` hold the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle), `examples/shop-rest-bundle/` its [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle) and `examples/quickstart/` the [quickstart](../operations/01-deployment-topologies.md#quickstart) Bundle, each byte for byte, and the test fails when a file differs from its document or a configuration file is in none; it also checks that an M1 Node serves the REST example and quickstart Bundles.
 - A Plugin `configSchema` is authored by the Plugin publisher and never generated.
 
 ## Commits and pull requests
@@ -477,6 +477,8 @@ Commit messages and pull request titles follow Conventional Commits: `<type>(<sc
 
 A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
+A change that deprecates a surface adds one footer per surface, `Deprecated: <surface>; removed in MAJOR.MINOR.0`, naming the surface as users meet it (a CLI flag, a Bundle field, an apiVersion, a metric) and the first release without it; the release notes list these footers. Stage 1 runs `commitcheck deprecations` over the pull request's commits: the token is spelled `Deprecated`, the value has that form, and the removing release lies at least two minor releases after the one that ships the commit, as [Release, versioning and compatibility](04-release-versioning-and-compatibility.md#migration-tooling) sets out.
+
 A change spanning several scopes omits the scope. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
 
 ```text
@@ -503,11 +505,11 @@ The numbered stages are jobs inside the pipelines that [Testing and quality stra
 
 | Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
 |---|---|---|---|---|---|---|
-| 1. Commit hygiene | `pr-fast` | DCO sign-off on the pull request's own commits; Conventional Commits title; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0) |
+| 1. Commit hygiene | `pr-fast` | DCO sign-off and `Deprecated:` footers on the pull request's own commits; Conventional Commits title; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0); `Deprecated:` footers Planned (M1) |
 | 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, actionlint, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
 | 3. Generated code drift | `pr-fast` | `go generate ./...` (schema, telemetrygen alert rules and Grafana dashboards) and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `internal/telemetry/catalog/`, `sdk/`, `deploy/crds/` or `deploy/grafana/`, or to `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M1) telemetrygen; Planned (M2) protos and PDKs |
 | 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` metadata (G1) and, from M1, `-s -w`; CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
-| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests, plus the untagged configuration conformance suite, also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes, `examples/` or `test/conformance/config/` | Yes | Planned (M0) |
+| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests, plus the untagged configuration conformance suite, also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes, `examples/`, `test/conformance/config/`, or the documents the examples tests read: the [Configuration model](../architecture/02-configuration-model.md) and [Deployment topologies](../operations/01-deployment-topologies.md) | Yes | Planned (M0) |
 | 6. Supply chain | `pr-fast` | `go mod verify`, govulncheck, license gate (G2) over `go list -deps -test=false` per binary, crypto denylist (G3), `ruralzd` Raft denylist | `make supply-chain` | Every pull request; nightly rescan | Yes | Planned (M0) |
 | 7. Ruralz Console | `pr-fast` | Type check, lint, unit tests, lockfile license gate (G2, ADR-0002), production build into `internal/console/dist`, then a `ruralz-control` build | `make console` | Changes under `console/` or `internal/console/` | Yes | Planned (M2) |
 | 8. Integration and conformance | `pr-full` | `go test -race -tags integration ./...`: the three conformance suites; YAML Test Suite and JSON-Schema-Test-Suite (ADR-0003); State Store and Node integration suites; `ruralz bundle validate` on `examples/`; `systemd-analyze verify` of the unit; promtool alert rule checks; Dockerfile check; `ruralz plugin test` on each PDK scaffold. Legs: linux/amd64 and native linux/arm64 with a local `redis-server`; a linux/amd64 container leg on testcontainers-go v0.44.x ([source](https://github.com/testcontainers/testcontainers-go)) | `make integration` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes | Yes | Planned (M1) State Store matrix; Planned (M2) Plugin ABI suite and scaffolds; Planned (M4) Kafka, NATS and MQTT |

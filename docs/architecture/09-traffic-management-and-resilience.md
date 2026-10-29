@@ -355,10 +355,11 @@ The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeade
 | Layout | With U the SHA-256 of scheme, host, path and normalized query, and P that of the partition key value: a generation key `rz:rc:{<U>}:gen`, expiring 26 h after its last bump (target), and per partition a tag `{<U>:<P>}` holding `Vary` names, a fill lease and at most 8 variants (target) |
 | Storable | Explicit freshness; no `no-store`, `no-cache` (never stored at M1), `private`, `Vary: *` or `Set-Cookie`; with `Authorization`, only under `public`, `s-maxage` or `must-revalidate` |
 | Principal | `auth.*` Routes key per principal unless `config.key` replaces it (OQ-security-and-identity-25) |
-| Freshness | `s-maxage`, `max-age`, then `Expires`, at most 24 h, stale windows at most 1 h (target); hits carry `Age` and `Cache-Status` (RFC 9211) |
+| Freshness | `s-maxage`, `max-age`, then `Expires` minus `Date` (the receipt time without one), at most 24 h, stale windows at most 1 h (target); an invalid or conflicting value reads as stale (RFC 9111 section 4.2.1); the age follows RFC 9111 section 4.2.3; hits carry `Age` and `Cache-Status` (RFC 9211) |
 | Stale limits | `must-revalidate`, `proxy-revalidate` and `s-maxage` (implying `proxy-revalidate`, RFC 9111 section 5.2.2.10) forbid stale (section 4.2.4), overriding RFC 5861 |
-| Request directives | `no-cache` or `max-age=0` revalidates; `no-store` bypasses; `only-if-cached` misses with 504 |
-| Revalidation | `If-None-Match` or `If-Modified-Since`; 304 refreshes metadata |
+| Request directives | `no-cache` or `max-age=0` revalidates; a larger `max-age` bounds the age a stored response may have and `min-fresh` the freshness it must have left, neither accepting a stale one without `max-stale`, which accepts staleness up to its value, or any without one (RFC 9111 section 5.2.1); a request `stale-if-error` widens that window for its request, at most 1 h (target, RFC 5861 section 4); the stale limits hold against every request directive; `no-store` bypasses; `only-if-cached` misses with 504 |
+| Revalidation | `If-None-Match` with the stored entity tag and `If-Modified-Since` with its `Last-Modified`, or its `Date` without either (RFC 9110 section 13.1.3), replacing the request's own preconditions and `Range`; a 304 whose validators select the stored response (RFC 9111 section 4.3.4), or that carries none, as the conditional request named only that response's validators, refreshes metadata (section 3.2), its `Age` and `Date` restarting the age |
+| Client validation | A GET or HEAD the stored response can serve gets a 304 from it when its `If-None-Match` lists `*` or the stored entity tag by weak comparison, or, without `If-None-Match`, its one valid `If-Modified-Since` is no earlier than the stored `Last-Modified`, else `Date`, else the receipt time (RFC 9111 section 4.3.2, RFC 9110 sections 13.1.2 and 13.1.3); `If-Match`, `If-Unmodified-Since` and `If-Range` never apply to a cache. The 304 carries the stored `Cache-Control`, `Content-Location`, `Date`, `ETag`, `Expires` and `Vary`, `Last-Modified` without an `ETag` (RFC 9110 section 15.4.5), plus `Age` and `Cache-Status` as a hit |
 | Invalidation | After commit, a non-error response to an unsafe method on a `cache` Route sets the URI's generation key to server `TIME` in microseconds, never reused, with `PEXPIRE` 26 h (target); variants live at most 25 h, so a missing key safely reads as 0. Hot-entry layers may serve the old generation 1 s longer (target) |
 | Size | From a tee, up to 128 KiB (target), within the Node buffer budget |
 
@@ -382,9 +383,13 @@ Uncapped, 1.3 GB/s of 128 KiB misses would fill a 16 GiB shard's 30% headroom in
 
 `ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md)); rules 2 and 3 count as `memory`. The data plane counts `size_limit` when it refuses a tee, the response being known to exceed the limit, and `size_limit` or `buffer_budget` when it stops one it started; the `cache` Filter counts neither. A hit first reserves its size from `limits.maxBufferedBytes`, else bypasses.
 
-A store saves the upstream request as the request Phases left it, minus upstream credentials. Under `stale-while-revalidate` the Node serves stale at once and queues a revalidation for four workers on a 256-entry queue that drops when full (target). A worker takes the partition's lease for the 5 s deadline (target), so one Node revalidates, replaying the request through upstream-leg Policies, breaker and bulkhead. A 304 refreshes metadata under the lease; any other result ends the stale window unstored, as the replay skipped the Route's response Phases.
+A store saves the upstream request as the request Phases left it, minus upstream credentials. When it serves a stale response, under `stale-while-revalidate` or a request's `max-stale`, the Node serves it at once and queues a revalidation for four workers on a 256-entry queue that drops when full (target). A Node keeps one revalidation per partition queued or running and none for 5 s after its lease attempt, whatever the outcome, so it makes at most one lease call per partition per lease period (target). It tracks at most 4,096 such partitions, dropping new ones past that, and drops a job that waited over 5 s in the queue unrun (target), so a saturated queue does not replay against a slow Upstream long after the stale hits.
 
-Concurrent misses for one key on one Node, up to 4,096 keys (target), reuse the first fetch like a hit through their own response chain, if storable with matching `Vary`-selected values; otherwise each fetches itself.
+A worker takes the partition's lease with a random token for the 5 s deadline (target), which bounds the replay and every lease write, so one Node revalidates, replaying the request with the stored validators through upstream-leg Policies, breaker and bulkhead. The worker sends the take, refresh and end-stale writes itself, off the request path, each with the Policy's `stateStoreTimeout` cut to the time left, since the take needs its answer and every write must land within the lease. A 304 that selects the stored response refreshes metadata under the lease when the result is still storable under the same `Vary` names with TTL left; any other full response, or a stored response without any validator, ends the stale window unstored, as the replay skipped the Route's response Phases. A 5xx or a replay without a response leaves the entry as it is, so `stale-if-error` still serves it, also while the breaker is open.
+
+Each job that ran counts `ruralz_cache_revalidations_total` on the Route that queued it: `refreshed`, `ended`, `kept`, or `skipped` when it changed nothing (another Node held the lease, a lease call failed, or the lease no longer held its token). `ruralz_cache_revalidation_drops_total` counts the Node's drops by `reason`: `queue_full` for the full queue, `queue_wait` for the 5 s wait and `partitions_full` for the 4,096 tracked partitions ([Observability](10-observability.md)). The degraded reason `cache_revalidation_saturated` is raised while those drops exceed 10% of the revalidations offered over the last minute (target), re-checked every second, so it clears once drops stop; it raises a ticket, never a page.
+
+Concurrent misses for one key on one Node, up to 4,096 keys (target), reuse the first fetch like a hit through their own response chain, if storable with matching `Vary`-selected values, and record the result `coalesced`; otherwise each fetches itself. The key is the partition's URI and partition digests plus the generation the miss's lookup read, so no miss reuses a fetch from before an invalidation, and a HEAD miss only follows, as a HEAD response has no body for GET misses. A follower waits for the leader's response headers as long as its own request lives; once the leader starts copying a storable response, a new miss leads a new flight, and the follower waits for the body at most 1 s more (target) and fetches alone as soon as the copy stops without completing, past the copy limit or the buffer budget, which the leader's tee signals at once.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -410,12 +415,15 @@ sequenceDiagram
     N-->>C: stale response with Age and Cache-Status
     N-)SS: take the partition lease, SET NX PX for the 5 s deadline (target)
     N-)UP: replay saved request with If-None-Match, breaker, bulkhead
-    alt 304 Not Modified
+    alt 304 Not Modified selecting the stored response
         UP--)N: 304
         N-)SS: refresh entry metadata while the lease is held
-    else any other status or error
+    else any other full response below 500
         UP--)N: other result
         N-)SS: end the stale window, store nothing
+    else 5xx or no response
+        UP--)N: 5xx, or nothing before the 5 s deadline
+        N->>N: keep the entry for stale-if-error
     end
 ```
 
@@ -476,7 +484,7 @@ Every protection is a bounded resource that rejects fast: [Data plane](03-data-p
 | Discovery source down, NXDOMAIN or empty answer | Discovery | Keep the last set, `discovery_stale`; NXDOMAIN until 3 refreshes repeat it (target) | Open | No |
 | Low-traffic Upstream failing | Circuit breaker | Under 20 legs per 10 s per Node (target) the breaker stays closed; ejection, retry budget and `maxPendingRequests` bound it | Closed per failed request | OQ-traffic-management-and-resilience-5 |
 | Breaker open, bulkhead full, timeout or retry budget exhausted | Breaker; retries | 503 `RZ-UP-005`, `RZ-UP-006`; else code selection | Closed | `circuitBreaker`, `timeout`; OQ-traffic-management-and-resilience-5 |
-| Upstream fails, stale entry exists | `cache` | Serve stale within `stale-if-error`, also while the breaker is open, unless a stale limit forbids it | Open | Upstream `Cache-Control` |
+| Upstream fails, stale entry exists | `cache` | Serve stale within `stale-if-error`, the response's or the request's, also while the breaker is open, unless a stale limit forbids it; a failed background revalidation keeps the entry | Open | Upstream `Cache-Control`; request `Cache-Control` |
 | Upstream fails after commit | Streaming | End the stream with `RZ-UP-009` | Closed | No |
 | CEL error in `hashKey`, `retryOn` or `failureWhen` | Upstream | Random Endpoint; no retry; counted as failure | Open for `hashKey`, else Closed | No |
 | CEL error in `Policy.spec.when` | Any Policy | `closed` runs the Policy; `open` skips it ([Configuration model](02-configuration-model.md)) | Per `failureMode` | `failureMode` |

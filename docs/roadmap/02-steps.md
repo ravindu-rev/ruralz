@@ -4,16 +4,6 @@ The work left in the current milestone, M1 Core gateway, in build order: a row d
 
 | Step | Paths | Design |
 |---|---|---|
-| Response Cache revalidation and coalescing | `internal/filter/cache/revalidate/`, `internal/filter/cache/coalesce/` | [Traffic management](../architecture/09-traffic-management-and-resilience.md) |
-| Test kit: load generation and L4 balancing | `internal/testkit/loadgen/`, `internal/testkit/l4lb/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |
-| Examples | `examples/` | [Configuration model](../architecture/02-configuration-model.md) |
-| Release tooling and packaging | `internal/tool/releasekit/`, `internal/tool/depgate/`, `deploy/container/`, `deploy/systemd/` | [Release](../engineering/04-release-versioning-and-compatibility.md) |
-| Redis State Store driver | `internal/statestore/redis/` | [Scalability](../architecture/11-scalability-and-distributed-state.md) |
-| Loader | `internal/config/loader/` | [Configuration model](../architecture/02-configuration-model.md) |
-| Semantic validation | `internal/config/validate/` | [Configuration model](../architecture/02-configuration-model.md) |
-| Diff | `internal/config/diff/` | [Configuration model](../architecture/02-configuration-model.md), [CLI and API surface](../reference/01-cli-and-api-surface.md) |
-| Render | `internal/config/render/` | [Configuration model](../architecture/02-configuration-model.md), [CLI and API surface](../reference/01-cli-and-api-surface.md) |
-| `authz.cel` and `headers` | `internal/filter/authz/cel/`, `internal/filter/header/` | [Security and identity](../architecture/08-security-and-identity.md), [Data plane](../architecture/03-data-plane.md) |
 | `transform.request` and `transform.response` | `internal/filter/transform/` | [Data plane](../architecture/03-data-plane.md) |
 | `ratelimit` | `internal/filter/ratelimit/` | [Traffic management](../architecture/09-traffic-management-and-resilience.md), [Scalability](../architecture/11-scalability-and-distributed-state.md) |
 | `quota` | `internal/filter/quota/` | [Traffic management](../architecture/09-traffic-management-and-resilience.md), [Scalability](../architecture/11-scalability-and-distributed-state.md) |
@@ -33,6 +23,7 @@ The work left in the current milestone, M1 Core gateway, in build order: a row d
 | `ruralz bundle` commands | `internal/cli/bundle/` | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | Configuration conformance and golden corpus | `test/conformance/config/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |
 | `ruralzd` wiring | `internal/gateway/` (package root), `cmd/ruralzd/` | [Data plane](../architecture/03-data-plane.md) |
+| Quickstart script | `examples/quickstart/quickstart.sh` | [Deployment topologies](../operations/01-deployment-topologies.md) |
 | CLI launcher, `ruralz dev` commands and root | `internal/cli/launch/`, `internal/cli/dev/`, `internal/cli/` (package root), `cmd/ruralz/` | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | Cross-package property suites | `test/property/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |
 | End-to-end suite | `test/e2e/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |

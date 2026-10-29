@@ -161,7 +161,7 @@ platform-gateway/
   tests/                      ruralz test run cases
 ```
 
-Ruralz Control reads Git objects, never a working tree; it and the CLI reject symlinks, gitlinks and LFS pointers (OQ-control-plane-and-gitops-16). `Environment` and `Cluster` stay outside the Bundle (RZ-CFG-017), so adding a Cluster never changes a digest. The Git source and credentials come from [process configuration](#process-configuration) (TB-7).
+Ruralz Control reads Git objects, never a working tree; it and the CLI reject symlinks, gitlinks and LFS pointers as RZ-CFG-001, as the loader does any entry that is neither a regular file nor a directory ([Configuration model](02-configuration-model.md#discovery-and-base-merge)). `Environment` and `Cluster` stay outside the Bundle (RZ-CFG-017), so adding a Cluster never changes a digest. The Git source and credentials come from [process configuration](#process-configuration) (TB-7).
 
 ### Branch-to-Environment mapping
 
@@ -257,7 +257,7 @@ sequenceDiagram
 
 Per Environment the builder renders the Bundle with its overlay and `spec.variables`, runs every check ([Configuration model](02-configuration-model.md#validation-and-diff-semantics)), validation-only engines and GraphQL supergraph planning included (size cost: OQ-tech-stack-and-libraries-22), computes the `ruralz.canonical.v1` digest ([ADR-0003](../adr/0003-configuration-format.md)) and applies the [Snapshot size check](#heartbeat-and-backpressure), or records a failed build. Content, source tree and `ruralz.diff.v1` diff reach a content-store quorum before a Raft entry records their digests. Unreferenced Revisions beyond the latest 50 per Environment (target) are deleted.
 
-The online Plugin check dials only allowlisted registries, binds credentials to one host, follows no redirects and stops at 64 MiB or 30 s (target).
+The online Plugin check dials only allowlisted registries, binds credentials to one host, follows no redirects and stops at 64 MiB or 30 s (target); a registry outside the allowlist is RZ-CFG-028, as every other online check failure is.
 
 ### Revision signing and verification
 
@@ -634,7 +634,6 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 | OQ-control-plane-and-gitops-8 | Where are the online and trust-root keys held? | (a) Control Store, root offline; (b) KMS or Vault | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-12 | Audit export format? | (a) OpenTelemetry logs; (b) syslog | observability | No |
 | OQ-control-plane-and-gitops-15 | Should pack 8.4 add the 8092 classes, relay feed included, and pack 8.3 transitions to `failed`, plus `resume` from `pending`? | (a) Amend (proposed); (b) a forwarding port | control-plane-and-gitops | No |
-| OQ-control-plane-and-gitops-16 | Codes for a non-allowlisted registry, symlinks, gitlinks and LFS pointers? | (a) New RZ-CFG codes; (b) RZ-CFG-028, RZ-CFG-001 | configuration-model | No |
 | OQ-control-plane-and-gitops-18 | Should a revert skip `canary.bake`? | (a) No (current); (b) a field | configuration-model | No |
 | OQ-control-plane-and-gitops-21 | Password KDF, and a memory-hard G3 exception? | (a) PBKDF2 (current); (b) argon2id outside FIPS builds | tech-stack-and-libraries | No |
 | OQ-control-plane-and-gitops-22 | Status forwarding and content placement under `postgres`, amending pack section 2? | (a) PostgreSQL tables (proposed); (b) 8092 without Raft | control-plane-and-gitops | Yes, for Planned (M4) |

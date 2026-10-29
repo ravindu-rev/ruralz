@@ -74,7 +74,7 @@ Each property is a `testing.F` target, with no property library: seeds in `pr-fa
 | Area | Property | Source |
 |---|---|---|
 | Canonical form | Reordering files or `map` and `set` lists, or reformatting, keeps the Revision; YAML and JSON give one digest | [Canonical form](../architecture/02-configuration-model.md#canonical-form-and-revision) |
-| Render | Rendering a rendered Bundle again yields the same Revision, including `$${` escapes | [Overlays](../architecture/02-configuration-model.md#overlays) |
+| Render | Rendering a rendered Bundle again yields the same Revision, including `$${` escapes | [Rendered Bundle](../architecture/02-configuration-model.md#rendered-bundle) |
 | Conversion | Every field round-trips through the hub type; converting apiVersions keeps the Revision | [Conversion](../architecture/02-configuration-model.md#hub-and-spoke-conversion) |
 | Substitution | `${VAR}` never injects structure or appears in forbidden positions | [Substitution](../architecture/02-configuration-model.md#environment-substitution) |
 | Precedence | One Policy per slot per scope; `overridable: false` Policies are never removed; order follows Filter class, scope and list position; response Phases reverse, `onLog` keeps request order | Pack section 8.12 |
@@ -132,6 +132,7 @@ Authentication tests replace Mosquitto's anonymous default ([source](https://gol
 - A full post-commit queue drops writes with a counter, never delaying the response.
 - A slow vector search never delays a rate-limit reply.
 - Without vector support, `ai.semantic-cache` behaves as a State Store failure under its `failureMode`; the Node reports a degraded state.
+- Under `topology: sentinel`, after `SENTINEL FAILOVER` the Node follows the promoted replica within 15 s (target), loading its scripts there, on the `redisserver` sentinel kinds: a primary, its replica and a sentinel, as local processes and as Redis 8 and Valkey 9 containers.
 
 Node integration suites under `test/integration/`, Planned (M1), drive a built `ruralzd` over real sockets: `cel` (runtime errors per CEL place), `telemetry` (Hot Reload, a blocked stdout, 1,000-reload cardinality), `security` (JWKS rotation, mTLS, the admin port, secret-to-destination binding, the State Store entry MAC) and `statestore` (the scenarios above and the ADR-0008 round trip through the counting RESP proxy `internal/statestore/statestoretest/respproxy`). `test/t5` runs `systemd-analyze verify` on the shipped unit; `t5-systemd.yml` runs the live handover test.
 
@@ -151,13 +152,35 @@ Every run injects a canary secret through `secretRef` and fails if it appears, r
 
 | Required scenario | Milestone |
 |---|---|
-| 1. The scripted quickstart reaches a first proxied request in 10 minutes or less (target) on a clean machine (SM-7) | Planned (M1) |
-| 2. `shop-bundle` serves its Routes with the Filter Chains `ruralz bundle render --effective --route` prints | REST Planned (M1); gRPC and AI Planned (M3) |
+| 1. The [scripted quickstart](../operations/01-deployment-topologies.md#quickstart) reaches a first proxied request in 10 minutes or less (target) on a clean machine (SM-7) | Planned (M1) |
+| 2. The [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle), `examples/shop-rest-bundle/`, serves its Routes with the Filter Chains `ruralz bundle render --effective --route` prints; from M3, so does `shop-bundle`, gRPC and AI Routes included | Planned (M1); `shop-bundle` Planned (M3) |
 | 3. A canary Rollout with a deterministic NACK ends `rolled-back`, or `paused` with `autoRollback: false` until `ruralz rollout resume` | Planned (M2) |
 | 4. With Ruralz Control stopped, Nodes keep serving and stay ready; a restarted Node boots Last-Known-Good after up to 5 s (target) | Planned (M2) |
 | 5. A Hot Reload keeps open WebSocket and SSE streams on their starting snapshot | Planned (M3) |
 | 6. `ruralz bundle diff` against a Node's `/config/dump` shows an injected difference | Planned (M1) |
 | 7. A Zero-Downtime Upgrade under load fails zero requests on TCP listeners (target), for clients honoring `Connection: close` and GOAWAY | Planned (M1) |
+
+### Load generator and L4 balancer
+
+The process harness offers load with the open-loop generator `internal/testkit/loadgen` and runs its Nodes behind the L4 balancer `internal/testkit/l4lb`, Planned (M1). Chaos experiments, scenario 7 and in-process benchmark runs such as G1's State client load use them; the Latency job's macro runs use oha and vegeta ([method](../architecture/12-performance-budgets-and-benchmarking.md#open-loop-load-and-coordinated-omission)). Both take an injected clock for every timer, so their own tests never depend on wall-clock time.
+
+| Load generator part | Design |
+|---|---|
+| Schedule | Request i is due at start + i / rate, and its latency counts from that intended send time, so a stall shows as latency, never as fewer samples; a run ends after its measured duration or request count, at Stop, or when its context ends |
+| Bounds | At most 4,096 requests in flight and 65,536 waiting (target); a request beyond both is Missed, counted but never sent; each request times out after 30 s (target), above the 25 s Drain deadline (target) |
+| Outcomes | Status class, refused, reset, closed, timeout, TLS failure, missed or canceled; the `code` of each problem document is counted; the first 10,000 failures are kept with their connection (target) |
+| Histograms | HdrHistogram's bucket layout and percentile rule at three significant digits, 1 µs to 1 h (target): p50, p90, p99, p99.9 and maximum per phase; HdrHistogram V2 interval logs are a result record's raw histograms; service times another tool recorded are back-filled |
+| Phases | A warm-up discarded from the measured phase, extended in 30 s steps up to 180 s until the p99 of three consecutive 10 s windows spreads by 5% or less (target), the spread taken as (max − min) / min (target); a time series of 1 s windows by intended send time at two significant digits (target) |
+| Validity | The achieved count within 0.5% of the offered count (target), `RZ-RT-005` counting as achieved in O1; the rate ladder of 5% steps from 50% to 110% of expected saturation (target) and the saturation rule |
+| HTTP | HTTP/1.1 on 256 connections, h2c or HTTP/2 over TLS on 64 connections of up to 64 streams, as S1 and S3 set (target); rotating keys (a cycle, Zipf, rotation or one hot key) and bearer tokens; the client address of each request's connection |
+
+| L4 balancer part | Design |
+|---|---|
+| Splicing | Each client connection is spliced to one backend, bytes unchanged both ways with half-closes, so TLS, ALPN and client certificates pass through; a reset on one side resets the other |
+| Readiness | Each backend's `/readyz` is probed every 1 s with a 1 s timeout (target), over one keep-alive connection or a new connection per probe; 3 failures in a row mark a backend unhealthy and 2 successes bring it back, the `healthCheck.active` defaults, so a Drain is seen within 3 s, inside the 5 s accept window (target); a new backend's first success makes it healthy |
+| Balancing | Round robin with no stickiness; a backend returning from unhealthy, or added while another serves, ramps from 10% (target) to a full share over a 30 s slow start (target); the backends present at start join at full weight together |
+| Limits | Connections idle for 150 s (target) close, after the Node's 120 s (target); at most 16,384 connections (target) and an optional cap per Node; a backend dial times out after 5 s (target), and a failed one moves to another healthy backend with redispatch, else the client connection is reset |
+| Attribution | The backend of each open connection and of the last 16,384 closed ones (target), by client address, so a failed request is attributed to its Node (CE-1) |
 
 ## Conformance suites
 
@@ -185,7 +208,7 @@ Go native fuzzing covers every surface parsing untrusted or operator-supplied by
 |---|---|---|
 | Restricted YAML loader | Rejections carry RZ-CFG-001 to RZ-CFG-004; memory stays bounded under alias bombs, and an input of up to 1 MiB parses within 256 MiB of heap growth and 2 s (target); the parser and yaml.v3 agree on every input outside the checked-in deviation classes | Planned (M1) |
 | Env substitution and overlay merge | Output validates or fails with a registered code | Planned (M1) |
-| CEL compile and cost estimator | A finite estimate, or RZ-CFG-014 or RZ-CFG-015; at nominal input sizes, actual cost stays within the static estimate; on any capped input, evaluation finishes or stops with a runtime error at 1,000,000 cost units or, for a comprehension, 50 ms (target) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), handled per its place's runtime-error rule ([Allowed places](../architecture/02-configuration-model.md#allowed-places)) | Planned (M1) |
+| CEL compile and cost estimator | A finite estimate, or RZ-CFG-014 or RZ-CFG-015; at nominal input sizes, actual cost stays within the static estimate, and for inputs within a Revision's input caps, within the estimate at those caps ([Limits](../architecture/02-configuration-model.md#limits)); on any capped input, evaluation finishes or stops with a runtime error at 1,000,000 cost units or, for a comprehension, 50 ms (target) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), handled per its place's runtime-error rule ([Allowed places](../architecture/02-configuration-model.md#allowed-places)) | Planned (M1) |
 | Canonicalization | Parse, canonicalize and parse again: identical bytes | Planned (M1) |
 | Router match and header handling | Matches equal those of a reference matcher | Planned (M1) |
 | Control Stream decoding, one target per message type | Malformed messages NACK or close the stream | Planned (M2) |

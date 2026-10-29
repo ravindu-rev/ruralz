@@ -214,7 +214,7 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 
 | Area | Meaning | Registry owner |
 |---|---|---|
-| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040); RZ-CFG-001 to RZ-CFG-041 in M1 | configuration-model |
+| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040); RZ-CFG-001 to RZ-CFG-042 in M1 | configuration-model |
 | `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation and cache-only rejections, request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |

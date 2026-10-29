@@ -153,8 +153,10 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_ratelimit_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny_local, deny_global, fail_open ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) |
 | `ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy` | Local keys evicted |
 | `ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open |
-| `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error |
+| `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error, coalesced (a miss that reused a concurrent miss's fetch) |
 | `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory ([Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)) |
+| `ruralz_cache_revalidations_total` | Counter | revalidations | `route`, `result` | refreshed, ended, kept, skipped: background revalidations by outcome, on the Route that queued them |
+| `ruralz_cache_revalidation_drops_total` | Counter | revalidations | `reason` | queue_full, queue_wait, partitions_full: background revalidations the Node dropped for its full queue, a queue wait or its tracked-partition cap |
 | `ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls; attempts the caller canceled are not counted; a bulkhead wait that expired counts as timeout |
 | `ruralz_upstream_attempt_duration_seconds` | Histogram, request | seconds | `upstream` | Connect to last byte |
 | `ruralz_upstream_retries_total`, `ruralz_upstream_retry_budget_exhausted_total` | Counter | retries | `upstream` | Made; skipped |
@@ -227,13 +229,14 @@ Reasons are Planned (M1) unless tagged.
 | `plugin_memlimit` | Plugins are active and `GOMEMLIMIT` is unset or below the Plugin memory cap plus [M_fix](../operations/03-capacity-planning.md#formulas); Planned (M2) |
 | `state_store_memory_fallback` | No State Store, Node count unknown |
 | `state_store_memory_multi_node` | `memory` in a multi-Node Cluster (pack 8.8); Planned (M2) |
-| `state_store_unauthenticated` | A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected ([Security and identity](08-security-and-identity.md#transport-security), code OQ-security-and-identity-30) |
+| `state_store_unauthenticated` | A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected with RZ-CFG-042 ([Security and identity](08-security-and-identity.md#transport-security)) |
 | `state_store_breaker_open` | The State client breaker is open |
 | `state_store_eviction_policy` | The State Store is not `noeviction` |
 | `semantic_cache_unsupported` | No vector commands; Planned (M3) |
 | `upstream_panic`, `discovery_stale` | An Upstream is in panic mode; keeps its last Endpoint set |
 | `balancer_budget` | An Upstream fell back to weighted `random` at the 256 MiB balancer budget (target) |
 | `probes_skipped` | More than 10% of active health probes skipped for 1 minute (target) |
+| `cache_revalidation_saturated` | More than 10% of the Response Cache background revalidations offered over the last minute were dropped, `queue_full`, `queue_wait` or `partitions_full` (target); re-checked every second, so it clears once the share falls back; tickets |
 | `header_limit_capped` | The header limit exceeds the process ceiling |
 | `snapshot_ending_overdue` | A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload), so no newer Revision activates; pages |
 | `secret_rotation_failed`, `jwks_stale` | A secret rotation or JWKS fetch fails; the last value, if any, serves until it expires |
@@ -391,10 +394,10 @@ Ruralz ships Grafana dashboards, Planned (M1) unless tagged, as Apache-2.0 JSON 
 | Grafana dashboard | Main panels |
 |---|---|
 | Ruralz Gateway overview | Rate, errors by origin, gateway-added latency, degraded states |
-| Route detail | Per-Route rate, errors, duration, cache, exemplars |
+| Route detail | Per-Route rate, errors, duration, exemplars; Response Cache results, revalidations, hit ratio (`hit` and `stale`) and origin offload (`hit`, `stale` and `coalesced`), each over every result but `bypass` |
 | Policies and Filter Chain | Duration, short-circuits, failures, auth |
 | Upstreams and resilience | Attempts, retries, breakers, Endpoints, ejections, pools |
-| State Store, Rate Limits and Quotas | Round trips, breaker, fail-open, dropped writes |
+| State Store, Rate Limits and Quotas | Round trips, breaker, fail-open, dropped writes, dropped Response Cache revalidations |
 | Node runtime and configuration | Runtime, buffers, activations, snapshots, cleartext hops |
 | Telemetry health | Drops, capped traces, folded and retiring series |
 | SLO burn rates | Budget remaining and burn rate per SLO |

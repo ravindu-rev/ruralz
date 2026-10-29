@@ -157,23 +157,29 @@ Environment variables replacing `--control`, `--token-file` and `--admin` are OQ
 
 ### Bundle verbs in detail
 
-`--online` fetches each Plugin artifact by digest, checks it against `Plugin.spec` and verifies signatures (RZ-CFG-028, RZ-CFG-033); CI SHOULD gate merges on `ruralz bundle build` or `ruralz bundle validate --online` ([Validation and diff semantics](../architecture/02-configuration-model.md#validation-and-diff-semantics)). Bundle readers enforce the default 64 MiB of source and 20,000 resources (target) as RZ-CFG-001; no flag raises them until OQ-control-plane-and-gitops-25 decides.
+`--online` fetches each Plugin artifact by digest, checks it against `Plugin.spec` and verifies signatures (RZ-CFG-028, RZ-CFG-033); CI SHOULD gate merges on `ruralz bundle build` or `ruralz bundle validate --online` ([Validation and diff semantics](../architecture/02-configuration-model.md#validation-and-diff-semantics)). Bundle readers enforce the default 64 MiB of source and 20,000 resources (target), and the loader's other limits ([Restricted YAML profile](../architecture/02-configuration-model.md#restricted-yaml-profile)), as RZ-CFG-001; no flag raises them until OQ-control-plane-and-gitops-25 decides. A directory without `ruralz.yaml` is RZ-CFG-016, while a source that is missing, unreadable or neither a directory nor a regular file exits 2.
 
-`ruralz bundle diff FROM TO` resolves each source to canonical form:
+`ruralz bundle diff FROM TO` resolves each source to canonical form, then runs it through the pipeline, so both sides compare as validated states. The JSON member names the source in the side's `from` or `to` object:
 
-| Source form | Meaning | Planned |
-|---|---|---|
-| Directory, such as `./shop-bundle` | A source Bundle rendered with `--env`, or per side with `--from-env` and `--to-env` | Planned (M1) |
-| File | A rendered Bundle or saved `ruralz node dump` output | Planned (M1) |
-| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, compared by hand | Planned (M1) |
-| `rev-<12 hex>` or `sha256:<64 hex>` | A Revision fetched from `revisions` | Planned (M2) |
-| `oci://REPOSITORY@sha256:<64 hex>` | A Revision from `ruralz bundle push --oci`, verified by digest and signature | Planned (M2) |
+| Source form | Meaning | JSON member | Planned |
+|---|---|---|---|
+| Directory, such as `./shop-bundle` | A source Bundle rendered with `--env`, or per side with `--from-env` and `--to-env` | `bundle` | Planned (M1) |
+| File | A rendered Bundle, or saved `ruralz node dump` output | `bundle`, or `dump` | Planned (M1) |
+| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, compared by hand | `admin` | Planned (M1) |
+| `rev-<12 hex>` or `sha256:<64 hex>` | A Revision fetched from `revisions` | None | Planned (M2) |
+| `oci://REPOSITORY@sha256:<64 hex>` | A Revision from `ruralz bundle push --oci`, verified by digest and signature | None | Planned (M2) |
 
 Read commands resolve `rev-<12 hex>` via `GET /api/v1/revisions?digestPrefix=<12 hex>&environment=NAME&limit=2` (proposed, OQ-cli-and-api-surface-3), passing `--env` when given; zero or two matches exit 2. `ruralz rollout start`, `ruralz rollout approve` and `ruralz rollout reject` require full digests, so a prefix collision never acts on the wrong Revision.
 
 Without `--oci`, `ruralz bundle push` uploads the source Bundle with the CLI's digest; Ruralz Control re-renders it, rejects a mismatch (RZ-CFG-027) and refuses it under `requireApproval` unless process configuration allows it. With `--oci` it publishes the rendered, Sigstore-signed Revision for file-mode Nodes ([ADR-0017](../adr/0017-artifact-signing.md)); registry credentials are OQ-cli-and-api-surface-7.
 
-`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead: each base and overlay file is rewritten under VERSION into DIR, keeping layout, `overlays/<env>/` and `${VAR}` expressions, unmerged and unsubstituted. It then renders both trees per Environment in the required `--environments`, exiting 1 unless every diff is empty. Comments are lost; conversion is rare.
+`ruralz bundle render` writes the [Rendered Bundle](../architecture/02-configuration-model.md#rendered-bundle) of one Environment as YAML; `--output json` writes the same resources as one JSON array, a form for tooling rather than a Bundle file. A secret field that holds anything but a reference fails the render with RZ-CFG-012 and exit 1, and nothing is written.
+
+`--effective --route NAME` prints that Route's effective Filter Chain instead, from the chain the data plane builds its Phases from: a table with the columns `PHASE`, `LEG`, `POLICY`, `FROM` and `REASON`, each two spaces wider than its widest cell, with one row per Policy and Phase in execution order, the client leg before each upstream leg, then the Gateway Policies the Route removed, with Phase and Leg `none`. `LEG` is `client` or the Upstream name, and `FROM` is `Gateway`, `Route` or `Upstream <name>`. `REASON` is `own slot`, `slot <slot>`, `slot <slot>, replaces <Policy>`, `slot <slot>, inherited` or `leg <Upstream> only`, a Gateway Policy's ending in `, not overridable` when it is, and `replaced in slot <slot> by <Policy>` or `excluded by Route` for a removed one. `--output json` prints the rows as one array of objects with `phase`, `leg`, `policy`, `type`, `filterClass`, `slot`, `from` and `reason`, `[]` for a Route that runs no Policy. A `NAME` that is no Route of the Bundle exits 2 with the nearest Route name as a hint.
+
+`ruralz bundle render --api-version VERSION --output-dir DIR` converts sources instead: each base and overlay file is rewritten under VERSION into DIR at its own path and in its own format, keeping `overlays/<env>/`, `$patch` entries and `${VAR}` expressions, unmerged and unsubstituted. Comments are lost; conversion is rare. An unserved VERSION is RZ-CFG-007 and exits 2; a source document whose `apiVersion` is not served is RZ-CFG-007 and exits 1, as any invalid Bundle does; neither writes anything. DIR MUST NOT exist or MUST be empty, and MUST lie outside the source Bundle; the files are written into a hidden directory beside DIR and renamed into place, so DIR holds all of them or none.
+
+The command then builds both trees for every Environment of the required `--environments`, offline, and compares their Revisions, exiting 1 unless all are equal, which is exactly when every diff is empty. It prints one line per Environment, in file order, with the source and converted Revisions and whether they are equal, then the [human diff](../architecture/02-configuration-model.md#diff-semantics) of each Environment whose Revisions differ; `--output json` prints these results as one array, each with both full `sha256:<64 hex>` digests.
 
 ### Rollout, promotion and Node verbs
 
@@ -443,7 +449,7 @@ Data goes to standard output; progress, warnings and prompts to standard error. 
 |---|---|---|
 | `ruralz bundle validate` | One diagnostic per line: `file:line:column severity code Kind/name path: message` | Array of Configuration model diagnostics; `[]` when clean |
 | `ruralz bundle diff` | The Configuration model's human diff form | `ruralz.diff.v1` |
-| `ruralz bundle render` | YAML (`--output yaml`); a table with `--effective`; files with `--api-version` | Same resources as JSON |
+| `ruralz bundle render` | YAML (`--output yaml`); a table with `--effective` (`--output text`); with `--api-version`, files and one line per Environment | Same resources as one JSON array; with `--effective`, the rows as one array; with `--api-version`, one result per Environment |
 | `ruralz bundle build` | `rev-<12 hex>` and the full digest | `digest`, `revision`, `environment`, `diagnostics` |
 | `ruralz bundle audit` | One finding per line | Findings with `severity`, `rule`, `resource`, `message` |
 | `ruralz bundle export` | OpenAPI 3.x YAML, Postman JSON or DOT text | OpenAPI as JSON |
@@ -457,6 +463,16 @@ Data goes to standard output; progress, warnings and prompts to standard error. 
 ### Diff JSON compatibility
 
 This document owns compatibility of `ruralz.diff.v1`, shaped by the [Configuration model](../architecture/02-configuration-model.md#diff-semantics): changes are additive only, and consumers MUST ignore unknown members. Field operations stay `add`, `remove`, `replace` and `move`, with zero-based positions; a changed meaning needs `ruralz.diff.v2`. `from` and `to` carry `digest`, the full `sha256:<64 hex>`, beside `revision`, so automation never trusts a 12-character prefix.
+
+| Member | Contents |
+|---|---|
+| `format` | `ruralz.diff.v1` |
+| `from`, `to` | `revision`, the source's JSON member (`bundle`, `dump` or `admin`; none for a Revision), `digest`, and `environment` when the sides name two Environments |
+| `environment` | The one Environment either side names; absent when they name none or two |
+| `resources` | Changed resources: `kind`, `name`, `change` (`modified`, `added`, `removed`), `source` when known, `impact`, `flags` when set (`capabilityGrant`), and `ops` for a modified one; `[]` without changes |
+| `resources[].ops` | `op`, `path` (strings, integers and single-member objects such as `{"name": "x"}` or `{"item": "GET"}`), `from` and `to`: the values of `remove`, `replace` and `add`, or the positions of `move` |
+| `effective` | `route`, `phase`, `leg` for an upstream leg, `op` (`add`, `remove`, `move`), `policy`, `filterClass`, and `after` unless the Policy is first; `[]` without changes |
+| `summary` | `changed`, `added`, `removed`, `modified`, `routeChainsChanged`, `impact` |
 
 ### Exit codes
 
