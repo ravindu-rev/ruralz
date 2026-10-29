@@ -138,8 +138,9 @@ jobs:
   floor:
     name: 4. Build and test on the Go 1.26 floor
     needs: changes
-    # The test filter (Go changes, examples/ or the configuration conformance
-    # fixtures): the floor job also checks the conformance digests.
+    # The test filter (Go changes, examples/, the configuration conformance
+    # fixtures, or the documents the examples tests read): the floor job
+    # also checks the conformance digests.
     if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     steps:

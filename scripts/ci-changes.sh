@@ -10,11 +10,14 @@
 #                 .golangci.yml, Makefile, scripts/
 #   generate=     stage 3 inputs, including the alert rules and dashboards
 #                 generated from the telemetry catalog
-#   test=         stage 5 and the floor job: Go changes, examples/ or the
+#   test=         stage 5 and the floor job: Go changes, examples/, the
 #                 configuration conformance fixtures under
 #                 test/conformance/config/ (a golden regeneration touches only
 #                 fixtures, whose digests are checked on the floor, darwin
-#                 and windows jobs)
+#                 and windows jobs), or the documents the examples tests
+#                 read: the configuration model (example Bundles, Worked
+#                 example, diagnostics) and Deployment topologies (the
+#                 quickstart Bundle)
 #   integration=  stage 8: the pr-full filter and every merge queue run
 #   gates=        stage 9: Go changes
 #
@@ -56,7 +59,7 @@ fi
 go=false; generate=false; test=false; integration=false
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/' && go=true
 any '^(pkg|api|internal/gen|internal/tool|internal/telemetry/catalog|sdk|deploy/crds|deploy/grafana)/|^buf(\.gen)?\.yaml$|^go\.mod$' && generate=true
-{ [[ $go == true ]] || any '^examples/|^test/conformance/config/'; } && test=true
+{ [[ $go == true ]] || any '^examples/|^test/conformance/config/|^docs/architecture/02-configuration-model\.md$|^docs/operations/01-deployment-topologies\.md$'; } && test=true
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/|^(api|examples|test|deploy)/|^internal/tool/' && integration=true
 [[ "$EVENT" == merge_group ]] && integration=true
 printf 'go=%s\ngenerate=%s\ntest=%s\nintegration=%s\ngates=%s\n' "$go" "$generate" "$test" "$integration" "$go" >>"$out"
