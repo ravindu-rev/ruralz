@@ -1,0 +1,276 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package redisserver
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"net/url"
+	"strings"
+	"sync"
+	"testing"
+
+	"github.com/testcontainers/testcontainers-go"
+
+	"github.com/ravindu-rev/ruralz/internal/statestore"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
+)
+
+// Start starts a deployment of kind k for tb; it stops when tb ends.
+// When k's flavor cannot run here (no redis-server; no Docker daemon, or
+// a cluster container on a host other than Linux), Start fails tb if
+// EnvStateStore selects that flavor and skips tb with the reason if not;
+// a process kind runs wherever a redis-server is found, selected or not,
+// and a container kind only when selected. Start also fails tb on an
+// invalid EnvRedisServer or EnvStateStore, invalid Options or a failed
+// start.
+func Start(tb testing.TB, k Kind, o Options) *Deployment {
+	tb.Helper()
+	d, skip, err := start(tb, realHost(), k, o)
+	switch {
+	case err != nil:
+		tb.Fatalf("redisserver: start %s: %v", k, err)
+	case skip != "":
+		tb.Skipf("redisserver: %s skipped: %s", k, skip)
+	}
+	return d
+}
+
+// start starts k, or returns why it skips.
+func start(tb testing.TB, h host, k Kind, o Options) (*Deployment, string, error) {
+	if k.Flavor() == FlavorNone {
+		return nil, "", fmt.Errorf("redisserver: unknown kind %q", string(k))
+	}
+	if err := o.validate(k); err != nil {
+		return nil, "", err
+	}
+	path, skip, err := h.gate(tb.Context(), k)
+	if err != nil || skip != "" {
+		return nil, skip, err
+	}
+	var d *Deployment
+	if k.Flavor() == FlavorProcess {
+		d, err = startProcess(&launcher{tb: tb, path: path, env: childEnv(), ports: freePort}, k, o)
+	} else {
+		d, err = startContainer(tb, k)
+	}
+	return d, "", err
+}
+
+// access is how clients reach the servers of a deployment.
+type access struct {
+	scheme string // "redis", or "rediss" with TLS
+	user   *User  // the URL's credentials; nil without users
+	dial   dialOptions
+}
+
+// buildURL returns the State Store URL of addrs in the rueidis form the
+// configuration model names: one endpoint for a standalone deployment,
+// the first seed then "addr" parameters for a cluster.
+func buildURL(a access, addrs []string) string {
+	u := url.URL{Scheme: a.scheme, Host: addrs[0]}
+	if a.user != nil {
+		u.User = url.UserPassword(a.user.Name, a.user.Password)
+	}
+	if len(addrs) > 1 {
+		u.RawQuery = "addr=" + strings.Join(addrs[1:], "&addr=")
+	}
+	return u.String()
+}
+
+// Deployment is a running State Store: one primary (and an optional
+// replica), or the three primaries of a cluster. Its methods are safe
+// for concurrent use.
+type Deployment struct {
+	kind   Kind
+	acc    access
+	caFile string
+
+	mu      sync.Mutex
+	nodes   []*Server // standalone: the primary; cluster: the primaries in slot order
+	replica *Server
+}
+
+// Kind returns the deployment's kind.
+func (d *Deployment) Kind() Kind { return d.kind }
+
+// Topology returns standalone or cluster, for stateStore.topology.
+func (d *Deployment) Topology() statestore.Topology { return d.kind.Topology() }
+
+// URL returns the stateStore.url of the deployment, with the first
+// user's credentials: redis://host:port, rediss:// with TLS, and for a
+// cluster the seeds as in rediss://host:port?addr=host:port&addr=host:port.
+// It names the addresses Options.Announce returned, if any.
+func (d *Deployment) URL() string {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	addrs := make([]string, len(d.nodes))
+	for i, n := range d.nodes {
+		addrs[i] = n.client
+	}
+	return buildURL(d.acc, addrs)
+}
+
+// Primary returns the standalone primary, or a cluster's first primary.
+func (d *Deployment) Primary() *Server {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.nodes[0]
+}
+
+// Nodes returns the primaries: one, or a cluster's three in slot order.
+func (d *Deployment) Nodes() []*Server {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]*Server(nil), d.nodes...)
+}
+
+// Replica returns the replica of Options.Replica; nil without one or
+// after Promote.
+func (d *Deployment) Replica() *Server {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.replica
+}
+
+// Promote makes the replica the primary (REPLICAOF NO ONE), the scripted
+// failover of the process flavor: Primary returns it from then on, also
+// across its restarts, and Replica returns nil. The former primary keeps
+// running, unchanged, unless the test killed it; a proxy standing for
+// the primary's endpoint is switched by the test (SetUpstream).
+func (d *Deployment) Promote(ctx context.Context) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	r := d.replica
+	if r == nil {
+		return errNoReplica
+	}
+	if _, err := r.Do(ctx, "REPLICAOF", "NO", "ONE"); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.node.primary = ""
+	r.mu.Unlock()
+	d.nodes[0], d.replica = r, nil
+	return nil
+}
+
+// CAFile returns the PEM file of the CA that issued the servers'
+// certificates under Options.TLS ("" without TLS): a bundle for
+// SSL_CERT_FILE (testkit/pki.Env), so a child process trusts the servers.
+func (d *Deployment) CAFile() string { return d.caFile }
+
+// ClientTLS returns a client configuration trusting the servers under
+// Options.TLS; nil without TLS.
+func (d *Deployment) ClientTLS() *tls.Config {
+	if d.acc.dial.tls == nil {
+		return nil
+	}
+	return d.acc.dial.tls.Clone()
+}
+
+// Server is one server of a deployment: a redis-server process or a
+// container. Its methods are safe for concurrent use.
+type Server struct {
+	name   string
+	addr   string // what the test process dials
+	client string // what clients are given (Options.Announce), else addr
+	acc    access
+
+	// The process flavor.
+	l    *launcher
+	mu   sync.Mutex // guards node and proc
+	node nodeConfig
+	proc *proc.Process
+
+	// The container flavor.
+	ctr testcontainers.Container
+}
+
+// Name returns the server's name, such as "redis-server-cluster-1".
+func (s *Server) Name() string { return s.name }
+
+// Addr returns the address the test process dials ("host:port").
+func (s *Server) Addr() string { return s.addr }
+
+// ClientAddr returns the address clients are given: the one
+// Options.Announce returned, else Addr.
+func (s *Server) ClientAddr() string { return s.client }
+
+// URL returns a standalone State Store URL of this server alone, with
+// the deployment's credentials and scheme.
+func (s *Server) URL() string { return buildURL(s.acc, []string{s.client}) }
+
+// Dial opens an admin connection to the server, over TLS and
+// authenticated as the deployment requires.
+func (s *Server) Dial(ctx context.Context) (*Conn, error) { return dialConn(ctx, s.addr, s.acc.dial) }
+
+// Do runs one command on a fresh admin connection.
+func (s *Server) Do(ctx context.Context, args ...string) (Value, error) {
+	c, err := s.Dial(ctx)
+	if err != nil {
+		return Value{}, err
+	}
+	defer func() { _ = c.Close() }()
+	return c.Do(ctx, args...)
+}
+
+// Info runs INFO section and returns its fields.
+func (s *Server) Info(ctx context.Context, section string) (map[string]string, error) {
+	v, err := s.Do(ctx, "INFO", section)
+	if err != nil {
+		return nil, err
+	}
+	return parseInfo(v.Str), nil
+}
+
+// Kill kills a redis-server process (SIGKILL on Linux) and waits for it
+// to exit; the process flavor's "primary killed" fault. Containers
+// return errors.ErrUnsupported.
+func (s *Server) Kill(ctx context.Context) error {
+	if s.l == nil {
+		return fmt.Errorf("redisserver: kill %s: %w", s.name, errors.ErrUnsupported)
+	}
+	s.mu.Lock()
+	p := s.proc
+	s.mu.Unlock()
+	if err := p.Kill(); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	select {
+	case <-p.Done():
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("redisserver: kill %s: %w", s.name, ctx.Err())
+	}
+}
+
+// Restart kills a running redis-server process and starts it again on
+// the same port, directory and configuration; data held only in memory
+// is gone, as after a real restart. It fails when the port was taken
+// meanwhile. Containers return errors.ErrUnsupported.
+func (s *Server) Restart(ctx context.Context) error {
+	if s.l == nil {
+		return fmt.Errorf("redisserver: restart %s: %w", s.name, errors.ErrUnsupported)
+	}
+	if err := s.Kill(ctx); err != nil {
+		return err
+	}
+	return s.start(ctx)
+}
+
+// Output returns what the current redis-server process wrote, as far as
+// its bounded rings hold it; "" for a container.
+func (s *Server) Output() string {
+	s.mu.Lock()
+	p := s.proc
+	s.mu.Unlock()
+	if p == nil {
+		return ""
+	}
+	out, errOut := p.Output()
+	return string(out) + string(errOut)
+}
