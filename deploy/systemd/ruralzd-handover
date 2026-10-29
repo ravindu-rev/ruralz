@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# ruralzd-handover BINARY [TIMEOUT_SECONDS]
+#
+# The ExecReload= helper of ruralzd.service (docs/operations/
+# 01-deployment-topologies.md, "T5 and T6"; docs/operations/
+# 02-zero-downtime-upgrades-and-hot-reload.md, "Handover under systemd").
+# After the ruralzd binary is replaced, `systemctl reload ruralzd` runs it.
+# It starts BINARY in the unit's cgroup with the unit's environment, so the
+# new process has the same RURALZ_* settings and user; the new process
+# finds the live lock holder, runs the handover, then takes the lock,
+# writes holder.json and sends MAINPID= and READY=1. The helper exits
+#   0  once ${RURALZ_DATA_DIR}/holder.json names the new process, which
+#      then holds the lock and serves while the old process Drains;
+#   1  if the new process exits first: the handover was refused or failed,
+#      and the old process keeps serving;
+#   1  after TIMEOUT_SECONDS (default 75, target) without either, having
+#      stopped the new process with SIGTERM, then SIGKILL after 10 s;
+#   2  on a usage error.
+# It reads only the pid member of holder.json, so members added to the
+# record never break it, and it waits by counting fixed sleeps, so a clock
+# step cannot shorten the wait. The unit's TimeoutStartSec=, which also
+# bounds reloads, exceeds the wait plus the stop grace.
+set -euo pipefail
+
+readonly prog=ruralzd-handover
+readonly default_timeout=75 # seconds (target)
+readonly stop_grace=10      # seconds from SIGTERM to SIGKILL
+readonly poll_interval=0.2  # seconds between checks
+readonly polls_per_second=5 # 1 / poll_interval
+
+usage() {
+  echo "usage: $prog BINARY [TIMEOUT_SECONDS]" >&2
+  exit 2
+}
+
+(($# >= 1 && $# <= 2)) || usage
+binary=$1
+timeout=${2:-$default_timeout}
+[[ $timeout =~ ^[1-9][0-9]{0,3}$ ]] || usage
+if [[ ! -f $binary || ! -x $binary ]]; then
+  echo "$prog: $binary is not an executable file" >&2
+  exit 2
+fi
+holder=${RURALZ_DATA_DIR:-/var/lib/ruralz}/holder.json
+
+# holder_pid prints the pid member of holder.json (read up to 64 KiB, the
+# record's bound), or nothing while there is no readable record.
+holder_pid() {
+  local record
+  record=$(head -c 65536 -- "$holder" 2>/dev/null) || return 0
+  if [[ $record =~ \"pid\"[[:space:]]*:[[:space:]]*([0-9]+) ]]; then
+    printf '%s\n' "${BASH_REMATCH[1]}"
+  fi
+  return 0
+}
+
+# alive reports whether the new process still runs; bash reaps it when it
+# exits, so an exited process fails kill -0.
+alive() {
+  kill -0 "$pid" 2>/dev/null
+}
+
+"$binary" </dev/null &
+pid=$!
+echo "$prog: started $binary as process $pid"
+
+polls=$((timeout * polls_per_second))
+while :; do
+  if [[ $(holder_pid) == "$pid" ]]; then
+    echo "$prog: process $pid holds the lock: handover complete"
+    exit 0
+  fi
+  if ! alive; then
+    status=0
+    wait "$pid" || status=$?
+    echo "$prog: process $pid exited with status $status before taking the lock" >&2
+    exit 1
+  fi
+  if ((polls <= 0)); then
+    break
+  fi
+  polls=$((polls - 1))
+  sleep "$poll_interval"
+done
+
+echo "$prog: process $pid did not take the lock within $timeout s: stopping it" >&2
+kill -TERM "$pid" 2>/dev/null || true
+polls=$((stop_grace * polls_per_second))
+while alive && ((polls > 0)); do
+  polls=$((polls - 1))
+  sleep "$poll_interval"
+done
+if alive; then
+  echo "$prog: process $pid ignored SIGTERM for $stop_grace s: killing it" >&2
+  kill -KILL "$pid" 2>/dev/null || true
+fi
+wait "$pid" 2>/dev/null || true
+exit 1

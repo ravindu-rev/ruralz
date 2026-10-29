@@ -84,12 +84,21 @@ BENCH_RECORDS ?= $(DIST)/bench
 BENCH_RUN ?= ^TestLatency
 BENCH_TIMEOUT ?= 175m
 SOAK_TIMEOUT ?= 150m
-# Stage 12. NOTES_FROM defaults to the previous release tag, or the
-# repository root for the first release.
+# Stage 12. NOTICES_DIR receives depgate's per-artifact NOTICE and
+# THIRD_PARTY_LICENSES, which the archives and the image ship. An empty
+# NOTES_FROM starts the notes at the newest vX.Y.Z tag before NOTES_TO,
+# never a release candidate's, or at the repository root for the first
+# release (root names it too); SKIPPED_GATES names the
+# ruralz.skippedgates.v1 file that internal/tool/releasegate writes
+# (empty: no gate skipped). The notes inputs
+# can come from workflow inputs, so recipes read them from the
+# environment.
 RELEASE_DIR ?= $(DIST)/release
-NOTES_FROM ?= $(shell git describe --tags --abbrev=0 --match 'v[0-9]*' HEAD^ 2>/dev/null || echo root)
+NOTICES_DIR ?= $(DIST)/notices
+NOTES_FROM ?=
 NOTES_TO ?= HEAD
 SKIPPED_GATES ?=
+export NOTES_FROM NOTES_TO SKIPPED_GATES
 RELEASEGATE_FLAGS ?=
 QUICKSTART_MAX_SECONDS ?= 600
 
@@ -128,9 +137,10 @@ $(ACTIONLINT): scripts/install-tools.sh
 $(PROMTOOL): scripts/install-tools.sh
 	bash scripts/install-tools.sh promtool
 
-hygiene: ## Stage 1: repocheck and the no-license-check scan; DCO_RANGE and PR_TITLE add the commit checks
+hygiene: ## Stage 1: repocheck and the no-license-check scan; DCO_RANGE adds the sign-off and Deprecated footer checks, PR_TITLE the title check
 	go run ./internal/tool/repocheck
 	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck dco -range "$$DCO_RANGE"; fi
+	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck deprecations -range "$$DCO_RANGE"; fi
 	if [[ -n "$${PR_TITLE:-}" ]]; then go run ./internal/tool/commitcheck title; fi
 
 lint: $(GOLANGCI_LINT) $(ACTIONLINT) ## Stage 2: gofumpt, goimports, golangci-lint and actionlint
@@ -182,7 +192,10 @@ supply-chain: $(GOVULNCHECK) ## Stage 6: go mod verify, govulncheck, G2, G3, Raf
 	$(GOVULNCHECK) ./...
 	go run ./internal/tool/depgate
 
-integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag integration), State Store flavors, promtool rules, Dockerfile check
+# Stage 8 checks the systemd unit with systemd-analyze verify, which needs
+# the unit's executables: it checks a copy whose /usr/local/bin/ paths name
+# the helper and an empty stand-in for ruralzd.
+integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag integration), State Store flavors, promtool rules, systemd unit and Dockerfile checks
 	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./...
 	if [[ ! -f deploy/container/Dockerfile ]]; then \
 		echo "integration: skip Dockerfile check: deploy/container/Dockerfile is not present yet"; \
@@ -190,6 +203,15 @@ integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag int
 		echo "integration: skip Dockerfile check: no Docker daemon"; \
 	else \
 		docker buildx build --check -f deploy/container/Dockerfile .; \
+	fi
+	if ! command -v systemd-analyze >/dev/null; then \
+		echo "integration: skip systemd unit check: no systemd-analyze"; \
+	else \
+		unit=$$(mktemp -d); trap 'rm -rf "$$unit"' EXIT; \
+		install -m 0755 /dev/null "$$unit/ruralzd"; \
+		install -m 0755 deploy/systemd/ruralzd-handover "$$unit/ruralzd-handover"; \
+		sed "s|/usr/local/bin/|$$unit/|g" deploy/systemd/ruralzd.service >"$$unit/ruralzd.service"; \
+		systemd-analyze verify "$$unit/ruralzd.service"; \
 	fi
 
 # Every selected gate runs even after another fails, so the job summary
@@ -295,43 +317,46 @@ else
 	go test -tags compose -p 1 -timeout 60m $(TEST_FLAGS) ./test/compose/...
 endif
 
-# Stage 12 tooling (internal/tool/releasekit) is called with:
-#   package   -dist DIR -out DIR -version V -commit C  archives, dist/notices/, schema assets, release-manifest.json
-#   checksums -dir DIR                                  SHA256SUMS over the archives and schema files
-#   notes     -from REF -to REF -budgets DIR -skipped FILE -out FILE
-#   verify    -manifest FILE
+# Stage 12 tooling is called with:
+#   depgate -notices DIR       the stage 6 gates, then each artifact's NOTICE and
+#                              THIRD_PARTY_LICENSES in DIR/<binary>_<os>_<arch>/
+#   releasekit package   -dist DIR -notices DIR -out DIR -version V -commit C
+#                              archives, schema assets, release-manifest.json
+#   releasekit checksums -dir DIR   SHA256SUMS over the archives and schema files
+#   releasekit notes     -version V [-from REF] -to REF -budgets DIR -skipped FILE -out FILE
+#   releasekit verify    -manifest FILE   the release audit of the directory
 # Before package, $(DIST)/<os>_<arch>/ holds ruralzd for linux/amd64,
 # linux/arm64, darwin/arm64 and darwin/amd64 (development only), ruralz
 # for those and windows/amd64 (ruralz.exe), and ruralz-control for linux,
-# which is the M2 stub: package archives no ruralz-control until M2.
-release-dry-run: build ## Stage 12 without signing, attesting or publishing: archives, notices, checksums, SBOMs, notes, verified manifest
+# which is the M2 stub: package archives no ruralz-control until M2. The
+# image (deploy/container/Dockerfile) builds from the repository root
+# once the dry run left the linux binaries and NOTICES_DIR.
+release-dry-run: build ## Stage 12 without signing, attesting or publishing: notices, archives, SBOMs, checksums, notes, verified manifest
 	for p in $(SERVER_DEV_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=$(DIST)/$${os}_$${arch}/ruralzd; \
 		echo "build $$out (development only)"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o $$out ./cmd/ruralzd; \
 	done
-ifeq ($(wildcard internal/tool/releasekit/*.go),)
-	@echo "release-dry-run: skip packaging: internal/tool/releasekit is not present yet (binaries are in $(DIST))"
-else
 	bash scripts/install-tools.sh syft
-	rm -rf $(RELEASE_DIR)
-	go run ./internal/tool/releasekit package -dist $(DIST) -out $(RELEASE_DIR) -version $(VERSION) -commit $(COMMIT)
+	rm -rf $(RELEASE_DIR) $(NOTICES_DIR)
+	go run ./internal/tool/depgate -notices $(NOTICES_DIR)
+	go run ./internal/tool/releasekit package -dist $(DIST) -notices $(NOTICES_DIR) -out $(RELEASE_DIR) -version $(VERSION) -commit $(COMMIT)
 	for a in $(RELEASE_DIR)/*.tar.gz $(RELEASE_DIR)/*.zip; do \
 		[[ -e $$a ]] || continue; \
 		$(SYFT) scan "file:$$a" -q -o "cyclonedx-json@1.7=$$a.cdx.json"; \
 	done
 	go run ./internal/tool/releasekit checksums -dir $(RELEASE_DIR)
-	go run ./internal/tool/releasekit notes -from '$(NOTES_FROM)' -to '$(NOTES_TO)' -budgets $(BENCH_RECORDS) -skipped '$(SKIPPED_GATES)' -out $(RELEASE_DIR)/NOTES.md
+	go run ./internal/tool/releasekit notes -version $(VERSION) -from "$$NOTES_FROM" -to "$$NOTES_TO" -budgets $(BENCH_RECORDS) -skipped "$$SKIPPED_GATES" -out $(RELEASE_DIR)/NOTES.md
 	go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json
 	cd $(RELEASE_DIR) && sha256sum -c --quiet SHA256SUMS
-endif
 
-release: release-dry-run ## Stage 12: the dry run, then keyless signing of SHA256SUMS (OIDC in release-build.yml)
+release: release-dry-run ## Stage 12: the dry run, then keyless signing of SHA256SUMS (OIDC in release-build.yml) and a second audit
 	if [[ ! -f $(RELEASE_DIR)/SHA256SUMS ]]; then \
 		echo "release: skip signing: $(RELEASE_DIR)/SHA256SUMS is not present"; \
 	else \
 		bash scripts/install-tools.sh cosign; \
 		$(COSIGN) sign-blob --yes --bundle $(RELEASE_DIR)/SHA256SUMS.sigstore.json $(RELEASE_DIR)/SHA256SUMS; \
+		go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json; \
 	fi
 
 release-gates: ## Stage 12 release gates on the candidate commit (internal/tool/releasegate)

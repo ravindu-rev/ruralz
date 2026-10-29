@@ -9,6 +9,12 @@
 //	commitcheck title [-title TITLE]    a pull request title, default $PR_TITLE, follows
 //	                                     Conventional Commits; a docs scope must be a
 //	                                     document slug under -docs (default docs)
+//	commitcheck deprecations -range BASE..HEAD
+//	                                     every Deprecated footer reads
+//	                                     "<surface>; removed in MAJOR.MINOR.0", at least
+//	                                     two minor releases after the minor that ships it
+//
+// Exit status: 0 pass, 1 findings, 2 usage or git error.
 package main
 
 import (
@@ -28,7 +34,7 @@ func main() {
 
 func run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD | commitcheck title -title TITLE")
+		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD | commitcheck title -title TITLE | commitcheck deprecations -range BASE..HEAD")
 		return 2
 	}
 	fs := flag.NewFlagSet("commitcheck "+args[0], flag.ContinueOnError)
@@ -77,6 +83,32 @@ func run(ctx context.Context, args []string) int {
 			fmt.Fprintf(os.Stderr, "commitcheck title: %q: %v\n", *title, err)
 			return 1
 		}
+		return 0
+	case "deprecations":
+		rng := fs.String("range", "", "git revision range, such as origin/main..HEAD")
+		dir := fs.String("C", ".", "git repository directory")
+		if err := fs.Parse(args[1:]); err != nil || *rng == "" {
+			fmt.Fprintln(os.Stderr, "commitcheck deprecations: -range is required")
+			return 2
+		}
+		commits, err := gitCommits(ctx, *dir, *rng)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "commitcheck deprecations:", err)
+			return 2
+		}
+		problems, err := checkDeprecations(ctx, *dir, commits, gitReleaseTag)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "commitcheck deprecations:", err)
+			return 2
+		}
+		for _, p := range problems {
+			fmt.Fprintln(os.Stderr, p)
+		}
+		if len(problems) > 0 {
+			fmt.Fprintf(os.Stderr, "Announce each deprecated surface with \"%s: <surface>; removed in MAJOR.MINOR.0\", %d minor releases or more after the release that ships it.\n", deprecatedToken, deprecationWindow)
+			return 1
+		}
+		_, _ = fmt.Fprintf(os.Stdout, "commitcheck deprecations: %d commit(s) checked\n", len(commits))
 		return 0
 	default:
 		fmt.Fprintf(os.Stderr, "commitcheck: unknown command %q\n", args[0])

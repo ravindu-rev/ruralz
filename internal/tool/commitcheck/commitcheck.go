@@ -16,16 +16,18 @@ import (
 	"unicode"
 )
 
-// commit is what the DCO check reads from one commit.
+// commit is what the checks read from one commit.
 type commit struct {
 	hash, authorName, authorEmail, subject string
 	signoffs                               []string
+	// body is the message after the subject line, where footers live.
+	body string
 }
 
 // gitCommits lists the non-merge commits of rng, oldest first.
 func gitCommits(ctx context.Context, dir, rng string) ([]commit, error) {
 	const sep, end = "\x1f", "\x1e"
-	format := strings.Join([]string{"%H", "%an", "%ae", "%s", "%(trailers:key=Signed-off-by,valueonly,separator=%x1d)"}, sep) + end
+	format := strings.Join([]string{"%H", "%an", "%ae", "%s", "%(trailers:key=Signed-off-by,valueonly,separator=%x1d)", "%b"}, sep) + end
 	//nolint:gosec // The range comes from CI and is passed as one argument, never through a shell.
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "log", "--no-merges", "--reverse", "--format="+format, rng)
 	out, err := cmd.Output()
@@ -42,11 +44,11 @@ func gitCommits(ctx context.Context, dir, rng string) ([]commit, error) {
 		if rec == "" {
 			continue
 		}
-		f := strings.Split(rec, sep)
-		if len(f) != 5 {
+		f := strings.SplitN(rec, sep, 6)
+		if len(f) != 6 {
 			return nil, fmt.Errorf("unexpected git log record %q", rec)
 		}
-		c := commit{hash: f[0], authorName: f[1], authorEmail: f[2], subject: f[3]}
+		c := commit{hash: f[0], authorName: f[1], authorEmail: f[2], subject: f[3], body: f[5]}
 		for _, s := range strings.Split(strings.TrimSpace(f[4]), "\x1d") {
 			if s = strings.TrimSpace(s); s != "" {
 				c.signoffs = append(c.signoffs, s)

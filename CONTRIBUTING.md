@@ -15,7 +15,7 @@ CI checks every non-merge commit of a pull request; Dependabot commits are exemp
 
 ## Pull request titles
 
-Pull requests are squash-merged, so the title becomes the commit subject, and merge only when the branch is up to date with `main` and the required `pr-fast` and `pr-title` checks pass. The title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions.
+Pull requests are squash-merged, so the title becomes the commit subject, and merge only when the branch is up to date with `main` and the required `pr-fast` and `pr-title` checks pass. The title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions. Announce each deprecated surface with a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, at least two minor releases after the release that ships it; `make hygiene` checks it ([Conventional Commits](docs/engineering/02-repository-layout-and-conventions.md#conventional-commits)).
 
 | Type | Scopes |
 |---|---|
@@ -38,7 +38,7 @@ make floor FLOOR_GOTOOLCHAIN=go1.26.8                # the Go 1.26 floor job, wi
 
 | Target | CI stage | What it runs |
 |---|---|---|
-| `make hygiene` | 1 | `repocheck`, including the no-license-check scan; with `DCO_RANGE` or `PR_TITLE` set, the DCO and title checks |
+| `make hygiene` | 1 | `repocheck`, including the no-license-check scan; with `DCO_RANGE` set, the DCO and `Deprecated:` footer checks, with `PR_TITLE` set, the title check |
 | `make lint` | 2 | gofumpt, goimports and golangci-lint with `.golangci.yml`, and actionlint on the workflows |
 | `make generate` | 3 | `go generate ./...`, then fails if the generated JSON Schema, alert rules or Grafana dashboards (`deploy/grafana`) differ |
 | `make build` | 4 | Every binary for linux/amd64 and linux/arm64, the CLI also for darwin and windows, with `CGO_ENABLED=0`, `-trimpath` and `-s -w` into `dist/` |

@@ -109,6 +109,10 @@ func TestGitCommits(t *testing.T) {
 	if len(commits) != 2 || commits[0].subject != "feat: signed" || len(commits[0].signoffs) != 1 {
 		t.Fatalf("commits = %+v", commits)
 	}
+	// The body, where footers live, follows the subject.
+	if got := strings.TrimSpace(commits[1].body); got != "Co-Authored-By: Someone <s@example.com>" {
+		t.Errorf("body = %q, want the footer", got)
+	}
 	problems := checkDCO(commits)
 	if len(problems) != 1 || !strings.Contains(problems[0], "feat: unsigned") {
 		t.Fatalf("problems = %q", problems)
@@ -125,7 +129,8 @@ func TestGitCommits(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
-	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 {
+	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 ||
+		run(t.Context(), []string{"deprecations"}) != 2 {
 		t.Error("usage errors must exit 2")
 	}
 	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat(cli): add version"}) != 0 {
