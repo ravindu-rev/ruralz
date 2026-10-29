@@ -16,9 +16,9 @@ import (
 )
 
 // Tests for the Node-wide connection ceiling (a counting listener takes a
-// slot before the inner Accept, releases it on Close and stops calling
-// Accept at the ceiling; the admin listener has its own 256) and for the
-// ceiling lowered during a handover.
+// slot after the inner Accept returns, releases it on Close and, at the
+// ceiling, holds one accepted connection until a slot frees; the admin
+// listener has its own 256) and for the ceiling lowered during a handover.
 
 // fakeListener hands out queued connections and counts inner Accept calls.
 type fakeListener struct {
@@ -52,12 +52,30 @@ func (f *fakeListener) Close() error {
 
 func (f *fakeListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 8080} }
 
-// queue adds one connection to the inner accept queue.
-func (f *fakeListener) queue(t *testing.T) {
+// queue adds one connection to the inner accept queue and returns its
+// peer end.
+func (f *fakeListener) queue(t *testing.T) net.Conn {
 	t.Helper()
 	a, b := net.Pipe()
 	t.Cleanup(func() { _ = a.Close(); _ = b.Close() })
 	f.conns <- a
+	return b
+}
+
+// recvAccept returns the result of an asynchronous Accept, failing after a
+// bounded number of yields.
+func recvAccept(t *testing.T, what string, res <-chan acceptResult) acceptResult {
+	t.Helper()
+	var r acceptResult
+	waitFor(t, what, func() bool {
+		select {
+		case r = <-res:
+			return true
+		default:
+			return false
+		}
+	})
+	return r
 }
 
 // waitFor yields to the scheduler until cond holds and fails after a
@@ -94,9 +112,10 @@ func acceptAsync(ln net.Listener) <-chan acceptResult {
 	return ch
 }
 
-// TestConnCeilingBlocksAccept: at the ceiling the wrapped listener
-// does not call the inner Accept even with connections queued; a Close
-// frees the slot and accepting resumes.
+// TestConnCeilingBlocksAccept: at the ceiling the wrapped listener takes
+// one more connection from the inner listener and holds it until a Close
+// frees a slot, calling the inner Accept no further with connections still
+// queued; the held connection then returns.
 func TestConnCeilingBlocksAccept(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(2)
@@ -111,10 +130,11 @@ func TestConnCeilingBlocksAccept(t *testing.T) {
 		open = append(open, conn)
 	}
 	inner.queue(t)
+	inner.queue(t)
 	res := acceptAsync(ln)
-	waitFor(t, "the third Accept to wait for a slot", func() bool { return waiters(c) == 1 })
-	if n := inner.accepts.Load(); n != 2 {
-		t.Fatalf("inner Accept called %d times at the ceiling, want 2", n)
+	waitFor(t, "the third connection to wait for a slot", func() bool { return waiters(c) == 1 })
+	if n := inner.accepts.Load(); n != 3 {
+		t.Fatalf("inner Accept called %d times at the ceiling, want 3: one connection held, the next left queued", n)
 	}
 	if c.Open() != 2 {
 		t.Fatalf("Open = %d, want 2", c.Open())
@@ -142,7 +162,8 @@ func TestConnCeilingBlocksAccept(t *testing.T) {
 }
 
 // TestConnCeilingSharedAcrossListeners: one limiter bounds all client
-// listeners together.
+// listeners together; a second listener's connection waits for the slot
+// the first listener's connection holds.
 func TestConnCeilingSharedAcrossListeners(t *testing.T) {
 	a, b := newFakeListener(), newFakeListener()
 	c := NewConnLimiter(1)
@@ -155,8 +176,8 @@ func TestConnCeilingSharedAcrossListeners(t *testing.T) {
 	b.queue(t)
 	res := acceptAsync(lb)
 	waitFor(t, "the second listener to wait", func() bool { return waiters(c) == 1 })
-	if b.accepts.Load() != 0 {
-		t.Fatal("the second listener accepted past the shared ceiling")
+	if c.Open() != 1 {
+		t.Fatalf("Open = %d, want 1: the second listener's connection waits past the shared ceiling", c.Open())
 	}
 	_ = conn.Close()
 	if r := <-res; r.err != nil {
@@ -168,11 +189,13 @@ func TestConnCeilingSharedAcrossListeners(t *testing.T) {
 
 // TestConnListenerCloseUnblocks: closing the listener ends an Accept
 // waiting for a slot with an error matching net.ErrClosed, the stop path
-// http.Server.Serve expects.
+// http.Server.Serve expects, and closes the connection it held; an Accept
+// waiting in the inner listener ends with the inner listener's error.
 func TestConnListenerCloseUnblocks(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(0)
 	ln := c.Wrap(inner)
+	peer := inner.queue(t)
 	res := acceptAsync(ln)
 	waitFor(t, "Accept to wait", func() bool { return waiters(c) == 1 })
 	if err := ln.Close(); err != nil {
@@ -186,58 +209,63 @@ func TestConnListenerCloseUnblocks(t *testing.T) {
 	if !errors.As(r.err, &op) || op.Op != "accept" {
 		t.Fatalf("error %v is not an accept OpError", r.err)
 	}
-	if waiters(c) != 0 || c.Open() != 0 || inner.accepts.Load() != 0 {
+	if _, err := peer.Read(make([]byte, 1)); err == nil {
+		t.Fatal("the connection held for a slot is still open after Close")
+	}
+	if waiters(c) != 0 || c.Open() != 0 || inner.accepts.Load() != 1 {
 		t.Fatal("a closed listener left state behind")
 	}
 	_ = ln.Close() // idempotent
+
+	idle := c.Wrap(newFakeListener())
+	resIdle := acceptAsync(idle)
+	_ = idle.Close()
+	if r := recvAccept(t, "the idle Accept to end", resIdle); !errors.Is(r.err, net.ErrClosed) {
+		t.Fatalf("idle Accept after Close = %v, want net.ErrClosed", r.err)
+	}
 }
 
-// TestConnOpenCountsAcceptedOnly: an accept loop waiting in the inner
-// Accept holds a slot against the ceiling but is no connection, so Open
-// (the handover usage report's connections) leaves it out.
-func TestConnOpenCountsAcceptedOnly(t *testing.T) {
+// TestConnIdleListenerHoldsNoSlot: an accept loop waiting in the inner
+// Accept holds no slot, so with one slot left another listener's
+// connection takes it at once instead of waiting behind an idle listener;
+// Open counts accepted connections only, not one held for a slot.
+func TestConnIdleListenerHoldsNoSlot(t *testing.T) {
 	a, b := newFakeListener(), newFakeListener()
 	c := NewConnLimiter(1)
 	la, lb := c.Wrap(a), c.Wrap(b)
 	resA := acceptAsync(la)
-	waitFor(t, "the first accept loop to enter the inner Accept", func() bool { return a.accepts.Load() == 1 })
+	waitFor(t, "the idle accept loop to enter the inner Accept", func() bool { return a.accepts.Load() == 1 })
 	if c.Open() != 0 {
 		t.Fatalf("Open = %d with no connection accepted, want 0", c.Open())
 	}
-	// The pending accept's slot still counts against the ceiling.
-	resB := acceptAsync(lb)
-	waitFor(t, "the second accept loop to wait for a slot", func() bool { return waiters(c) == 1 })
-	if b.accepts.Load() != 0 {
-		t.Fatal("the second listener called Accept past the ceiling")
-	}
-	a.queue(t)
-	r := <-resA
-	if r.err != nil {
-		t.Fatalf("Accept: %v", r.err)
+	b.queue(t)
+	rb := recvAccept(t, "the second listener to take the free slot", acceptAsync(lb))
+	if rb.err != nil {
+		t.Fatalf("Accept: %v", rb.err)
 	}
 	if c.Open() != 1 {
 		t.Fatalf("Open = %d, want 1", c.Open())
 	}
-	_ = r.conn.Close()
-	waitFor(t, "the second accept loop to enter the inner Accept", func() bool { return b.accepts.Load() == 1 })
-	if c.Open() != 0 {
-		t.Fatalf("Open = %d after Close, want 0", c.Open())
+	a.queue(t)
+	waitFor(t, "the first listener's connection to wait for a slot", func() bool { return waiters(c) == 1 })
+	if c.Open() != 1 {
+		t.Fatalf("Open = %d with a connection waiting for a slot, want 1", c.Open())
 	}
-	_ = lb.Close()
-	if r := <-resB; !errors.Is(r.err, net.ErrClosed) {
-		t.Fatalf("Accept after Close = %v", r.err)
+	_ = rb.conn.Close()
+	ra := recvAccept(t, "the waiting connection", resA)
+	if ra.err != nil {
+		t.Fatalf("Accept: %v", ra.err)
 	}
+	_ = ra.conn.Close()
 	_ = la.Close()
-	c.mu.Lock()
-	slots := c.slots
-	c.mu.Unlock()
-	if slots != 0 {
-		t.Fatalf("slots = %d after closing every listener", slots)
+	_ = lb.Close()
+	if c.Open() != 0 || waiters(c) != 0 {
+		t.Fatalf("open %d, waiters %d after closing everything", c.Open(), waiters(c))
 	}
 }
 
-// TestConnInnerErrorReleases returns the slot when the inner Accept
-// fails (for example a temporary error http.Server retries).
+// TestConnInnerErrorReleases checks that an inner Accept error (for
+// example a temporary error the accept loop retries) takes no slot.
 func TestConnInnerErrorReleases(t *testing.T) {
 	inner := newFakeListener()
 	c := NewConnLimiter(1)
@@ -316,8 +344,8 @@ func dialContext(t *testing.T, addr string) (net.Conn, error) {
 }
 
 // TestConnTCP runs the limiter over a real loopback listener: the
-// kernel completes a third handshake, but the server accepts it only after
-// a connection closes.
+// kernel completes a third handshake and the limiter accepts it, but hands
+// it over only after a connection closes.
 func TestConnTCP(t *testing.T) {
 	inner, err := listenLoopback(t)
 	if err != nil {
@@ -385,7 +413,6 @@ func TestConnPassThrough(t *testing.T) {
 		a, b := net.Pipe()
 		defer func() { _ = b.Close() }()
 		lc := &limitedConn{Conn: a, c: c}
-		c.slots++
 		c.conns++
 		if err := lc.CloseWrite(); err != nil {
 			t.Fatalf("CloseWrite on a pipe = %v, want nil", err)

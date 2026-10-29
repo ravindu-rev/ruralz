@@ -12,7 +12,8 @@
 //
 // Every ceiling is fixed in M1: no adaptive limiter.
 // The request path uses only atomics; the connection limiter blocks the
-// accept loop (never a request goroutine) behind a mutex.
+// accept loop (never a request goroutine) behind a mutex, and only an
+// accept loop holding a connection waits for a slot.
 package admission
 
 import (

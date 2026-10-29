@@ -12,17 +12,19 @@ import (
 
 // ConnLimiter is a connection ceiling shared by every listener it wraps:
 // the Node-wide client ceiling across all client listeners, or the admin
-// listener's own. A wrapped listener takes a slot before calling the inner
-// Accept and the accepted connection returns it on its first Close; at the
-// ceiling the listener stops calling Accept, so nothing is refused and the
-// kernel's accept queue holds new connections until a slot frees.
+// listener's own. A wrapped listener takes a slot after the inner Accept
+// returns a connection, and the connection returns it on its first Close.
+// At the ceiling the listener holds the connection it accepted until a
+// slot frees and calls the inner Accept again only after handing it over,
+// so nothing is refused, each listener holds at most one connection beyond
+// the ceiling, and the kernel's accept queue holds the rest. An accept loop
+// waiting in the inner Accept holds no slot, so an idle listener never
+// keeps a freed slot from a listener with a connection waiting.
 // ConnLimiter is safe for concurrent use.
 type ConnLimiter struct {
 	mu sync.Mutex
-	// slots counts the slots held against the ceiling: accepted
-	// connections plus accept loops waiting in the inner Accept.
-	slots int64
-	// conns counts accepted connections not yet closed (Open).
+	// conns counts the accepted connections not yet closed: the slots held
+	// against the ceiling (Open).
 	conns    int64
 	limit    int64
 	external int64
@@ -39,8 +41,8 @@ func NewConnLimiter(limit int64) *ConnLimiter {
 }
 
 // Wrap returns ln counting its connections against the ceiling. Closing the
-// returned listener unblocks an Accept waiting for a slot, which then
-// returns an error matching net.ErrClosed.
+// returned listener unblocks an Accept waiting for a slot, which closes the
+// connection it held and returns an error matching net.ErrClosed.
 //
 // Wrap the raw listener: the TCP listener, or the PROXY v2 listener over it,
 // below tls.NewListener, so TLS wraps the limited connections. Accepted
@@ -64,10 +66,8 @@ func (c *ConnLimiter) SetExternal(n int64) {
 }
 
 // Open returns the accepted connections open now (the handover usage
-// report's connections). It does not count the slot each accept loop holds
-// while it waits in the inner Accept: that slot counts against this
-// ceiling but is no connection, so the other process does not lower its
-// own ceiling for it.
+// report's connections): the slots held against the ceiling. A connection
+// an accept loop holds while it waits for a slot is not counted.
 func (c *ConnLimiter) Open() int64 {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -82,11 +82,11 @@ func (c *ConnLimiter) Ceiling() int64 {
 	return effective(c.limit, c.external)
 }
 
-// acquire takes a slot, waiting while the ceiling is reached, until done is
-// closed.
+// acquire takes a slot for an accepted connection, waiting while the
+// ceiling is reached, until done is closed.
 func (c *ConnLimiter) acquire(done <-chan struct{}) bool {
 	c.mu.Lock()
-	for c.slots >= effective(c.limit, c.external) {
+	for c.conns >= effective(c.limit, c.external) {
 		wake := c.wake
 		c.waiters++
 		c.mu.Unlock()
@@ -101,27 +101,16 @@ func (c *ConnLimiter) acquire(done <-chan struct{}) bool {
 		c.mu.Lock()
 		c.waiters--
 	}
-	c.slots++
+	c.conns++
 	c.mu.Unlock()
 	return true
 }
 
-// accepted counts a connection accepted on a slot acquire took.
-func (c *ConnLimiter) accepted() {
+// release returns a connection's slot and wakes waiting accept loops.
+func (c *ConnLimiter) release() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.conns++
-}
-
-// release returns a slot, and the connection it held when conn is set, and
-// wakes waiting accept loops.
-func (c *ConnLimiter) release(conn bool) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.slots--
-	if conn {
-		c.conns--
-	}
+	c.conns--
 	c.broadcastLocked()
 }
 
@@ -140,17 +129,17 @@ type limitedListener struct {
 	closeOnce sync.Once
 }
 
-// Accept waits for a slot, then accepts from the inner listener.
+// Accept accepts from the inner listener, then waits for a slot for the
+// connection; a Close meanwhile closes the connection.
 func (l *limitedListener) Accept() (net.Conn, error) {
-	if !l.c.acquire(l.done) {
-		return nil, &net.OpError{Op: "accept", Net: l.Addr().Network(), Addr: l.Addr(), Err: net.ErrClosed}
-	}
 	conn, err := l.Listener.Accept()
 	if err != nil {
-		l.c.release(false)
 		return nil, err
 	}
-	l.c.accepted()
+	if !l.c.acquire(l.done) {
+		_ = conn.Close()
+		return nil, &net.OpError{Op: "accept", Net: l.Addr().Network(), Addr: l.Addr(), Err: net.ErrClosed}
+	}
 	return &limitedConn{Conn: conn, c: l.c}, nil
 }
 
@@ -171,7 +160,7 @@ type limitedConn struct {
 func (lc *limitedConn) Close() error {
 	err := lc.Conn.Close()
 	if lc.closed.CompareAndSwap(false, true) {
-		lc.c.release(true)
+		lc.c.release()
 	}
 	return err
 }
