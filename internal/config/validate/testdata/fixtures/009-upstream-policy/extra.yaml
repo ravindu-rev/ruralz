@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: billing
+spec:
+  protocol: http
+  endpoints:
+    - address: "billing.shop.svc:8080"
+  policies:
+    - name: upstream-oauht

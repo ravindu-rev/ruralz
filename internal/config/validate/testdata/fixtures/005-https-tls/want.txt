@@ -1,0 +1,2 @@
+ruralz.yaml:19:7 error RZ-CFG-005 Gateway/edge spec.listeners[name=https-alt].tls: an https listener needs tls with at least one certificate
+ruralz.yaml:26:9 error RZ-CFG-005 Gateway/edge spec.listeners[name=https-empty].tls.certificates: an https listener needs at least one tls.certificates entry

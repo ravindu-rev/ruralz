@@ -1,0 +1,31 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://auth.shop.example
+        jwksUrl: https://auth.shop.example/.well-known/jwks.json
+        audiences: [shop-api]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quota-daily
+spec:
+  type: quota
+  config:
+    consumerQuota: daily-requests
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-oauth
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: env, name: RURALZ_SECRET_ACME_KEY, key: ignored}}

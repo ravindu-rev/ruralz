@@ -313,6 +313,11 @@ type SecretUse struct {
 // DestinationLocal marks a secret that is never transmitted.
 const DestinationLocal = "local"
 
+// DestinationStateStore is the destination of stateStore.url and
+// stateStore.cache.url: the State Store the URL itself names, which the
+// dialer alone connects to.
+const DestinationStateStore = "state-store"
+
 // PolicyCheck is the offline check of one Policy type's config. It runs at
 // stage H in every binary on a Policy resource whose Config is decoded,
 // and reports findings with RZ-CFG codes at key-aware paths under

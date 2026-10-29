@@ -1,0 +1,8 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: token-budget
+spec:
+  type: ai.token-budget
+  config:
+    consumerQuota: daily-requests

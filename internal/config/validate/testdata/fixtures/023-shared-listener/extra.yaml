@@ -1,0 +1,20 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: a-https
+spec:
+  listeners: [https]
+  match:
+    path: {prefix: /shared}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: b-all
+spec:
+  match:
+    path: {prefix: /shared}
+  upstreams:
+    - name: inventory

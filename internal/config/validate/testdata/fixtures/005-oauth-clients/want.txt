@@ -1,0 +1,1 @@
+extra.yaml:7:19 error RZ-CFG-005 Consumer/beta spec.credentials.oauthClients: oauthClients needs a credentials.jwt entry: a client identifier binds only through the Consumer's jwt issuers

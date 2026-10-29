@@ -1,0 +1,3 @@
+ruralz.yaml:19:20 error RZ-CFG-005 Gateway/edge spec.trustedProxies[item=10.0.0.0/33]: trustedProxies entry "10.0.0.0/33" is neither a CIDR nor an IP address
+ruralz.yaml:19:35 error RZ-CFG-005 Gateway/edge spec.trustedProxies[item="fe80::1%eth0"]: trustedProxies entry "fe80::1%eth0" has a zone, which a CIDR never has
+ruralz.yaml:19:51 error RZ-CFG-005 Gateway/edge spec.trustedProxies[item=proxy.shop.example]: trustedProxies entry "proxy.shop.example" is neither a CIDR nor an IP address

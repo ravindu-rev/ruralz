@@ -286,3 +286,11 @@ func TestDestinationLocalValue(t *testing.T) {
 		t.Fatalf("DestinationLocal = %q, want %q", DestinationLocal, "local")
 	}
 }
+
+func TestDestinationStateStoreValue(t *testing.T) {
+	// stateStore.url and stateStore.cache.url share the destination
+	// "state-store", printed by RZ-CFG-041 messages like "local".
+	if DestinationStateStore != "state-store" {
+		t.Fatalf("DestinationStateStore = %q, want %q", DestinationStateStore, "state-store")
+	}
+}

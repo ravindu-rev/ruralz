@@ -1,0 +1,31 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {prefix: /orders}
+  policies:
+    - name: quota-daily
+  upstreams:
+    - name: ordrs
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: inventory
+spec:
+  listeners: [https]
+  match:
+    path: {template: "/v1/stock/{sku}"}
+    headers: [{name: x-tenant, exact: acme}]
+  composition:
+    mode: aggregate
+    steps:
+      - name: stock
+        upstream: inventory
+        pathExpression: '"/stock/" + request.pathParams.sku'
+      - name: order
+        upstream: orders
+        path: /orders/latest

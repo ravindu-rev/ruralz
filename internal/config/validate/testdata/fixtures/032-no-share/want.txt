@@ -1,0 +1,1 @@
+extra.yaml:15:9 error RZ-CFG-032 Route/full spec.composition.steps[name=b]: step "b" has no maxBodyBytes and no default share: the explicit values leave 0 bytes of limits.maxResponseBodyBytes (1048576) for 1 step without one (lower the explicit maxBodyBytes values or set maxBodyBytes on every step) (limit set in ruralz.yaml:20:27)

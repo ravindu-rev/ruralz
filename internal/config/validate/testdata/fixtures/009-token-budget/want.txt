@@ -1,0 +1,1 @@
+extra.yaml:8:20 error RZ-CFG-009 Policy/token-budget spec.config.consumerQuota: no Consumer defines quota "daily-requests" with unit tokens (Consumer "acme" defines "daily-requests" with unit requests) (defined in consumers.yaml:13:7)

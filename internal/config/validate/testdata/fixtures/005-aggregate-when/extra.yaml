@@ -1,0 +1,32 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: summary
+spec:
+  match:
+    path: {prefix: /summary}
+  composition:
+    mode: aggregate
+    steps:
+      - name: order
+        upstream: orders
+        path: /orders/1
+        when: 'request.method == "GET"'
+      - name: stock
+        upstream: inventory
+        path: /stock/1
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: chain
+spec:
+  match:
+    path: {prefix: /chain}
+  composition:
+    mode: sequential
+    steps:
+      - name: order
+        upstream: orders
+        path: /orders/1
+        when: 'request.method == "GET"'

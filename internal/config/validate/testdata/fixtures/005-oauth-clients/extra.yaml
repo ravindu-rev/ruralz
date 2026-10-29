@@ -1,0 +1,7 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: beta
+spec:
+  credentials:
+    oauthClients: [{clientId: beta-portal}]

@@ -1,0 +1,2 @@
+ruralz.yaml:13:19 error RZ-CFG-005 Gateway/edge spec.listeners[name=https].hostnames[item=api.*.example]: host "api.*.example": "*" is allowed only as one whole leading label, as in "*.example.com"
+ruralz.yaml:13:36 error RZ-CFG-005 Gateway/edge spec.listeners[name=https].hostnames[item=shop.example:443]: host "shop.example:443" has a port; hosts match without ports

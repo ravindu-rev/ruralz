@@ -1,0 +1,1 @@
+extra.yaml:18:23 error RZ-CFG-032 Route/big spec.composition.steps[name=b].maxBodyBytes: step maxBodyBytes values total 1228800 bytes up to step "b", more than limits.maxResponseBodyBytes (1048576) (a Route's step bodies together fit in one limits.maxResponseBodyBytes) (limit set in ruralz.yaml:20:27)
