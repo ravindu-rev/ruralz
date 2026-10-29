@@ -75,6 +75,7 @@ func m1Families() []family {
 		{AuthJWKSAgeSeconds, Gauge, BoundsNone, "s", []string{"policy"}, P, false},
 		{AuthUpstreamTokenAgeSeconds, Gauge, BoundsNone, "s", []string{"policy"}, P, false},
 		{AuthUpstreamRefreshFailuresTotal, Counter, BoundsNone, "{failures}", []string{"policy"}, P, false},
+		{AuthBasicRefusalsTotal, Counter, BoundsNone, "{refusals}", []string{"cause=queue|create|delay|source"}, L, false},
 		{SecurityCleartextHops, Gauge, BoundsNone, "{hops}", []string{"hop=client|upstream|state_store|telemetry|admin"}, L, false},
 		{RateLimitDecisionsTotal, Counter, BoundsNone, "{decisions}", []string{"policy", "result=allow|deny_local|deny_global|fail_open"}, P, true},
 		{RateLimitBucketEvictionsTotal, Counter, BoundsNone, "{entries}", []string{"policy"}, P, false},
@@ -370,6 +371,23 @@ func TestOpsAndWriteKinds(t *testing.T) {
 		if !slices.Contains(Ops(), k) {
 			t.Errorf("write kind %s is not an op", k)
 		}
+	}
+}
+
+// TestBasicRefusalCauses checks the cause enumeration of
+// ruralz_auth_basic_refusals_total, the auth.basic throttle's refusals
+// before any hash: queue, create, delay and source, in that label order,
+// on a Node-wide counter (the throttle is shared by every auth.basic
+// Policy, so the family has no policy label).
+func TestBasicRefusalCauses(t *testing.T) {
+	want := []string{"queue", "create", "delay", "source"}
+	if !slices.Equal(BasicRefusalCauses(), want) {
+		t.Fatalf("BasicRefusalCauses = %v, want %v", BasicRefusalCauses(), want)
+	}
+	f, ok := Lookup(AuthBasicRefusalsTotal)
+	if !ok || f.Kind != Counter || f.Class != ClassListener || len(f.Labels) != 1 ||
+		f.Labels[0].Name != "cause" || !slices.Equal(f.Labels[0].Values, want) {
+		t.Fatalf("family %+v", f)
 	}
 }
 

@@ -116,6 +116,7 @@ const (
 	AuthJWKSAgeSeconds                  = "ruralz_auth_jwks_age_seconds"
 	AuthUpstreamTokenAgeSeconds         = "ruralz_auth_upstream_token_age_seconds" //nolint:gosec // G101: a metric name, not a credential.
 	AuthUpstreamRefreshFailuresTotal    = "ruralz_auth_upstream_refresh_failures_total"
+	AuthBasicRefusalsTotal              = "ruralz_auth_basic_refusals_total"
 	SecurityCleartextHops               = "ruralz_security_cleartext_hops"
 	RateLimitDecisionsTotal             = "ruralz_ratelimit_decisions_total"
 	RateLimitBucketEvictionsTotal       = "ruralz_ratelimit_bucket_evictions_total"
@@ -170,6 +171,14 @@ func Ops() []string {
 // WriteKinds returns the dropped-write kinds of M1.
 func WriteKinds() []string { return []string{"refund", "cache_set", "cache_invalidate"} }
 
+// BasicRefusalCauses returns the cause values of
+// ruralz_auth_basic_refusals_total in label order: the auth.basic throttle
+// refused an attempt before any hash because the hash queue was full or
+// past its deadline, the bucket-creation cap was reached, the username's
+// bucket could hold no further waiter, or the source's failure bucket was
+// empty.
+func BasicRefusalCauses() []string { return []string{"queue", "create", "delay", "source"} }
+
 // Families returns the M1 metric families (docs/architecture/10-observability.md
 // "Ruralz Gateway metrics").
 func Families() []Family {
@@ -204,6 +213,7 @@ func Families() []Family {
 		{AuthJWKSAgeSeconds, Gauge, BoundsNone, "s", []Label{pol}, ClassPolicy, false},
 		{AuthUpstreamTokenAgeSeconds, Gauge, BoundsNone, "s", []Label{pol}, ClassPolicy, false},
 		{AuthUpstreamRefreshFailuresTotal, Counter, BoundsNone, "{failures}", []Label{pol}, ClassPolicy, false},
+		{AuthBasicRefusalsTotal, Counter, BoundsNone, "{refusals}", []Label{{Name: "cause", Values: BasicRefusalCauses()}}, ClassListener, false},
 		{SecurityCleartextHops, Gauge, BoundsNone, "{hops}", []Label{{Name: "hop", Values: HopNames()}}, ClassListener, false},
 		{RateLimitDecisionsTotal, Counter, BoundsNone, "{decisions}", []Label{pol, {Name: "result", Values: []string{"allow", "deny_local", "deny_global", "fail_open"}}}, ClassPolicy, true},
 		{RateLimitBucketEvictionsTotal, Counter, BoundsNone, "{entries}", []Label{pol}, ClassPolicy, false},
