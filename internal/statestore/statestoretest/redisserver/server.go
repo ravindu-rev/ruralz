@@ -21,12 +21,12 @@ import (
 
 // Start starts a deployment of kind k for tb; it stops when tb ends.
 // When k's flavor cannot run here (no redis-server; no Docker daemon, or
-// a cluster container on a host other than Linux), Start fails tb if
-// EnvStateStore selects that flavor and skips tb with the reason if not;
-// a process kind runs wherever a redis-server is found, selected or not,
-// and a container kind only when selected. Start also fails tb on an
-// invalid EnvRedisServer or EnvStateStore, invalid Options or a failed
-// start.
+// a cluster or sentinel container on a host other than Linux), Start
+// fails tb if EnvStateStore selects that flavor and skips tb with the
+// reason if not; a process kind runs wherever a redis-server is found,
+// selected or not, and a container kind only when selected. Start also
+// fails tb on an invalid EnvRedisServer or EnvStateStore, invalid Options
+// or a failed start.
 func Start(tb testing.TB, k Kind, o Options) *Deployment {
 	tb.Helper()
 	d, skip, err := start(tb, realHost(), k, o)
@@ -69,49 +69,138 @@ type access struct {
 
 // buildURL returns the State Store URL of addrs in the rueidis form the
 // configuration model names: one endpoint for a standalone deployment,
-// the first seed then "addr" parameters for a cluster.
-func buildURL(a access, addrs []string) string {
+// the first seed then "addr" parameters for a cluster, and for a sentinel
+// deployment its sentinels the same way, then master_set.
+func buildURL(a access, addrs []string, masterSet string) string {
 	u := url.URL{Scheme: a.scheme, Host: addrs[0]}
 	if a.user != nil {
 		u.User = url.UserPassword(a.user.Name, a.user.Password)
 	}
-	if len(addrs) > 1 {
-		u.RawQuery = "addr=" + strings.Join(addrs[1:], "&addr=")
+	var q []string
+	for _, addr := range addrs[1:] {
+		q = append(q, "addr="+addr)
 	}
+	if masterSet != "" {
+		q = append(q, "master_set="+url.QueryEscape(masterSet))
+	}
+	u.RawQuery = strings.Join(q, "&")
 	return u.String()
 }
 
+// errNotSentinel is returned by Failover outside the sentinel kinds, and
+// errSentinelPromote by Promote within them.
+var (
+	errNotSentinel     = errors.New("redisserver: Failover needs a sentinel kind")
+	errSentinelPromote = errors.New("redisserver: a sentinel deployment fails over with Failover, not Promote")
+)
+
 // Deployment is a running State Store: one primary (and an optional
-// replica), or the three primaries of a cluster. Its methods are safe
-// for concurrent use.
+// replica), the three primaries of a cluster, or a primary, its replica
+// and a sentinel monitoring them. Its methods are safe for concurrent
+// use.
 type Deployment struct {
 	kind   Kind
 	acc    access
 	caFile string
 
-	mu      sync.Mutex
-	nodes   []*Server // standalone: the primary; cluster: the primaries in slot order
-	replica *Server
+	mu        sync.Mutex
+	nodes     []*Server // standalone, sentinel: the primary; cluster: the primaries in slot order
+	replica   *Server
+	sentinels []*Server
+	masterSet string // the sentinel kinds' MasterSet
 }
 
 // Kind returns the deployment's kind.
 func (d *Deployment) Kind() Kind { return d.kind }
 
-// Topology returns standalone or cluster, for stateStore.topology.
+// Topology returns standalone, cluster or sentinel, for
+// stateStore.topology.
 func (d *Deployment) Topology() statestore.Topology { return d.kind.Topology() }
 
 // URL returns the stateStore.url of the deployment, with the first
-// user's credentials: redis://host:port, rediss:// with TLS, and for a
-// cluster the seeds as in rediss://host:port?addr=host:port&addr=host:port.
-// It names the addresses Options.Announce returned, if any.
+// user's credentials: redis://host:port, rediss:// with TLS, for a
+// cluster the seeds as in rediss://host:port?addr=host:port&addr=host:port,
+// and for a sentinel deployment its sentinel and the master set, as in
+// rediss://host:port?master_set=ruralz. It names the addresses
+// Options.Announce returned, if any.
 func (d *Deployment) URL() string {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	addrs := make([]string, len(d.nodes))
-	for i, n := range d.nodes {
+	servers := d.nodes
+	if len(d.sentinels) > 0 {
+		servers = d.sentinels
+	}
+	addrs := make([]string, len(servers))
+	for i, n := range servers {
 		addrs[i] = n.client
 	}
-	return buildURL(d.acc, addrs)
+	return buildURL(d.acc, addrs, d.masterSet)
+}
+
+// Sentinels returns the sentinels of a sentinel kind; none otherwise.
+func (d *Deployment) Sentinels() []*Server {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return append([]*Server(nil), d.sentinels...)
+}
+
+// MasterSet returns the master set a sentinel kind's sentinels monitor
+// (MasterSet); "" otherwise.
+func (d *Deployment) MasterSet() string { return d.masterSet }
+
+// Failover makes the sentinel fail the master set over to the replica
+// (SENTINEL FAILOVER) and waits until the sentinel names the replica and
+// the replica reports role master. Primary then returns it, and Replica
+// the former primary, which the sentinel turns into its replica. Only the
+// sentinel kinds fail over this way.
+func (d *Deployment) Failover(ctx context.Context) error {
+	d.mu.Lock()
+	if len(d.sentinels) == 0 || d.replica == nil {
+		d.mu.Unlock()
+		return errNotSentinel
+	}
+	s, primary, replica, set := d.sentinels[0], d.nodes[0], d.replica, d.masterSet
+	d.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, startTimeout)
+	defer cancel()
+	if _, err := s.Do(ctx, "SENTINEL", "FAILOVER", set); err != nil {
+		return err
+	}
+	if err := waitUntil(ctx, s.name+" to promote "+replica.name, func(ctx context.Context) error {
+		got, err := masterAddr(ctx, s, set)
+		if err != nil {
+			return err
+		}
+		if got != replica.addr {
+			return fmt.Errorf("the sentinel names %s", got)
+		}
+		info, err := replica.Info(ctx, "replication")
+		if err != nil {
+			return err
+		}
+		if info["role"] != "master" {
+			return fmt.Errorf("%s has role %q", replica.name, info["role"])
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	// A restart keeps each server's new role and the sentinel's monitor.
+	replica.mu.Lock()
+	replica.node.primary, replica.node.linkAuth = "", true
+	replica.mu.Unlock()
+	primary.mu.Lock()
+	primary.node.primary = replica.addr
+	primary.mu.Unlock()
+	s.mu.Lock()
+	if s.node.sentinel != nil {
+		s.node.sentinel.primary = replica.addr
+	}
+	s.mu.Unlock()
+	d.mu.Lock()
+	d.nodes[0], d.replica = replica, primary
+	d.mu.Unlock()
+	return nil
 }
 
 // Primary returns the standalone primary, or a cluster's first primary.
@@ -144,6 +233,9 @@ func (d *Deployment) Replica() *Server {
 func (d *Deployment) Promote(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if len(d.sentinels) > 0 {
+		return errSentinelPromote
+	}
 	r := d.replica
 	if r == nil {
 		return errNoReplica
@@ -202,7 +294,7 @@ func (s *Server) ClientAddr() string { return s.client }
 
 // URL returns a standalone State Store URL of this server alone, with
 // the deployment's credentials and scheme.
-func (s *Server) URL() string { return buildURL(s.acc, []string{s.client}) }
+func (s *Server) URL() string { return buildURL(s.acc, []string{s.client}, "") }
 
 // Dial opens an admin connection to the server, over TLS and
 // authenticated as the deployment requires.

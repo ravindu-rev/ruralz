@@ -228,8 +228,8 @@ func checkCRLs(b []byte) error {
 	return nil
 }
 
-// checkStateStoreURL applies the credentials rule (RZ-CFG-026 interim): a
-// URL whose hosts are not all loopback literals (127.0.0.0/8 in IPv4 form,
+// checkStateStoreURL applies the credentials rule (RZ-CFG-042): a URL
+// whose hosts are not all loopback literals (127.0.0.0/8 in IPv4 form,
 // ::1, localhost; never decided by DNS) must carry a user name or a
 // password. Surrounding SP, HTAB, CR and LF are ignored; the topology fit
 // is the consumer's check.

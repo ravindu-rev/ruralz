@@ -20,8 +20,8 @@ import (
 
 // Tests for the per-kind checks and size caps (secret.Kind): PEM
 // certificate, key, CA bundle and CRL parsing, API key length after
-// trimming and the State Store URL credentials rule, each an RZ-CFG-026 at
-// activation.
+// trimming, each an RZ-CFG-026 at activation, and the State Store URL
+// credentials rule, an RZ-CFG-042.
 
 func TestSizeCap(t *testing.T) {
 	for k := secret.KindOpaque; k <= secret.KindStateStoreURL+1; k++ {

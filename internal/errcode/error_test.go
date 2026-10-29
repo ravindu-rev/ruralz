@@ -106,6 +106,8 @@ func TestM1Codes(t *testing.T) {
 		{"RZ-CFG-039", AreaCFG, 0, false},
 		{"RZ-CFG-040", AreaCFG, 0, false},
 		{"RZ-CFG-041", AreaCFG, 0, false},
+		// A State Store URL a Node refuses at activation.
+		{"RZ-CFG-042", AreaCFG, 0, false},
 		{"RZ-RT-016", AreaRT, 0, true},
 		{"RZ-RT-017", AreaRT, 400, false},
 		{"RZ-RT-018", AreaRT, 504, false},

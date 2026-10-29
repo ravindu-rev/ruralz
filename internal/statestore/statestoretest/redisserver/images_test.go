@@ -34,6 +34,9 @@ func TestCheckVersion(t *testing.T) {
 	}{
 		{Valkey9, map[string]string{"valkey_version": "9.0.1", "redis_version": "7.2.4"}, true},
 		{Valkey9Cluster, map[string]string{"valkey_version": "9.1.0"}, true},
+		{Valkey9Sentinel, map[string]string{"valkey_version": "9.0.7"}, true},
+		{Valkey9Sentinel, map[string]string{"valkey_version": "8.1.4"}, false},
+		{Redis8Sentinel, map[string]string{"redis_version": "7.4.2"}, false},
 		{Valkey9, map[string]string{"valkey_version": "10.0.0"}, true},
 		{Valkey9, map[string]string{"valkey_version": "9.0.0", "redis_version": "7.2.4"}, false},
 		{Valkey9, map[string]string{"redis_version": "9.0.1"}, false},

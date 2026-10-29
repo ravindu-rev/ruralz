@@ -9,26 +9,38 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
+)
+
+// Settings of the sentinels of the sentinel kinds: a primary is down for
+// a sentinel after sentinelDownAfter without a reply, and a failover times
+// out after sentinelFailoverTimeout. Deployment.Failover forces one with
+// SENTINEL FAILOVER, which needs neither, so they only bound a failover a
+// killed primary starts.
+const (
+	sentinelDownAfter       = 5 * time.Second
+	sentinelFailoverTimeout = 10 * time.Second
 )
 
 // Options configure a deployment. Every field is for the process flavor:
 // the container flavor runs its images as they are.
 type Options struct {
-	// TLS serves TLS only (port 0 and tls-port), replication and the
-	// cluster bus included, with a certificate for localhost, 127.0.0.1
-	// and ::1 from a fresh testkit/pki CA. URLs are rediss://, and
-	// Deployment.CAFile and ClientTLS trust the CA. Clients present no
-	// certificate (tls-auth-clients no).
+	// TLS serves TLS only (port 0 and tls-port), replication, the
+	// cluster bus and a sentinel's links included, with a certificate for
+	// localhost, 127.0.0.1 and ::1 from a fresh testkit/pki CA. URLs are
+	// rediss://, and Deployment.CAFile and ClientTLS trust the CA. Clients
+	// present no certificate (tls-auth-clients no).
 	TLS bool
-	// Users are ACL users. The URLs, the admin connections and a
-	// replica's link to its primary authenticate as the first. Without a
-	// user named "default", the default user is off, so every client
-	// must authenticate.
+	// Users are ACL users, of the sentinel too. The URLs, the admin
+	// connections, a replica's link to its primary and a sentinel's links
+	// to its servers authenticate as the first. Without a user named
+	// "default", the default user is off, so every client must
+	// authenticate.
 	Users []User
 	// Replica adds a replica of the standalone primary, for a scripted
-	// failover (Deployment.Promote).
+	// failover (Deployment.Promote). The sentinel kinds always have one.
 	Replica bool
 	// Announce, when set, returns the address clients dial for a primary
 	// ("host:port"), such as a proxy forwarding to addr. URLs name it,
@@ -59,8 +71,19 @@ func (o Options) validate(k Kind) error {
 		}
 		return nil
 	}
-	if o.Replica && k.Topology() != statestore.TopologyStandalone {
-		return fmt.Errorf("redisserver: %s takes no replica", k)
+	switch k.Topology() {
+	case statestore.TopologyCluster:
+		if o.Replica {
+			return fmt.Errorf("redisserver: %s takes no replica", k)
+		}
+	case statestore.TopologySentinel:
+		if o.Replica {
+			return fmt.Errorf("redisserver: %s has its replica already", k)
+		}
+		if o.Announce != nil {
+			return fmt.Errorf("redisserver: %s takes no Announce: its sentinel names the servers", k)
+		}
+	case statestore.TopologyStandalone:
 	}
 	seen := map[string]bool{}
 	for _, u := range o.Users {
@@ -101,31 +124,51 @@ type nodeConfig struct {
 	users    []User
 	primary  string // "host:port" of the primary of a replica
 	announce string // "host:port" a cluster node announces
+	// linkAuth gives a primary the replica link credentials too, so it
+	// syncs once a sentinel demotes it.
+	linkAuth bool
+	// sentinel, when set, makes the process a sentinel (redis-server
+	// --sentinel) monitoring that primary.
+	sentinel *sentinelConfig
 	extra    []string
+}
+
+// sentinelConfig is what a sentinel monitors.
+type sentinelConfig struct {
+	masterSet string
+	primary   string // "host:port"
+}
+
+// listener returns the port or TLS directives of n: TLS replication makes
+// replicas, and a sentinel's links to its servers, use TLS too.
+func (n nodeConfig) listener() []directive {
+	port := strconv.Itoa(n.port)
+	if n.tls == nil {
+		return []directive{{"port", port}}
+	}
+	return []directive{
+		{"port", "0"},
+		{"tls-port", port},
+		{"tls-cert-file", n.tls.cert},
+		{"tls-key-file", n.tls.key},
+		{"tls-ca-cert-file", n.tls.ca},
+		{"tls-auth-clients", "no"},
+		{"tls-replication", "yes"},
+	}
 }
 
 // directives returns n's configuration, Config last.
 func (n nodeConfig) directives() ([]directive, error) {
+	if n.sentinel != nil {
+		return n.sentinelDirectives()
+	}
 	ds := []directive{
 		{"bind", "127.0.0.1"},
 		{"dir", n.dir},
 		{"save", ""},
 		{"appendonly", "no"},
 	}
-	port := strconv.Itoa(n.port)
-	if n.tls == nil {
-		ds = append(ds, directive{"port", port})
-	} else {
-		ds = append(ds,
-			directive{"port", "0"},
-			directive{"tls-port", port},
-			directive{"tls-cert-file", n.tls.cert},
-			directive{"tls-key-file", n.tls.key},
-			directive{"tls-ca-cert-file", n.tls.ca},
-			directive{"tls-auth-clients", "no"},
-			directive{"tls-replication", "yes"},
-		)
-	}
+	ds = append(ds, n.listener()...)
 	ds = append(ds, userDirectives(n.users)...)
 	if n.primary != "" {
 		host, p, err := net.SplitHostPort(n.primary)
@@ -133,9 +176,9 @@ func (n nodeConfig) directives() ([]directive, error) {
 			return nil, fmt.Errorf("redisserver: primary address %q: %w", n.primary, err)
 		}
 		ds = append(ds, directive{"replicaof", host, p})
-		if len(n.users) > 0 {
-			ds = append(ds, directive{"masteruser", n.users[0].Name}, directive{"masterauth", n.users[0].Password})
-		}
+	}
+	if (n.primary != "" || n.linkAuth) && len(n.users) > 0 {
+		ds = append(ds, directive{"masteruser", n.users[0].Name}, directive{"masterauth", n.users[0].Password})
 	}
 	if n.busPort != 0 {
 		ds = append(ds,
@@ -158,6 +201,37 @@ func (n nodeConfig) directives() ([]directive, error) {
 		}
 	}
 	return ds, nil
+}
+
+// sentinelDirectives returns a sentinel's configuration: its listener and
+// users, then the monitor of the primary with a quorum of 1, its timings
+// and, with users, the first user's credentials for its links.
+func (n nodeConfig) sentinelDirectives() ([]directive, error) {
+	host, p, err := net.SplitHostPort(n.sentinel.primary)
+	if err != nil {
+		return nil, fmt.Errorf("redisserver: monitored address %q: %w", n.sentinel.primary, err)
+	}
+	ds := []directive{{"bind", "127.0.0.1"}, {"dir", n.dir}}
+	ds = append(ds, n.listener()...)
+	ds = append(ds, userDirectives(n.users)...)
+	ds = append(ds, sentinelMonitor(n.sentinel.masterSet, host, p)...)
+	if len(n.users) > 0 {
+		set := n.sentinel.masterSet
+		ds = append(ds, directive{"sentinel", "auth-user", set, n.users[0].Name}, directive{"sentinel", "auth-pass", set, n.users[0].Password})
+	}
+	return ds, nil
+}
+
+// sentinelMonitor returns the directives that make a sentinel monitor the
+// primary at host:port as set, with a quorum of 1 and the sentinel
+// timings.
+func sentinelMonitor(set, host, port string) []directive {
+	ms := func(d time.Duration) string { return strconv.FormatInt(d.Milliseconds(), 10) }
+	return []directive{
+		{"sentinel", "monitor", set, host, port, "1"},
+		{"sentinel", "down-after-milliseconds", set, ms(sentinelDownAfter)},
+		{"sentinel", "failover-timeout", set, ms(sentinelFailoverTimeout)},
+	}
 }
 
 // userDirectives turns users into user directives; the default user is

@@ -4,6 +4,7 @@
 package redisserver
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -28,6 +29,13 @@ const (
 	respPort = "6379/tcp"
 	// clusterPort and clusterBusPort are a cluster container's ports.
 	clusterPort, clusterBusPort = 6379, 16379
+	// memberPort is the port a sentinel kind's server container serves,
+	// and sentinelPort its sentinel's, both reached at the container IP.
+	memberPort, sentinelPort = 6379, 26379
+	// sentinelConfFile is the configuration file of a sentinel container,
+	// in the image's working directory, which the entrypoint gives the
+	// redis user, so the sentinel can rewrite it.
+	sentinelConfFile = "/data/sentinel.conf"
 )
 
 // dockerHealth returns nil when a Docker daemon answers.
@@ -54,11 +62,18 @@ func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 	defer cancel()
 	d := &Deployment{kind: k, acc: access{scheme: "redis"}}
 	logger := testcontainers.WithLogger(tclog.TestLogger(tb))
-	if k.Topology() == statestore.TopologyCluster {
+	switch k.Topology() {
+	case statestore.TopologyCluster:
 		if err := startContainerCluster(ctx, tb, d, logger); err != nil {
 			return nil, err
 		}
 		return d, nil
+	case statestore.TopologySentinel:
+		if err := startContainerSentinel(ctx, tb, d, logger); err != nil {
+			return nil, err
+		}
+		return d, nil
+	case statestore.TopologyStandalone:
 	}
 	var ctr testcontainers.Container
 	var err error
@@ -105,10 +120,7 @@ func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 // them into a cluster over their container IPs, which members announce
 // and only a Linux host reaches.
 func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, logger testcontainers.LoggerOption) error {
-	server := "redis-server"
-	if d.kind == Valkey9Cluster {
-		server = "valkey-server"
-	}
+	server := d.kind.server()
 	var nodes []clusterNode
 	for i := range 3 {
 		ctr, err := testcontainers.Run(ctx, d.kind.Image(), logger,
@@ -136,6 +148,71 @@ func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, lo
 		nodes = append(nodes, clusterNode{srv: s, host: ip, port: clusterPort, busPort: clusterBusPort})
 	}
 	return bootstrapCluster(ctx, nodes)
+}
+
+// startContainerSentinel starts a primary, its replica and a sentinel
+// monitoring them as MasterSet, generic containers of the kind's image and
+// server binary,
+// over their container IPs, which the sentinel names and only a Linux host
+// reaches, and waits until the sentinel lists the replica as healthy.
+func startContainerSentinel(ctx context.Context, tb testing.TB, d *Deployment, logger testcontainers.LoggerOption) error {
+	run := func(name string, port int, ready string, opts ...testcontainers.ContainerCustomizer) (*Server, string, error) {
+		opts = append([]testcontainers.ContainerCustomizer{logger, testcontainers.WithWaitStrategy(wait.ForLog(ready))}, opts...)
+		ctr, err := testcontainers.Run(ctx, d.kind.Image(), opts...)
+		if ctr != nil {
+			tb.Cleanup(func() { terminate(tb, ctr) })
+		}
+		if err != nil {
+			return nil, "", fmt.Errorf("redisserver: run %s: %w", d.kind.Image(), err)
+		}
+		ip, err := ctr.ContainerIP(ctx)
+		if err != nil {
+			return nil, "", fmt.Errorf("redisserver: %s container IP: %w", name, err)
+		}
+		if ip == "" {
+			return nil, "", fmt.Errorf("redisserver: %s container has no IP", name)
+		}
+		addr := net.JoinHostPort(ip, strconv.Itoa(port))
+		s := &Server{name: name, addr: addr, client: addr, acc: d.acc, ctr: ctr}
+		return s, ip, waitServing(ctx, s, d.kind)
+	}
+	server := []string{d.kind.server(), "--protected-mode", "no", "--save", "", "--appendonly", "no"}
+	name := string(d.kind)
+	p, pip, err := run(name+"-primary", memberPort, "Ready to accept connections", testcontainers.WithCmd(server...))
+	if err != nil {
+		return err
+	}
+	r, _, err := run(name+"-replica", memberPort, "Ready to accept connections",
+		testcontainers.WithCmd(append(server, "--replicaof", pip, strconv.Itoa(memberPort))...))
+	if err != nil {
+		return err
+	}
+	if err := waitReplica(ctx, r); err != nil {
+		return err
+	}
+	s, _, err := run(name+"-sentinel", sentinelPort, "Sentinel ID is",
+		testcontainers.WithFiles(testcontainers.ContainerFile{
+			Reader: bytes.NewReader(containerSentinelConfig(pip)), ContainerFilePath: sentinelConfFile, FileMode: 0o666,
+		}),
+		testcontainers.WithCmd(d.kind.server(), sentinelConfFile, "--sentinel"))
+	if err != nil {
+		return err
+	}
+	if err := waitSentinel(ctx, s, MasterSet, p, r); err != nil {
+		return err
+	}
+	d.nodes, d.replica, d.sentinels, d.masterSet = []*Server{p}, r, []*Server{s}, MasterSet
+	return nil
+}
+
+// containerSentinelConfig returns the configuration file of a sentinel
+// container monitoring the primary at host: protected mode off, as the
+// test process connects from outside the container, and the sentinel
+// timings.
+func containerSentinelConfig(host string) []byte {
+	ds := []directive{{"port", strconv.Itoa(sentinelPort)}, {"protected-mode", "no"}}
+	ds = append(ds, sentinelMonitor(MasterSet, host, strconv.Itoa(memberPort))...)
+	return render(ds, nil)
 }
 
 // terminate stops and removes a container at the end of its test.

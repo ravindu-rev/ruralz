@@ -35,7 +35,8 @@ var (
 	ErrUnresolved = errors.New("manager: the State Store url is not resolved")
 	// ErrDriver reports a driver other than memory or redis.
 	ErrDriver = errors.New("manager: unknown State Store driver")
-	// ErrTopology reports a topology other than standalone or cluster.
+	// ErrTopology reports a topology other than standalone, cluster or
+	// sentinel.
 	ErrTopology = errors.New("manager: unknown State Store topology")
 )
 
@@ -59,7 +60,9 @@ type Spec struct {
 // caller. Without stateStore it uses the fallback URL when secrets holds
 // EnvRef, else the memory driver (SourceFallback). URL values lose
 // surrounding SP, HTAB, CR and LF, as the resolver's URL check ignores
-// them. Errors never contain a URL.
+// them. stateStore.tls reaches the main connection and
+// stateStore.cache.tls the cache connection, each as references with
+// secrets, which the driver reads at Open. Errors never contain a URL.
 func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 	main := statestore.Config{Role: statestore.RoleMain, DefaultTimeout: statestore.DefaultTimeout}
 	if ss == nil {
@@ -91,6 +94,7 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 		if main.URL, err = resolveURL(ss.URL, secrets); err != nil {
 			return Spec{}, fmt.Errorf("stateStore.url: %w", err)
 		}
+		main.TLS = tlsOf(ss.TLS, secrets)
 	default:
 		return Spec{}, fmt.Errorf("%w %q", ErrDriver, driver)
 	}
@@ -107,6 +111,7 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 		if cache.URL, err = resolveURL(&c.URL, secrets); err != nil {
 			return Spec{}, fmt.Errorf("stateStore.cache.url: %w", err)
 		}
+		cache.TLS = tlsOf(c.TLS, secrets)
 		spec.Cache = &cache
 	}
 	return spec, nil
@@ -122,8 +127,30 @@ func topologyOf(t *v1alpha1.StateStoreTopology) (statestore.Topology, error) {
 		return statestore.TopologyStandalone, nil
 	case v1alpha1.StateStoreTopologyCluster:
 		return statestore.TopologyCluster, nil
+	case v1alpha1.StateStoreTopologySentinel:
+		return statestore.TopologySentinel, nil
 	default:
 		return 0, fmt.Errorf("%w %q", ErrTopology, *t)
+	}
+}
+
+// tlsOf converts a connection's TLS block (stateStore.tls,
+// stateStore.cache.tls) into a driver setting with secrets; nil without
+// it.
+func tlsOf(t *v1alpha1.StateStoreTLS, secrets secret.Store) *statestore.TLS {
+	if t == nil {
+		return nil
+	}
+	ref := func(v *v1alpha1.SecretValue) *secret.Ref {
+		if v == nil {
+			return nil
+		}
+		r := secret.RefOf(v.SecretRef)
+		return &r
+	}
+	return &statestore.TLS{
+		CACertificate: ref(t.CACertificate), ClientCertificate: ref(t.ClientCertificate), ClientKey: ref(t.ClientKey),
+		Secrets: secrets,
 	}
 }
 

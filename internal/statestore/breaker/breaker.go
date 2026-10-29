@@ -399,6 +399,29 @@ func (b *Breaker) trip(w uint64, now time.Time) bool {
 	return true
 }
 
+// Cancel withdraws a ticket Allow admitted for a call that was never sent,
+// recording no outcome: a withdrawn probe frees the half-open breaker for
+// the next probe. It reports whether it withdrew t; a ticket already Done
+// or Cancel'ed is untouched.
+func (b *Breaker) Cancel(t *Ticket) bool {
+	if !t.admitted || !t.done.CompareAndSwap(false, true) {
+		return false
+	}
+	if !t.probe {
+		return true
+	}
+	for {
+		w := b.word.Load()
+		if stateOf(w) != HalfOpen || epochOf(w) != t.epoch || !probing(w) {
+			return true
+		}
+		if b.word.CompareAndSwap(w, w&^probeBit) {
+			b.probeAt.Store(b.ms(b.clk.Now()))
+			return true
+		}
+	}
+}
+
 // ConnectFailed records a dial or TLS handshake failure seen by the
 // Ruralz dialer; ConnectFailures consecutive ones open a closed breaker.
 // Dials refused by the Pacer are not connect failures.

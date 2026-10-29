@@ -14,6 +14,8 @@
 //     rotated values reaching new connections;
 //   - IdentityProvider and StateStore: TLS 1.2 or newer against the system
 //     roots, which honor SSL_CERT_FILE and SSL_CERT_DIR;
+//   - StateStoreClient: a State Store connection under stateStore.tls or
+//     stateStore.cache.tls, the Upstream rules for every dialed host;
 //   - Admin: the admin server from RURALZ_ADMIN_TLS_DIR.
 //
 // No builder sets InsecureSkipVerify and no field disables verification.
@@ -117,10 +119,11 @@ func Client(roots *x509.CertPool) *tls.Config {
 // a Bundle field. Pass it as egress.ClientOptions.TLS.
 func IdentityProvider() *tls.Config { return Client(nil) }
 
-// StateStore returns the client configuration of a rediss:// State Store:
-// TLS 1.2 or newer, verified against the system roots for host. The
-// rueidis wrapper passes it to its dialer; host is the URL host without
-// port (an IP literal verifies IP SANs and sends no SNI).
+// StateStore returns the client configuration of a rediss:// State Store
+// connection without its TLS block: TLS 1.2 or newer, verified against the system
+// roots for host. The redis driver's dialer uses it per connection; host
+// is the dialed host without port (an IP literal verifies IP SANs and
+// sends no SNI).
 func StateStore(host string) *tls.Config {
 	c := Client(nil)
 	c.ServerName = serverName(host)

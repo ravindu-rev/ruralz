@@ -14,9 +14,11 @@ import (
 	"context"
 	"crypto/sha256"
 	"log/slog"
+	"sync/atomic"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clock"
+	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -32,10 +34,12 @@ const (
 // Topology is the redis deployment shape.
 type Topology uint8
 
-// Topologies.
+// Topologies: one endpoint that follows the primary, a Redis Cluster seed
+// list, or a Redis Sentinel seed list naming a master set.
 const (
 	TopologyStandalone Topology = iota + 1
 	TopologyCluster
+	TopologySentinel
 )
 
 // Role says which connection of a Gateway a driver serves.
@@ -64,12 +68,30 @@ const DefaultTimeout = 50 * time.Millisecond
 // Config is the resolved configuration of one driver. URL is a resolved
 // secret: never logged, rendered or put in an error.
 type Config struct {
-	Role           Role
-	Driver         DriverKind
-	Topology       Topology
-	URL            string
+	Role     Role
+	Driver   DriverKind
+	Topology Topology
+	URL      string
+	// TLS is the connection's TLS block: Gateway spec.stateStore.tls for
+	// the main connection, spec.stateStore.cache.tls for the cache; nil
+	// without it.
+	TLS            *TLS
 	DefaultTimeout time.Duration
 	Source         Source
+}
+
+// TLS is the client TLS setting of one redis connection, Gateway
+// spec.stateStore.tls or spec.stateStore.cache.tls: references converted
+// by secret.RefOf, each nil when unset, and the Revision's resolved
+// values. A driver builds its TLS
+// configuration from them at Open and follows their rotations, which reach
+// new connections only.
+type TLS struct {
+	CACertificate     *secret.Ref
+	ClientCertificate *secret.Ref
+	ClientKey         *secret.Ref
+	// Secrets holds the resolved values; nil fails Open.
+	Secrets secret.Store
 }
 
 // Digest is the SHA-256 of a key value (config.key result).
@@ -382,7 +404,10 @@ type Store interface {
 	Consume(ctx context.Context, rb *RequestBudget, calls []*Call) int
 	// Read runs independent read-only calls as one pipelined batch.
 	Read(ctx context.Context, rb *RequestBudget, calls []*Call)
-	// Write sends one post-commit batch (queue writers only).
+	// Write sends one batch of writes off the request path: a post-commit
+	// queue writer's batch, or a Response Cache revalidation worker's lease
+	// take, refresh or end-stale write, which needs its answer within the
+	// lease and so never queues.
 	Write(ctx context.Context, batch []*Write)
 	// AdmitStoreBytes applies the Response Cache memory rules to key's shard.
 	AdmitStoreBytes(key CacheKey, n int) bool
@@ -575,8 +600,52 @@ type Deps struct {
 	// Logger is from internal/telemetry; shards appear as ss-<8 hex>, never
 	// as the URL.
 	Logger *slog.Logger
+	// InFlight is the Node's in-flight ceiling, shared by every driver the
+	// Manager opens; nil makes a driver keep its own of Limits.InFlight.
+	InFlight *InFlight
 }
 
+// InFlight is the Node-wide ceiling on State Store calls in flight
+// (Limits.InFlight, 8,192): a call holds one slot from its send until its
+// reply or a connection reset, not until its caller's timeout. It is safe
+// for concurrent use.
+type InFlight struct {
+	n     atomic.Int64
+	limit int64
+}
+
+// NewInFlight returns a ceiling of limit slots; limit 0 or below takes
+// DefaultLimits().InFlight.
+func NewInFlight(limit int) *InFlight {
+	if limit <= 0 {
+		limit = DefaultLimits().InFlight
+	}
+	return &InFlight{limit: int64(limit)}
+}
+
+// TryAcquire takes a slot; false means the ceiling is full and the call is
+// skipped (RZ-STS-004).
+func (g *InFlight) TryAcquire() bool {
+	for {
+		n := g.n.Load()
+		if n >= g.limit {
+			return false
+		}
+		if g.n.CompareAndSwap(n, n+1) {
+			return true
+		}
+	}
+}
+
+// Release returns a slot TryAcquire took.
+func (g *InFlight) Release() { g.n.Add(-1) }
+
+// Len returns the slots in use.
+func (g *InFlight) Len() int { return int(g.n.Load()) }
+
 // Opener constructs a driver without dialing synchronously; it fails only
-// for an invalid configuration (RZ-CFG-026 reasons).
+// for an invalid configuration: a URL that does not fit its topology or a
+// TLS value that does not resolve (RZ-CFG-026), a URL the transport rules
+// refuse (RZ-CFG-042), or a client certificate without its key
+// (RZ-CFG-005).
 type Opener func(ctx context.Context, cfg Config, deps Deps) (Driver, error)

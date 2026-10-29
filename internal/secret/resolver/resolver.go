@@ -69,8 +69,14 @@ const (
 )
 
 // CodeUnresolvable is the diagnostic code of every failing use: an
-// unresolvable reference, or a value that fails its check.
+// unresolvable reference, or a value that fails its check, except a State
+// Store URL without credentials (CodeStateStoreURL).
 const CodeUnresolvable = "RZ-CFG-026"
+
+// CodeStateStoreURL is the diagnostic code of a State Store URL that names
+// a non-loopback host and carries no credentials (TB-4); the redis driver
+// refuses the URL's other transport faults with it at activation.
+const CodeStateStoreURL = "RZ-CFG-042"
 
 // Environment variable rules of the env provider.
 const (

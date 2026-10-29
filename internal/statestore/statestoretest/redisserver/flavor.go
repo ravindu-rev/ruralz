@@ -69,9 +69,9 @@ func ParseFlavor(s string) (Flavor, error) {
 func (f Flavor) Kinds() []Kind {
 	switch f {
 	case FlavorProcess:
-		return []Kind{Process, ProcessCluster}
+		return []Kind{Process, ProcessCluster, ProcessSentinel}
 	case FlavorContainer:
-		return []Kind{Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster}
+		return []Kind{Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster, Redis8Sentinel, Valkey9Sentinel}
 	default:
 		return nil
 	}
@@ -88,6 +88,9 @@ const (
 	// ProcessCluster is a three-primary cluster of local redis-server
 	// processes.
 	ProcessCluster Kind = "redis-server-cluster"
+	// ProcessSentinel is a local redis-server primary, its replica and a
+	// redis-server --sentinel monitoring them as master set MasterSet.
+	ProcessSentinel Kind = "redis-server-sentinel"
 	// Redis8 is ImageRedis8 through testcontainers-go modules/redis.
 	Redis8 Kind = "redis-8"
 	// Valkey9 is ImageValkey9 through modules/valkey.
@@ -100,14 +103,24 @@ const (
 	// Valkey9Cluster is a three-primary cluster of ImageValkey9 generic
 	// containers.
 	Valkey9Cluster Kind = "valkey-9-cluster"
+	// Redis8Sentinel is a primary, its replica and a sentinel monitoring
+	// them as master set MasterSet, ImageRedis8 generic containers.
+	Redis8Sentinel Kind = "redis-8-sentinel"
+	// Valkey9Sentinel is a primary, its replica and a sentinel monitoring
+	// them as master set MasterSet, ImageValkey9 generic containers.
+	Valkey9Sentinel Kind = "valkey-9-sentinel"
 )
+
+// MasterSet is the master set the sentinel kinds monitor: their URLs'
+// master_set.
+const MasterSet = "ruralz"
 
 // Flavor returns the flavor k runs in.
 func (k Kind) Flavor() Flavor {
 	switch k {
-	case Process, ProcessCluster:
+	case Process, ProcessCluster, ProcessSentinel:
 		return FlavorProcess
-	case Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster:
+	case Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster, Redis8Sentinel, Valkey9Sentinel:
 		return FlavorContainer
 	default:
 		return FlavorNone
@@ -119,17 +132,28 @@ func (k Kind) Topology() statestore.Topology {
 	switch k {
 	case ProcessCluster, Redis8Cluster, Valkey9Cluster:
 		return statestore.TopologyCluster
+	case ProcessSentinel, Redis8Sentinel, Valkey9Sentinel:
+		return statestore.TopologySentinel
 	default:
 		return statestore.TopologyStandalone
 	}
 }
 
+// server returns the server binary of a generic container of k:
+// valkey-server for the Valkey images, else redis-server.
+func (k Kind) server() string {
+	if k.Image() == ImageValkey9 {
+		return "valkey-server"
+	}
+	return "redis-server"
+}
+
 // Image returns the image k runs; "" for the process flavor.
 func (k Kind) Image() string {
 	switch k {
-	case Redis8, Redis8Cluster:
+	case Redis8, Redis8Cluster, Redis8Sentinel:
 		return ImageRedis8
-	case Valkey9, Valkey9Cluster:
+	case Valkey9, Valkey9Cluster, Valkey9Sentinel:
 		return ImageValkey9
 	case Dragonfly:
 		return ImageDragonfly
@@ -182,10 +206,14 @@ func (h host) redisServer() (path, missing string, err error) {
 }
 
 // containerMissing returns why container kind k cannot run on this host,
-// or "": a cluster needs a Linux host, and every kind a Docker daemon.
+// or "": a cluster or a sentinel kind needs a Linux host, and every kind a
+// Docker daemon.
 func (h host) containerMissing(ctx context.Context, k Kind) string {
-	if k.Topology() == statestore.TopologyCluster && h.goos != "linux" {
+	switch {
+	case k.Topology() == statestore.TopologyCluster && h.goos != "linux":
 		return "cluster members announce container IPs, which only a Linux host reaches"
+	case k.Topology() == statestore.TopologySentinel && h.goos != "linux":
+		return "a sentinel names its servers by container IP, which only a Linux host reaches"
 	}
 	if err := h.docker(ctx); err != nil {
 		return fmt.Sprintf("Docker is unavailable: %v", err)

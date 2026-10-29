@@ -61,9 +61,9 @@ func parseVersion(s string) (version, error) {
 // version k accepts; ok is false when k has no floor.
 func (k Kind) floor() (field string, oldest version, ok bool) {
 	switch k {
-	case Redis8, Redis8Cluster:
+	case Redis8, Redis8Cluster, Redis8Sentinel:
 		return "redis_version", version{8, 0, 0}, true
-	case Valkey9, Valkey9Cluster:
+	case Valkey9, Valkey9Cluster, Valkey9Sentinel:
 		return "valkey_version", version{9, 0, 1}, true
 	default:
 		return "", version{}, false

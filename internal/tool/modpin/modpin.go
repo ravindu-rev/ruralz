@@ -10,7 +10,6 @@
 package modpin
 
 import (
-	_ "github.com/redis/rueidis"
 	_ "go.opentelemetry.io/otel/metric"
 	_ "golang.org/x/net/http2"
 	_ "golang.org/x/sys/cpu"

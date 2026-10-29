@@ -190,10 +190,15 @@ func (rs *resolution) failRef(ref secret.Ref, reason error) {
 	}
 }
 
-// fail reports one failing use.
+// fail reports one failing use: CodeStateStoreURL for a State Store URL
+// without credentials, else CodeUnresolvable.
 func (rs *resolution) fail(u secret.Use, reason error) {
+	code := CodeUnresolvable
+	if errors.Is(reason, errURLNoCredentials) {
+		code = CodeStateStoreURL
+	}
 	d := diag.Diagnostic{
-		Code:     CodeUnresolvable,
+		Code:     code,
 		Severity: diag.SeverityError,
 		Location: u.Loc,
 		Path:     slices.Clone(u.Path),

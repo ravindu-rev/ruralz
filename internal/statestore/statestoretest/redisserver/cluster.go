@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"net"
 	"strconv"
 	"time"
 )
@@ -92,6 +93,54 @@ func waitReplica(ctx context.Context, r *Server) error {
 		}
 		return nil
 	})
+}
+
+// masterAddr returns the primary sentinel s names for set ("host:port").
+func masterAddr(ctx context.Context, s *Server, set string) (string, error) {
+	v, err := s.Do(ctx, "SENTINEL", "GET-MASTER-ADDR-BY-NAME", set)
+	if err != nil {
+		return "", err
+	}
+	if len(v.Elems) != 2 {
+		return "", fmt.Errorf("%s names no primary for %s: %v", s.name, set, v)
+	}
+	return net.JoinHostPort(v.Elems[0].Str, v.Elems[1].Str), nil
+}
+
+// waitSentinel waits until sentinel s names primary for set and lists
+// replica as a healthy replica, linked to its primary, so that SENTINEL
+// FAILOVER can promote it.
+func waitSentinel(ctx context.Context, s *Server, set string, primary, replica *Server) error {
+	return waitUntil(ctx, s.name+" to monitor "+primary.name+" and "+replica.name, func(ctx context.Context) error {
+		got, err := masterAddr(ctx, s, set)
+		if err != nil {
+			return err
+		}
+		if got != primary.addr {
+			return fmt.Errorf("%s names %s, want %s", s.name, got, primary.addr)
+		}
+		v, err := s.Do(ctx, "SENTINEL", "REPLICAS", set)
+		if err != nil {
+			return err
+		}
+		for _, r := range v.Elems {
+			f := fields(r)
+			if net.JoinHostPort(f["ip"], f["port"]) == replica.addr && f["flags"] == "slave" && f["master-link-status"] == "ok" {
+				return nil
+			}
+		}
+		return fmt.Errorf("%s lists no healthy replica %s: %v", s.name, replica.addr, v)
+	})
+}
+
+// fields returns the fields of a flat key and value array (RESP2), or of
+// a map (RESP3).
+func fields(v Value) map[string]string {
+	out := map[string]string{}
+	for i := 0; i+1 < len(v.Elems); i += 2 {
+		out[v.Elems[i].Str] = v.Elems[i+1].Str
+	}
+	return out
 }
 
 // waitServing waits until s answers PING, then checks its version floor.

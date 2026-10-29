@@ -140,6 +140,12 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 		u := o.Users[0]
 		d.acc.user, d.acc.dial.user, d.acc.dial.password = &u, u.Name, u.Password
 	}
+	if k.Topology() == statestore.TopologySentinel {
+		if err := l.startSentinel(ctx, base, d, cfg); err != nil {
+			return nil, err
+		}
+		return d, nil
+	}
 	cluster := k.Topology() == statestore.TopologyCluster
 	n := 1
 	if cluster {
@@ -180,6 +186,42 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 		d.replica = r
 	}
 	return d, nil
+}
+
+// startSentinel starts the sentinel kind's servers into d: a primary, its
+// replica, synced, and a sentinel monitoring them as MasterSet, and waits
+// until the sentinel lists the replica as healthy, so that Failover can
+// promote it. The sentinel takes the deployment's TLS and users, but not
+// Options.Config, which is the servers'.
+func (l *launcher) startSentinel(ctx context.Context, base string, d *Deployment, cfg nodeConfig) error {
+	name := string(d.kind)
+	pc := cfg
+	pc.linkAuth = true
+	p, err := l.startNode(ctx, base, name+"-primary", pc, d.acc, false, nil)
+	if err != nil {
+		return err
+	}
+	rc := cfg
+	rc.primary = p.addr
+	r, err := l.startNode(ctx, base, name+"-replica", rc, d.acc, false, nil)
+	if err != nil {
+		return err
+	}
+	if err := waitReplica(ctx, r); err != nil {
+		return err
+	}
+	sc := cfg
+	sc.extra = nil
+	sc.sentinel = &sentinelConfig{masterSet: MasterSet, primary: p.addr}
+	s, err := l.startNode(ctx, base, name+"-sentinel", sc, d.acc, false, nil)
+	if err != nil {
+		return err
+	}
+	if err := waitSentinel(ctx, s, MasterSet, p, r); err != nil {
+		return err
+	}
+	d.nodes, d.replica, d.sentinels, d.masterSet = []*Server{p}, r, []*Server{s}, MasterSet
+	return nil
 }
 
 // startNode starts one redis-server on fresh ports, retrying when another
@@ -230,11 +272,16 @@ func (l *launcher) startNode(ctx context.Context, base, name string, cfg nodeCon
 	return nil, fmt.Errorf("redisserver: %s: no free port in %d attempts: %w", name, portAttempts, last)
 }
 
-// start writes the configuration, starts redis-server and waits until it
-// is ready and answers PING.
+// start writes the configuration, starts redis-server (with --sentinel
+// for a sentinel, which rewrites its configuration file as it runs) and
+// waits until it is ready and answers PING.
 func (s *Server) start(ctx context.Context) error {
 	s.mu.Lock()
 	cfg := s.node
+	if cfg.sentinel != nil {
+		sc := *cfg.sentinel
+		cfg.sentinel = &sc
+	}
 	s.mu.Unlock()
 	ds, err := cfg.directives()
 	if err != nil {
@@ -244,10 +291,16 @@ func (s *Server) start(ctx context.Context) error {
 	if err := os.WriteFile(conf, render(ds, cfg.extra), 0o600); err != nil {
 		return fmt.Errorf("redisserver: %w", err)
 	}
+	args := append(slices.Clone(s.l.args), conf)
+	ready := regexp.MustCompile(`Ready to accept connections`)
+	if cfg.sentinel != nil {
+		args = append(args, "--sentinel")
+		ready = regexp.MustCompile(`Sentinel ID is`)
+	}
 	// The process outlives ctx, which bounds the start alone; cleanup
 	// ends it with the test.
 	p, err := proc.Start(context.WithoutCancel(ctx), proc.Spec{
-		Name: s.name, Path: s.l.path, Args: append(slices.Clone(s.l.args), conf),
+		Name: s.name, Path: s.l.path, Args: args,
 		Env: s.l.env, Dir: cfg.dir, RingBytes: outputBytes,
 	})
 	if err != nil {
@@ -256,7 +309,7 @@ func (s *Server) start(ctx context.Context) error {
 	s.mu.Lock()
 	s.proc = p
 	s.mu.Unlock()
-	_, err = p.WaitOutput(ctx, regexp.MustCompile(`Ready to accept connections`))
+	_, err = p.WaitOutput(ctx, ready)
 	if err == nil {
 		_, err = s.Do(ctx, "PING")
 	}

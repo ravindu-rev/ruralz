@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clock"
+	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/statestore/postcommit"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
@@ -116,12 +117,21 @@ func (h *Handle) Release() {
 }
 
 // key identifies a shareable driver: memory by role only, redis by role,
-// topology and URL.
+// topology, URL and the stateStore.tls references. Rotations of the
+// referenced values keep the driver, which follows them itself.
 type key struct {
 	role     statestore.Role
 	driver   statestore.DriverKind
 	topology statestore.Topology
 	url      string
+	tls      tlsKey
+}
+
+// tlsKey is the comparable form of a statestore.TLS: whether it is set,
+// and its references, zero when unset.
+type tlsKey struct {
+	set                 bool
+	ca, cert, clientKey secret.Ref
 }
 
 // keyOf returns cfg's key.
@@ -129,8 +139,20 @@ func keyOf(cfg statestore.Config) key {
 	k := key{role: cfg.Role, driver: cfg.Driver}
 	if cfg.Driver != statestore.DriverMemory {
 		k.topology, k.url = cfg.Topology, cfg.URL
+		if t := cfg.TLS; t != nil {
+			k.tls = tlsKey{set: true, ca: refOrZero(t.CACertificate), cert: refOrZero(t.ClientCertificate), clientKey: refOrZero(t.ClientKey)}
+		}
 	}
 	return k
+}
+
+// refOrZero returns *r, or the zero Ref for nil; no resolvable reference is
+// the zero Ref.
+func refOrZero(r *secret.Ref) secret.Ref {
+	if r == nil {
+		return secret.Ref{}
+	}
+	return *r
 }
 
 // entry is one open driver. refs counts live handles and queued writes;
@@ -240,6 +262,10 @@ func New(ctx context.Context, cfg Config) *Manager {
 	}
 	if deps.Limits == (statestore.Limits{}) {
 		deps.Limits = statestore.DefaultLimits()
+	}
+	if deps.InFlight == nil {
+		// One ceiling for the Node: every driver shares it.
+		deps.InFlight = statestore.NewInFlight(deps.Limits.InFlight)
 	}
 	every := cfg.StatusInterval
 	if every <= 0 {
@@ -585,6 +611,8 @@ func topologyName(t statestore.Topology) string {
 		return "standalone"
 	case statestore.TopologyCluster:
 		return "cluster"
+	case statestore.TopologySentinel:
+		return "sentinel"
 	default:
 		return ""
 	}

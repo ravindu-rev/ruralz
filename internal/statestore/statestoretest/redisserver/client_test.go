@@ -197,21 +197,25 @@ func TestServerHelpers(t *testing.T) {
 }
 
 // TestBuildURL checks the State Store URL forms of the configuration
-// model: one endpoint, a cluster's seeds as addr parameters, rediss://
-// under TLS, and escaped credentials.
+// model: one endpoint, a cluster's seeds as addr parameters, a sentinel
+// deployment's sentinels and its master_set, rediss:// under TLS, and
+// escaped credentials.
 func TestBuildURL(t *testing.T) {
 	for _, tc := range []struct {
-		acc   access
-		addrs []string
-		want  string
+		acc       access
+		addrs     []string
+		masterSet string
+		want      string
 	}{
-		{access{scheme: "redis"}, []string{"127.0.0.1:7000"}, "redis://127.0.0.1:7000"},
-		{access{scheme: "rediss", user: &User{Name: "u", Password: "p@ss word"}}, []string{"127.0.0.1:7000"}, "rediss://u:p%40ss%20word@127.0.0.1:7000"},
-		{access{scheme: "redis"}, []string{"a:1", "b:2", "c:3"}, "redis://a:1?addr=b:2&addr=c:3"},
-		{access{scheme: "rediss", user: &User{Name: "default", Password: "x"}}, []string{"[::1]:1", "[::1]:2"}, "rediss://default:x@[::1]:1?addr=[::1]:2"},
+		{access{scheme: "redis"}, []string{"127.0.0.1:7000"}, "", "redis://127.0.0.1:7000"},
+		{access{scheme: "rediss", user: &User{Name: "u", Password: "p@ss word"}}, []string{"127.0.0.1:7000"}, "", "rediss://u:p%40ss%20word@127.0.0.1:7000"},
+		{access{scheme: "redis"}, []string{"a:1", "b:2", "c:3"}, "", "redis://a:1?addr=b:2&addr=c:3"},
+		{access{scheme: "rediss", user: &User{Name: "default", Password: "x"}}, []string{"[::1]:1", "[::1]:2"}, "", "rediss://default:x@[::1]:1?addr=[::1]:2"},
+		{access{scheme: "redis"}, []string{"127.0.0.1:26379"}, "ruralz", "redis://127.0.0.1:26379?master_set=ruralz"},
+		{access{scheme: "rediss", user: &User{Name: "u", Password: "p"}}, []string{"s:1", "s:2"}, "a set", "rediss://u:p@s:1?addr=s:2&master_set=a+set"},
 	} {
-		if got := buildURL(tc.acc, tc.addrs); got != tc.want {
-			t.Errorf("buildURL(%v) = %q, want %q", tc.addrs, got, tc.want)
+		if got := buildURL(tc.acc, tc.addrs, tc.masterSet); got != tc.want {
+			t.Errorf("buildURL(%v, %q) = %q, want %q", tc.addrs, tc.masterSet, got, tc.want)
 		}
 	}
 }

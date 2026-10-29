@@ -6,7 +6,9 @@
 package redisserver
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/url"
 	"slices"
@@ -20,14 +22,15 @@ import (
 
 // Integration tests against real servers: redis-server for the process
 // flavor, the images for the container flavor. Where a kind cannot run
-// (no redis-server, no Docker, a cluster container off Linux), its test
+// (no redis-server, no Docker, a cluster or sentinel container off
+// Linux), its test
 // fails when RURALZ_TEST_STATESTORE selects the kind's flavor and skips
 // otherwise; a container kind also skips unless the variable is
 // container.
 
 // TestSelectedKinds starts every kind RURALZ_TEST_STATESTORE selects and
-// checks that it serves at its URL: each primary answers, holds a key,
-// and a cluster serves every slot.
+// checks that it serves at its URL: each primary answers, holds a key, a
+// cluster serves every slot, and a sentinel names the primary.
 func TestSelectedKinds(t *testing.T) {
 	for _, k := range Kinds(t) {
 		t.Run(string(k), func(t *testing.T) {
@@ -37,7 +40,16 @@ func TestSelectedKinds(t *testing.T) {
 				t.Fatal(err)
 			}
 			nodes := d.Nodes()
-			if u.Scheme != "redis" || u.Host != nodes[0].ClientAddr() || len(u.Query()["addr"]) != len(nodes)-1 {
+			if d.Topology() == statestore.TopologySentinel {
+				s := d.Sentinels()[0]
+				if u.Scheme != "redis" || u.Host != s.ClientAddr() || u.Query().Get("master_set") != MasterSet || len(nodes) != 1 {
+					t.Errorf("URL %q for %d nodes", d.URL(), len(nodes))
+				}
+				v := mustDo(t, s, "SENTINEL", "GET-MASTER-ADDR-BY-NAME", MasterSet)
+				if len(v.Elems) != 2 || net.JoinHostPort(v.Elems[0].Str, v.Elems[1].Str) != nodes[0].Addr() {
+					t.Errorf("the sentinel names %v, want %s", v, nodes[0].Addr())
+				}
+			} else if u.Scheme != "redis" || u.Host != nodes[0].ClientAddr() || len(u.Query()["addr"]) != len(nodes)-1 {
 				t.Errorf("URL %q for %d nodes", d.URL(), len(nodes))
 			}
 			for _, n := range nodes {
@@ -45,7 +57,7 @@ func TestSelectedKinds(t *testing.T) {
 					t.Fatalf("%s: PING = %v", n.Name(), v)
 				}
 			}
-			if d.Topology() == statestore.TopologyStandalone {
+			if d.Topology() != statestore.TopologyCluster {
 				mustDo(t, nodes[0], "SET", "ruralz:k", "v")
 				if v := mustDo(t, nodes[0], "GET", "ruralz:k"); v.Str != "v" {
 					t.Fatalf("GET = %v", v)
@@ -134,6 +146,42 @@ func TestProcessFailoverLive(t *testing.T) {
 	}
 	if v := mustDo(t, primary, "GET", "k"); !v.Null {
 		t.Errorf("restarted primary GET = %v, want nil", v)
+	}
+}
+
+// TestProcessSentinelFailoverLive checks the sentinel kind on real
+// servers, with TLS and users: data written to the primary reaches the
+// replica, SENTINEL FAILOVER promotes the replica, which takes writes,
+// and the sentinel turns the former primary into its replica.
+func TestProcessSentinelFailoverLive(t *testing.T) {
+	d := Start(t, ProcessSentinel, Options{TLS: true, Users: []User{{Name: "ruralz", Password: "s3cret pw"}}})
+	primary, replica := d.Primary(), d.Replica()
+	mustDo(t, primary, "SET", "k", "v")
+	mustDo(t, primary, "WAIT", "1", "5000")
+	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
+		t.Fatalf("replica GET = %v", v)
+	}
+	if v := mustDo(t, d.Sentinels()[0], "ACL", "WHOAMI"); v.Str != "ruralz" {
+		t.Errorf("sentinel ACL WHOAMI = %v", v)
+	}
+	if err := d.Failover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if d.Primary() != replica || d.Replica() != primary {
+		t.Fatalf("after Failover: primary %s", d.Primary().Name())
+	}
+	mustDo(t, replica, "SET", "k2", "v2")
+	if err := waitUntil(t.Context(), "the former primary to follow", func(ctx context.Context) error {
+		info, err := primary.Info(ctx, "replication")
+		if err != nil {
+			return err
+		}
+		if info["role"] != "slave" || info["master_link_status"] != "up" {
+			return fmt.Errorf("role %q, link %q", info["role"], info["master_link_status"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 

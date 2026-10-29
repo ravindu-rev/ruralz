@@ -31,7 +31,10 @@
 // before the swap; the old driver closes once the last snapshot holding it
 // is freed and the post-commit queue has written or dropped every write
 // queued for it. Without a cache connection the Cache handle is the Main
-// handle, released once.
+// handle, released once. Every driver receives the Node's one in-flight
+// ceiling (statestore.InFlight of Limits.InFlight, 8,192), so the main and
+// cache connections, and the old and new drivers of a Hot Reload, share
+// it.
 //
 // # Post-commit queue
 //

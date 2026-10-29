@@ -50,6 +50,9 @@ func TestKindProperties(t *testing.T) {
 	}{
 		{Process, FlavorProcess, statestore.TopologyStandalone, ""},
 		{ProcessCluster, FlavorProcess, statestore.TopologyCluster, ""},
+		{ProcessSentinel, FlavorProcess, statestore.TopologySentinel, ""},
+		{Redis8Sentinel, FlavorContainer, statestore.TopologySentinel, ImageRedis8},
+		{Valkey9Sentinel, FlavorContainer, statestore.TopologySentinel, ImageValkey9},
 		{Redis8, FlavorContainer, statestore.TopologyStandalone, ImageRedis8},
 		{Valkey9, FlavorContainer, statestore.TopologyStandalone, ImageValkey9},
 		{Dragonfly, FlavorContainer, statestore.TopologyStandalone, ImageDragonfly},
@@ -80,11 +83,25 @@ func TestKindProperties(t *testing.T) {
 	}
 }
 
+// TestServerBinary checks the server binary of each container kind's
+// generic containers: valkey-server on the Valkey images, redis-server on
+// the others.
+func TestServerBinary(t *testing.T) {
+	for k, want := range map[Kind]string{
+		Valkey9Cluster: "valkey-server", Valkey9Sentinel: "valkey-server",
+		Redis8Cluster: "redis-server", Redis8Sentinel: "redis-server",
+	} {
+		if got := k.server(); got != want {
+			t.Errorf("%s.server() = %q, want %q", k, got, want)
+		}
+	}
+}
+
 // TestKindsFromEnvironment checks that Kinds follows RURALZ_TEST_STATESTORE
 // and skips without it.
 func TestKindsFromEnvironment(t *testing.T) {
 	t.Setenv(EnvStateStore, "process")
-	if got := Kinds(t); !slices.Equal(got, []Kind{Process, ProcessCluster}) {
+	if got := Kinds(t); !slices.Equal(got, []Kind{Process, ProcessCluster, ProcessSentinel}) {
 		t.Errorf("Kinds with process = %v", got)
 	}
 	t.Setenv(EnvStateStore, "container")
@@ -158,6 +175,10 @@ func TestContainerMissing(t *testing.T) {
 		wantDocker int
 	}{
 		{"cluster off Linux", "windows", Redis8Cluster, nil, "Linux", 0},
+		{"sentinel off Linux", "darwin", Redis8Sentinel, nil, "Linux", 0},
+		{"sentinel on Linux", "linux", Redis8Sentinel, nil, "", 1},
+		{"Valkey sentinel off Linux", "windows", Valkey9Sentinel, nil, "Linux", 0},
+		{"Valkey sentinel, no Docker", "linux", Valkey9Sentinel, errors.New("no daemon"), "Docker is unavailable", 1},
 		{"no Docker", "linux", Dragonfly, errors.New("no daemon"), "Docker is unavailable: no daemon", 1},
 		{"standalone off Linux", "darwin", Valkey9, nil, "", 1},
 		{"cluster on Linux", "linux", Valkey9Cluster, nil, "", 1},
@@ -200,6 +221,11 @@ func TestSelectedFlavorFailsWithoutPrerequisite(t *testing.T) {
 		{"process selected, redis-server found", process, found, "linux", nil, ProcessCluster, "/usr/bin/redis-server", "", "", 0},
 		{"container selected, no Docker", container, nil, "linux", down, Redis8, "", "", "Docker is unavailable", 1},
 		{"container selected, cluster off Linux", container, nil, "darwin", nil, Valkey9Cluster, "", "", "Linux", 0},
+		{"container selected, sentinel off Linux", container, nil, "windows", nil, Redis8Sentinel, "", "", "Linux", 0},
+		{"container selected, Valkey sentinel, no Docker", container, nil, "linux", down, Valkey9Sentinel, "", "", "Docker is unavailable", 1},
+		{"container unselected, Valkey sentinel", process, nil, "linux", down, Valkey9Sentinel, "", EnvStateStore + "=container", "", 0},
+		{"process selected, sentinel without redis-server", process, nil, "linux", nil, ProcessSentinel, "", "", "no redis-server", 0},
+		{"process unset, sentinel without redis-server", nil, nil, "linux", nil, ProcessSentinel, "", "no redis-server", "", 0},
 		{"container selected, Docker answers", container, nil, "linux", nil, Dragonfly, "", "", "", 1},
 		{"container unset", nil, nil, "linux", down, Redis8, "", EnvStateStore + "=container", "", 0},
 		{"container unselected", process, nil, "linux", down, Valkey9Cluster, "", EnvStateStore + "=container", "", 0},

@@ -7,12 +7,14 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -249,7 +251,10 @@ func helperLauncher(t *testing.T, ports func(context.Context) (int, error)) *lau
 // TestHelperRedisServer is the fake redis-server of the process-flavor
 // tests: it reads the configuration file the launcher writes, refuses
 // what it does not know as Redis does, binds the port or TLS port, logs
-// Redis's readiness line and answers the commands the launcher sends.
+// Redis's readiness line, or with --sentinel the sentinel's, and answers
+// the commands the launcher sends. A replica registers with its primary
+// (REPLCONF listening-port), whose INFO replication then lists it, as the
+// sentinel reads it.
 func TestHelperRedisServer(t *testing.T) {
 	if os.Getenv(helperEnv) == "" {
 		t.Skip("child process of the process-flavor tests")
@@ -265,8 +270,56 @@ func knownDirectives() map[string]bool {
 		"tls-replication": true, "tls-cluster": true, "user": true, "replicaof": true, "masteruser": true,
 		"masterauth": true, "cluster-enabled": true, "cluster-config-file": true, "cluster-port": true,
 		"cluster-announce-ip": true, "cluster-announce-port": true, "cluster-announce-tls-port": true,
-		"maxmemory": true,
+		"maxmemory": true, "sentinel": true,
 	}
+}
+
+// linkOptions returns how a fake server reaches another: TLS trusting the
+// configured CA when tls-replication is on, and the given credentials.
+func linkOptions(conf [][]string, user, password string) (dialOptions, error) {
+	o := dialOptions{user: user, password: password}
+	if v, ok := lookup(conf, "tls-replication"); ok && v[0] == "yes" {
+		ca, _ := lookup(conf, "tls-ca-cert-file")
+		pem, err := os.ReadFile(ca[0])
+		if err != nil {
+			return o, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(pem) {
+			return o, errors.New("no CA certificate")
+		}
+		o.tls = &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}
+	}
+	return o, nil
+}
+
+// linkDo runs one command on a fresh connection to addr.
+func linkDo(o dialOptions, addr string, args ...string) (Value, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	c, err := dialConn(ctx, addr, o)
+	if err != nil {
+		return Value{}, err
+	}
+	defer func() { _ = c.Close() }()
+	return c.Do(ctx, args...)
+}
+
+// registerReplica tells the primary of a fake replica its port, as a real
+// replica does in its sync handshake.
+func registerReplica(conf [][]string, port string) error {
+	rp, ok := lookup(conf, "replicaof")
+	if !ok {
+		return nil
+	}
+	user, _ := lookup(conf, "masteruser")
+	pass, _ := lookup(conf, "masterauth")
+	o, err := linkOptions(conf, strings.Join(user, ""), strings.Join(pass, ""))
+	if err != nil {
+		return err
+	}
+	_, err = linkDo(o, net.JoinHostPort(rp[0], rp[1]), "REPLCONF", "listening-port", port)
+	return err
 }
 
 func fakeRedisMain(args []string) int {
@@ -275,7 +328,13 @@ func fakeRedisMain(args []string) int {
 		_, _ = fmt.Fprintln(out, "no configuration file")
 		return 1
 	}
-	text, err := os.ReadFile(args[len(args)-1])
+	sentinel := slices.Contains(args, "--sentinel")
+	confIdx := slices.IndexFunc(args, func(a string) bool { return !strings.HasPrefix(a, "-") })
+	if confIdx < 0 {
+		_, _ = fmt.Fprintln(out, "no configuration file")
+		return 1
+	}
+	text, err := os.ReadFile(args[confIdx])
 	if err != nil {
 		_, _ = fmt.Fprintln(out, err)
 		return 1
@@ -319,7 +378,22 @@ func fakeRedisMain(args []string) int {
 	if cfg != nil {
 		ln = tls.NewListener(ln, cfg)
 	}
+	if sentinel {
+		s, err := newFakeSentinel(conf)
+		if err != nil {
+			_, _ = fmt.Fprintln(out, err)
+			return 1
+		}
+		serveFake(ln, s.handle)
+		_, _ = fmt.Fprintln(out, "# Sentinel ID is 0000000000000000000000000000000000000000")
+		time.Sleep(time.Hour) // until the parent kills it
+		return 0
+	}
 	serveFake(ln, newFakeRedis(conf).handle)
+	if err := registerReplica(conf, port[0]); err != nil {
+		_, _ = fmt.Fprintf(out, "replica registration: %v\n", err)
+		return 1
+	}
 	_, _ = fmt.Fprintln(out, "* Ready to accept connections tcp")
 	time.Sleep(time.Hour) // until the parent kills it
 	return 0
@@ -343,6 +417,7 @@ type fakeRedis struct {
 	noAuth   bool              // the default user is on without a password
 	replica  bool
 	clusterd bool
+	replicas []string // "host:port" of the replicas that registered
 }
 
 func newFakeRedis(conf [][]string) *fakeRedis {
@@ -405,10 +480,23 @@ func (r *fakeRedis) handle(s *session, args []string) string {
 		role, link := "master", ""
 		if r.replica {
 			role, link = "slave", "master_link_status:up\r\n"
+		} else {
+			link = "connected_slaves:" + strconv.Itoa(len(r.replicas)) + "\r\n"
+			for i, a := range r.replicas {
+				host, port, _ := net.SplitHostPort(a)
+				link += fmt.Sprintf("slave%d:ip=%s,port=%s,state=online,offset=0,lag=0\r\n", i, host, port)
+			}
 		}
 		return bulk("# Server\r\nredis_version:7.0.15\r\n\r\n# Replication\r\nrole:" + role + "\r\n" + link)
 	case "REPLICAOF":
-		r.replica = false
+		r.replica = len(args) != 3 || !strings.EqualFold(args[1], "NO") || !strings.EqualFold(args[2], "ONE")
+		return "+OK\r\n"
+	case "REPLCONF":
+		if len(args) == 3 && strings.EqualFold(args[1], "listening-port") {
+			if a := net.JoinHostPort("127.0.0.1", args[2]); !slices.Contains(r.replicas, a) {
+				r.replicas = append(r.replicas, a)
+			}
+		}
 		return "+OK\r\n"
 	case "CONFIG":
 		if v, ok := lookup(r.conf, args[2]); ok {
@@ -425,4 +513,133 @@ func (r *fakeRedis) handle(s *session, args []string) string {
 		return "+OK\r\n"
 	}
 	return fmt.Sprintf("-ERR unknown command '%s'\r\n", args[0])
+}
+
+// fakeSentinel answers like redis-server --sentinel for what the launcher
+// and the tests send: AUTH and PING as a server does, SENTINEL
+// GET-MASTER-ADDR-BY-NAME, REPLICAS, read from the primary's INFO
+// replication, and FAILOVER, which sends the first replica REPLICAOF NO
+// ONE and the primary REPLICAOF that replica. It reaches its servers as
+// its configuration says: TLS with tls-replication, auth-user and
+// auth-pass.
+type fakeSentinel struct {
+	auth *fakeRedis // the sentinel's own users
+	link dialOptions
+
+	mu      sync.Mutex
+	masters map[string]string // master set: "host:port"
+}
+
+func newFakeSentinel(conf [][]string) (*fakeSentinel, error) {
+	f := &fakeSentinel{auth: newFakeRedis(conf), masters: map[string]string{}}
+	var user, pass string
+	for _, d := range conf {
+		if d[0] != "sentinel" || len(d) < 4 {
+			continue
+		}
+		switch d[1] {
+		case "monitor":
+			if len(d) != 6 {
+				return nil, fmt.Errorf("sentinel monitor %q", d)
+			}
+			f.masters[d[2]] = net.JoinHostPort(d[3], d[4])
+		case "auth-user":
+			user = d[3]
+		case "auth-pass":
+			pass = d[3]
+		}
+	}
+	link, err := linkOptions(conf, user, pass)
+	f.link = link
+	return f, err
+}
+
+func (f *fakeSentinel) handle(s *session, args []string) string {
+	name := strings.ToUpper(args[0])
+	if name == "AUTH" {
+		return f.auth.handle(s, args)
+	}
+	if !f.auth.noAuth && s.user == "" {
+		return "-NOAUTH Authentication required.\r\n"
+	}
+	switch name {
+	case "PING":
+		return "+PONG\r\n"
+	case "INFO":
+		return bulk("# Server\r\nredis_version:7.0.15\r\nredis_mode:sentinel\r\n")
+	case "SENTINEL":
+	default:
+		return fmt.Sprintf("-ERR unknown command '%s'\r\n", args[0])
+	}
+	if len(args) < 3 {
+		return "-ERR wrong number of arguments for 'sentinel' command\r\n"
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	master, ok := f.masters[args[2]]
+	if !ok {
+		return "-ERR No such master with that name\r\n"
+	}
+	switch strings.ToUpper(args[1]) {
+	case "GET-MASTER-ADDR-BY-NAME":
+		host, port, _ := net.SplitHostPort(master)
+		return "*2\r\n" + bulk(host) + bulk(port)
+	case "REPLICAS", "SLAVES":
+		replicas, err := f.replicas(master)
+		if err != nil {
+			return "-ERR the primary does not answer\r\n"
+		}
+		out := "*" + strconv.Itoa(len(replicas)) + "\r\n"
+		for _, a := range replicas {
+			host, port, _ := net.SplitHostPort(a)
+			out += "*10\r\n" + bulk("name") + bulk(a) + bulk("ip") + bulk(host) + bulk("port") + bulk(port) +
+				bulk("flags") + bulk("slave") + bulk("master-link-status") + bulk("ok")
+		}
+		return out
+	case "FAILOVER":
+		replicas, err := f.replicas(master)
+		if err != nil || len(replicas) == 0 {
+			return "-NOGOODSLAVE No suitable replica to promote\r\n"
+		}
+		next := replicas[0]
+		host, port, _ := net.SplitHostPort(next)
+		if _, err := linkDo(f.link, next, "REPLICAOF", "NO", "ONE"); err != nil {
+			return "-ERR the replica does not answer\r\n"
+		}
+		if _, err := linkDo(f.link, master, "REPLICAOF", host, port); err != nil {
+			return "-ERR the primary does not answer\r\n"
+		}
+		f.masters[args[2]] = next
+		return "+OK\r\n"
+	default:
+		return fmt.Sprintf("-ERR unknown sentinel subcommand '%s'\r\n", args[1])
+	}
+}
+
+// replicas returns the replicas the primary at addr lists.
+func (f *fakeSentinel) replicas(addr string) ([]string, error) {
+	v, err := linkDo(f.link, addr, "INFO", "replication")
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for line := range strings.Lines(v.Str) {
+		k, val, ok := strings.Cut(strings.TrimRight(line, "\r\n"), ":")
+		if !ok || !strings.HasPrefix(k, "slave") || k == "slave_read_only" {
+			continue
+		}
+		var ip, port string
+		for kv := range strings.SplitSeq(val, ",") {
+			switch name, value, _ := strings.Cut(kv, "="); name {
+			case "ip":
+				ip = value
+			case "port":
+				port = value
+			}
+		}
+		if ip != "" && port != "" {
+			out = append(out, net.JoinHostPort(ip, port))
+		}
+	}
+	return out, nil
 }

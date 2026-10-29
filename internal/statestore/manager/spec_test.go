@@ -159,7 +159,7 @@ func redact(c statestore.Config) statestore.Config {
 func TestSpecOfErrors(t *testing.T) {
 	redis := v1alpha1.StateStoreDriverRedis
 	unknownDriver := v1alpha1.StateStoreDriver("etcd")
-	unknownTopology := v1alpha1.StateStoreTopology("sentinel")
+	unknownTopology := v1alpha1.StateStoreTopology("ring")
 	missing := v1alpha1.SecretRef{Provider: v1alpha1.SecretProviderFile, Name: "/etc/ruralz/missing"}
 	tests := []struct {
 		name string

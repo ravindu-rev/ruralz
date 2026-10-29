@@ -82,6 +82,17 @@ func OTLP(spec *ClientSpec, secrets secret.Store) (*ClientConfig, error) {
 	return newClientConfig(*spec, secrets)
 }
 
+// StateStoreClient builds the TLS configuration of a State Store
+// connection under its Gateway TLS block, stateStore.tls or
+// stateStore.cache.tls (CACertificate, ClientCertificate, ClientKey): the
+// Upstream rules without SNI, which the block does not have, so ForHost
+// verifies each dialed server, cluster node or sentinel for its own host.
+// Without the block the driver uses StateStore.
+func StateStoreClient(spec ClientSpec, secrets secret.Store) (*ClientConfig, error) {
+	spec.SNI = ""
+	return newClientConfig(spec, secrets)
+}
+
 func newClientConfig(spec ClientSpec, secrets secret.Store) (*ClientConfig, error) {
 	if (spec.ClientCertificate == nil) != (spec.ClientKey == nil) {
 		return nil, errcode.Errorf(codeSchema, "tls.clientCertificate and tls.clientKey must be set together")
