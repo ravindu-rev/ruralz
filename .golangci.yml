@@ -166,14 +166,18 @@ linters:
               desc: filters depend on configuration, not the reverse; checks are injected
             - pkg: github.com/ravindu-rev/ruralz/internal/statestore
               desc: the configuration pipeline never talks to a State Store
-            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli$
+              desc: the configuration pipeline is shared by all binaries
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli/
               desc: the configuration pipeline is shared by all binaries
         filter:
           files: ["**/internal/filter/**", "**/internal/identity/**", "**/internal/statestore/**"]
           deny:
             - pkg: github.com/ravindu-rev/ruralz/internal/gateway
               desc: filters and stores are data-plane neutral; the gateway implements their contracts
-            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli$
+              desc: the CLI is never linked into filters
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli/
               desc: the CLI is never linked into filters
         contracts:
           list-mode: strict
@@ -198,7 +202,9 @@ linters:
               desc: the gateway stands alone (P2)
             - pkg: github.com/ravindu-rev/ruralz/internal/controlstore
               desc: ruralzd never links the Control Store (P2)
-            - pkg: github.com/ravindu-rev/ruralz/internal/cli
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli$
+              desc: the gateway never links the CLI
+            - pkg: github.com/ravindu-rev/ruralz/internal/cli/
               desc: the gateway never links the CLI
         control:
           files: ["**/internal/control/**"]
