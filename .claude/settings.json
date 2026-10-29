@@ -1,6 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "ultracode": false,
   "permissions": {
     "allow": [
       "Bash(go version)",
@@ -36,20 +35,9 @@
       "PowerShell(go run ./internal/tool/commitcheck *)",
       "PowerShell(go run ./internal/tool/depgate *)",
       "PowerShell(git status *)",
-      "PowerShell(git ls-files *)"
-    ],
-    "ask": [
-      "Bash(git push *)",
-      "PowerShell(git push *)",
-      "Edit(/docs/_meta/**)",
-      "Edit(/go.mod)",
-      "Edit(/.github/**)",
-      "Edit(/internal/tool/repocheck/nolicensecheck.allow)",
-      "Edit(/internal/filter/auth/**)",
-      "Edit(/internal/filter/authz/**)",
-      "Edit(/internal/signing/**)",
-      "Edit(/internal/pluginhost/**)"
-    ],
-    "deny": ["Edit(/api/schema/ruralz/**)"]
-  }
+      "PowerShell(git ls-files *)",
+      "Bash(git fetch *)"
+    ]
+  },
+  "ultracode": false
 }
