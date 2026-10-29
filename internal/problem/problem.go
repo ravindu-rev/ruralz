@@ -93,6 +93,8 @@ func Title(code string, status int) string {
 		return "No admin endpoint"
 	case "RZ-RT-021":
 		return "Method not allowed on admin endpoint"
+	case "RZ-RT-022":
+		return "Invalid tap sample rate"
 	}
 	if t := http.StatusText(status); t != "" {
 		return t

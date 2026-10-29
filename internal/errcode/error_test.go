@@ -110,6 +110,8 @@ func TestM1Codes(t *testing.T) {
 		{"RZ-RT-017", AreaRT, 400, false},
 		{"RZ-RT-018", AreaRT, 504, false},
 		{"RZ-RT-019", AreaRT, 503, false},
+		// An invalid /tap ?sample= value.
+		{"RZ-RT-022", AreaRT, 400, false},
 		{"RZ-UP-011", AreaUP, 502, false},
 		{"RZ-AUTH-008", AreaAUTH, 421, false},
 	}
