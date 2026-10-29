@@ -123,8 +123,8 @@ type Tee struct {
 func (t *Tee) Result() ([]byte, bool) { return t.Body, t.Complete }
 
 // Exchange is an in-memory filter.Exchange. Zero values are usable;
-// recorded effects (identity, rate-limit fields, annotations, replaced
-// response) are readable after Handle returns.
+// recorded effects (identity, rate-limit fields, cache result, annotations,
+// replaced response) are readable after Handle returns.
 type Exchange struct {
 	ID            string
 	Start         time.Time
@@ -154,6 +154,7 @@ type Exchange struct {
 	// Effects recorded by the Filter under test.
 	Replaced    *filter.Response
 	RateLimits  []filter.RateLimitField
+	CacheResult string
 	Annotations map[string]slog.Value
 }
 
@@ -247,6 +248,9 @@ func (x *Exchange) ReplaceResponse(r *filter.Response) { x.Replaced = r }
 func (x *Exchange) AddRateLimitField(f filter.RateLimitField) {
 	x.RateLimits = append(x.RateLimits, f)
 }
+
+// SetCacheResult implements filter.Exchange.
+func (x *Exchange) SetCacheResult(result string) { x.CacheResult = result }
 
 // Annotate implements filter.Exchange.
 func (x *Exchange) Annotate(key string, v slog.Value) {

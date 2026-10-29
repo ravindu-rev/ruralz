@@ -312,6 +312,11 @@ type Outbound struct {
 	Deadline time.Time
 	// Hooks runs the upstream-leg Phases of every leg.
 	Hooks LegHooks
+	// Excluder marks Upstream I/O out of gateway-added time: the Upstream
+	// layer enters it around each attempt's round trip (pooled-connection
+	// wait, dial, TLS, request write, awaiting headers) and each read of a
+	// leg's response body; nil marks nothing.
+	Excluder emit.Excluder
 }
 
 // ErrNotReplayable is returned by RequestBody.Open when the body cannot be
@@ -355,9 +360,12 @@ type LegRun interface {
 	// OnUpstreamRequest runs per attempt; a non-nil response ends the leg
 	// without retry.
 	OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter.Response
-	// OnUpstreamResponseHeaders runs per attempt in reverse order; retry is
-	// true when a Filter returned filter.Retry; replace is a leg response
-	// set by a failure (502 RZ-RT-012).
+	// OnUpstreamResponseHeaders runs in reverse order once per attempt that
+	// was sent: with the response headers, or, for an attempt that got none,
+	// with leg.Response nil and leg.ErrorKind set (an attempt the caller
+	// canceled runs it not). retry is true when a Filter returned
+	// filter.Retry; replace is a leg response set by a failure (502
+	// RZ-RT-012), which ends the leg.
 	OnUpstreamResponseHeaders(ctx context.Context, leg *filter.Leg) (retry bool, replace *filter.Response)
 	// OnUpstreamResponseBody runs once per leg when subscribed.
 	OnUpstreamResponseBody(ctx context.Context, leg *filter.Leg) *filter.Response

@@ -251,7 +251,10 @@ func cacheable(key any) bool { return reflect.ValueOf(key).Comparable() }
 // Message is the HTTP message a Phase acts on: the client request
 // (onRequestHeaders, onRequestBody, onRoute), the leg's outgoing request
 // (onUpstreamRequest), the leg's response (onUpstreamResponseHeaders,
-// onUpstreamResponseBody) or the client response (onResponse).
+// onUpstreamResponseBody) or the client response (onResponse). In
+// onUpstreamResponseHeaders of an attempt that got no response the leg's
+// response is empty: status 0, a header map whose edits reach nothing, no
+// body.
 type Message interface {
 	// Header is the live header map; edits are seen by later Policies.
 	Header() http.Header
@@ -276,6 +279,10 @@ type Message interface {
 }
 
 // Leg describes the current upstream attempt in upstream-leg Phases.
+// onUpstreamResponseHeaders runs for every attempt that was sent: with the
+// response headers, or, for an attempt that got none, with Response nil
+// and ErrorKind set, so a Filter can still ask for a retry (Retry) or a
+// Provider Fallback before commit.
 type Leg struct {
 	// Upstream is the Upstream name.
 	Upstream string
@@ -287,10 +294,17 @@ type Leg struct {
 	Endpoint string
 	// Request is the outgoing request, mutable in onUpstreamRequest.
 	Request *http.Request
-	// Response is set after response headers arrived.
+	// Response is set after response headers arrived; nil for an attempt
+	// that got none.
 	Response *http.Response
-	// ErrorKind is connect, timeout, reset, tls or "".
+	// ErrorKind is the error kind of an attempt that got no response:
+	// connect, timeout, reset or tls (CEL error.kind); "" once response
+	// headers arrived.
 	ErrorKind string
+	// MaxBodyBytes caps the leg's response body when a body Phase reads it
+	// whole: a composition step's maxBodyBytes; 0 means
+	// limits.maxResponseBodyBytes.
+	MaxBodyBytes int64
 }
 
 // RateLimitField is one applied limit for the RateLimit-Policy and
@@ -315,7 +329,12 @@ type Final struct {
 	// Committed is true once response headers were sent.
 	Committed bool
 	// RejectedAfter is true when a Policy later in request order than the
-	// calling Policy responded or failed closed (quota refunds).
+	// calling Policy ended the request in a request Phase: a short-circuit
+	// with status 400 or above, or a closed failure (quota refunds; a cache
+	// hit or a preflight served the request and rejects nothing). A leg of
+	// plain upstreams counts like the client, since its response is the
+	// request's; a composition step's leg does not, since the composition
+	// decides its step's outcome.
 	RejectedAfter bool
 }
 
@@ -337,7 +356,7 @@ type Tee interface {
 // Filter never shares a view between goroutines. On a leg view
 // SetIdentity returns ErrNotAvailable, TeeResponse returns nil, Final
 // returns the zero value (a leg ends before the request does), and
-// ReplaceResponse and AddRateLimitField do nothing.
+// ReplaceResponse, AddRateLimitField and SetCacheResult do nothing.
 type Exchange interface {
 	// RequestID returns the 32-hex trace ID.
 	RequestID() string
@@ -377,12 +396,19 @@ type Exchange interface {
 	Reserve(n int64) error
 	Release(n int64)
 	// TeeResponse starts the cache store copy (onResponse); nil when the
-	// budget or limit refuses.
+	// budget or limit refuses. The data plane counts a refusal over the
+	// limit, and a copy it stops later, in ruralz_cache_store_skipped_total
+	// on the calling Policy's handles, so the Filter counts neither.
 	TeeResponse(limit int64) Tee
 	// ReplaceResponse replaces the uncommitted response (stale-if-error).
 	ReplaceResponse(r *Response)
 	// AddRateLimitField records an applied limit.
 	AddRateLimitField(f RateLimitField)
+	// SetCacheResult records the request's cache result for the access
+	// log's cache field: for the Response Cache, the result label of
+	// ruralz_cache_requests_total (hit, miss, bypass, stale or
+	// stale_error), a constant; a later call replaces an earlier one.
+	SetCacheResult(result string)
 	// Annotate adds an attribute to the current Filter span.
 	Annotate(key string, v slog.Value)
 	// Final returns the request outcome; valid in onLog and Finish.
