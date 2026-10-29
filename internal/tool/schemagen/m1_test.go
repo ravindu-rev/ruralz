@@ -257,11 +257,21 @@ func TestImpactClasses(t *testing.T) {
 		"PluginSpec.capabilities":               "plugin,security",
 		"PluginSpec.image":                      "plugin,security",
 		"PolicySpec.overridable":                "security",
+		"RouteSpec.composition":                 "routing",
+		"RouteSpec.match":                       "routing",
 		"RouteSpec.timeout":                     "traffic",
+		"RouteSpec.upstreams":                   "routing",
+		"StateStore.tls":                        "security",
 		"StateStore.url":                        "security",
+		"StateStoreCache.tls":                   "security",
 		"StateStoreCache.url":                   "security",
+		"StateStoreTLS.caCertificate":           "security",
+		"StateStoreTLS.clientCertificate":       "security",
+		"StateStoreTLS.clientKey":               "security",
 		"UpstreamSpec.ai":                       "ai",
 		"UpstreamSpec.circuitBreaker":           "traffic",
+		"UpstreamSpec.discovery":                "routing",
+		"UpstreamSpec.endpoints":                "routing",
 		"UpstreamSpec.healthCheck":              "traffic",
 		"UpstreamSpec.loadBalancing":            "traffic",
 		"UpstreamSpec.retries":                  "traffic",
@@ -378,6 +388,15 @@ func TestM1Fields(t *testing.T) {
 		{"cache url required", []string{"$defs", "StateStoreCache", "required"}, `["url"]`},
 		{"cache url secret", []string{"$defs", "StateStoreCache", "properties", "url", "x-ruralz-secret"}, `true`},
 		{"cache closed", []string{"$defs", "StateStoreCache", "additionalProperties"}, `false`},
+		// The sentinel topology and stateStore.tls: CA, client certificate
+		// and key, as secret references, without sni.
+		{"sentinel topology", []string{"$defs", "StateStoreTopology", "enum"}, `["standalone","cluster","sentinel"]`},
+		{"stateStore.tls", []string{"$defs", "StateStore", "properties", "tls", "$ref"}, `"#/$defs/StateStoreTLS"`},
+		{"stateStore.cache.tls", []string{"$defs", "StateStoreCache", "properties", "tls", "$ref"}, `"#/$defs/StateStoreTLS"`},
+		{"stateStore.tls closed", []string{"$defs", "StateStoreTLS", "additionalProperties"}, `false`},
+		{"stateStore.tls CA", []string{"$defs", "StateStoreTLS", "properties", "caCertificate", "x-ruralz-secret"}, `true`},
+		{"stateStore.tls certificate", []string{"$defs", "StateStoreTLS", "properties", "clientCertificate", "x-ruralz-secret"}, `true`},
+		{"stateStore.tls key", []string{"$defs", "StateStoreTLS", "properties", "clientKey", "x-ruralz-secret"}, `true`},
 		// OQ-observability-2 (a): otlp.tls with the UpstreamTLS shape.
 		{"otlp.tls", []string{"$defs", "OTLP", "properties", "tls", "$ref"}, `"#/$defs/UpstreamTLS"`},
 		// The endpoint pattern.
@@ -552,7 +571,9 @@ func TestSubstitutedPolicyType(t *testing.T) {
 		var dispatched []any
 		allOf, _ := dig(t, doc, "$defs", "PolicySpec", "allOf").([]any)
 		for _, b := range allOf {
-			if _, ok := b.(map[string]any)["if"]; ok {
+			// Config dispatch rules only: the requiredIf rule of plugin
+			// tests type too but selects no config.
+			if _, ok := b.(map[string]any)["if"]; ok && dig(t, b, "then").(map[string]any)["properties"] != nil {
 				dispatched = append(dispatched, dig(t, b, "if", "properties", "type", "const"))
 			}
 		}

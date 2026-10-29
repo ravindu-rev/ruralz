@@ -35,8 +35,10 @@ type UpstreamSpec struct {
 	Protocol UpstreamProtocol `json:"protocol"`
 	// Endpoints are static addresses.
 	// +ruralz:list=map,key=address
+	// +ruralz:impact=routing
 	Endpoints []Endpoint `json:"endpoints,omitempty"`
 	// Discovery finds Endpoints instead of listing them.
+	// +ruralz:impact=routing
 	Discovery *Discovery `json:"discovery,omitempty"`
 	// LoadBalancing selects an Endpoint per attempt.
 	// +ruralz:impact=traffic
@@ -116,7 +118,9 @@ const (
 	LoadBalancingRandom LoadBalancingAlgorithm = "random"
 )
 
-// LoadBalancing selects an Endpoint per attempt.
+// LoadBalancing selects an Endpoint per attempt. algorithm ring-hash
+// without hashKey is RZ-CFG-005.
+// +ruralz:requiredIf=hashKey,algorithm=ring-hash
 type LoadBalancing struct {
 	// Algorithm is round-robin, least-request, ring-hash or random.
 	// +ruralz:default=least-request

@@ -37,11 +37,13 @@ type Info struct {
 	// whole subtree.
 	InSecret bool
 	// NoSubstitution reports a position where ${VAR} is forbidden
-	// (RZ-CFG-011) and render writes no $${ escape: apiVersion, kind,
-	// metadata.name, x-ruralz-ref and x-ruralz-cel fields, the elements of
-	// such array fields and the values of such typed maps, and the whole
-	// x-ruralz-secret subtree. Mapping keys are always forbidden and are
-	// not positions.
+	// (RZ-CFG-011): apiVersion, kind, metadata.name, x-ruralz-ref and
+	// x-ruralz-cel fields, the elements of such array fields and the
+	// values of such typed maps, and the whole x-ruralz-secret subtree.
+	// Mapping keys are always forbidden and are not positions. Outside the
+	// envelope fields, substitution still reads $${ there as a literal ${,
+	// so render writes every literal ${ of a string value back as $${
+	// (internal/config/render).
 	NoSubstitution bool
 	// PathImpact is the union of x-ruralz-impact from the resource root
 	// to this node.

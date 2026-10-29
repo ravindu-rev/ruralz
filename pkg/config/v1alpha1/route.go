@@ -11,6 +11,7 @@ type RouteSpec struct {
 	Listeners []string `json:"listeners,omitempty"`
 	// Match selects requests; every criterion must hold.
 	// +ruralz:required
+	// +ruralz:impact=routing
 	Match RouteMatch `json:"match"`
 	// Policies attaches Route-scoped Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -20,8 +21,10 @@ type RouteSpec struct {
 	ExcludePolicies []PolicyRef `json:"excludePolicies,omitempty"`
 	// Upstreams are weighted legs; required unless composition is set.
 	// +ruralz:list=map,key=name
+	// +ruralz:impact=routing
 	Upstreams []RouteUpstream `json:"upstreams,omitempty"`
 	// Composition calls several Upstreams per request; mutually exclusive with upstreams.
+	// +ruralz:impact=routing
 	Composition *Composition `json:"composition,omitempty"`
 	// Timeout is the whole-request deadline.
 	// +ruralz:impact=traffic
@@ -164,7 +167,9 @@ type CompositionStep struct {
 	Collection *bool `json:"collection,omitempty"`
 	// Group is the key under which the body is merged.
 	Group string `json:"group,omitempty"`
-	// MaxBodyBytes caps this step's body; default an equal share of Gateway limits.maxResponseBodyBytes.
+	// MaxBodyBytes caps this step's body, at least 1 byte in either spelling; default an equal share of Gateway limits.maxResponseBodyBytes.
+	// +ruralz:minimum=1
+	// +ruralz:pattern=^[0-9]*[1-9][0-9]*((\.[0-9]+)?(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei))?$|^[0-9]+\.[0-9]*[1-9][0-9]*(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)$
 	MaxBodyBytes *ByteSize `json:"maxBodyBytes,omitempty"`
 	// Optional allows a partial response when the step fails.
 	// +ruralz:default=false

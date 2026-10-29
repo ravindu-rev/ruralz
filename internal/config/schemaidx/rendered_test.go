@@ -330,9 +330,17 @@ func TestPolicyConfigDispatch(t *testing.T) {
 			continue
 		}
 		typ := ifc["properties"].(map[string]any)["type"].(map[string]any)["const"].(string)
-		ref := rule["then"].(map[string]any)["properties"].(map[string]any)["config"].(map[string]any)["$ref"].(string)
+		if !slices.Contains(order, typ) {
+			order = append(order, typ)
+		}
+		// A requiredIf rule (type plugin requires plugin) tests type but
+		// selects no config.
+		props, ok := rule["then"].(map[string]any)["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		ref := props["config"].(map[string]any)["$ref"].(string)
 		want[typ] = strings.TrimPrefix(ref, "#/$defs/")
-		order = append(order, typ)
 	}
 	spec, _ := v1(t).Spec("Policy")
 	if got := spec.DispatchValues("type"); !slices.Equal(got, order) {

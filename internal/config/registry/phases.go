@@ -116,9 +116,11 @@ func scopeList(set phase.ScopeSet) string {
 //     non-empty rule needs body: with a nil body Phases fails with
 //     ErrNoBodyOracle rather than guess, because a body rule placed in
 //     onRequestHeaders would deny every request and hide its body read from
-//     the cache guardrail (RZ-CFG-038). An empty rule, or a rule body
-//     cannot check, selects onRequestHeaders: stage J reports the rule
-//     itself (RZ-CFG-014).
+//     the cache guardrail (RZ-CFG-038). An empty rule, which the schema
+//     refuses (minLength 1: RZ-CFG-005 at stage F, with the authz.cel
+//     Check as a backstop), or a rule body cannot check, selects
+//     onRequestHeaders: stage J reports a rule that does not compile
+//     (RZ-CFG-014).
 //   - authz.opa and authz.cedar run in onRequestHeaders (body analysis is
 //     M2).
 //   - headers runs in onRequestHeaders (onUpstreamRequest at Upstream

@@ -191,6 +191,8 @@ const (
 	StateStoreTopologyStandalone StateStoreTopology = "standalone"
 	// StateStoreTopologyCluster is a Redis Cluster seed list.
 	StateStoreTopologyCluster StateStoreTopology = "cluster"
+	// StateStoreTopologySentinel is a Redis Sentinel seed list and the master_set whose primary the sentinels name.
+	StateStoreTopologySentinel StateStoreTopology = "sentinel"
 )
 
 // StateStore is the State Store connection. driver redis without url is
@@ -207,11 +209,34 @@ type StateStore struct {
 	// +ruralz:secret
 	// +ruralz:impact=security
 	URL *SecretValue `json:"url,omitempty"`
+	// TLS configures the client side of this connection's TLS: trust anchors and a client certificate. Without it a rediss:// server is verified against the system roots; beside a cleartext url a Node refuses it (RZ-CFG-042).
+	// +ruralz:impact=security
+	TLS *StateStoreTLS `json:"tls,omitempty"`
 	// Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004).
 	// +ruralz:default=50ms
 	Timeout *Duration `json:"timeout,omitempty"`
 	// Cache is a second connection that serves only the Response Cache. Without it the cache shares this connection under the State Store memory protection rules, and a Node warns at startup when it shares it with limit Policies.
 	Cache *StateStoreCache `json:"cache,omitempty"`
+}
+
+// StateStoreTLS configures the client side of one State Store connection's
+// TLS (stateStore.tls, stateStore.cache.tls): its rediss:// or valkeys://
+// servers, cluster nodes and sentinels. The server is always verified for
+// the host the Node dials. Set clientCertificate and clientKey together,
+// or neither.
+type StateStoreTLS struct {
+	// CACertificate is a PEM bundle that verifies every State Store server instead of the system roots.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	CACertificate *SecretValue `json:"caCertificate,omitempty"`
+	// ClientCertificate is the PEM client certificate chain the Node presents to State Store servers.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
+	// ClientKey is the PEM private key of clientCertificate.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientKey *SecretValue `json:"clientKey,omitempty"`
 }
 
 // StateStoreCache is the State Store connection of the Response Cache
@@ -228,4 +253,7 @@ type StateStoreCache struct {
 	// +ruralz:secret
 	// +ruralz:impact=security
 	URL SecretValue `json:"url"`
+	// TLS configures the client side of the cache connection's TLS, as stateStore.tls does the main connection's; the cache connection never uses stateStore.tls. Beside a cleartext url a Node refuses it (RZ-CFG-042).
+	// +ruralz:impact=security
+	TLS *StateStoreTLS `json:"tls,omitempty"`
 }

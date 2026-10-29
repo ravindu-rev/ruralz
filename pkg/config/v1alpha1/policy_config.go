@@ -81,8 +81,9 @@ type CertificateSubject struct {
 // +ruralz:policyType=authz.cel
 // +ruralz:open
 type AuthzCELConfig struct {
-	// Rule allows the request when true.
+	// Rule allows the request when true; it is not empty.
 	// +ruralz:required
+	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now:bool
 	Rule string `json:"rule"`
 }
@@ -251,7 +252,8 @@ type HeaderRequestSet struct {
 	Name string `json:"name"`
 	// Value is a literal value; it may be empty.
 	Value *string `json:"value,omitempty"`
-	// ValueExpression computes the value.
+	// ValueExpression computes the value; it is not empty.
+	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
 	ValueExpression string `json:"valueExpression,omitempty"`
 }
@@ -278,7 +280,8 @@ type HeaderResponseSet struct {
 	Name string `json:"name"`
 	// Value is a literal value; it may be empty.
 	Value *string `json:"value,omitempty"`
-	// ValueExpression computes the value.
+	// ValueExpression computes the value; it is not empty.
+	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:string
 	ValueExpression string `json:"valueExpression,omitempty"`
 }

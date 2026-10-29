@@ -12,7 +12,7 @@
 //
 // Overlay merge (keyed lists), substitution (forbidden positions and
 // re-typing), defaults and normalization, canonical form (since-omission,
-// schema level), diff (impact classes) and render (escaping positions) all
+// schema level), diff (impact classes) and render (secret positions) all
 // navigate the schema through this package; internal/config/schemaview only
 // compiles and validates with jsonschema/v6. Nothing here is table-driven:
 // adding a +ruralz:default or +ruralz:impact marker to pkg/config/v1alpha1

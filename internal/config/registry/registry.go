@@ -12,8 +12,10 @@
 // One package serves every stage that needs the table: stage G
 // (internal/config/defaults and internal/config/convert) materializes
 // Defaults and decodes spec.config into NewConfig; stage H
-// (internal/config/validate) reports unserved types with CheckServed
-// (RZ-CFG-040); stage I (internal/config/precedence) reads EffectiveSlot,
+// (internal/config/validate) checks an authored filterClass with
+// CheckFilterClass (RZ-CFG-005); the Node's serve check, which follows the
+// digest, reports unserved types with CheckServed (RZ-CFG-040); stage I
+// (internal/config/precedence) reads EffectiveSlot,
 // EffectiveClass, Phases (RZ-CFG-020) and CheckFailureMode (RZ-CFG-029).
 // The package holds data and pure functions only: it never imports the
 // hub, the CEL module or a Filter, so every binary links it. Phase

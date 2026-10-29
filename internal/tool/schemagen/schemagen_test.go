@@ -161,6 +161,10 @@ func TestKeywords(t *testing.T) {
 		{[]string{"$defs", "UpstreamSpec", "allOf"}, `[{"not":{"required":["endpoints","discovery"]}}]`},
 		{[]string{"$defs", "JWTBinding", "properties", "subject", "minLength"}, `1`},
 		{[]string{"$defs", "JWTBinding", "properties", "claims", "minProperties"}, `1`},
+		// requiredIf rules: hashKey with ring-hash, plugin with type plugin.
+		{[]string{"$defs", "LoadBalancing", "allOf"}, `[{"if":{"properties":{"algorithm":{"const":"ring-hash"}},"required":["algorithm"]},"then":{"required":["hashKey"]}}]`},
+		// A step's maxBodyBytes is at least 1 byte, as an integer or a quantity.
+		{[]string{"$defs", "CompositionStep", "properties", "maxBodyBytes", "minimum"}, `1`},
 	}
 	for _, c := range cases {
 		got, err := json.Marshal(dig(t, s, c.path...))
@@ -178,10 +182,25 @@ func TestKeywords(t *testing.T) {
 	if _, ok := dig(t, s, "$defs", "RateLimitConfig").(map[string]any)["additionalProperties"]; ok {
 		t.Error("ratelimit config must be open until its feature fields are registered")
 	}
-	// Every Policy type selects a config.
-	dispatch := dig(t, s, "$defs", "PolicySpec", "allOf").([]any)
-	if len(dispatch) != 23 {
-		t.Errorf("PolicySpec dispatches %d types, want 23", len(dispatch))
+	// Every Policy type selects a config, and type plugin requires
+	// plugin: one requiredIf rule beside the 23 config dispatches.
+	n, requiredIf := 0, 0
+	for _, rule := range dig(t, s, "$defs", "PolicySpec", "allOf").([]any) {
+		if _, ok := dig(t, rule, "then").(map[string]any)["properties"]; ok {
+			n++
+			continue
+		}
+		got, err := json.Marshal(rule)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `{"if":{"properties":{"type":{"const":"plugin"}},"required":["type"]},"then":{"required":["plugin"]}}`; string(got) != want {
+			t.Errorf("PolicySpec rule %s, want %s", got, want)
+		}
+		requiredIf++
+	}
+	if n != 23 || requiredIf != 1 {
+		t.Errorf("PolicySpec dispatches %d types and has %d requiredIf rules, want 23 and 1", n, requiredIf)
 	}
 }
 

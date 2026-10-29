@@ -94,7 +94,9 @@ const (
 	FilterClassCustom FilterClass = "custom"
 )
 
-// PolicySpec is the spec of a Policy.
+// PolicySpec is the spec of a Policy. type plugin without plugin is
+// RZ-CFG-005.
+// +ruralz:requiredIf=plugin,type=plugin
 type PolicySpec struct {
 	// Type is the registered Policy type; it selects the config schema.
 	// +ruralz:required

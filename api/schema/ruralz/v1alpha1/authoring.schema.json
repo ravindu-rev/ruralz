@@ -696,7 +696,8 @@
       "description": "AuthzCELConfig is the config of an authz.cel Policy.",
       "properties": {
         "rule": {
-          "description": "Rule allows the request when true.",
+          "description": "Rule allows the request when true; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -1402,13 +1403,15 @@
         "maxBodyBytes": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ByteSize"
+              "$ref": "#/$defs/ByteSize",
+              "minimum": 1,
+              "pattern": "^[0-9]*[1-9][0-9]*((\\.[0-9]+)?(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei))?$|^[0-9]+\\.[0-9]*[1-9][0-9]*(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)$"
             },
             {
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "MaxBodyBytes caps this step's body; default an equal share of Gateway limits.maxResponseBodyBytes."
+          "description": "MaxBodyBytes caps this step's body, at least 1 byte in either spelling; default an equal share of Gateway limits.maxResponseBodyBytes."
         },
         "method": {
           "description": "Method is the HTTP method; default the incoming method.",
@@ -2054,7 +2057,8 @@
           "type": "string"
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -2141,7 +2145,8 @@
           "type": "string"
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -2487,7 +2492,26 @@
     },
     "LoadBalancing": {
       "additionalProperties": false,
-      "description": "LoadBalancing selects an Endpoint per attempt.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "const": "ring-hash"
+              }
+            },
+            "required": [
+              "algorithm"
+            ]
+          },
+          "then": {
+            "required": [
+              "hashKey"
+            ]
+          }
+        }
+      ],
+      "description": "LoadBalancing selects an Endpoint per attempt. algorithm ring-hash without hashKey is RZ-CFG-005.",
       "properties": {
         "algorithm": {
           "anyOf": [
@@ -2961,6 +2985,23 @@
           "if": {
             "properties": {
               "type": {
+                "const": "plugin"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "plugin"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "auth.jwt"
               }
             },
@@ -3395,7 +3436,7 @@
           }
         }
       ],
-      "description": "PolicySpec is the spec of a Policy.",
+      "description": "PolicySpec is the spec of a Policy. type plugin without plugin is RZ-CFG-005.",
       "properties": {
         "config": {
           "description": "Config is validated by the schema registered for type.",
@@ -4004,7 +4045,10 @@
       "properties": {
         "composition": {
           "$ref": "#/$defs/Composition",
-          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams."
+          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "excludePolicies": {
           "description": "ExcludePolicies removes inherited Gateway Policies.",
@@ -4029,7 +4073,10 @@
         },
         "match": {
           "$ref": "#/$defs/RouteMatch",
-          "description": "Match selects requests; every criterion must hold."
+          "description": "Match selects requests; every criterion must hold.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "policies": {
           "description": "Policies attaches Route-scoped Policies in authored order.",
@@ -4062,6 +4109,9 @@
             "$ref": "#/$defs/RouteUpstream"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "routing"
+          ],
           "x-ruralz-list": {
             "key": "name",
             "type": "map"
@@ -4239,6 +4289,13 @@
           "default": "50ms",
           "description": "Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004)."
         },
+        "tls": {
+          "$ref": "#/$defs/StateStoreTLS",
+          "description": "TLS configures the client side of this connection's TLS: trust anchors and a client certificate. Without it a rediss:// server is verified against the system roots; beside a cleartext url a Node refuses it (RZ-CFG-042).",
+          "x-ruralz-impact": [
+            "security"
+          ]
+        },
         "topology": {
           "anyOf": [
             {
@@ -4266,6 +4323,13 @@
       "additionalProperties": false,
       "description": "StateStoreCache is the State Store connection of the Response Cache (OQ-scalability-and-distributed-state-3 (a)): a redis deployment separate from the main State Store, so cache entries never evict Rate Limit, Quota or Token Budget keys. Cache Policies still default their stateStoreTimeout to the main connection's timeout.",
       "properties": {
+        "tls": {
+          "$ref": "#/$defs/StateStoreTLS",
+          "description": "TLS configures the client side of the cache connection's TLS, as stateStore.tls does the main connection's; the cache connection never uses stateStore.tls. Beside a cleartext url a Node refuses it (RZ-CFG-042).",
+          "x-ruralz-impact": [
+            "security"
+          ]
+        },
         "topology": {
           "anyOf": [
             {
@@ -4300,11 +4364,43 @@
       ],
       "type": "string"
     },
+    "StateStoreTLS": {
+      "additionalProperties": false,
+      "description": "StateStoreTLS configures the client side of one State Store connection's TLS (stateStore.tls, stateStore.cache.tls): its rediss:// or valkeys:// servers, cluster nodes and sentinels. The server is always verified for the host the Node dials. Set clientCertificate and clientKey together, or neither.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate is a PEM bundle that verifies every State Store server instead of the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientCertificate is the PEM client certificate chain the Node presents to State Store servers.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientKey is the PEM private key of clientCertificate.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        }
+      },
+      "type": "object"
+    },
     "StateStoreTopology": {
       "description": "StateStoreTopology is the Redis deployment shape.",
       "enum": [
         "standalone",
-        "cluster"
+        "cluster",
+        "sentinel"
       ],
       "type": "string"
     },
@@ -4741,7 +4837,10 @@
         },
         "discovery": {
           "$ref": "#/$defs/Discovery",
-          "description": "Discovery finds Endpoints instead of listing them."
+          "description": "Discovery finds Endpoints instead of listing them.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "endpoints": {
           "description": "Endpoints are static addresses.",
@@ -4749,6 +4848,9 @@
             "$ref": "#/$defs/Endpoint"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "routing"
+          ],
           "x-ruralz-list": {
             "key": "address",
             "type": "map"

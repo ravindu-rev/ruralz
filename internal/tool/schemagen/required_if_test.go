@@ -199,3 +199,123 @@ func validateGateway(t *testing.T, views *schemaview.Set, src string) diag.List 
 	l, _ := views.Validate(res, files)
 	return l
 }
+
+// validateJSON parses src as one JSON resource of kind and validates it
+// with the embedded rendered views, returning "<code> <path>" per finding.
+func validateJSON(t *testing.T, views *schemaview.Set, kind v1alpha1.Kind, src string) []string {
+	t.Helper()
+	files := &tree.FileTable{}
+	id := files.Add(tree.File{Path: "r.json", Role: tree.RoleBase})
+	docs, diags, err := profile.Parse(t.Context(), []byte(src), id, "r.json", profile.FormatJSON, profile.Options{})
+	if err != nil || len(diags) != 0 || len(docs) != 1 {
+		t.Fatalf("parse: %d documents, %v, %v", len(docs), diags, err)
+	}
+	res := &tree.Resource{ID: tree.ID{Kind: kind, Name: "r"}, APIVersion: v1alpha1.APIVersion, Root: docs[0].Root, Start: docs[0].Start}
+	l, _ := views.Validate(res, files)
+	var out []string
+	for _, d := range l {
+		out = append(out, d.Code+" "+d.Path.String())
+	}
+	return out
+}
+
+// embeddedViews returns the rendered views of the committed schemas.
+func embeddedViews(t *testing.T) *schemaview.Set {
+	t.Helper()
+	idx, err := schemaidx.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	views, err := schemaview.Embedded(idx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return views
+}
+
+// TestRingHashNeedsHashKey checks the LoadBalancing rule of the committed
+// schema (docs/architecture/02-configuration-model.md "Upstream"):
+// algorithm ring-hash without hashKey is RZ-CFG-005 at
+// spec.loadBalancing, reported once, at stage F; ring-hash with a hashKey,
+// another algorithm or none validate.
+func TestRingHashNeedsHashKey(t *testing.T) {
+	views := embeddedViews(t)
+	tests := []struct {
+		name, lb string
+		want     []string
+	}{
+		{"ring-hash without hashKey", `{"algorithm": "ring-hash"}`, []string{"RZ-CFG-005 spec.loadBalancing"}},
+		{"ring-hash with hashKey", `{"algorithm": "ring-hash", "hashKey": "source.ip"}`, nil},
+		{"least-request without hashKey", `{"algorithm": "least-request"}`, nil},
+		{"no algorithm", `{}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Upstream", "metadata": {"name": "r"}, "spec": {` +
+				`"protocol": "http", "endpoints": [{"address": "a.svc:80"}], "loadBalancing": ` + tt.lb + `}}`
+			if got := validateJSON(t, views, v1alpha1.KindUpstream, src); strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("Validate = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPluginPolicyNeedsPlugin checks the PolicySpec rule of the committed
+// schema: type plugin without plugin is RZ-CFG-005 at spec, at stage F;
+// with plugin, or another type without it, the Policy validates.
+func TestPluginPolicyNeedsPlugin(t *testing.T) {
+	views := embeddedViews(t)
+	tests := []struct {
+		name, spec string
+		want       []string
+	}{
+		{"plugin without plugin", `"type": "plugin", "config": {}`, []string{"RZ-CFG-005 spec"}},
+		{"plugin with plugin", `"type": "plugin", "plugin": "geo-block", "config": {}`, nil},
+		{"cors without plugin", `"type": "cors", "config": {}`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "r"}, "spec": {` + tt.spec + `}}`
+			if got := validateJSON(t, views, v1alpha1.KindPolicy, src); strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("Validate = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestStepMaxBodyBytesAtLeastOne checks a composition step's maxBodyBytes
+// in the committed schema: at least 1 byte as an integer or a quantity
+// string, so no spelling of zero reaches the step's leg, which reads 0 as
+// "no cap of its own".
+func TestStepMaxBodyBytesAtLeastOne(t *testing.T) {
+	views := embeddedViews(t)
+	const at = "RZ-CFG-005 spec.composition.steps[name=a].maxBodyBytes"
+	for _, tt := range []struct {
+		value string
+		ok    bool
+	}{
+		{`1`, true},
+		{`"1"`, true},
+		{`"1Mi"`, true},
+		{`"0.5Ki"`, true},
+		{`"10.25Mi"`, true},
+		{`"010"`, true},
+		{`0`, false},
+		{`"0"`, false},
+		{`"00"`, false},
+		{`"0Ki"`, false},
+		{`"0.0Mi"`, false},
+		{`"000.000Gi"`, false},
+	} {
+		src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {` +
+			`"match": {"path": {"prefix": "/r"}}, "composition": {"mode": "aggregate", "steps": [` +
+			`{"name": "a", "upstream": "u", "path": "/a", "maxBodyBytes": ` + tt.value + `}]}}}`
+		got := validateJSON(t, views, v1alpha1.KindRoute, src)
+		switch {
+		case tt.ok && len(got) > 0:
+			t.Errorf("maxBodyBytes %s: Validate = %q, want no finding", tt.value, got)
+		case !tt.ok && (len(got) == 0 || !strings.HasPrefix(got[0], at)):
+			t.Errorf("maxBodyBytes %s: Validate = %q, want %s", tt.value, got, at)
+		}
+	}
+}
