@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
@@ -188,6 +189,9 @@ func (tp *template) capture(path string, params []expr.Param) []expr.Param {
 // matcher is the state of one Match call.
 type matcher struct {
 	q *snapshot.MatchRequest
+	// preflight is the method a CORS preflight asks for, "" for any other
+	// request (preflightMethod).
+	preflight string
 	// params is the caller's storage, length 0.
 	params []expr.Param
 	// route is the winner's index, -1 until a Route wins; won holds its
@@ -203,7 +207,7 @@ type matcher struct {
 // is over: rt won, or its match.when failed.
 func (m *matcher) try(ctx context.Context, rt *route) bool {
 	q := m.q
-	if !routematch.MethodMatch(rt.methods, q.Method) {
+	if !routematch.MethodMatch(rt.methods, q.Method) && (m.preflight == "" || !slices.Contains(rt.methods, m.preflight)) {
 		return false
 	}
 	for i := range rt.headers {

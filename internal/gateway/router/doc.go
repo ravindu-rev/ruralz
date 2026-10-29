@@ -26,7 +26,10 @@
 // costs nothing for a normal host. Listener hostnames bound the listener:
 // a host outside them reaches no Route. A candidate whose methods, headers
 // or grpc criterion fails, or whose match.when is false, falls through to
-// the next; none left is RZ-RT-001. A match.when runtime error ends
+// the next; none left is RZ-RT-001. A CORS preflight, an OPTIONS request
+// with Origin and Access-Control-Request-Method fields, meets methods when
+// they list the method it asks for or OPTIONS, so it reaches the Route of
+// the actual request, whose cors Policy answers it. A match.when runtime error ends
 // matching with RZ-RT-006 and no fallthrough, so an erroring guard never
 // diverts traffic to a less protected Route. match.when sees the
 // candidate's template captures as request.pathParams; on return the

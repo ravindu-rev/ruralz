@@ -84,8 +84,22 @@ func referenceMatch(ctx context.Context, hostnames []string, routes []refRoute, 
 		}
 	}
 	slices.SortStableFunc(cands, func(a, b candidate) int { return routematch.Compare(a.rank, b.rank) })
+	// "Compiled structure": a CORS preflight, an OPTIONS request with
+	// Origin and Access-Control-Request-Method, meets methods when they
+	// list the method it asks for or OPTIONS.
+	preflight := method == http.MethodOptions && len(h["Origin"]) > 0 && len(h["Access-Control-Request-Method"]) > 0
+	methodOK := func(methods []string) bool {
+		switch {
+		case len(methods) == 0 || slices.Contains(methods, method):
+			return true
+		case preflight:
+			return slices.Contains(methods, h["Access-Control-Request-Method"][0])
+		default:
+			return false
+		}
+	}
 	for _, c := range cands {
-		if len(c.rt.c.Methods) > 0 && !slices.Contains(c.rt.c.Methods, method) {
+		if !methodOK(c.rt.c.Methods) {
 			continue
 		}
 		if !refHeaders(c.rt.c.Headers, h) || !refGRPC(c.rt.c.GRPC, path) {
@@ -265,13 +279,15 @@ func genMatch(g *gen) v1alpha1.RouteMatch {
 	case 4:
 		m.Path = regexPath(g.pick(regexes()))
 	}
-	switch g.n(4) {
+	switch g.n(5) {
 	case 1:
 		m.Methods = []string{http.MethodGet}
 	case 2:
 		m.Methods = []string{http.MethodGet, http.MethodPost}
 	case 3:
 		m.Methods = []string{http.MethodDelete}
+	case 4:
+		m.Methods = []string{http.MethodOptions}
 	}
 	switch g.n(4) {
 	case 1:
@@ -346,6 +362,20 @@ func genRequest(g *gen, matches []v1alpha1.RouteMatch) (method, host, path strin
 	}
 	if g.n(3) == 1 {
 		h["X-Err"] = []string{"1"}
+	}
+	// A CORS preflight asking for the chosen method, or an OPTIONS request
+	// carrying only one of the preflight fields.
+	switch g.n(5) {
+	case 1:
+		h["Origin"] = []string{"https://portal.acme.example"}
+		h["Access-Control-Request-Method"] = []string{method}
+		method = http.MethodOptions
+	case 2:
+		h["Access-Control-Request-Method"] = []string{method}
+		method = http.MethodOptions
+	case 3:
+		h["Origin"] = []string{"https://portal.acme.example"}
+		method = http.MethodOptions
 	}
 	return method, host, path, h
 }

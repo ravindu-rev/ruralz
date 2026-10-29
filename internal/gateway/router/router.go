@@ -6,6 +6,7 @@ package router
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
@@ -104,7 +105,7 @@ func (r *Router) MaxParams() int { return r.maxParams }
 // the winner, Route -1 when none is left (RZ-RT-001), or Route -1 with an
 // RZ-RT-006 error when a match.when failed.
 func (r *Router) Match(ctx context.Context, q *snapshot.MatchRequest, params []expr.Param) snapshot.MatchResult {
-	m := matcher{q: q, params: params[:0], route: -1}
+	m := matcher{q: q, preflight: preflightMethod(q), params: params[:0], route: -1}
 	host := routematch.NormalizeHost(q.Host)
 	if r.admits(host) {
 		r.hosts.Lookup(host, func(_ routematch.HostPattern, e *entry) bool {
@@ -117,6 +118,29 @@ func (r *Router) Match(ctx context.Context, q *snapshot.MatchRequest, params []e
 	}
 	m.setPathParams(m.won)
 	return snapshot.MatchResult{Route: m.route, Params: m.won}
+}
+
+// Fields of a CORS preflight, in canonical form, as net/http stores them.
+const (
+	headerOrigin        = "Origin"
+	headerRequestMethod = "Access-Control-Request-Method"
+)
+
+// preflightMethod returns, for a CORS preflight (an OPTIONS request with
+// Origin and Access-Control-Request-Method fields), the method it asks for
+// (the first field line), else "". A preflight meets match.methods when
+// they list that method or OPTIONS, so it reaches the Route that serves
+// the actual request, whose cors Policy answers it, and a Route that
+// serves OPTIONS itself still receives it; match.when still sees
+// request.method. It allocates nothing.
+func preflightMethod(q *snapshot.MatchRequest) string {
+	if q.Method != http.MethodOptions || len(q.Header[headerOrigin]) == 0 {
+		return ""
+	}
+	if requested := q.Header[headerRequestMethod]; len(requested) > 0 {
+		return requested[0]
+	}
+	return ""
 }
 
 // admits reports whether host is within the listener hostnames.

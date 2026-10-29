@@ -40,8 +40,8 @@ func matchRequest(method, host, path string, h http.Header) *snapshot.MatchReque
 }
 
 // TestMatchAllocatesNothing checks that Match allocates nothing for every
-// path tier, header criteria, a grpc criterion, a capture, a miss and a
-// host outside the listener hostnames. Hosts are lower-case, as the
+// path tier, header criteria, a grpc criterion, a capture, a CORS
+// preflight, a miss and a host outside the listener hostnames. Hosts are lower-case, as the
 // handler passes them; an upper-case host is lower-cased into a new
 // string.
 func TestMatchAllocatesNothing(t *testing.T) {
@@ -63,6 +63,9 @@ func TestMatchAllocatesNothing(t *testing.T) {
 		{"headers", open, matchRequest("GET", "api.shop.example", "/v1/tier", http.Header{"X-Tier": {"gold"}})},
 		{"regex", open, matchRequest("GET", "rx.example", "/v2/abc", nil)},
 		{"grpc", open, matchRequest("POST", "grpc.example", "/pkg.Svc/Get", nil)},
+		{"CORS preflight", open, matchRequest("OPTIONS", "api.shop.example", "/v1/orders/42/summary", http.Header{
+			"Origin": {"https://portal.acme.example"}, "Access-Control-Request-Method": {"GET"},
+		})},
 		{"miss", gated, matchRequest("GET", "api.shop.example", "/v2", nil)},
 		{"outside hostnames", gated, matchRequest("GET", "other.example", "/v1/orders", nil)},
 	}

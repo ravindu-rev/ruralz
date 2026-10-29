@@ -48,6 +48,7 @@ func workedRequests() []workedRequest {
 		{req{"GET", "api.shop.example", "/v1/orders/42/summary", nil}, "orders-summary", []expr.Param{p("orderId", "42")}},
 		{req{"GET", "eu.shop.example", "/v1/orders/42", nil}, "tenant-wild", nil},
 		{req{"GET", "shop.example", "/v1/orders", nil}, "fallback", nil},
+		{req{"OPTIONS", "api.shop.example", "/v1/orders/42/summary", preflightOf("GET")}, "orders-summary", []expr.Param{p("orderId", "42")}},
 		{req{"DELETE", "api.shop.example", "/v1/orders", nil}, "orders-any", nil},
 		{req{"GET", "other.example", "/x", nil}, "fallback", nil},
 		{req{"GET", "API.Shop.Example:8443", "/v1/%6Frders/./export", nil}, "orders-export", nil},
@@ -66,6 +67,75 @@ func TestWorkedExample(t *testing.T) {
 	for _, w := range workedRequests() {
 		f.expect(t, w.rq, w.winner, w.params...)
 	}
+}
+
+// partnerOrigin is the partner portal that the example Bundle's
+// cors-partner Policy allows on orders-summary.
+const partnerOrigin = "https://portal.acme.example"
+
+// preflightOf returns the fields of a CORS preflight from partnerOrigin
+// asking for method.
+func preflightOf(method string) http.Header {
+	return http.Header{"Origin": {partnerOrigin}, "Access-Control-Request-Method": {method}}
+}
+
+// TestPreflightMatchesRequestedMethod checks that a CORS preflight, an
+// OPTIONS request with Origin and Access-Control-Request-Method, meets
+// match.methods when they list the method it asks for (the first field
+// line) or OPTIONS: the example Bundle's orders-summary (GET only)
+// receives the partner portal's preflight, and a Route that lists OPTIONS
+// still does; an OPTIONS request without either field, or a non-OPTIONS
+// request with both, is compared by its own method, and match.when still
+// sees OPTIONS.
+func TestPreflightMatchesRequestedMethod(t *testing.T) {
+	f := newFixture(t, nil, workedExample()...)
+	summary := "/v1/orders/42/summary"
+	cases := []struct {
+		name   string
+		rq     req
+		winner string
+	}{
+		{"preflight for GET", req{http.MethodOptions, "api.shop.example", summary, preflightOf("GET")}, "orders-summary"},
+		{"preflight for POST", req{http.MethodOptions, "api.shop.example", summary, preflightOf("POST")}, "orders-any"},
+		{"preflight with two method lines", req{
+			http.MethodOptions, "api.shop.example", summary,
+			http.Header{"Origin": {partnerOrigin}, "Access-Control-Request-Method": {"GET", "POST"}},
+		}, "orders-summary"},
+		{"OPTIONS without Origin", req{
+			http.MethodOptions, "api.shop.example", summary,
+			http.Header{"Access-Control-Request-Method": {"GET"}},
+		}, "orders-any"},
+		{"OPTIONS without requested method", req{
+			http.MethodOptions, "api.shop.example", summary,
+			http.Header{"Origin": {partnerOrigin}},
+		}, "orders-any"},
+		{"GET with preflight fields", req{http.MethodGet, "api.shop.example", summary, preflightOf("POST")}, "orders-summary"},
+		{"POST with preflight fields", req{http.MethodPost, "api.shop.example", summary, preflightOf("GET")}, "orders-any"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var params []expr.Param
+			if tc.winner == "orders-summary" {
+				params = []expr.Param{p("orderId", "42")}
+			}
+			f.expect(t, tc.rq, tc.winner, params...)
+		})
+	}
+	// A Route listing OPTIONS receives preflights whatever they ask for, a
+	// Route listing neither method nor OPTIONS does not, and match.when
+	// sees the request method.
+	guarded := newFixture(t, nil,
+		spec{"options-only", v1alpha1.RouteMatch{Path: exactPath("/x"), Methods: []string{http.MethodOptions}}},
+		spec{"post-only", v1alpha1.RouteMatch{Path: exactPath("/z"), Methods: []string{http.MethodPost}}},
+		spec{"when-options", v1alpha1.RouteMatch{Path: exactPath("/y"), Methods: []string{http.MethodGet}, When: `request.method == "OPTIONS"`}},
+		spec{"fallback", v1alpha1.RouteMatch{Path: prefixPath("/")}},
+	)
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/x", preflightOf("GET")}, "options-only")
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/x", preflightOf("DELETE")}, "options-only")
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/x", nil}, "options-only")
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/z", preflightOf("GET")}, "fallback")
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/z", preflightOf("POST")}, "post-only")
+	guarded.expect(t, req{http.MethodOptions, "a.example", "/y", preflightOf("GET")}, "when-options")
 }
 
 // TestCompileIgnoresInputOrder checks that every order of the Routes gives
