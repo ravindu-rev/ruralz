@@ -35,6 +35,8 @@ The goroutine `net/http` or quic-go assigns to each request, HTTP/2 stream or HT
 | Goroutine | Count | Bound |
 |---|---|---|
 | Request handler | One per request, HTTP/2 stream or HTTP/3 stream | [Bounded resources](#bounded-resources) |
+| Listener accept loop | One per listening socket | Listeners plus lingering sockets |
+| TLS handshake observer | One per TLS connection until its handshake ends | Client connections per Node |
 | Composition step | One per parallel `aggregate` step | `limits.maxCompositionSteps`; one in-flight unit each |
 | Stream pump | One per direction of a WebSocket or bidirectional gRPC stream | One in-flight unit each |
 | Post-commit writer | Fixed pool | Queue capacity ([Scalability and distributed state](11-scalability-and-distributed-state.md)) |
@@ -102,7 +104,7 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | `IdleTimeout` | 120 s (target) |
 | Body reads and response writes | 10 s deadlines (target) from admission through `http.ResponseController` ([source](https://pkg.go.dev/net/http#ResponseController)), then the Route `timeout`; server `ReadTimeout` and `WriteTimeout` unset. Expiry resets the HTTP/2 stream or closes the HTTP/1.1 connection, so a blocked handler, even an `RZ-RT-005` one, frees its pin, unit and goroutine |
 | Pre-routing responses | `RZ-RT-001`, `RZ-RT-002`, `RZ-RT-005`, `RZ-RT-006` and `RZ-RT-017` get a 5 s write deadline (target); past 2,000 such writes at once (target), the handler aborts with `http.ErrAbortHandler` without writing |
-| Client connections per Node | 20,000 connections (target); a counting `net.Listener` stops calling `Accept` at the ceiling |
+| Client connections per Node | 20,000 connections (target); a counting `net.Listener` takes a slot after each `Accept` returns, so an idle listener holds none; at the ceiling it holds the connection it accepted until a slot frees and calls `Accept` again only then, so each listener waits with at most one connection beyond the ceiling |
 | HTTP/2 streams per connection | `HTTP2Config.MaxConcurrentStreams` 250 (target) |
 | HTTP/2 unread request data | `HTTP2Config.MaxReceiveBufferPerConnection` 256 KiB and `MaxReceiveBufferPerStream` 64 KiB (target) ([source](https://go.dev/doc/go1.24)) |
 | HTTP/2 frame read buffer | `HTTP2Config.MaxReadFrameSize` 16 KiB (target), the protocol minimum; flow control does not cover HEADERS frames ([source](https://raw.githubusercontent.com/golang/go/master/src/net/http/http.go)) |
@@ -115,6 +117,7 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | Per in-flight unit | Its header block, at most `limits.maxRequestHeaderBytes`, plus 64 KiB of copy buffers (hypothesis) |
 | In-flight units per Node | 20,000 (target): one per request, parallel step and stream pump, taken by an atomic add; when full, 503 `RZ-RT-005` at once, never queued |
 | Header block | `Server.MaxHeaderBytes` 256 KiB (target) |
+| Upstream response header block | `Transport.MaxResponseHeaderBytes` 256 KiB, the same ceiling (target); a larger block fails the attempt as a protocol error (error kind `reset`) |
 | Bodies and buffered bytes | `limits.maxRequestBodyBytes`, `limits.maxResponseBodyBytes`, step `maxBodyBytes`; `limits.maxBufferedBytes` reserved as bytes arrive |
 | One streamed chunk | 1 MiB (target), reserved from the stream share while held |
 | Plugin memory | Plugin `limits.memoryBytes`, Gateway `limits.maxPluginMemoryBytes` |
@@ -126,7 +129,7 @@ Worst-case Node memory sums connections at 592 KiB (about 11.3 GiB), in-flight u
 
 ## Listeners and protocols
 
-Listeners come from `Gateway.spec.listeners` with `protocol` `http` or `https`, a required `port`, `hostnames` and `tls`; Routes bind through `Route.spec.listeners` (default all). Sockets use `SO_REUSEPORT` for Zero-Downtime Upgrades ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). A Hot Reload never mutates a running server: a changed listener gets a new socket and server before the swap, and a bind failure rejects the Revision with the transient RZ-CFG-039.
+Listeners come from `Gateway.spec.listeners` with `protocol` `http` or `https`, a required `port`, `hostnames` and `tls`; Routes bind through `Route.spec.listeners` (default all). Sockets use `SO_REUSEPORT` for Zero-Downtime Upgrades ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). A Hot Reload never mutates a running server: an added or changed listener binds a new socket before the swap, without listening on Linux, and listens on a new server right after it; a bind failure rejects the Revision with the transient RZ-CFG-039. A changed client-certificate request mode starts a new server on the same socket. Validation refuses two listeners on one `port`, or one on the admin port, with RZ-CFG-005 ([Gateway](02-configuration-model.md#gateway)); activation refuses either with RZ-CFG-039 as a backstop. An accept error other than a closed socket, such as running out of file descriptors, is retried after 5 ms, doubling up to 1 s (target).
 
 | Protocol | Detection | Implementation | Planned |
 |---|---|---|---|
@@ -163,7 +166,7 @@ The config loader compiles one Router per listener into the snapshot:
 
 1. **Host tables.** An exact-host hash map (lowercased, port stripped), a wildcard table of `*.` suffixes by length, and an any-host list. A `match.hosts` entry holds at most one leading `*.` label and no other `*`, else RZ-CFG-005; `*.` matches one or more leading labels, never the bare suffix. Listener `hostnames` take the same forms and bound every Route of the listener: a host outside them reaches no Route.
 2. **Path index per host entry.** A segment trie for `exact`, `template` and `prefix` (on segment boundaries), then `regex` with the standard `regexp` package, then Routes without `path`.
-3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)).
+3. **Candidate filters.** `methods`, `headers`, `grpc` (exact `/service/method`, or a `/service/` prefix without `method`) and the compiled `when` ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)). A CORS preflight, an `OPTIONS` request with `Origin` and `Access-Control-Request-Method` fields, meets `methods` when they list the method it asks for (the first field line) or `OPTIONS`, so it reaches the Route of the actual request, whose `cors` Policy answers it ([CORS](#cors)), and a Route that serves `OPTIONS` itself still receives it; `when` still sees `request.method` `OPTIONS`.
 
 Paths are normalized first, from the escaped target, for the Router, CEL, `authz.*`, logs, `/tap` and the forwarded request. `%00`, a raw or encoded backslash, another control byte or an invalid escape is 400 `RZ-RT-017`; otherwise unreserved escapes are decoded and dot segments removed (RFC 3986), clamping at `/`, and `%2F` never splits a segment. Hosts are case-insensitive, paths case-sensitive; repeated and trailing slashes are kept, significant for `exact` and `template`.
 
@@ -220,6 +223,7 @@ Six Routes share the `https` listener:
 | `GET api.shop.example/v1/orders/42/summary` | `orders-summary` | Only the four-segment template matches |
 | `GET eu.shop.example/v1/orders/42` | `tenant-wild` | The wildcard host matches |
 | `GET shop.example/v1/orders` | `fallback` | `*.shop.example` never matches the bare suffix |
+| `OPTIONS api.shop.example/v1/orders/42/summary` with `Origin` and `Access-Control-Request-Method: GET` | `orders-summary` | A CORS preflight meets `methods` that list the method it asks for or `OPTIONS` |
 
 ## Filter Chain execution
 
@@ -240,6 +244,8 @@ The fixed Phases run in this order: `onRequestHeaders → onRequestBody → onRo
 | `onResponse` | Once, before headers reach the client | No; last status change |
 | `onLog` | Always, after the response; read-only | No; failures reach telemetry only |
 | `onChunk` | Per chunk, if subscribed | No; may end the stream |
+
+`onUpstreamResponseHeaders` runs for every attempt that was sent, also one that got no response (a connect, TLS, reset or timeout error), so a Policy can request a retry or Provider Fallback after a failed attempt too: there, CEL `response` is null and `error.kind` names the failure, the Policy's message is an empty response (status 0, header edits reach nothing), and a closed failure ends the leg with 502 `RZ-RT-012`. An attempt the client cancelled runs it not.
 
 ### Ordering
 
@@ -276,6 +282,12 @@ flowchart TD
     fm -- "open" --> skip["Skip the Policy, continue"]
     gen --> resp
 ```
+
+### CORS
+
+A `cors` Policy answers the CORS protocol of the Fetch standard in its Filter class, first in a Phase, so a preflight never reaches authentication. A request without `Origin` is no CORS request. A CORS preflight, an `OPTIONS` request with `Origin` and `Access-Control-Request-Method`, is answered in `onRequestHeaders`: 204 with `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods` (`allowMethods`), `Access-Control-Allow-Headers` (`allowHeaders`), `Access-Control-Allow-Credentials` (when `allowCredentials`), `Access-Control-Max-Age` (`maxAge` in whole seconds) and `Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers` when the origin is allowed, the requested method is in `allowMethods` and every field name in `Access-Control-Request-Headers` is in `allowHeaders` (ignoring case), else 403 `RZ-RT-008` without CORS fields. A browser lists only CORS-unsafe request headers there, so without `allowHeaders` only requests whose headers are all CORS-safelisted pass. With `*` in `allowHeaders` any field names pass and `Access-Control-Allow-Headers` is `*`, followed by `Authorization` when the preflight asks for it, because a browser never lets `*` cover `Authorization`. Any other request with `Origin` passes on whatever its origin, and the browser withholds the response unless it allows the origin: when the origin is allowed and the method is in `allowMethods`, `onResponse` sets `Access-Control-Allow-Origin`, replacing an Upstream's value, `Access-Control-Allow-Credentials` when `allowCredentials`, and `Access-Control-Expose-Headers` (`exposeHeaders`, or `*` when it holds `*`), generated responses included.
+
+An origin is allowed when `allowOrigins` lists it byte for byte, `null` included, or holds `*`; `Access-Control-Allow-Origin` is `*` when `allowOrigins` holds `*`, else the request's origin. The wildcards `*` and the `null` origin are for requests without credentials: a browser does not honor them for credentialed requests, so validation refuses them with `allowCredentials: true`. Methods match byte for byte. `onResponse` adds `Origin` to `Vary` on every response of the Route, CORS request or not, unless `Vary` lists `Origin` or `*`, so caches keep the variants apart. The fields and their validation are registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents).
 
 ### Streaming
 
@@ -317,9 +329,9 @@ A Policy applies `body`, then `arrayOps[]`, `set[]`, `remove[]` and `replace[]`,
 | `transform.response` at Gateway or Route | `onResponse`, after any composition merge | Base; `response`, with `body` | `limits.maxResponseBodyBytes` |
 | `transform.response` at Upstream | `onUpstreamResponseBody`, per leg | Base; `response`, with `body`; `upstream` | Step `maxBodyBytes`, else `limits.maxResponseBodyBytes` |
 
-*Base* is the Configuration model's set ([Variables](02-configuration-model.md#variables)). `request.body` and `response.body` are JSON as `dyn`; a body whose `Content-Type` is not `application/json` or a `+json` type is null, so only `replace[]` without `path`, header and query operations and a `body` that ignores it apply. Reading an XML response is OQ-data-plane-17.
+*Base* is the Configuration model's set ([Variables](02-configuration-model.md#variables)). `request.body` and `response.body` are JSON as `dyn`; a body that is empty, not valid JSON, or whose one `Content-Type` field line is not `application/json` or a `+json` type is null, so only `replace[]` without `path`, header and query operations and a `body` that ignores it apply. In `onUpstreamRequest`, `request` describes the attempt's outgoing request as it reached the Policy: its headers, query and current body. Reading an XML response is OQ-data-plane-17.
 
-Limits: each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes. Transform Policies never call the State Store.
+Limits: each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store.
 
 A CEL runtime error, a JSON operation on a null body, a path through a non-object or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the body passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
 
@@ -366,7 +378,7 @@ Merging applies to `aggregate` steps and to any step that sets `target`, `select
 
 ### Failures and partial responses
 
-A step fails on an Upstream error or non-2xx result, a timeout, a CEL runtime error or a body over its `maxBodyBytes`. A failed non-optional step cancels its siblings through their shared context and fails the request: 502 with the `RZ-UP-<NNN>` code of an Upstream cause or `RZ-RT-015` for a CEL error or oversized body, or 503 `RZ-RT-004` when the buffer budget is spent. A failed `optional: true` step is left out, and the response carries `ruralz-partial: true`.
+A step fails on an Upstream error or non-2xx result, a timeout, a CEL runtime error or a body over its `maxBodyBytes`; a step's leg reads its response within that `maxBodyBytes`, in `onUpstreamResponseBody` too, where a plain `upstreams` leg uses `limits.maxResponseBodyBytes`. A failed non-optional step cancels its siblings through their shared context and fails the request: 502 with the `RZ-UP-<NNN>` code of an Upstream cause or `RZ-RT-015` for a CEL error or oversized body, or 503 `RZ-RT-004` when the buffer budget is spent. A failed `optional: true` step is left out, and the response carries `ruralz-partial: true`.
 
 ### Workflow composition
 
@@ -380,7 +392,7 @@ Endpoints come from `endpoints` or `discovery` (`dns` Planned (M1); `kubernetes`
 
 Three deadlines nest: the Route `timeout` bounds the request, the Upstream `timeout` one leg including retries, and `retries.perTryTimeout` one attempt. `retryOn` decides after each attempt under the replay rule: a leg is retried or falls back only if its request body is empty or buffered and no response byte is committed. An open breaker (`consecutiveFailures`, `openDuration`, `failureWhen`) or a full `maxPendingRequests` queue fails the attempt at once with an `RZ-UP-<NNN>` code; each attempt emits `ruralz.upstream.<name>`.
 
-Connection pools are keyed by protocol, TLS settings and Endpoint and carried across Hot Reloads when the key is unchanged; `HTTP2Config.StrictMaxConcurrentRequests` is false ([source](https://go.dev/doc/go1.26)), so an HTTP/2 Upstream's stream limit opens another connection, within `circuitBreaker.maxConnections` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). `grpc`, `websocket`, `graphql` and `ai` Upstreams are Planned (M3); `kafka`, `nats` and `mqtt` Planned (M4).
+Connection pools are keyed by protocol, TLS settings (SNI and secret references) and Endpoint; idle connections close after 90 s, and pools are carried across Hot Reloads when the key is unchanged; `HTTP2Config.StrictMaxConcurrentRequests` is false ([source](https://go.dev/doc/go1.26)), so an HTTP/2 Upstream's stream limit opens another connection, within `circuitBreaker.maxConnections` ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)). `grpc`, `websocket`, `graphql` and `ai` Upstreams are Planned (M3); `kafka`, `nats` and `mqtt` Planned (M4).
 
 ## Configuration snapshots and hot reload
 
@@ -406,7 +418,7 @@ In-flight requests complete on the snapshot they started on; retirement ends onl
 
 1. **One pin per request.** The request goroutine pins the snapshot before routing and keeps it until `onLog`. Pins are cache-line-padded counter stripes: a goroutine loads the pointer, increments its stripe and re-loads it, undoing and retrying if it changed. The retirer swaps the pointer, then waits for the stripes to sum to zero, so no request runs on a freed snapshot.
 2. **Close only resources.** The garbage collector reclaims snapshot memory; at zero pins the retirer closes only pools and Plugin instances no newer snapshot shares.
-3. **Listeners stay bound.** An added listener opens before the swap; a removed one stops accepting after it while its connections finish.
+3. **Listeners stay bound.** An added or changed listener binds before the swap and listens right after it; a removed one stops accepting after the swap while its connections finish; a socket replaced on the same port keeps accepting for ADR-0015's 3 s linger (target) after its port is steered to the new socket.
 4. **Bounded retirement.** At most K = 2 retired snapshots are kept (target). When a third would be retired, the oldest becomes closing: its streams end at once (WebSocket close 1001, gRPC `UNAVAILABLE` trailers, an SSE end event with a retry hint). After a grace period of 30 s (target) it becomes ending, and anything still pinned ends with `RZ-RT-014`, counted by `ruralz_snapshot_retirement_ended_total` ([Observability](10-observability.md)).
 5. **Ending protocol.** At pin time each request registers a callback on its pin stripe's retirement context, run on its own goroutine because a handler blocked in I/O cannot reach a panic. At grace end the retirer cancels those contexts; each callback:
    1. Under a per-request mutex the handler also takes, sets past read and write deadlines through `http.ResponseController` (before commit, a write deadline 5 s ahead (target) so the handler can write 503 `RZ-RT-014`), resetting the HTTP/2 stream or closing the HTTP/1.1 connection; a hijacked WebSocket is closed directly.
@@ -467,20 +479,20 @@ Writes use a temporary file, `fsync`, `rename` and a directory `fsync`, content 
 
 ## Admin endpoints
 
-The admin listener binds `Gateway.spec.admin.port`, default 9901, on all interfaces, with its own `net/http` server of at most 256 connections (target); before the first activation it uses the Last-Known-Good Revision's port, else 9901. [CLI and API surface](../reference/01-cli-and-api-surface.md) MUST match this table. Only `/healthz` and `/readyz` MAY be unauthenticated (pack 8.4); other paths need an [admin credential](08-security-and-identity.md#admin-ports), else 401 `RZ-AUTH-001` or `RZ-AUTH-002`.
+The admin listener binds `Gateway.spec.admin.port`, default 9901, on all interfaces, with its own `net/http` server of at most 256 connections (target); before the first activation it uses the Last-Known-Good Revision's port, else 9901. It uses the `http.Server` ceilings of Bounded resources without `ReadTimeout` or `WriteTimeout`, and serves HTTP/1.1, plus HTTP/2 over TLS when `RURALZ_ADMIN_TLS_DIR` is set. [CLI and API surface](../reference/01-cli-and-api-surface.md) MUST match this table. Only `/healthz` and `/readyz` MAY be unauthenticated (pack 8.4); other paths need an [admin credential](08-security-and-identity.md#admin-ports), else 401 `RZ-AUTH-001` or `RZ-AUTH-002`.
 
 | Path on 9901 | Method | Returns | Authentication | Used by | Planned |
 |---|---|---|---|---|---|
 | `/healthz` | GET | 200 `{"status":"ok"}` while the process responds | MAY be open | Liveness probes | Planned (M1) |
 | `/readyz` | GET | 200 only with an active validated Revision, every `secretRef` resolved, listeners bound and no Drain, else 503; never fails for a lost Control Stream | MAY be open | Readiness probes | Planned (M1) |
 | `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
-| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles, including the goroutine leak profile, GA in Go 1.27 ([source](https://go.dev/doc/go1.27)); mutex and block profiling only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
+| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles, including the goroutine leak profile, GA in Go 1.27 ([source](https://go.dev/doc/go1.27)); mutex and block profiling only during a `?seconds=` request, at a mutex profile fraction of 1 and a block profile rate of 1, recording every event | Operator token or client certificate | Profiling | Planned (M1) |
 | `/debug/snapshots` | GET | Active, retired, closing and ending snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
 | `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |
 | `/config/dump` | GET | The active Revision in `ruralz.canonical.v1` form with its full digest and the Last-Known-Good digest; `secretRef` shown, secrets omitted | Same | `ruralz node dump`, `ruralz bundle diff`, Drift detection | Planned (M1) |
 | `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted; a fifth subscriber gets 503 `RZ-RT-019` | Same | `ruralz dev tap` | Planned (M1) |
 
-`/debug/*` names every path under `/debug/`; a new one MUST be added here. Other paths are 404 `RZ-RT-020` and other methods 405 `RZ-RT-021`, as problem documents. Admin endpoints never change configuration, so a leaked admin token cannot alter routing.
+`/debug/*` names every path under `/debug/`; a new one MUST be added here. Paths compare exactly. Other paths are 404 `RZ-RT-020` whatever the method, and other methods on an endpoint, `HEAD` included, are 405 `RZ-RT-021` with `Allow: GET`, as problem documents. The `requestId` of an admin problem document is the trace ID of the request's valid `traceparent`, else a new trace ID drawn as for a data-plane request without one. Admin endpoints never change configuration, so a leaked admin token cannot alter routing.
 
 Bodies are versioned: members are only added, and readers ignore unknown ones.
 
@@ -491,7 +503,7 @@ Bodies are versioned: members are only added, and readers ignore unknown ones.
 | `/config/dump` | RFC 8785 JSON of `{"content","digest","lastKnownGood","revision"}` |
 | `/tap` | `application/x-ndjson`, one event per sampled exchange: `time`, `traceId`, `listener`, `protocol`, `route`, `method`, `host`, `path` (normalized, no query), `status`, `code`, `durationMs`, `requestBytes`, `responseBytes`, `upstream`, `endpoint`, `consumer`, `requestHeaders`, `responseHeaders` |
 
-Each `/tap` subscriber samples exchanges at its own `?sample=` rate in (0, 1], default 1. Credential headers and those whose names contain `token`, `secret`, `key`, `password`, `session` or `auth` read `[REDACTED]`; bodies, queries and secrets never appear. At most 4 subscribers hold 1 MiB buffers (target); a laggard loses events, counted by `ruralz_tap_events_dropped_total`, and gets one `{"dropped":N}` line before its next event.
+Each `/tap` subscriber samples exchanges at its own `?sample=` rate in (0, 1], default 1; any other value is 400 `RZ-RT-022`. Credential headers and those whose names contain `token`, `secret`, `key`, `password`, `session` or `auth` read `[REDACTED]`; bodies, queries and secrets never appear. At most 4 subscribers hold 1 MiB buffers (target); a laggard loses events, counted by `ruralz_tap_events_dropped_total`, and gets one `{"dropped":N}` line before its next event. Each write to a subscriber has a 10 s deadline (target); a subscriber that misses it is dropped and its slot freed.
 
 ## Failure semantics
 
@@ -548,6 +560,7 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-019 | 503 | The admin `/tap` subscriber limit is reached |
 | RZ-RT-020 | 404 | No admin endpoint at this path |
 | RZ-RT-021 | 405 | Method not allowed on this admin endpoint |
+| RZ-RT-022 | 400 | The admin `/tap` `?sample=` value is not a number in (0, 1] |
 
 ## Performance budgets
 

@@ -112,7 +112,7 @@ The golden corpus pins Bundle digests (including `shop-bundle`), diagnostics, `r
 
 ## Integration tests
 
-Integration tests carry the `integration` tag and run in stage 8 of `pr-full`. `RURALZ_TEST_STATESTORE` selects the State Store flavor: `process`, a local `redis-server`, on every leg and contributor machine; `container`, the images below through testcontainers-go, a test-only [catalog](01-tech-stack-and-libraries.md#library-catalog) module ([source](https://github.com/testcontainers/testcontainers-go)), on the linux/amd64 container leg. Without either, a suite skips with a reason. Images are pinned by digest ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), never taken from module defaults ([source](https://golang.testcontainers.org/modules/)).
+Integration tests carry the `integration` tag and run in stage 8 of `pr-full`. `RURALZ_TEST_STATESTORE` selects the State Store flavor: `process`, a local `redis-server`, on every leg and contributor machine; `container`, the images below through testcontainers-go, a test-only [catalog](01-tech-stack-and-libraries.md#library-catalog) module ([source](https://github.com/testcontainers/testcontainers-go)), on the linux/amd64 container leg. `internal/statestore/statestoretest/redisserver` launches both flavors. A suite whose flavor the variable selects fails when that flavor cannot run (no `redis-server`, no Docker daemon, a cluster container off Linux); otherwise a suite skips with a reason. The process harness starts a `redis-server` whenever one is found, without the variable. Images are pinned by digest ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), never taken from module defaults ([source](https://golang.testcontainers.org/modules/)).
 
 | Dependency | Container source | Used for | Milestone |
 |---|---|---|---|
@@ -133,7 +133,7 @@ Authentication tests replace Mosquitto's anonymous default ([source](https://gol
 - A slow vector search never delays a rate-limit reply.
 - Without vector support, `ai.semantic-cache` behaves as a State Store failure under its `failureMode`; the Node reports a degraded state.
 
-Node integration suites under `test/integration/`, Planned (M1), drive a built `ruralzd` over real sockets: `cel` (runtime errors per CEL place), `telemetry` (Hot Reload, a blocked stdout, 1,000-reload cardinality), `security` (JWKS rotation, mTLS, the admin port, secret-to-destination binding, the State Store entry MAC) and `statestore` (the scenarios above and the ADR-0008 round trip through a counting RESP proxy). `test/t5` runs `systemd-analyze verify` on the shipped unit; `t5-systemd.yml` runs the live handover test.
+Node integration suites under `test/integration/`, Planned (M1), drive a built `ruralzd` over real sockets: `cel` (runtime errors per CEL place), `telemetry` (Hot Reload, a blocked stdout, 1,000-reload cardinality), `security` (JWKS rotation, mTLS, the admin port, secret-to-destination binding, the State Store entry MAC) and `statestore` (the scenarios above and the ADR-0008 round trip through the counting RESP proxy `internal/statestore/statestoretest/respproxy`). `test/t5` runs `systemd-analyze verify` on the shipped unit; `t5-systemd.yml` runs the live handover test.
 
 Container-free tests run three Ruralz Control replicas and Nodes in one process over loopback mutual TLS ([ADR-0007](../adr/0007-control-stream-protocol.md)), each instance with its own `RURALZ_DATA_DIR`, OpenTelemetry providers and `slog` logger: snapshot and delta delivery, ACK and NACK classification, promoted digests, backup then restore. Their fencing test, Planned (M2), proves a deposed leader's entry at a taken sequence commits but is never accepted or delivered, and a new leader proposes only after Barrier; its `postgres` Control Store variant, Planned (M4), proves the transaction rejects that entry ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)).
 
@@ -213,7 +213,7 @@ Chaos tests prove P9: each [System overview failure table](../architecture/01-sy
 | Leader failover with every Node reconnecting | Jittered reconnects; each Node gets only its planned Revision | Planned (M2) |
 | One Cell's State Store lost | Only that Cell degrades | Planned (M4) |
 
-Faults come from process signals, `redis` commands and the Ruralz TCP fault proxy `internal/testkit/faultproxy`; container stop and kind pod deletion join in M2. A degraded state without a metric fails its scenario (P10). CE-5 at 100 Nodes, CE-15 at 100,000 new keys per second and CE-12 at full rate (target) run weekly on RH-1 in `chaos-scale.yml` (`runs-on: [self-hosted, rh-1]`), and GD-1 to GD-5 as automated drills in the Chaos job; human game days need a staging environment.
+Faults come from process signals, `redis` commands and the Ruralz TCP fault proxy `internal/testkit/faultproxy`, wrapped by `respproxy`, which holds the replies to named commands (slow replies); container stop and kind pod deletion join in M2. A degraded state without a metric fails its scenario (P10). CE-5 at 100 Nodes, CE-15 at 100,000 new keys per second and CE-12 at full rate (target) run weekly on RH-1 in `chaos-scale.yml` (`runs-on: [self-hosted, rh-1]`), and GD-1 to GD-5 as automated drills in the Chaos job; human game days need a staging environment.
 
 ## Benchmarks and regression gates
 

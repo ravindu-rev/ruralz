@@ -122,7 +122,7 @@ OQ-data-plane-10: a fixed 60 s inter-chunk idle limit is recommended (target).
 3. A breaker not open, and retry budget room.
 4. Any Upstream `Retry-After` at most 10 s (target) and ending before the leg deadline.
 
-Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `Retry-After`; each retry reruns `onUpstreamRequest`. A leg whose last attempt got a response returns it unchanged, else the [code selection rule](#error-codes-this-document-owns) applies.
+Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `Retry-After`; each retry reruns `onUpstreamRequest`. A retried response gives back its in-flight slot when the retry is decided and is drained (up to 64 KiB, within the leg deadline) when the retry attempt runs; if that attempt cannot start, the leg returns it unchanged. A leg whose last attempt got a response returns it unchanged, else the [code selection rule](#error-codes-this-document-owns) applies.
 
 ### Retry budget
 
@@ -380,7 +380,7 @@ Where N_serving can exceed 25 × N_c, as when a Cluster may scale 25-fold during
 
 Uncapped, 1.3 GB/s of 128 KiB misses would fill a 16 GiB shard's 30% headroom in under 4 s (hypothesis). Keys never evict and live up to 26 h (target): recovery means waiting out TTLs or purging `rz:rc:` keys with the State Store's tools. OQ-traffic-management-and-resilience-11 option (a), a separate State Store, is recommended whenever `ai.token-budget` and `cache` share a Cell.
 
-`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md)); rules 2 and 3 count as `memory`. A hit first reserves its size from `limits.maxBufferedBytes`, else bypasses.
+`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md)); rules 2 and 3 count as `memory`. The data plane counts `size_limit` when it refuses a tee, the response being known to exceed the limit, and `size_limit` or `buffer_budget` when it stops one it started; the `cache` Filter counts neither. A hit first reserves its size from `limits.maxBufferedBytes`, else bypasses.
 
 A store saves the upstream request as the request Phases left it, minus upstream credentials. Under `stale-while-revalidate` the Node serves stale at once and queues a revalidation for four workers on a 256-entry queue that drops when full (target). A worker takes the partition's lease for the 5 s deadline (target), so one Node revalidates, replaying the request through upstream-leg Policies, breaker and bulkhead. A 304 refreshes metadata under the lease; any other result ends the stale window unstored, as the replay skipped the Route's response Phases.
 

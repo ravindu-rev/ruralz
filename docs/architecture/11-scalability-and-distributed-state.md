@@ -299,20 +299,22 @@ Cookie affinity or a session Policy type is OQ-scalability-and-distributed-state
 
 ### Post-commit write queue
 
-The queue, Planned (M1), holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. Plugin writes take their own class, with the Environment name as `rzplg:` namespace (OQ-wasm-plugin-system-19, OQ-scalability-and-distributed-state-11). Sizes are fixed (OQ-scalability-and-distributed-state-4).
+The queue, Planned (M1), holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. A class's bytes count each queued write's retained memory: a fixed overhead per item, the Go type sizes of the write and its queue slot, about 480 bytes on a 64-bit Node (hypothesis), plus its key and payload bytes, such as a refund's Quota name or a store's names and entry. The invalidation class's 1 MiB therefore holds about 2,180 writes (hypothesis), binding before its item cap. Plugin writes take their own class, with the Environment name as `rzplg:` namespace (OQ-wasm-plugin-system-19, OQ-scalability-and-distributed-state-11). Sizes are fixed (OQ-scalability-and-distributed-state-4).
 
 | Class | Capacity | Drain turn | On full |
 |---|---|---|---|
 | Quota refunds, Token Budget settlement | 32,000 items and 16 MiB (target) | First | Drop; over-charge, never under-charge |
-| Cache invalidations | 6,400 items and 1 MiB, the reserved 10% (target) | Second | One retry, then drop |
-| Cache stores | 16,000 items and 64 MiB of payload (target) | Third, 4 of 5 turns (target) | Drop; counted as a skipped store |
+| Cache invalidations | 6,400 items and 1 MiB, the reserved 10% (target) | Second | Drop; a failed write is retried once, then dropped |
+| Cache stores | 16,000 items and 64 MiB (target) | Third, 4 of 5 turns (target) | Drop; counted as a skipped store |
 | Plugin writes | 9,600 items and 4 MiB (target) | Third, 1 of 5 turns (target) | Drop per Plugin Policy |
 
-Eight writers per Node cycle through the turns, skipping empty classes, 64 writes per batch (target): an invalidation waits at most one settlement batch plus one in progress, and Plugin writes get one batch in 15 under saturation (target). A Plugin write is a `state_incr` of an i64 on a key of at most 256 bytes ([WASM plugin system](05-wasm-plugin-system.md)); larger values would first need a per-value cap. Writes to a shard with an open breaker drop at once; on Drain the Node flushes for up to 5 s (target). Drops increment `ruralz_state_writes_dropped_total` by `kind`.
+Eight writers per Node cycle through the turns, skipping empty classes, 64 writes per batch (target): an invalidation waits at most one settlement batch plus one in progress, and Plugin writes get one batch in 15 under saturation (target). A Plugin write is a `state_incr` of an i64 on a key of at most 256 bytes ([WASM plugin system](05-wasm-plugin-system.md)); larger values would first need a per-value cap. Writes to a shard with an open breaker, or not attempted (`RZ-STS-004`), drop at once; other failed writes are call errors, retried only for invalidations. On Drain the Node flushes for up to 5 s (target) and drops what is left. Drops increment `ruralz_state_writes_dropped_total` by `kind`.
 
 ### State client and RZ-STS error codes
 
 The State client, Planned (M1), is `rueidis` with auto-pipelining ([source](https://github.com/redis/rueidis)). Per Node it keeps 2 pipelined connections per shard plus up to 8 dedicated ones opened lazily (target), and at most 8,192 blocking calls in flight (target), each counted until its reply or a connection reset, not its caller's timeout; an excess call is skipped under `failureMode`. A per-shard breaker opens when 50% of at least 20 calls in 5 s fail, or after 5 consecutive connect failures; it half-opens after a uniform 1 to 3 s delay, admits one probe at a time and closes after 3 successes (target). Reconnects back off with full jitter, base 100 ms, cap 5 s, at most 4 connects per second per shard per Node (target).
+
+A Hot Reload keeps the State client while the Gateway's driver, topology and URL are unchanged, so connections, breakers, scripts and `memory` counters survive it; a change opens a new client before the swap, and the old one closes when its last snapshot is freed and its queued writes are written or dropped. A URL from an `env` secret changes only with a restart, since the Node reads its variables at start. Nodes read every open client's status every 1 s (target) and after each change, for the State Store [degraded states](10-observability.md#degraded-states) and the `state_store` cleartext hop count.
 
 Pack 8.6 assigns `STS` here: a State Store call failed or timed out under `failureMode: closed`, never a decision. Before commit, codes take pack 8.10's status in the [Data plane](03-data-plane.md#error-response-format) format: in a request Phase 503, or 401 for a `plugin` Policy of Filter class auth and 403 for class authz; in a response Phase, where a Plugin may call `state_get`, 502 replaces the response.
 
@@ -562,7 +564,7 @@ Evacuating a Cell shifts DNS or anycast weight; receiving Cells start with empty
 
 | Limit | Per-Node value | Owner | When reached |
 |---|---|---|---|
-| Client connections | 20,000 (target) | [Data plane](03-data-plane.md#bounded-resources) | Stops calling `Accept` |
+| Client connections | 20,000 (target) | [Data plane](03-data-plane.md#bounded-resources) | Each listener holds the connection it accepted until a slot frees; the kernel queues the rest |
 | In-flight units | 20,000 (target) | Data plane | 503 `RZ-RT-005` |
 | Buffered bytes | 512 MiB proposed default (target) | [Configuration model](02-configuration-model.md#body-buffering-and-limits) | 503 `RZ-RT-004`; tees skip |
 | Rate-limit key table | 1,048,576 entries, about 64 MiB (target) | [Traffic management](09-traffic-management-and-resilience.md#decision-path) | CLOCK eviction |

@@ -139,8 +139,8 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_http_gateway_duration_skipped_total` | Counter | requests | `reason` | clock_anomaly |
 | `ruralz_http_request_body_bytes`, `ruralz_http_response_body_bytes` | Histogram, bytes | bytes | `listener` | Body sizes |
 | `ruralz_http_active_requests` | Gauge | requests | `listener` | In flight |
-| `ruralz_listener_open_connections` | Gauge | connections | `listener`, `protocol` | Open connections |
-| `ruralz_listener_connections_total` | Counter | connections | `listener`, `protocol`, `result` | accepted, tls_failure, refused |
+| `ruralz_listener_open_connections` | Gauge | connections | `listener`, `protocol` | Open connections; `http1` until a connection is known to speak HTTP/2 (ALPN `h2` or the h2c preface) |
+| `ruralz_listener_connections_total` | Counter | connections | `listener`, `protocol`, `result` | accepted, tls_failure, refused; once per connection, accepted with its protocol once known, and `http1` before it is known, so every tls_failure and refused counts under `http1` |
 | `ruralz_listener_tls_handshake_duration_seconds` | Histogram, request | seconds | `listener` | TLS handshake; QUIC from Planned (M3) |
 | `ruralz_filter_duration_seconds` | Histogram, fast | seconds | `policy`, `phase` | One Filter or Plugin call |
 | `ruralz_filter_short_circuits_total` | Counter | responses | `policy`, `phase`, `status_class` | Policy responses |
@@ -148,13 +148,14 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_auth_decisions_total` | Counter | decisions | `policy`, `result`, `code` | allow, deny |
 | `ruralz_auth_jwks_age_seconds`, `ruralz_auth_upstream_token_age_seconds` | Gauge | seconds | `policy` | Key and token age |
 | `ruralz_auth_upstream_refresh_failures_total` | Counter | failures | `policy` | Token fetches |
+| `ruralz_auth_basic_refusals_total` | Counter | refusals | `cause` | queue, create, delay, source: `auth.basic` attempts the Node-wide throttle refused before any hash ([Pre-authentication throttling](08-security-and-identity.md#pre-authentication-throttling)) |
 | `ruralz_security_cleartext_hops` | Gauge | hops | `hop` | client, upstream, state_store, telemetry, admin |
 | `ruralz_ratelimit_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny_local, deny_global, fail_open ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) |
 | `ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy` | Local keys evicted |
 | `ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open |
 | `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error |
 | `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory ([Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)) |
-| `ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls |
+| `ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls; attempts the caller canceled are not counted; a bulkhead wait that expired counts as timeout |
 | `ruralz_upstream_attempt_duration_seconds` | Histogram, request | seconds | `upstream` | Connect to last byte |
 | `ruralz_upstream_retries_total`, `ruralz_upstream_retry_budget_exhausted_total` | Counter | retries | `upstream` | Made; skipped |
 | `ruralz_upstream_breaker_state_info` | Gauge | info | `upstream`, `state` | closed, open, half_open |
@@ -166,7 +167,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_upstream_pool_connections` | Gauge | connections | `upstream`, `state` | idle, active |
 | `ruralz_state_call_duration_seconds` | Histogram, fast | seconds | `op` | SLI of SLO-GW-5 |
 | `ruralz_state_calls_total` | Counter | calls | `op`, `result` | ok, error, timeout, skipped |
-| `ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; dropped by a full post-commit queue |
+| `ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; post-commit writes dropped: a full class, an open breaker, a failed invalidation retry, the Drain flush |
 | `ruralz_state_write_queue_items` | Gauge | items | none | Queue depth |
 | `ruralz_plugin_call_duration_seconds`, `ruralz_plugin_call_overhead_seconds` | Histogram, fast | seconds | `policy`, `phase` | Whole call; host time around the guest call, SLI of SLO-GW-4 |
 | `ruralz_plugin_pool_wait_seconds` | Histogram, fast | seconds | `policy` | Instance wait |
@@ -201,7 +202,7 @@ Both binaries read `ruralz_runtime_*` from `runtime/metrics` (SDK names: OQ-obse
 
 ### Gateway-added time
 
-`ruralz_http_gateway_duration_seconds` is wall-clock time minus the union of excluded sections: client reads and writes, upstream I/O, State Store round trips and declared remote calls (pack 8.7 rule 6). Upstream I/O is time blocked on the Upstream (pooled-connection wait, dial, TLS, awaiting headers, blocked body reads and writes); Filters and copy work during a leg stay gateway-added. Unary exchanges end at the last byte, `text/event-stream` responses at header commit; sessions are not measured. The access log reuses it, within the Metrics CPU budget, matching SM-4 and SM-5 ([Vision and positioning](../vision/01-vision-and-positioning.md#success-metrics)).
+`ruralz_http_gateway_duration_seconds` is wall-clock time minus the union of excluded sections: client reads and writes, upstream I/O, State Store round trips and declared remote calls (pack 8.7 rule 6). Upstream I/O is time blocked on the Upstream (pooled-connection wait, dial, TLS, awaiting headers, blocked body reads and writes); Filters and copy work during a leg stay gateway-added. The Upstream layer marks each attempt's round trip and each read of a leg's response body, the drain of a retried response included; its bulkhead wait and retry backoff stay gateway-added. Unary exchanges end at the last byte, `text/event-stream` responses at header commit; sessions are not measured. The access log reuses it, within the Metrics CPU budget, matching SM-4 and SM-5 ([Vision and positioning](../vision/01-vision-and-positioning.md#success-metrics)).
 
 The union takes constant space, however many sections or chunks a request has. One 64-bit word per request packs an excluded depth (16 bits) and the start of the current excluded run (48 bits of monotonic nanoseconds since request start, about 78 hours), updated by compare-and-swap:
 
@@ -235,7 +236,7 @@ Reasons are Planned (M1) unless tagged.
 | `probes_skipped` | More than 10% of active health probes skipped for 1 minute (target) |
 | `header_limit_capped` | The header limit exceeds the process ceiling |
 | `snapshot_ending_overdue` | A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload), so no newer Revision activates; pages |
-| `secret_rotation_failed`, `jwks_stale` | A secret rotation or JWKS fetch fails; the last value serves |
+| `secret_rotation_failed`, `jwks_stale` | A secret rotation or JWKS fetch fails; the last value, if any, serves until it expires |
 | `crl_stale` | An `auth.mtls` CRL is past its `nextUpdate`; the last CRL stays enforced ([Security and identity](08-security-and-identity.md#basic-and-mtls-schemas)) |
 | `cleartext_hop` | `ruralz_security_cleartext_hops` is above 0; alerts only for `state_store`, `telemetry` and `admin` ([Alert rules](#alert-rules)) |
 | `node_count_unknown` | A derived Rate Limit ceiling lacks the published Node count; Planned (M2) |
@@ -339,8 +340,8 @@ The request goroutine evaluates `when` and copies every field, truncated, into a
 | `user_agent`, `tls_version` | `User-Agent` cut at 256 bytes (target), flagged in `truncated`; TLS version |
 | `consumer`, `tier`, `auth_method` | When authenticated |
 | `upstream`, `endpoint`, `attempts` | Last upstream leg |
-| `short_circuit`, `failure_modes` | Policy and Phase that responded; undecided Policies with `failureMode` applied, at most 8 (target) |
-| `cache` | Response Cache or Semantic Cache result |
+| `short_circuit`, `failure_modes` | Policy and Phase that responded (among composition steps, the first in request order); undecided Policies with `failureMode` applied, upstream-leg Policies included, at most 8 (target), a longer list flagged in `truncated` |
+| `cache` | Response Cache or Semantic Cache result the cache Policy recorded: for `cache`, the `result` of `ruralz_cache_requests_total`; empty when none ran |
 | `messages_in`, `messages_out` | Session message counts |
 | `ai` | AI fields ([AI observability](#ai-observability)), at most 1 KiB (target) |
 

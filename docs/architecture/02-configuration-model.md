@@ -240,7 +240,7 @@ spec:
   stateStore:
     driver: redis                  # memory | redis; default memory
     topology: cluster              # redis only: standalone | cluster; default standalone
-    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}   # required with driver redis
     timeout: 50ms                  # default 50ms; the default of every Policy's stateStoreTimeout
     cache:                         # optional second redis connection, used only by the Response Cache
       topology: standalone         # standalone | cluster; default standalone
@@ -248,11 +248,13 @@ spec:
   policies: [{name: cors-default}] # orderedMap keyed by name; Gateway-scoped Policies
 ```
 
+Each listener has its own `port`: two listeners on one `port`, or a listener on the admin port (`admin.port`, else its default 9901), are RZ-CFG-005 at stage H. A Node that still meets either at activation refuses the Revision with RZ-CFG-039 ([Data plane](03-data-plane.md#listeners-and-protocols)).
+
 `trustedProxies` and `listeners[].proxyProtocol`, Planned (M1), feed Security's [Client address](08-security-and-identity.md#ip-filtering-and-geoip) rule, which owns their semantics; a malformed CIDR is RZ-CFG-005. Every topology that puts Nodes behind a load balancer SHOULD set one or both, or `source.ip` is the balancer's address.
 
 `stateStore.topology`, Planned (M1), selects `standalone` or `cluster`, without Sentinel (OQ-scalability-and-distributed-state-2, option (a)). `url` uses the rueidis URL form ([source](https://github.com/redis/rueidis/blob/main/README.md)), `rediss://` outside loopback: `standalone` takes one endpoint, `rediss://[user:password@]host:port[/db]`; `cluster` takes a seed list, `rediss://host:port?addr=host:port&addr=host:port`. A `standalone` URL names an endpoint that follows the primary through failover, such as a managed service's primary endpoint; the Node sets `ForceSingleClient`, so rueidis never guesses, and on a closed connection reconnects under Scalability's [reconnect pacing](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes) and reloads its scripts. A `cluster` client reads the slot map from any seed with `CLUSTER SLOTS`, follows `MOVED` and `ASK`, and refreshes the map after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)), so promoted replicas and new shards need no Revision. A resolved URL that does not fit `topology`, such as `master_set`, or `addr` under `standalone`, is RZ-CFG-026 on the Node.
 
-`stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. Sketch comments give the schema defaults (target); [Body buffering and limits](#body-buffering-and-limits) enforces the limits.
+`stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. `driver: redis` without `url` is RZ-CFG-005. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. Sketch comments give the schema defaults (target); [Body buffering and limits](#body-buffering-and-limits) enforces the limits.
 
 `stateStore.cache`, Planned (M1), is a second `redis` connection under the rules above, used only by the Response Cache, so cache entries never evict limit keys (OQ-scalability-and-distributed-state-3, option (a)). Without it the Response Cache shares the main one under Scalability's [interim rules](11-scalability-and-distributed-state.md#distributed-caches) and a startup warning.
 
@@ -423,7 +425,7 @@ Each type's full `config` schema is authored by its feature document and registe
 |---|---|
 | `cors` | `allowOrigins`, `allowMethods` |
 | `auth.jwt` | `issuers[]` with `issuer`, `jwksUrl`, `audiences` |
-| `auth.api-key` | `header` (default `x-api-key`; matched against Consumer `apiKeys` by hash) |
+| `auth.api-key` | `header` (default `x-api-key`; matched against Consumer `apiKeys` by hash; an invalid or Node-managed name, as for `headers`, is RZ-CFG-005) |
 | `authz.cel` | `rule` (CEL) |
 | `ratelimit` | `key` (CEL), `limits[]` with `requests`, `window` |
 | `quota` | `consumerQuota` (a Consumer quota with `unit: requests`), `key` (CEL; default `consumer.name`) |
@@ -448,10 +450,11 @@ These fields are registered as their feature documents authored them, so each co
 | `Consumer`, for `auth.basic` | `credentials.basic`: `map` keyed by `username`, each with `hash` (`pbkdf2-sha256:<salt>:<key>`, base64url) and `iterations`, default 600,000 (target) | A `username` in two Consumers is RZ-CFG-035; `iterations` outside 600,000 to 1,000,000 is RZ-CFG-036 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
 | `auth.mtls` | `config.caCertificate` (required `SecretValue`), `config.subjects` (`set` of rules, each exactly one of `subject` or `uriSan`), `config.crl` (`SecretValue`) | A rule with both or neither is RZ-CFG-005 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
 | `Consumer`, for `auth.mtls` | `credentials.certificates`: `map` keyed by `name`, each exactly one of `subject` or `uriSan` | A `subject` or `uriSan` in two Consumers is RZ-CFG-035 | [Basic and mTLS schemas](08-security-and-identity.md#basic-and-mtls-schemas) |
-| `authz.ip` | `config.allow`, `config.deny`: `set` of CIDRs or bare addresses | Both empty is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
+| `authz.ip` | `config.allow`, `config.deny`: `set` of CIDRs or bare addresses | Both empty, or an entry that is neither a CIDR nor an address, is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
 | `authz.geoip` | `config.allow`, `config.deny`: `set` of ISO 3166-1 alpha-2 codes | Both empty is RZ-CFG-005 | [IP filtering and GeoIP](08-security-and-identity.md#ip-filtering-and-geoip) |
+| `cors` | `config.allowHeaders` (`set` of request header names a preflight may ask for, `*` for any; absent allows only CORS-safelisted request headers), `config.allowCredentials` (boolean; absent means false), `config.maxAge` (duration, sent in whole seconds; absent sends no `Access-Control-Max-Age`), `config.exposeHeaders` (`set` of response header names, `*` for all; absent exposes none) | An `allowOrigins` entry that is neither `*` nor a serialized origin (`null`, or `scheme://host[:port]` in lower case without a default port or a path); an `allowMethods`, `allowHeaders` or `exposeHeaders` entry that is not an RFC 9110 token; and `allowCredentials: true` with `*` or `null` in `allowOrigins`, or with `*` in `allowHeaders` or `exposeHeaders`, are RZ-CFG-005 | [CORS](03-data-plane.md#cors) |
 | `auth.upstream-sigv4` | `config.region`, `config.service` (both required), `config.payload` (`signed`, the default, or `unsigned`) | Schema only | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
-| `auth.upstream-oauth2` | `config.timeout`, default `2s` (target) | `tokenUrl`, like `auth.jwt` `jwksUrl`, not `https` is RZ-CFG-037 | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
+| `auth.upstream-oauth2` | `config.timeout`, default `2s` (target) | `tokenUrl`, like `auth.jwt` `jwksUrl`, not `https` is RZ-CFG-037; a zero `timeout` is RZ-CFG-005 | [Upstream authentication](08-security-and-identity.md#upstream-authentication) |
 | `ratelimit` | `limits[].perNodeCeiling` (integer, 1 to `requests`; unset means derived), `limits[].burst` (integer, 0 to `requests`; default `requests`), `config.localOnly` (boolean; default `false`) | Out of range is RZ-CFG-005; `localOnly` follows foundation pack section 8.8 as OQ-scalability-and-distributed-state-11 (a) amends it | [Per-Node ceiling](09-traffic-management-and-resilience.md#per-node-ceiling) |
 | `transform.request`, `transform.response` | `config.body` (CEL; a map or list is written as JSON, a string as its bytes), `config.contentType` (string; default `application/json`), and `atomic` lists `config.set[]` (`target`: `header`, `query` (request only) or `body`; `name`; `valueExpression`, CEL), `config.remove[]` (`target`, `name`), `config.arrayOps[]` (`op`: `move`, `append` or `delete`; `from`; `to`) and `config.replace[]` (`path`, optional, else the raw body; `pattern`, `replacement`, `literal`) | A `pattern` over 1 KiB (target) or not valid RE2, or more than 32 entries across the four lists (target), is RZ-CFG-005 | [Transform Policies](03-data-plane.md#transform-policies) |
 

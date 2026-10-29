@@ -79,7 +79,7 @@ The table splits PB-2 and PB-3 (S2), and PB-1 (S1, without the S2 Filters), into
 | `onRequestBody` | One nil check; `validation.json-schema` on 1 KiB when attached | 0; 25 attached (target) | 0; 80 attached (target) | 0 (target) |
 | `onRoute` | Single Upstream leg selected | 1 (target) | 4 (target) | 0 (target) |
 | `onUpstreamRequest` | None; `headers` setting two values when attached | 0; 2 attached (target) | 0; 8 attached (target) | 0; 2 attached (target) |
-| Upstream layer | Endpoint pick, breaker, pooled connection, request write | 12 (target) | 50 (target) | 6 (target) |
+| Upstream layer | Endpoint pick, breaker, pooled connection, request write; a pooled attempt context and a copy-free forwarding writer | 12 (target) | 50 (target) | 6 (target) |
 | `onUpstreamResponseHeaders` | Breaker and retry accounting | 2 (target) | 8 (target) | 0 (target) |
 | `onUpstreamResponseBody` | None; `transform.response` on 1 KiB when attached | 0; 30 attached (target) | 0; 100 attached (target) | 0 (target) |
 | `onResponse` | Header finalization; `cors` response side when attached | 2 (target) | 8 (target) | 2 (target) |

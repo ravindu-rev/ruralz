@@ -395,6 +395,7 @@ Doc comments become `description`. Marker lines start with `+ruralz:`, are strip
 | `+ruralz:pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | The standard keyword of the same name | `+ruralz:minItems=1` |
 | `+ruralz:minProperties=<n>` | `minProperties` on a type or a map-typed field | On `RouteMatch` |
 | `+ruralz:exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<fields>` | `oneOf`, `not` or `anyOf` over `required` of each field, on a type | `+ruralz:exactlyOneOf=exact,prefix,template,regex` |
+| `+ruralz:requiredIf=<field>,<member>=<value>` | `if` (member `const` value, `required`) and `then` (`required` field), on a type; the value must belong to the member's enum | `+ruralz:requiredIf=url,driver=redis` on `StateStore` |
 
 Markers on a type declaration apply to its definition; markers on a field apply to its property. schemagen rejects an unknown marker, a list field without `+ruralz:list`, a `SecretValue` or `SecretRef` field without `+ruralz:secret`, an optional bool or number that is not a pointer, an optional field without `omitempty`, a `+ruralz:secret` field without a `+ruralz:impact` that includes `security`, a `+ruralz:default` value that fails its field's own `pattern`, `minLength`, `maxLength`, `minimum` or `maximum`, a `+ruralz:default` on a `+ruralz:required` field, and a second `+ruralz:impact` marker on one field, or impact classes not listed once each in ascending byte order.
 

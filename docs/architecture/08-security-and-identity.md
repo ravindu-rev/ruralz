@@ -119,7 +119,7 @@ TLS 1.2 suites are fixed to ECDHE with AES-GCM or ChaCha20-Poly1305. Go 1.26 ena
 
 ### Mutual TLS
 
-A listener requests an unverified client certificate when any of its Routes attaches `auth.mtls`. A Hot Reload changing this mode sends GOAWAY, closes idle connections and sets `Connection: close` on busy HTTP/1.1 ones; an `auth.mtls` Route reached over a connection that requested none, coalesced HTTP/2 included, returns 421. The Filter verifies the chain against its own anchors, caching per connection, Policy and snapshot, so a removed CA stops matching at the next swap. Values such as `source.clientCertSubject` stay null unless the Route's own `auth.mtls` verified them ([fields](#basic-and-mtls-schemas)).
+A listener requests an unverified client certificate when any of its Routes attaches `auth.mtls`. A Hot Reload changing this mode sends GOAWAY, closes idle connections and sets `Connection: close` on busy HTTP/1.1 ones; an `auth.mtls` Route reached over a connection that requested none, coalesced HTTP/2 and cleartext included, returns 421. The Filter verifies the chain against its own anchors, caching per connection, Policy and snapshot while the chain stays valid, so a CA removed by a swap or a rotation stops matching at once and a certificate that expires on an open connection is refused. Values such as `source.clientCertSubject` stay null unless the Route's own `auth.mtls` verified them ([fields](#basic-and-mtls-schemas)).
 
 ### Certificate rotation
 
@@ -145,16 +145,17 @@ A `when` that errors makes a closed Policy run ([Configuration model](02-configu
 | Type | Verification | Consumer binding | Planned |
 |---|---|---|---|
 | `auth.jwt` | Signature with keys from each issuer's `jwksUrl`; `iss`, `aud`, required `exp`, `nbf` | `credentials.jwt` by issuer plus `subject` or `claims` | Planned (M1) |
-| `auth.api-key` | SHA-256 of the key in `config.header`, looked up by digest | `credentials.apiKeys` | Planned (M1) |
+| `auth.api-key` | SHA-256 of the key in `config.header`, looked up by digest; a missing or empty value is RZ-AUTH-001 | `credentials.apiKeys` | Planned (M1) |
 | `auth.basic` | PBKDF2 behind the [throttle](#pre-authentication-throttling) | `credentials.basic` by username ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
 | `auth.mtls` | Chain to `config.caCertificate`, `config.subjects`, `config.crl` | Optional `credentials.certificates` by subject or URI SAN ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
 
 ### JWT and OIDC
 
-- The token's `iss` selects exactly one `config.issuers[]` entry, which MUST set `audiences` and an `https` `jwksUrl`.
+- The token's `iss` selects exactly one `config.issuers[]` entry, which MUST set `audiences` and an `https` `jwksUrl`; a JWKS fetch follows at most 3 `https` redirects (target).
 - When compiling a Revision, Nodes prefetch issuers, 16 at once, within 5 s (target), reuse unchanged issuers' keys and activate even if a fetch fails.
-- Keys live for `max-age` clamped to 5 minutes to 6 hours, or 1 hour when absent or `no-cache` (target), refresh at half-life and, after failed refreshes, serve degraded until expiry (TB-10), then RZ-AUTH-006.
-- An unknown `kid` fails with RZ-AUTH-005 and triggers at most one refresh per issuer per 30 s (target), honoring `Retry-After`; a `kid` [revocation](#revocation) entry evicts a leaked key and blocks reloading it until the entry is removed.
+- Keys live for `max-age` clamped to 5 minutes to 6 hours, or 1 hour when absent or `no-cache` (target), refresh at half-life and, after failed refreshes, serve degraded until expiry (TB-10), then RZ-AUTH-006; a document without a usable key is a failed fetch. A failed fetch is retried after 30 s (target), or no earlier than its response's `Retry-After`, which defers a fetch at most 6 hours (target).
+- An unknown `kid` fails with RZ-AUTH-005 and, like an issuer without usable keys, triggers at most one refresh per issuer per 30 s (target), honoring `Retry-After`; a `kid` [revocation](#revocation) entry evicts a leaked key and blocks reloading it until the entry is removed.
+- A token without a `kid` tries every key of its algorithm's family in the issuer's set, in document order, and the first key that verifies wins, so a token costs at most 256 verifications (target); no key of that family is RZ-AUTH-005, as for an unknown `kid`, and no key that verifies is RZ-AUTH-002.
 - jwx v4.5.0 or newer fixes GHSA-4cf7-xm37-g63h ([source](https://github.com/lestrrat-go/jwx/releases/tag/v4.5.0)). go-oidc, with go-jose/v4 ([source](https://github.com/coreos/go-oidc/blob/v3/go.mod)), stays in Ruralz Control.
 
 M1 fixes these `auth.jwt` defaults instead of adding fields:
@@ -162,10 +163,10 @@ M1 fixes these `auth.jwt` defaults instead of adding fields:
 | Default | M1 value |
 |---|---|
 | Algorithms | RS256, PS256, ES256 or EdDSA, so HS256 is rejected; any other `alg`, or a `crit` header, is RZ-AUTH-002; `jku`, `x5u`, `jwk` and `x5c` are ignored |
-| Token | JWS compact form from `Authorization: Bearer` only, at most 16 KiB (target) |
+| Token | JWS compact form from `Authorization: Bearer` only, at most 16 KiB (target); no Authorization field, or another scheme, is RZ-AUTH-001; more than one field line or a malformed token is RZ-AUTH-002; decoded header and claims are bounded by four times 16 KiB |
 | Clock skew | 60 s (target) on `exp` and `nbf` |
 | `exp` | Required, at most 24 hours ahead (target), else RZ-AUTH-003; `iat` is not checked |
-| Keys | JWKS public keys only: RSA of 2,048 bits or more, P-256 or Ed25519; at most 256 keys and 1 MiB per document (target) |
+| Keys | JWKS public keys only: RSA of 2,048 bits or more, P-256 or Ed25519; at most 256 keys and 1 MiB per document (target); `use`, when present, is `sig` and `key_ops`, when present, include `verify`; a JWK naming an `alg` verifies only tokens of that `alg` (else RZ-AUTH-002); the first of two keys sharing `kid` and family wins |
 
 *Figure 2: the authentication decision for a request.*
 
@@ -204,10 +205,10 @@ Per pack section 3, this document authors these schemas, all Planned (M1) and re
 
 | Type or kind | Field | Shape and rule |
 |---|---|---|
-| `auth.basic` | `config` | No fields; reads `Authorization: Basic`, and a malformed value is RZ-AUTH-002 |
+| `auth.basic` | `config` | No fields; reads `Authorization: Basic`: no field or another scheme is RZ-AUTH-001, a malformed Basic value RZ-AUTH-002 |
 | `auth.mtls` | `config.caCertificate` | Required `SecretValue`: PEM bundle of the client CAs this Policy trusts, rotated by watch like listener certificates |
-| `auth.mtls` | `config.subjects` | Optional `set`; each rule holds exactly one of `subject` (RFC 4514 name, exact) or `uriSan` (exact, for example a SPIFFE ID). Empty admits any verified leaf; a leaf matching no rule is RZ-AUTH-002 |
-| `auth.mtls` | `config.crl` | Optional `SecretValue`: PEM CRLs for those CAs, watched; a listed serial is RZ-AUTH-004. Past `nextUpdate`, the last CRL stays enforced and the Node reports a degraded state |
+| `auth.mtls` | `config.subjects` | Optional `set`; each rule holds exactly one of `subject` (RFC 4514 name, exact: RDNs last to first; short names CN, L, ST, O, OU, C, STREET, DC, UID; any other type as `<dotted OID>=#<lower-case hex of the BER value>`) or `uriSan` (exact, for example a SPIFFE ID). Empty admits any verified leaf; a leaf matching no rule is RZ-AUTH-002 |
+| `auth.mtls` | `config.crl` | Optional `SecretValue`: PEM CRLs for those CAs, each signed by a `config.caCertificate` certificate (else RZ-CFG-026, or a failed rotation that keeps the last value), watched; a listed serial revokes the leaf or intermediate that CA issued, RZ-AUTH-004. Past `nextUpdate`, the last CRL stays enforced and the Node reports a degraded state |
 | `Consumer` | `credentials.basic` | `map` keyed by `username`; each entry holds `hash` and `iterations` |
 | `Consumer` | `credentials.basic[].hash` | `pbkdf2-sha256:<salt>:<key>`, base64url of a 16-byte random salt and a 32-byte PBKDF2-HMAC-SHA-256 key; T19 applies as to key hashes |
 | `Consumer` | `credentials.basic[].iterations` | 600,000 to 1,000,000, default 600,000 (target); outside that range is RZ-CFG-036 |
@@ -217,7 +218,7 @@ A leaf MUST carry the `clientAuth` extended key usage. A leaf matching no Consum
 
 ### Accepting more than one credential type
 
-A Route accepts several credential types through distinct slots with complementary `when` conditions (OQ-configuration-model-13). The Route MUST exclude any Gateway slot-`auth` Policy, so the pattern fails where that Policy is `overridable: false`; if a `when` errors, both run and rule 2 applies.
+A Route accepts several credential types through distinct slots with complementary `when` conditions (OQ-configuration-model-13). The Route MUST exclude any Gateway slot-`auth` Policy, so the pattern fails where that Policy is `overridable: false`; if a `when` errors, both run and rule 2 applies. `auth.basic` and `auth.api-key` strip their field whatever the decision, so a later Policy reading the same field answers RZ-AUTH-001.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -254,7 +255,7 @@ spec:
 
 ### Upstream authentication
 
-`auth.upstream-oauth2`, Planned (M1), runs the client credentials grant, refreshing at two thirds of the token lifetime (target). A miss runs one single-flight fetch per Policy and Node within the request deadline and a 2 s `timeout` (target); failure is 401 RZ-AUTH-020.
+`auth.upstream-oauth2`, Planned (M1), runs the client credentials grant with `client_secret_basic` and sends `Authorization: Bearer` on every leg attempt. A token lives for `expires_in`, or 5 minutes when absent, counted from sending the request. It is refreshed in the background at two thirds of its lifetime (target); a failed refresh keeps it serving and retries at two thirds of the remaining lifetime. A miss runs one single-flight fetch per Policy and Node, which each request waits for within its own deadline, and the fetch within a 2 s `timeout` (target); failure is 401 RZ-AUTH-020. Fetches of one Policy start at least 1 s apart, and a miss within that time after a failed fetch fails at once. A response must be a JSON object of at most 64 KiB with a Bearer token.
 
 `auth.upstream-sigv4`, Planned (M2), records SigV4 signing parameters in `onUpstreamRequest`; the Node signs at the transport on every attempt, after every Filter, Plugin and dialect translation (hook: OQ-security-and-identity-28). The body is buffered within `limits.maxRequestBodyBytes` or, with `payload: unsigned`, sent as UNSIGNED-PAYLOAD where accepted. Bedrock uses this type on the `ai` Upstream, signing only `bedrock` dialect legs (OQ-ai-llm-gateway-12).
 
@@ -339,7 +340,7 @@ Ruralz adds the principal and resource entities per request, merging parents wit
 | `authz.ip` | `config.allow`, `config.deny` | `set` of CIDRs; a bare address means /32 or /128, and IPv4-mapped IPv6 matches as IPv4 |
 | `authz.geoip` | `config.allow`, `config.deny` | `set` of ISO 3166-1 alpha-2 codes; an address the database cannot place matches neither list |
 
-For both, a `deny` match refuses; otherwise a non-empty `allow` refuses every address outside it, and an empty one admits. Both lists empty fails validation. Refusals are 403 RZ-AUTH-013 (`authz.ip`) or RZ-AUTH-014 (`authz.geoip`).
+For both, a `deny` match refuses; otherwise a non-empty `allow` refuses every address outside it, and an empty one admits. Both lists empty fails validation. Refusals are 403 RZ-AUTH-013 (`authz.ip`) or RZ-AUTH-014 (`authz.geoip`). A request without a client address fails closed with RZ-AUTH-015.
 
 **Client address**, Planned (M1), uses two fields: `listeners[].proxyProtocol: true` requires a PROXY protocol v2 header on every connection, whose source replaces the TCP peer, and `Gateway.spec.trustedProxies` lists trusted-proxy CIDRs. `source.ip` is that peer unless the list holds it; then it is the rightmost `Forwarded` (preferred) or `X-Forwarded-For` address outside the list, from at most 16 parsed (target). A trusted proxy not managing `Forwarded` MUST remove or overwrite a client's `Forwarded` (OQ-security-and-identity-33). Forwarding headers from untrusted peers are overwritten, never appended. Behind a load balancer without either field, `source.ip` controls collapse to one key.
 
@@ -434,14 +435,14 @@ Rate Limits run after `auth` and never see failed attempts, so a throttle, Plann
 
 | Element | Rule |
 |---|---|
-| Success cache | Keyed by HMAC-SHA-256 of username and password under a per-process key; each entry records the Consumer credential digest it matched. An entry lasts 60 s after its last hit and at most 15 minutes from verification, less up to 20% jitter (target); 64 shards, 10,000 entries per Node (target). A hit skips throttle and hash |
+| Success cache | Keyed by HMAC-SHA-256 of username and password under a per-process key; each entry records the Consumer credential digest it matched. An entry lasts 60 s after its last hit and at most 15 minutes from verification, less a jitter of up to 20%, fixed per username and password within a process (target); 64 shards, 10,000 entries per Node (target). A hit skips throttle and hash |
 | Cache on change | A hit still passes the [revocation](#revocation) check (Figure 2, E to F), so a revocation advance evicts nothing. A snapshot swap evicts only entries of changed or removed credentials |
-| Username bucket | One per presented username, declared or not, keyed by HMAC-SHA-256 of the username under that key, in one 64-shard LRU of 100,000 (target); burst 10, refill 1 per second (target). A bucket is created only after the hash queue admits an attempt, at most 100 per second per Node (target) |
+| Username bucket | One per presented username, declared or not, keyed by HMAC-SHA-256 of the username under that key, in one 64-shard LRU of 100,000 (target); burst 10, refill 1 per second (target). A bucket is created only after the hash queue admits an attempt, at most 100 per second per Node with a burst of 100 (target) |
 | Undeclared usernames | The same bucket rules, plus a dummy hash at the default iteration count through the same queue, so neither timing nor status reveals whether a username exists |
 | Hash queue | max(1, `GOMAXPROCS`/4) slots, which cap the Node's hash rate; 4 × slots waiters, 1 s deadline (target) |
 | Delay | An empty bucket holds at most 2 waiters, 1,024 per Node, for up to 2 s (target) |
-| Refusal | Hash-queue overflow, the bucket-creation cap and delay overflow each return 429 RZ-AUTH-007 with `Retry-After` before any hash, for declared and undeclared usernames alike, counted by cause |
-| Source key | `source.ip` ([Client address](#ip-filtering-and-geoip)), IPv6 as /64, 10 failures per minute (target); an empty bucket refuses uncached attempts |
+| Refusal | Hash-queue overflow or deadline, the bucket-creation cap, delay overflow and an empty source bucket each return 429 RZ-AUTH-007 with `Retry-After` before any hash, for declared and undeclared usernames alike, counted by `cause` (queue, create, delay or source) in `ruralz_auth_basic_refusals_total`. Retry-After is the time until the refusing bucket refills, at least 1 s; a hash-queue refusal gives 1 s. A refused attempt returns the tokens it took |
+| Source key | `source.ip` ([Client address](#ip-filtering-and-geoip)), IPv6 as /64, in one 64-shard LRU of 100,000 (target); 10 failures per minute (target); an empty bucket refuses uncached attempts; a successful verification counts no failure |
 
 **Cost.** At 600,000 iterations a slot verifies 10 to 20 credentials per second (hypothesis), so hashing uses at most a quarter of the cores when `GOMAXPROCS` is 4 or more, otherwise one core.
 
@@ -451,7 +452,7 @@ Rate Limits run after `auth` and never see failed attempts, so a throttle, Plann
 
 **Eviction.** At 100 new usernames per second, evicting a live bucket takes 1,000 s (hypothesis), 100 times its refill; an evicted bucket returns full, adding at most 10 guesses per username per 1,000 s (hypothesis).
 
-Residuals (T1), accepted for M1: no lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by per-cause refusal counters proposed to [Observability](10-observability.md); credentials at a non-default iteration count differ in timing from the dummy hash; the capacity bound and restart ramp above.
+Residuals (T1), accepted for M1: no lockout, but a flood shares the username's rate with its owner, exempt only through the success cache; spraying across usernames is bounded only by the hash queue, shown by `ruralz_auth_basic_refusals_total` ([Observability](10-observability.md)); credentials at a non-default iteration count differ in timing from the dummy hash; the capacity bound and restart ramp above.
 
 ## Revocation
 

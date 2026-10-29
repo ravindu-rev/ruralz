@@ -4,16 +4,6 @@ The work left in the current milestone, M1 Core gateway, in build order: a row d
 
 | Step | Paths | Design |
 |---|---|---|
-| Per-request exchange | `internal/gateway/exchange/` | [Data plane](../architecture/03-data-plane.md) |
-| Listeners, servers and SO_REUSEPORT | `internal/gateway/listener/`, `internal/gateway/reuseport/` | [Data plane](../architecture/03-data-plane.md) |
-| Admin server, tap and readiness | `internal/gateway/admin/`, `internal/gateway/tap/`, `internal/gateway/readiness/` | [Data plane](../architecture/03-data-plane.md), [CLI and API surface](../reference/01-cli-and-api-surface.md) |
-| Upstream runtimes and attempt loop | `internal/gateway/upstream/` (package root) | [Traffic management](../architecture/09-traffic-management-and-resilience.md) |
-| `auth.jwt` and JWKS | `internal/filter/auth/jwt/` | [Security and identity](../architecture/08-security-and-identity.md) |
-| `auth.api-key` and `auth.basic` | `internal/filter/auth/apikey/`, `internal/filter/auth/basic/` | [Security and identity](../architecture/08-security-and-identity.md) |
-| `auth.mtls`, `authz.ip` and `cors` | `internal/filter/auth/mtls/`, `internal/filter/authz/ip/`, `internal/filter/cors/` | [Security and identity](../architecture/08-security-and-identity.md) |
-| `auth.upstream-oauth2` | `internal/filter/auth/upstreamoauth2/` | [Security and identity](../architecture/08-security-and-identity.md) |
-| State Store manager and post-commit queue | `internal/statestore/manager/`, `internal/statestore/postcommit/` | [Scalability](../architecture/11-scalability-and-distributed-state.md) |
-| State Store test servers and container flavors | `internal/statestore/statestoretest/redisserver/`, `internal/statestore/statestoretest/respproxy/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |
 | Response Cache revalidation and coalescing | `internal/filter/cache/revalidate/`, `internal/filter/cache/coalesce/` | [Traffic management](../architecture/09-traffic-management-and-resilience.md) |
 | Test kit: load generation and L4 balancing | `internal/testkit/loadgen/`, `internal/testkit/l4lb/` | [Testing](../engineering/03-testing-and-quality-strategy.md) |
 | Examples | `examples/` | [Configuration model](../architecture/02-configuration-model.md) |
