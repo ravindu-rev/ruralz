@@ -1,0 +1,24 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-98326e121cce",
+    "bundle": "./shop-bundle",
+    "digest": "sha256:98326e121cce1f99546b4e88cac77da2a92fd354587018bc73d31ee55cccf473"
+  },
+  "to": {
+    "revision": "rev-98326e121cce",
+    "admin": "https://node-a.shop.example:9901",
+    "digest": "sha256:98326e121cce1f99546b4e88cac77da2a92fd354587018bc73d31ee55cccf473"
+  },
+  "environment": "prod",
+  "resources": [],
+  "effective": [],
+  "summary": {
+    "changed": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 0,
+    "routeChainsChanged": 0,
+    "impact": []
+  }
+}

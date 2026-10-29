@@ -1,0 +1,17 @@
+ruralz bundle diff: rev-08cc96106941 -> rev-98326e121cce (environment: prod)
+
+~ Route/orders-summary                          routes/orders-summary.yaml   [traffic]
+    ~ spec.timeout: 5s -> 4s
+    + spec.policies[name=ratelimit-orders]
+~ Plugin/geo-block                              plugins/geo-block.yaml       [plugin, security]
+    + spec.capabilities[item=response.send]  (Capability grant)
+~ AIModel/support-chat                          ai/models.yaml               [ai]
+    > spec.candidates[name=primary]: position 2 -> 1
+    > spec.candidates[name=secondary]: position 1 -> 2
++ Policy/ratelimit-orders                       policies/common.yaml         [security, traffic]
+- Upstream/legacy-orders                        upstreams/services.yaml      [routing, traffic]
+
+Effective Filter Chain changes:
+  Route/orders-summary onRequestHeaders: + ratelimit-orders (admission, after ratelimit-global)
+
+5 resources changed: 1 added, 1 removed, 3 modified; 1 Route chain changed; impact: ai, plugin, routing, security, traffic
