@@ -73,8 +73,13 @@ func (j *jsonParser) at(off int) tree.Pos {
 	return j.p.pos(pos.Line, pos.Column)
 }
 
-// syntax reports a scanner failure as RZ-CFG-001 at its offset.
+// syntax reports a scanner failure as RZ-CFG-001 at its offset, and a
+// value the load's Budget refused at that value.
 func (j *jsonParser) syntax(err error) {
+	if be := (*budgetError)(nil); errors.As(err, &be) {
+		j.p.add(j.p.errorAt(codeParse, be.at, j.p.opts.Budget.msg))
+		return
+	}
 	var e *jsonval.Error
 	if !errors.As(err, &e) {
 		j.p.add(j.p.errorAt(codeParse, j.at(0), "invalid JSON: "+err.Error()))
@@ -87,10 +92,14 @@ func (j *jsonParser) syntax(err error) {
 	j.p.add(j.p.errorAt(codeParse, j.at(e.Offset), msg))
 }
 
-// value builds the value starting with token t.
+// value builds the value starting with token t; a value the load's Budget
+// refuses stops the file.
 func (j *jsonParser) value(t jsonval.Token) (*tree.Node, error) {
-	j.p.built()
-	n := &tree.Node{Style: tree.StyleJSON, Pos: j.at(t.Offset)}
+	at := j.at(t.Offset)
+	if !j.p.built() {
+		return nil, &budgetError{at: at}
+	}
+	n := &tree.Node{Style: tree.StyleJSON, Pos: at}
 	switch t.Kind {
 	case jsonval.KindNull:
 		n.Kind = tree.KindNull

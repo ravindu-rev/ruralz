@@ -10,6 +10,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
 // Codes this stage raises.
@@ -36,8 +37,7 @@ const (
 	// keeps the densest input of 1 MiB, about 600,000 nodes, far below the
 	// 256 MiB heap budget, and a file at its limit below 200 MiB.
 	DefaultMaxDocumentTokens = 1_000_000
-	// DefaultMaxDiagnostics is the per-run diagnostics cap (10,000,
-	// proposed).
+	// DefaultMaxDiagnostics is the per-run diagnostics cap (10,000).
 	DefaultMaxDiagnostics = 10_000
 )
 
@@ -86,13 +86,22 @@ type Options struct {
 	// MaxBytes is the largest accepted file, in bytes (DefaultMaxBytes).
 	MaxBytes int
 	// MaxDepth is the deepest accepted nesting; the root mapping of a
-	// document is depth 1 (DefaultMaxDepth).
+	// document is depth 1 (DefaultMaxDepth). A value above
+	// jsonval.MaxDepthLimit means jsonval.MaxDepthLimit, as the JSON
+	// scanner reads it, so a YAML file and its JSON twin stop at the same
+	// depth and the parser's recursion stays bounded whatever the caller
+	// passes.
 	MaxDepth int
 	// MaxDocumentTokens is the most tokens one YAML document may hold
 	// (DefaultMaxDocumentTokens), a token being a node of its tree as the
 	// parser builds it: a scalar, key, collection or empty node. A YAML
-	// file may hold five quarters as many in all its documents.
+	// file may hold five quarters as many in all its documents, unless a
+	// Budget bounds it instead.
 	MaxDocumentTokens int
+	// Budget, when set, is the node budget of the load the file belongs to,
+	// shared with the load's other files (see Budget). It bounds JSON
+	// files too, which otherwise only MaxBytes bounds.
+	Budget *Budget
 	// MaxDiagnostics bounds the findings kept for one file
 	// (DefaultMaxDiagnostics): after MaxDiagnostics+1 the file stops, so a
 	// file of a million anchors costs no more than the pipeline's cap,
@@ -111,6 +120,7 @@ func (o Options) withDefaults() Options {
 	if o.MaxDepth <= 0 {
 		o.MaxDepth = DefaultMaxDepth
 	}
+	o.MaxDepth = min(o.MaxDepth, jsonval.MaxDepthLimit)
 	if o.MaxDocumentTokens <= 0 {
 		o.MaxDocumentTokens = DefaultMaxDocumentTokens
 	}
@@ -215,10 +225,12 @@ func (p *fileParser) errorAt(code string, at tree.Pos, msg string) diag.Diagnost
 	return diag.Diagnostic{Code: code, Severity: diag.SeverityError, Location: p.location(at), Message: msg}
 }
 
-// built counts a built node and yields every yieldEvery nodes.
-func (p *fileParser) built() {
+// built counts a built node, yields every yieldEvery nodes and takes the
+// node from the load's Budget; false means the Budget refused it.
+func (p *fileParser) built() bool {
 	p.nodes++
 	if p.opts.Yield != nil && p.nodes%yieldEvery == 0 {
 		p.opts.Yield()
 	}
+	return p.opts.Budget == nil || p.opts.Budget.take()
 }

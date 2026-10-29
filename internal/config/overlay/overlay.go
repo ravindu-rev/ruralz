@@ -123,7 +123,7 @@ const (
 )
 
 // DefaultMaxDiagnostics is the diagnostics one Apply or CheckBase call
-// records by default: the per-run cap (10,000, proposed).
+// records by default: the per-run cap (10,000).
 const DefaultMaxDiagnostics = 10_000
 
 // yieldEvery is the number of work units between Yield calls

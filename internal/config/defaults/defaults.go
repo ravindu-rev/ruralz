@@ -146,8 +146,7 @@ const (
 )
 
 // DefaultMaxDiagnostics is the cap of one run when Options.MaxDiagnostics
-// is zero: the loader's Limits.MaxDiagnostics default (10,000 per run,
-// proposed).
+// is zero: the loader's Limits.MaxDiagnostics default (10,000 per run).
 const DefaultMaxDiagnostics = 10_000
 
 // defJSONSchemaDocument is the $defs name of the inline JSON Schema

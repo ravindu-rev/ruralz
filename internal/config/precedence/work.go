@@ -15,8 +15,8 @@ import (
 )
 
 // DefaultMaxDiagnostics is the cap of one call when Options.MaxDiagnostics
-// is zero: the loader's Limits.MaxDiagnostics default (10,000 per run,
-// proposed), as stage G's defaults.DefaultMaxDiagnostics.
+// is zero: the loader's Limits.MaxDiagnostics default (10,000 per run), as
+// stage G's defaults.DefaultMaxDiagnostics.
 const DefaultMaxDiagnostics = 10_000
 
 // DefaultYieldAfter is the work a worker does before it yields the

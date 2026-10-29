@@ -25,8 +25,9 @@ type EncodeOptions struct {
 	// Verbatim writes strings as they are. By default every "${" inside a
 	// string value is written "$${", so a rendered Bundle loads back to the
 	// same values after substitution. Verbatim is for trees substitution
-	// has not run on, such as the source files "ruralz bundle convert"
-	// rewrites, whose "${VAR}" and "$${" text must stay as authored.
+	// has not run on, such as the source files "ruralz bundle render
+	// --api-version" rewrites, whose "${VAR}" and "$${" text must stay as
+	// authored.
 	Verbatim bool
 }
 

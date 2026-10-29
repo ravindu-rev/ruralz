@@ -15,8 +15,8 @@ import (
 )
 
 // DefaultMaxDiagnostics is the findings cap of one Decode, Verify or
-// ReadDump when DecoderOptions leaves it zero: the per-run cap (10,000,
-// proposed), which every other pipeline stage applies too.
+// ReadDump when DecoderOptions leaves it zero: the per-run cap (10,000),
+// which every other pipeline stage applies too.
 const DefaultMaxDiagnostics = 10_000
 
 // CodeTooMany is the code of the last diagnostic of a decode that met more

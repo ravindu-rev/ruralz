@@ -21,13 +21,11 @@
 // any ${ there, $${ included, is RZ-CFG-011. Every x-ruralz-ref,
 // x-ruralz-secret (with its subtree) and x-ruralz-cel position is forbidden
 // too: an unescaped ${ there is RZ-CFG-011 and nothing else is reported for
-// that scalar, while $${ is read as a literal ${, so a renderer escapes
-// every literal ${. The schemaidx doc of Info.NoSubstitution says instead
-// that render writes no $${ in these fields; rendered that way, a $${
-// authored there renders as ${, which a second render reads as RZ-CFG-011,
-// so the render is not idempotent. This package follows the configuration
-// model ("Overlays"), whose render is idempotent and writes every literal
-// ${ back as $${.
+// that scalar, while $${ is read as a literal ${. internal/config/render
+// therefore writes every literal ${ of a string value back as $${, these
+// fields included: written as ${, a $${ authored there would be RZ-CFG-011
+// when the output is rendered again, and the configuration model's render
+// is idempotent ("Rendered Bundle").
 //
 // The package also owns both RZ-CFG-013 warnings: a variable whose name
 // looks secret, at each use, and a credential written in the Bundle in any
@@ -63,7 +61,7 @@
 // detectors read the authored text only, and the text substitution writes
 // is bounded by Options.MaxOutputBytes for the whole render, because one
 // variable used many times multiplies its value, the amplification for
-// which RZ-CFG-003 refuses YAML aliases (the limit is proposed). Each call
+// which RZ-CFG-003 refuses YAML aliases. Each call
 // records at most Options.MaxDiagnostics+1 diagnostics, so the caller's cap
 // appends its RZ-CFG-001, and calls its Yield function every 256 work
 // units. Each diagnostic carries at most maxShown bytes of any input text
@@ -115,13 +113,13 @@ const (
 )
 
 // DefaultMaxDiagnostics is the diagnostics one Apply call records by
-// default: the per-run cap (10,000, proposed).
+// default: the per-run cap (10,000).
 const DefaultMaxDiagnostics = 10_000
 
 // DefaultMaxOutputBytes is the text substitution writes in one render by
-// default: MaxSourceBytes (64 MiB, target), so the rendered text is at
-// most twice the source limit. The value is proposed and not yet in the
-// configuration model.
+// default: the source limit, 64 MiB (target), so the rendered text is at
+// most twice it (configuration model, "Restricted YAML profile"); the
+// loader passes its own Limits.MaxSourceBytes.
 const DefaultMaxOutputBytes = 64 << 20
 
 // yieldEvery is the number of work units between Yield calls. A work unit

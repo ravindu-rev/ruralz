@@ -5,6 +5,7 @@ package profile
 
 import (
 	"context"
+	"math"
 	"strconv"
 	"strings"
 
@@ -84,8 +85,14 @@ const (
 // maxFileNodes returns the most nodes all the documents of one file may
 // hold: five quarters of MaxDocumentTokens. The trees of a file's earlier
 // documents stay live while a later one is parsed, so the bound keeps a
-// file's trees within a quarter more than its largest document.
+// file's trees within a quarter more than its largest document. A
+// per-document limit too large for five quarters of it to fit an int,
+// such as math.MaxInt for no practical limit, gives math.MaxInt rather
+// than wrapping to a negative budget.
 func maxFileNodes(perDocument int) int {
+	if perDocument > math.MaxInt-perDocument/4 {
+		return math.MaxInt
+	}
 	return perDocument + perDocument/4
 }
 
@@ -156,6 +163,10 @@ func (p *fileParser) parseYAML(ctx context.Context, src []byte) {
 		text += "\n"
 	}
 	y := &yamlParser{p: p, ctx: ctx, text: text, line: 1, col: 1, maxFile: maxFileNodes(p.opts.MaxDocumentTokens), closedIndent: -2}
+	if p.opts.Budget != nil {
+		// The load's Budget bounds the file instead.
+		y.maxFile = math.MaxInt
+	}
 	y.run()
 	keepSem := !y.profile && !y.fatal
 	kept := y.findings[:0]
@@ -606,10 +617,11 @@ func (y *yamlParser) leave() { y.depth-- }
 
 // built counts a node of the tree: every scalar, key, collection and empty
 // node. MaxDocumentTokens bounds the nodes of a document and five quarters
-// of it those of the file (maxFileNodes), and passing either stops the
-// file. It yields every 256 nodes and checks ctx every 4,096.
+// of it those of the file (maxFileNodes), or the load's Budget those of
+// all its files, and passing any stops the file. It yields every 256
+// nodes and checks ctx every 4,096.
 func (y *yamlParser) built(at tree.Pos) {
-	y.p.built()
+	fits := y.p.built()
 	y.docNodes++
 	y.fileNodes++
 	switch {
@@ -617,6 +629,8 @@ func (y *yamlParser) built(at tree.Pos) {
 		y.fatalAt(at, "document has more than "+strconv.Itoa(y.p.opts.MaxDocumentTokens)+" nodes")
 	case y.fileNodes > y.maxFile:
 		y.fatalAt(at, "file has more than "+strconv.Itoa(y.maxFile)+" nodes in its documents")
+	case !fits:
+		y.fatalAt(at, y.p.opts.Budget.msg)
 	case y.p.nodes%4096 == 0:
 		if err := y.ctx.Err(); err != nil {
 			y.p.err = err

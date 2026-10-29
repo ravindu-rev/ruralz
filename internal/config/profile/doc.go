@@ -43,8 +43,10 @@
 // MaxDepth, more than MaxDocumentTokens nodes in a document or five
 // quarters of it in the file's documents (the trees of earlier documents
 // stay live while a later one is parsed), and more than MaxDiagnostics
-// findings stop the file. The parser recurses only as the nodes nest, so
-// MaxDepth bounds its stack too.
+// findings stop the file. With a Budget, the nodes of every file of one
+// load share it in place of the five quarters, JSON values included. The
+// parser recurses only as the nodes nest, so MaxDepth bounds its stack
+// too.
 //
 // Plain scalars are typed by the YAML 1.2 core schema from their text
 // (scalar.go), and a core tag forces the type: a value that does not match

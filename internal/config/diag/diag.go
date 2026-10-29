@@ -436,8 +436,8 @@ func WriteJSON(w io.Writer, l List) error {
 }
 
 // Collector gathers diagnostics from concurrent workers and enforces the
-// per-run cap (10,000, proposed); reaching it appends one RZ-CFG-001
-// "too many diagnostics" error and rejects further adds.
+// per-run cap (10,000); reaching it appends one RZ-CFG-001 "too many
+// diagnostics" error and rejects further adds.
 type Collector struct {
 	mu   sync.Mutex
 	list List
