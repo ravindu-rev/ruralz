@@ -404,7 +404,9 @@ type RequestState interface {
 	// Leg, Message, Vars copy (upstream fields replaced), PolicyState slots
 	// and when decisions for leg Policies.
 	Leg(upstream, step string) RequestState
-	// Release returns a leg state to its pool; a no-op on the client state,
+	// Release ends a leg state and returns its memory to its pool; only the
+	// first release acts, and a released leg state and its Filter view do
+	// nothing afterwards. A no-op on the client state,
 	// which the handler releases.
 	Release()
 }

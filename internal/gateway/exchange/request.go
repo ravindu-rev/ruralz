@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/hex"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -53,7 +54,18 @@ type Start struct {
 // write to it, under locks.
 type Request struct {
 	pool *Pool
-	live bool
+	// live is set between Get and Put; gen moves on at each Put that ends
+	// legs, so a leg issued before it merges nothing into the request after
+	// it.
+	live atomic.Bool
+	gen  atomic.Uint64
+
+	// legs are the handles of the legs issued since Get, which Put ends if
+	// still live; legMu guards them against concurrent Leg calls, and
+	// legsIssued tells Put whether there are any.
+	legMu      sync.Mutex
+	legs       []*legHandle
+	legsIssued atomic.Bool
 
 	// Request data from Begin.
 	traceID  [16]byte
@@ -260,11 +272,39 @@ func (x *Request) SetWhen(p *snapshot.Policy, skip bool) { x.whens.set(p.Index, 
 // budget, the Route's largest stateStoreTimeout on the request stripe.
 func (x *Request) Budget() *statestore.RequestBudget { return &x.budget }
 
-// Leg implements snapshot.RequestState: a pooled leg state for one leg to
-// upstream (step "" for plain upstreams), released by its Release. It is
+// Leg implements snapshot.RequestState: a fresh handle to a pooled leg
+// state for one leg to upstream (step "" for plain upstreams), ended by
+// its Release, or by Pool.Put for a leg still live then. A released handle
+// is inert for good, its memory reused only through new handles. It is
 // safe for concurrent use.
 func (x *Request) Leg(upstream, step string) snapshot.RequestState {
 	return x.pool.newLeg(x, upstream, step)
+}
+
+// endLegs ends the request's legs before x is reused: the generation moves
+// on, so a leg released from now on merges nothing into x, and every handle
+// still live is released here, returning its reservations; its owner's
+// later calls, Release included, do nothing. A request that issued no leg
+// has nothing to end, and no merge can reach it.
+func (x *Request) endLegs() {
+	if !x.legsIssued.Load() {
+		return
+	}
+	x.gen.Add(1)
+	x.legMu.Lock()
+	for _, h := range x.legs {
+		h.end(false)
+	}
+	clear(x.legs)
+	x.legs = x.legs[:0]
+	x.legsIssued.Store(false)
+	x.legMu.Unlock()
+	// A merge that read the old generation holds the record's lock until
+	// it is done; one that comes later reads the new generation and merges
+	// nothing. Taking the lock once waits for the former, so reset clears a
+	// record no merge writes to.
+	x.rec.mu.Lock()
+	x.rec.mu.Unlock() //nolint:staticcheck // SA2001: the empty critical section waits for a merge in flight.
 }
 
 // Release implements snapshot.RequestState; the handler releases the
@@ -377,9 +417,9 @@ func (x *Request) routeMetrics() *emit.RouteMetrics {
 	return &x.pool.noop
 }
 
-// reset drops everything x holds for the next request, keeping memory.
+// reset drops everything x holds for the next request, keeping memory;
+// endLegs has ended its legs.
 func (x *Request) reset() {
-	x.live = false
 	x.reqBody.Reset()
 	x.respBody.Reset()
 	x.acct.ReleaseAll()

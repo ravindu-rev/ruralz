@@ -41,13 +41,20 @@
 //
 // # Upstream legs
 //
-// Leg returns a pooled leg state for one upstream leg: the client request
-// read-only, with its own Leg, outgoing request and response messages, Vars
-// copy (upstream, attempt, response and the outgoing request view
-// replaced), PolicyState slots, spec.when decisions, buffer account and a
-// copy of the State Store budget, so concurrent legs of an aggregate
-// composition share nothing mutable. Release merges the leg's records into
-// the request and returns the leg to its pool. onUpstreamResponseHeaders
+// Leg returns a fresh handle to a pooled leg state for one upstream leg:
+// the client request read-only, with its own Leg, outgoing request and
+// response messages, Vars copy (upstream, attempt, response and the
+// outgoing request view replaced), PolicyState slots, spec.when decisions,
+// buffer account and a copy of the State Store budget, so concurrent legs
+// of an aggregate composition share nothing mutable. Release merges the
+// leg's records into the request and returns the leg's memory to its pool.
+// The memory is reused, the handle never is: once released, by Release or
+// by Pool.Put for a leg still live then, the handle and every view and
+// message taken from it do nothing, so a second or stale Release, or any
+// call through a stale handle, never reaches the memory's next owner, and
+// a leg released after its request was put back merges nothing into it.
+// Handles come from pooled chunks of handleChunk, so a fresh one per leg
+// costs no allocation per request. onUpstreamResponseHeaders
 // also runs for an attempt that got no response: CEL response is null and
 // error.kind is the attempt's error kind (filter.Leg.ErrorKind), and the
 // message is an empty response whose header writes a new attempt clears.

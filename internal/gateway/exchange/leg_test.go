@@ -260,13 +260,13 @@ func TestLegViewReadsClient(t *testing.T) {
 	if x.resp.set {
 		t.Error("a leg view replaced the client response")
 	}
-	if err := lv.Reserve(10); err != nil || l.(*leg).acct.Charged() != 10 || x.acct.Charged() != 0 {
+	if err := lv.Reserve(10); err != nil || l.(*legHandle).l.acct.Charged() != 10 || x.acct.Charged() != 0 {
 		t.Error("a leg reservation is not the leg's own")
 	}
 	lv.Release(10)
 	sib := l.Leg("inventory", "s2")
 	defer sib.Release()
-	if sib.(*leg).parent != x || sib.Exchange().Path() != cv.Path() {
+	if sib.(*legHandle).l.parent != x || sib.Exchange().Path() != cv.Path() {
 		t.Error("Leg on a leg state is not a sibling leg of the same request")
 	}
 }

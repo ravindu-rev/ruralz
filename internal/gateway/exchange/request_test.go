@@ -240,7 +240,7 @@ func TestPutDropsRequestState(t *testing.T) {
 	if used := f.bud.Used(); used != 0 {
 		t.Errorf("budget used %d after Put, want 0", used)
 	}
-	if x.live || x.ident != nil || x.route != nil || x.hreq != nil || x.hdr != nil || x.cur != nil {
+	if x.live.Load() || x.ident != nil || x.route != nil || x.hreq != nil || x.hdr != nil || x.cur != nil {
 		t.Error("Put kept request references")
 	}
 	if len(x.slots.s) != 0 || x.slots.spare != nil || len(x.whens) != 0 || x.rec.nfails != 0 || x.rec.sc != nil {
@@ -256,7 +256,7 @@ func TestPutDropsRequestState(t *testing.T) {
 		t.Error("Put kept the activation or the Outbound")
 	}
 	f.pool.Put(x) // a second Put does nothing
-	if x.live {
+	if x.live.Load() {
 		t.Error("a second Put revived x")
 	}
 }

@@ -39,6 +39,9 @@ type Pool struct {
 
 	reqs sync.Pool // *Request
 	legs sync.Pool // *leg
+	// chunks hold the leg handles not issued yet (*handleChunks); a chunk
+	// whose handles are all issued is dropped, never reused.
+	chunks sync.Pool
 }
 
 // NewPool returns a Pool over d.
@@ -59,18 +62,20 @@ func (p *Pool) Get() *Request {
 	if x == nil {
 		x = &Request{pool: p}
 	}
-	x.live = true
+	x.live.Store(true)
 	return x
 }
 
-// Put returns x to the pool after its last use: every leg released, the
-// response committed and the access record submitted (FillAccess shares
-// x's memory with the record). It releases x's buffers and reservations
-// and drops every reference x holds; a second Put does nothing.
+// Put returns x to the pool after its last use: the response committed and
+// the access record submitted (FillAccess shares x's memory with the
+// record). It ends every leg still live, releases x's buffers and
+// reservations and drops every reference x holds. A second Put does
+// nothing; a leg handle used after Put, Release included, does nothing.
 func (p *Pool) Put(x *Request) {
-	if x == nil || !x.live || x.pool != p {
+	if x == nil || x.pool != p || !x.live.CompareAndSwap(true, false) {
 		return
 	}
+	x.endLegs()
 	x.reset()
 	p.reqs.Put(x)
 }

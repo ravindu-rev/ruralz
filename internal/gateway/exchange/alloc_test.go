@@ -21,7 +21,9 @@ import (
 // per-stage budget gives snapshot pin and Route match, onRequestHeaders,
 // onRoute and onUpstreamRequest without attached work 0 allocations). The
 // exchange's share is zero: pooled Requests and leg states, slots and
-// decisions kept across reuse, Filter views and messages as conversions.
+// decisions kept across reuse, Filter views and messages as conversions,
+// and leg handles carved out of pooled chunks, one allocation per
+// handleChunk legs, which rounds to none per request.
 
 // touchFilter reads what a Filter typically reads and keeps a pointer in
 // its PolicyState slot.
@@ -37,9 +39,10 @@ func (f *touchFilter) Handle(_ context.Context, _ phase.Phase, x filter.Exchange
 	return filter.Next()
 }
 
-// allocFixture is a Route with a cors-like, a headers-like and an
-// upstream-leg Policy, a request, an attempt and an Upstream response
-// reused across requests.
+// allocFixture is a Route with a cors-like and a headers-like Policy and,
+// when legPolicies is set, an upstream-leg Policy (without one the
+// executor starts no leg state, as in S1 and S2), a request, an attempt
+// and an Upstream response reused across requests.
 type allocFixture struct {
 	pool *Pool
 	e    *executor.Executor
@@ -51,17 +54,21 @@ type allocFixture struct {
 	rec  emit.AccessRecord
 }
 
-func newAllocFixture(tb testing.TB) *allocFixture {
+func newAllocFixture(tb testing.TB, legPolicies bool) *allocFixture {
 	tb.Helper()
 	mark := new(int)
 	f := &touchFilter{mark: mark}
 	rt := testRoute("orders", snapshot.BodyNeeds{})
+	var legPs []*snapshot.Policy
+	if legPolicies {
+		legPs = []*snapshot.Policy{
+			compiled("headers-up", phase.ClassTransform, phase.ScopeUpstream, f, phase.OnUpstreamRequest, phase.OnUpstreamResponseHeaders),
+		}
+	}
 	rt.Chain = *chainOf([]*snapshot.Policy{
 		compiled("cors", phase.ClassCORS, phase.ScopeRoute, f, phase.OnRequestHeaders, phase.OnResponse),
 		compiled("headers", phase.ClassTransform, phase.ScopeRoute, f, phase.OnRequestHeaders, phase.OnRoute, phase.OnResponse, phase.OnLog),
-	}, "orders", []*snapshot.Policy{
-		compiled("headers-up", phase.ClassTransform, phase.ScopeUpstream, f, phase.OnUpstreamRequest, phase.OnUpstreamResponseHeaders),
-	})
+	}, "orders", legPs)
 	rt.Metrics = &emit.RouteMetrics{}
 	r := serverRequest(http.MethodGet, "/v1/orders?page=2", "", http.Header{"User-Agent": {"bench"}})
 	out := &http.Request{Method: http.MethodGet, URL: r.URL, Header: http.Header{"X-Out": {"1"}}, Body: http.NoBody}
@@ -106,22 +113,34 @@ func (a *allocFixture) request(ctx context.Context) {
 }
 
 // TestAllocsPerRunRequest checks the exchange's PB-8 share: a request with
-// a three-Policy chain and one upstream leg, driven by the executor
-// through every Phase, allocates nothing once the pools are warm.
+// a three-Policy chain, with and without an upstream-leg Policy, driven by
+// the executor through every Phase, allocates nothing once the pools are
+// warm.
 func TestAllocsPerRunRequest(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
 	}
-	a := newAllocFixture(t)
-	ctx := context.Background()
-	a.request(ctx) // warm the pools, slots and decisions
-	if n := testing.AllocsPerRun(200, func() { a.request(ctx) }); n != 0 {
-		t.Fatalf("%v allocations per request, want 0", n)
+	for _, legPolicies := range []bool{true, false} {
+		a := newAllocFixture(t, legPolicies)
+		ctx := context.Background()
+		a.request(ctx) // warm the pools, slots and decisions
+		if n := testing.AllocsPerRun(200, func() { a.request(ctx) }); n != 0 {
+			t.Fatalf("leg Policies %v: %v allocations per request, want 0", legPolicies, n)
+		}
 	}
 }
 
 func BenchmarkRequest(b *testing.B) {
-	a := newAllocFixture(b)
+	a := newAllocFixture(b, true)
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		a.request(ctx)
+	}
+}
+
+func BenchmarkRequestNoLegState(b *testing.B) {
+	a := newAllocFixture(b, false)
 	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {

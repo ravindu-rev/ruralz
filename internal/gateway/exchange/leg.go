@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -27,18 +28,26 @@ import (
 // noAttempt is the attempt number of a leg before its first SetLeg.
 const noAttempt = -1
 
+// handleChunk is how many leg handles one allocation holds. Handles are
+// never reused, so each leg takes a fresh one; carving them out of
+// pooled chunks keeps the request path at one allocation per handleChunk
+// legs, which rounds to none per request (PB-8).
+const handleChunk = 64
+
 // errClosed is returned by a leg response body read after Close.
 var errClosed = errors.New("exchange: response body closed")
 
-// leg is one upstream leg's state (snapshot.RequestState.Leg): the client
-// request read-only, with the leg's own attempt, messages, Vars copy,
-// PolicyState slots, spec.when decisions, buffer account, State Store
-// budget copy and records. It belongs to the leg's goroutine.
+// leg is one upstream leg's pooled memory: the client request read-only,
+// with the leg's own attempt, messages, Vars copy, PolicyState slots,
+// spec.when decisions, buffer account, State Store budget copy and
+// records. Only its live legHandle reaches it, from the leg's goroutine.
 type leg struct {
 	pool   *Pool
 	parent *Request
-	live   bool
-	step   string
+	// pgen is the parent's generation when the leg was issued: a release
+	// after the parent was put back merges nothing into it.
+	pgen uint64
+	step string
 
 	// vars copies the client activation with the upstream fields replaced;
 	// req is the outgoing request's view (headers and query of the
@@ -76,16 +85,44 @@ type leg struct {
 	rec record
 }
 
-var _ snapshot.RequestState = (*leg)(nil)
+// legHandle is the snapshot.RequestState of one leg, and the identity of
+// its Filter view and messages. A handle is issued once per Leg call and
+// never reused, while its leg's memory is pooled: once the handle is
+// released (Release, or Pool.Put of its request), it and every view and
+// message taken from it do nothing, so a stale or second Release, or any
+// call through a stale handle, never reaches the leg's next owner.
+type legHandle struct {
+	// l is set when the handle is issued and never changes.
+	l *leg
+	// done is set once, by the one release that wins it.
+	done atomic.Bool
+}
 
-// newLeg returns a pooled leg state for one leg of x to upstream.
-func (p *Pool) newLeg(x *Request, upstream, step string) *leg {
+// handleChunks is a block of handles taken one by one, each once.
+type handleChunks struct {
+	hs   [handleChunk]legHandle
+	next int
+}
+
+var _ snapshot.RequestState = (*legHandle)(nil)
+
+// newLeg returns a fresh handle to a pooled leg state for one leg of x to
+// upstream; on a request already put back, a released handle.
+func (p *Pool) newLeg(x *Request, upstream, step string) *legHandle {
+	if !x.live.Load() {
+		return released(&leg{pool: p})
+	}
 	l, _ := p.legs.Get().(*leg)
 	if l == nil {
 		l = &leg{pool: p, attemptN: noAttempt}
 	}
-	l.live = true
-	l.parent, l.step = x, step
+	return p.issue(x, l, upstream, step)
+}
+
+// issue binds l to x for one leg to upstream and returns its new handle,
+// which x lists so Pool.Put can end the legs still live.
+func (p *Pool) issue(x *Request, l *leg, upstream, step string) *legHandle {
+	l.parent, l.pgen, l.step = x, x.gen.Load(), step
 	l.vars = x.vars
 	l.up = expr.Upstream{Name: upstream}
 	l.vars.Upstream = &l.up
@@ -96,8 +133,141 @@ func (p *Pool) newLeg(x *Request, upstream, step string) *leg {
 	// leg's.
 	l.budget = x.budget
 	l.acct.Bind(p.budget, body.Gate, x.stripe)
-	return l
+	h := p.handle(l)
+	x.legMu.Lock()
+	x.legs = append(x.legs, h)
+	x.legsIssued.Store(true)
+	x.legMu.Unlock()
+	return h
 }
+
+// handle returns a never-used handle for l from the pooled chunks.
+func (p *Pool) handle(l *leg) *legHandle {
+	c, _ := p.chunks.Get().(*handleChunks)
+	if c == nil {
+		c = new(handleChunks)
+	}
+	h := &c.hs[c.next]
+	h.l = l
+	c.next++
+	if c.next < len(c.hs) {
+		p.chunks.Put(c)
+	}
+	return h
+}
+
+// released returns a handle to l that is already released.
+func released(l *leg) *legHandle {
+	h := &legHandle{l: l}
+	h.done.Store(true)
+	return h
+}
+
+// leg returns h's leg state, nil once h is released.
+func (h *legHandle) leg() *leg {
+	if h.done.Load() {
+		return nil
+	}
+	return h.l
+}
+
+// end releases h's leg once: the release that sets done resets the leg
+// and returns it to its pool; merge says whether its records join the
+// request's (Release) or not (Pool.Put, which drops the request's).
+func (h *legHandle) end(merge bool) {
+	if !h.done.CompareAndSwap(false, true) {
+		return
+	}
+	l := h.l
+	if merge {
+		x := l.parent
+		x.rec.mu.Lock()
+		// A leg released after its request was put back would merge into a
+		// request that is gone, or that already serves another one: it
+		// merges nothing.
+		if x.gen.Load() == l.pgen {
+			x.rec.merge(&l.rec, l.step == "")
+		}
+		x.rec.mu.Unlock()
+	}
+	l.reset()
+	l.pool.legs.Put(l)
+}
+
+// Exchange implements snapshot.RequestState: the leg's Filter view.
+func (h *legHandle) Exchange() filter.Exchange { return (*legView)(h) }
+
+// Enter implements snapshot.RequestState. In response Phases CEL response
+// is the attempt's response.
+func (h *legHandle) Enter(p *snapshot.Policy, ph phase.Phase, span emit.Span) {
+	if l := h.leg(); l != nil {
+		l.enter(p, ph, span)
+	}
+}
+
+// SetLeg implements snapshot.RequestState: the attempt a's Phases follow.
+func (h *legHandle) SetLeg(a *filter.Leg) {
+	if l := h.leg(); l != nil {
+		l.setLeg(a)
+	}
+}
+
+// When implements snapshot.RequestState: p's decision on this leg.
+func (h *legHandle) When(p *snapshot.Policy) (decided, skip bool) {
+	if l := h.leg(); l != nil {
+		return l.whens.get(p.Index)
+	}
+	return false, false
+}
+
+// SetWhen implements snapshot.RequestState.
+func (h *legHandle) SetWhen(p *snapshot.Policy, skip bool) {
+	if l := h.leg(); l != nil {
+		l.whens.set(p.Index, skip)
+	}
+}
+
+// RecordShortCircuit implements snapshot.RequestState; Release merges it
+// into the request.
+func (h *legHandle) RecordShortCircuit(p *snapshot.Policy, ph phase.Phase, status int) {
+	if l := h.leg(); l != nil {
+		l.rec.shortCircuit(p, ph, status)
+	}
+}
+
+// RecordFailure implements snapshot.RequestState; Release merges it into
+// the request.
+func (h *legHandle) RecordFailure(p *snapshot.Policy, ph phase.Phase, mode v1alpha1.FailureMode) {
+	if l := h.leg(); l != nil {
+		l.rec.failure(p, ph, mode)
+	}
+}
+
+// Budget implements snapshot.RequestState: the leg's copy of the request's
+// State Store budget; a released handle's is its own empty one.
+func (h *legHandle) Budget() *statestore.RequestBudget {
+	if l := h.leg(); l != nil {
+		return &l.budget
+	}
+	return new(statestore.RequestBudget)
+}
+
+// Leg implements snapshot.RequestState: a sibling leg of the same request;
+// on a released handle, that handle.
+func (h *legHandle) Leg(upstream, step string) snapshot.RequestState {
+	l := h.leg()
+	if l == nil {
+		return h
+	}
+	return l.pool.newLeg(l.parent, upstream, step)
+}
+
+// Release implements snapshot.RequestState: the leg's records join the
+// request's, its reservations are returned and its memory goes back to its
+// pool. Only the first release of a handle acts: a second one, a release
+// racing it, and one after Pool.Put ended the leg do nothing. A gated
+// response body keeps its own buffer until it is closed.
+func (h *legHandle) Release() { h.end(true) }
 
 // copyRequestView sets the leg's request view from the client's, with the
 // attempt's outgoing headers and query when it has a request.
@@ -118,12 +288,8 @@ func (l *leg) copyRequestView() {
 	}
 }
 
-// Exchange implements snapshot.RequestState: the leg's Filter view.
-func (l *leg) Exchange() filter.Exchange { return (*legView)(l) }
-
-// Enter implements snapshot.RequestState. In response Phases CEL response
-// is the attempt's response.
-func (l *leg) Enter(p *snapshot.Policy, ph phase.Phase, span emit.Span) {
+// enter selects the next Filter call (snapshot.RequestState.Enter).
+func (l *leg) enter(p *snapshot.Policy, ph phase.Phase, span emit.Span) {
 	l.cur, l.ph, l.span = p, ph, span
 	switch ph {
 	case phase.OnUpstreamRequest:
@@ -138,10 +304,10 @@ func (l *leg) Enter(p *snapshot.Policy, ph phase.Phase, span emit.Span) {
 	}
 }
 
-// SetLeg implements snapshot.RequestState: the attempt a's Phases follow.
-// A new attempt number starts from the client's input again: no rewritten
+// setLeg makes a the current attempt (snapshot.RequestState.SetLeg). A new
+// attempt number starts from the client's input again: no rewritten
 // request body, no gated response, the outgoing request's view.
-func (l *leg) SetLeg(a *filter.Leg) {
+func (l *leg) setLeg(a *filter.Leg) {
 	l.attempt = a
 	if a == nil {
 		return
@@ -173,58 +339,14 @@ func (l *leg) newAttempt() {
 	l.copyRequestView()
 }
 
-// When implements snapshot.RequestState: p's decision on this leg.
-func (l *leg) When(p *snapshot.Policy) (decided, skip bool) { return l.whens.get(p.Index) }
-
-// SetWhen implements snapshot.RequestState.
-func (l *leg) SetWhen(p *snapshot.Policy, skip bool) { l.whens.set(p.Index, skip) }
-
-// RecordShortCircuit implements snapshot.RequestState; Release merges it
-// into the request.
-func (l *leg) RecordShortCircuit(p *snapshot.Policy, ph phase.Phase, status int) {
-	l.rec.shortCircuit(p, ph, status)
-}
-
-// RecordFailure implements snapshot.RequestState; Release merges it into
-// the request.
-func (l *leg) RecordFailure(p *snapshot.Policy, ph phase.Phase, mode v1alpha1.FailureMode) {
-	l.rec.failure(p, ph, mode)
-}
-
-// Budget implements snapshot.RequestState: the leg's copy of the request's
-// State Store budget.
-func (l *leg) Budget() *statestore.RequestBudget { return &l.budget }
-
-// Leg implements snapshot.RequestState: a sibling leg of the same request.
-func (l *leg) Leg(upstream, step string) snapshot.RequestState {
-	return l.pool.newLeg(l.parent, upstream, step)
-}
-
-// Release implements snapshot.RequestState: the leg's records join the
-// request's, its reservations are returned and it goes back to its pool. A
-// gated response body keeps its own buffer until it is closed. A second
-// Release does nothing.
-func (l *leg) Release() {
-	if !l.live {
-		return
-	}
-	x := l.parent
-	x.rec.mu.Lock()
-	x.rec.merge(&l.rec, l.step == "")
-	x.rec.mu.Unlock()
-	l.reset()
-	l.pool.legs.Put(l)
-}
-
 // reset drops everything l holds, keeping memory.
 func (l *leg) reset() {
-	l.live = false
 	l.acct.ReleaseAll()
 	l.whens.reset()
 	l.slots.reset()
 	l.rec.reset()
 	clear(l.scratch)
-	l.parent, l.step = nil, ""
+	l.parent, l.pgen, l.step = nil, 0, ""
 	l.vars, l.req, l.up, l.errV, l.respV = expr.Vars{}, expr.Request{}, expr.Upstream{}, expr.AttemptError{}, expr.Response{}
 	l.cur, l.ph, l.span = nil, 0, nil
 	l.attempt, l.attemptN, l.budget = nil, noAttempt, statestore.RequestBudget{}
@@ -312,9 +434,10 @@ func installBody(r *http.Request, b []byte) {
 }
 
 // gateResponse reads this attempt's response body whole within its cap
-// (responseLimit) and puts the gated body in its place, once per attempt. The gated body owns its buffer and reservation until it is
-// closed (the response may stream to the client after the leg ended); its
-// Close closes the original body.
+// (responseLimit) and puts the gated body in its place, once per attempt.
+// The gated body owns its buffer and reservation until it is closed (the
+// response may stream to the client after the leg ended); its Close closes
+// the original body.
 func (l *leg) gateResponse(ctx context.Context) (*legBody, error) {
 	switch {
 	case l.rb != nil:
@@ -479,84 +602,182 @@ func (b *legBody) replace(p []byte) error {
 	return nil
 }
 
-// legView is a leg state as the filter.Exchange of its upstream-leg
+// legView is a leg's handle as the filter.Exchange of its upstream-leg
 // Phases: the client request read-only (filter.Exchange documents what a
-// leg view does not do).
-type legView leg
+// leg view does not do). Once the handle is released, every method does
+// nothing and reports zero values: a view kept past its leg never reaches
+// the leg's next owner.
+type legView legHandle
 
 var _ filter.Exchange = (*legView)(nil)
 
+// state returns the leg state, nil once the handle is released.
+func (v *legView) state() *leg { return (*legHandle)(v).leg() }
+
+// parent returns the leg's request, nil once the handle is released.
+func (v *legView) parent() *Request {
+	if l := v.state(); l != nil {
+		return l.parent
+	}
+	return nil
+}
+
 // RequestID implements filter.Exchange.
-func (v *legView) RequestID() string { return v.parent.requestID() }
+func (v *legView) RequestID() string {
+	if x := v.parent(); x != nil {
+		return x.requestID()
+	}
+	return ""
+}
 
 // Now implements filter.Exchange.
-func (v *legView) Now() time.Time { return v.parent.start }
+func (v *legView) Now() time.Time {
+	if x := v.parent(); x != nil {
+		return x.start
+	}
+	return time.Time{}
+}
 
 // Listener implements filter.Exchange.
-func (v *legView) Listener() string { return v.parent.listener }
+func (v *legView) Listener() string {
+	if x := v.parent(); x != nil {
+		return x.listener
+	}
+	return ""
+}
 
 // Route implements filter.Exchange.
-func (v *legView) Route() *expr.Route { return v.parent.vars.Route }
+func (v *legView) Route() *expr.Route {
+	if x := v.parent(); x != nil {
+		return x.vars.Route
+	}
+	return nil
+}
 
 // Method implements filter.Exchange.
-func (v *legView) Method() string { return v.parent.req.Method }
+func (v *legView) Method() string {
+	if x := v.parent(); x != nil {
+		return x.req.Method
+	}
+	return ""
+}
 
 // Scheme implements filter.Exchange.
-func (v *legView) Scheme() string { return v.parent.req.Scheme }
+func (v *legView) Scheme() string {
+	if x := v.parent(); x != nil {
+		return x.req.Scheme
+	}
+	return ""
+}
 
 // Host implements filter.Exchange.
-func (v *legView) Host() string { return v.parent.req.Host }
+func (v *legView) Host() string {
+	if x := v.parent(); x != nil {
+		return x.req.Host
+	}
+	return ""
+}
 
 // Path implements filter.Exchange.
-func (v *legView) Path() string { return v.parent.path }
+func (v *legView) Path() string {
+	if x := v.parent(); x != nil {
+		return x.path
+	}
+	return ""
+}
 
 // Header implements filter.Exchange: the client request headers, read-only
 // on a leg (the outgoing request's are Message().Header()).
-func (v *legView) Header() http.Header { return v.parent.hdr }
+func (v *legView) Header() http.Header {
+	if x := v.parent(); x != nil {
+		return x.hdr
+	}
+	return nil
+}
 
 // Source implements filter.Exchange.
-func (v *legView) Source() filter.Source { return v.parent.src }
+func (v *legView) Source() filter.Source {
+	if x := v.parent(); x != nil {
+		return x.src
+	}
+	return filter.Source{}
+}
 
 // TLS implements filter.Exchange.
-func (v *legView) TLS() *filter.ConnTLS { return v.parent.tls }
+func (v *legView) TLS() *filter.ConnTLS {
+	if x := v.parent(); x != nil {
+		return x.tls
+	}
+	return nil
+}
 
 // Message implements filter.Exchange: the outgoing request in
 // onUpstreamRequest, the attempt's response in the response Phases, and in
 // Finish the response when one arrived, else the request.
 func (v *legView) Message() filter.Message {
-	switch v.ph {
+	h := (*legHandle)(v)
+	l := h.leg()
+	if l == nil {
+		return (*legRequestMessage)(h)
+	}
+	switch l.ph {
 	case phase.OnUpstreamRequest:
-		return (*legRequestMessage)(v)
+		return (*legRequestMessage)(h)
 	case phase.OnUpstreamResponseHeaders, phase.OnUpstreamResponseBody:
-		return (*legResponseMessage)(v)
+		return (*legResponseMessage)(h)
 	default:
-		if a := v.attempt; a != nil && a.Response != nil {
-			return (*legResponseMessage)(v)
+		if a := l.attempt; a != nil && a.Response != nil {
+			return (*legResponseMessage)(h)
 		}
-		return (*legRequestMessage)(v)
+		return (*legRequestMessage)(h)
 	}
 }
 
 // Leg implements filter.Exchange: the current attempt.
-func (v *legView) Leg() *filter.Leg { return v.attempt }
+func (v *legView) Leg() *filter.Leg {
+	if l := v.state(); l != nil {
+		return l.attempt
+	}
+	return nil
+}
 
 // Vars implements filter.Exchange.
-func (v *legView) Vars() *expr.Vars { return (*leg)(v).activation() }
+func (v *legView) Vars() *expr.Vars {
+	if l := v.state(); l != nil {
+		return l.activation()
+	}
+	return new(expr.Vars)
+}
 
 // Identity implements filter.Exchange: the request's identity.
-func (v *legView) Identity() *filter.Identity { return v.parent.ident }
+func (v *legView) Identity() *filter.Identity {
+	if x := v.parent(); x != nil {
+		return x.ident
+	}
+	return nil
+}
 
 // SetIdentity implements filter.Exchange: filter.ErrNotAvailable on a leg.
 func (*legView) SetIdentity(*filter.Identity) error { return filter.ErrNotAvailable }
 
 // StateBudget implements filter.Exchange.
-func (v *legView) StateBudget() *statestore.RequestBudget { return &v.budget }
+func (v *legView) StateBudget() *statestore.RequestBudget { return (*legHandle)(v).Budget() }
 
-// Reserve implements filter.Exchange: charged to the leg's account.
-func (v *legView) Reserve(n int64) error { return v.acct.Reserve(n) }
+// Reserve implements filter.Exchange: charged to the leg's account;
+// filter.ErrNotAvailable once the leg ended.
+func (v *legView) Reserve(n int64) error {
+	if l := v.state(); l != nil {
+		return l.acct.Reserve(n)
+	}
+	return filter.ErrNotAvailable
+}
 
 // Release implements filter.Exchange.
-func (v *legView) Release(n int64) { v.acct.Release(n) }
+func (v *legView) Release(n int64) {
+	if l := v.state(); l != nil {
+		l.acct.Release(n)
+	}
+}
 
 // TeeResponse implements filter.Exchange: nil on a leg.
 func (*legView) TeeResponse(int64) filter.Tee { return nil }
@@ -572,8 +793,8 @@ func (*legView) SetCacheResult(string) {}
 
 // Annotate implements filter.Exchange.
 func (v *legView) Annotate(key string, val slog.Value) {
-	if v.span != nil {
-		v.span.SetAttr(key, val)
+	if l := v.state(); l != nil && l.span != nil {
+		l.span.SetAttr(key, val)
 	}
 }
 
@@ -582,11 +803,26 @@ func (v *legView) Annotate(key string, val slog.Value) {
 func (*legView) Final() filter.Final { return filter.Final{} }
 
 // PolicyState implements filter.Exchange: the calling Policy's slot on
-// this leg.
-func (v *legView) PolicyState() *any { return v.slots.at(v.cur) }
+// this leg; once the leg ended, a slot of its own that nothing reads.
+func (v *legView) PolicyState() *any {
+	if l := v.state(); l != nil {
+		return l.slots.at(l.cur)
+	}
+	return new(any)
+}
 
 // Stripe implements filter.Exchange.
-func (v *legView) Stripe() emit.Stripe { return v.parent.stripe }
+func (v *legView) Stripe() emit.Stripe {
+	if x := v.parent(); x != nil {
+		return x.stripe
+	}
+	return 0
+}
 
 // RouteMetrics implements filter.Exchange; never nil.
-func (v *legView) RouteMetrics() *emit.RouteMetrics { return v.parent.routeMetrics() }
+func (v *legView) RouteMetrics() *emit.RouteMetrics {
+	if x := v.parent(); x != nil {
+		return x.routeMetrics()
+	}
+	return &v.l.pool.noop
+}

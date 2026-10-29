@@ -13,7 +13,7 @@ import (
 )
 
 // The four filter.Message views (filter.Message documents the methods).
-// Each is a conversion of the Request or leg state it belongs to, so
+// Each is a conversion of the Request or leg handle it belongs to, so
 // returning one allocates nothing.
 var (
 	_ filter.Message = (*requestMessage)(nil)
@@ -149,17 +149,33 @@ func (m *responseMessage) Generated() bool { return m.resp.generated }
 
 // legRequestMessage is the attempt's outgoing request, the message of
 // onUpstreamRequest. Its body is the client's gated input, the same each
-// attempt, until a Filter sets this attempt's body.
-type legRequestMessage leg
+// attempt, until a Filter sets this attempt's body. Like the leg's view,
+// it is its handle: once the handle is released it is an empty request
+// whose writes reach nothing.
+type legRequestMessage legHandle
+
+// state returns the leg state in onUpstreamRequest; nil in another Phase
+// and once the handle is released.
+func (m *legRequestMessage) state() *leg {
+	if l := (*legHandle)(m).leg(); l != nil && l.ph == phase.OnUpstreamRequest {
+		return l
+	}
+	return nil
+}
 
 // Header returns the outgoing request's header map.
-func (m *legRequestMessage) Header() http.Header { return (*leg)(m).outHeader() }
+func (m *legRequestMessage) Header() http.Header {
+	if l := (*legHandle)(m).leg(); l != nil {
+		return l.outHeader()
+	}
+	return http.Header{}
+}
 
 // Body returns this attempt's request body in onUpstreamRequest;
 // filter.ErrNotAvailable when the client body streams and none was set.
 func (m *legRequestMessage) Body(context.Context) ([]byte, error) {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamRequest {
+	l := m.state()
+	if l == nil {
 		return nil, filter.ErrNotAvailable
 	}
 	b, ok := l.requestBody()
@@ -172,8 +188,8 @@ func (m *legRequestMessage) Body(context.Context) ([]byte, error) {
 // SetBody makes b this attempt's outgoing body in onUpstreamRequest; the
 // client's input is unchanged, so the next attempt starts from it again.
 func (m *legRequestMessage) SetBody(_ context.Context, b []byte) error {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamRequest {
+	l := m.state()
+	if l == nil {
 		return filter.ErrNotAvailable
 	}
 	return l.setRequestBody(b)
@@ -182,8 +198,8 @@ func (m *legRequestMessage) SetBody(_ context.Context, b []byte) error {
 // Decoded returns the decoded body of this attempt's request in
 // onUpstreamRequest.
 func (m *legRequestMessage) Decoded(context.Context) (expr.Value, error) {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamRequest {
+	l := m.state()
+	if l == nil {
 		return nil, filter.ErrNotAvailable
 	}
 	d, ok := l.requestDecoded()
@@ -195,19 +211,27 @@ func (m *legRequestMessage) Decoded(context.Context) (expr.Value, error) {
 
 // RawQuery returns the outgoing request's raw query.
 func (m *legRequestMessage) RawQuery() string {
-	if a := m.attempt; a != nil && a.Request != nil && a.Request.URL != nil {
+	l := (*legHandle)(m).leg()
+	if l == nil {
+		return ""
+	}
+	if a := l.attempt; a != nil && a.Request != nil && a.Request.URL != nil {
 		return a.Request.URL.RawQuery
 	}
-	return m.req.RawQuery()
+	return l.req.RawQuery()
 }
 
 // SetRawQuery replaces the outgoing request's raw query and CEL
 // request.query on the leg.
 func (m *legRequestMessage) SetRawQuery(q string) {
-	if a := m.attempt; a != nil && a.Request != nil && a.Request.URL != nil {
+	l := (*legHandle)(m).leg()
+	if l == nil {
+		return
+	}
+	if a := l.attempt; a != nil && a.Request != nil && a.Request.URL != nil {
 		a.Request.URL.RawQuery = q
 	}
-	m.req.SetRawQuery(q)
+	l.req.SetRawQuery(q)
 }
 
 // Status returns 0: a request has none.
@@ -221,16 +245,31 @@ func (*legRequestMessage) Generated() bool { return false }
 // available in onUpstreamResponseBody, gated within the leg's
 // MaxBodyBytes, else limits.maxResponseBodyBytes. An attempt without a
 // response has an empty one: status 0, a header map that a new attempt
-// clears, no body.
-type legResponseMessage leg
+// clears, no body. Once the handle is released it is an empty response
+// whose writes reach nothing.
+type legResponseMessage legHandle
+
+// state returns the leg state in onUpstreamResponseBody; nil in another
+// Phase and once the handle is released.
+func (m *legResponseMessage) state() *leg {
+	if l := (*legHandle)(m).leg(); l != nil && l.ph == phase.OnUpstreamResponseBody {
+		return l
+	}
+	return nil
+}
 
 // Header returns the response's live header map.
-func (m *legResponseMessage) Header() http.Header { return (*leg)(m).inHeader() }
+func (m *legResponseMessage) Header() http.Header {
+	if l := (*legHandle)(m).leg(); l != nil {
+		return l.inHeader()
+	}
+	return http.Header{}
+}
 
 // Body returns the gated response body in onUpstreamResponseBody.
 func (m *legResponseMessage) Body(ctx context.Context) ([]byte, error) {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamResponseBody {
+	l := m.state()
+	if l == nil {
 		return nil, filter.ErrNotAvailable
 	}
 	lb, err := l.gateResponse(ctx)
@@ -242,8 +281,8 @@ func (m *legResponseMessage) Body(ctx context.Context) ([]byte, error) {
 
 // SetBody replaces the response body in onUpstreamResponseBody.
 func (m *legResponseMessage) SetBody(ctx context.Context, b []byte) error {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamResponseBody {
+	l := m.state()
+	if l == nil {
 		return filter.ErrNotAvailable
 	}
 	return l.setResponseBody(ctx, b)
@@ -252,8 +291,8 @@ func (m *legResponseMessage) SetBody(ctx context.Context, b []byte) error {
 // Decoded returns the decoded response body in onUpstreamResponseBody, the
 // value CEL reads as response.body.
 func (m *legResponseMessage) Decoded(ctx context.Context) (expr.Value, error) {
-	l := (*leg)(m)
-	if l.ph != phase.OnUpstreamResponseBody {
+	l := m.state()
+	if l == nil {
 		return nil, filter.ErrNotAvailable
 	}
 	d := l.responseDecoded(ctx)
@@ -269,8 +308,10 @@ func (*legResponseMessage) SetRawQuery(string) {}
 
 // Status returns the response status; 0 without a response.
 func (m *legResponseMessage) Status() int {
-	if a := m.attempt; a != nil && a.Response != nil {
-		return a.Response.StatusCode
+	if l := (*legHandle)(m).leg(); l != nil {
+		if a := l.attempt; a != nil && a.Response != nil {
+			return a.Response.StatusCode
+		}
 	}
 	return 0
 }
