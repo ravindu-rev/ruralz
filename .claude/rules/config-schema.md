@@ -52,6 +52,7 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 | `open` | struct | Omits `additionalProperties: false` |
 | `minProperties=<n>` | struct or map field | The standard keyword |
 | `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints |
+| `requiredIf=<field>,<member>=<value>` | struct | `if`/`then`: `<field>` is required when `<member>` equals `<value>`, which must be in the member's enum |
 | `pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | field or named string type | The standard keyword |
 
 An unknown marker, or a marker given a value it does not take, fails generation (`internal/tool/schemagen/source.go`).
