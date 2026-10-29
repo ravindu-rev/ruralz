@@ -676,19 +676,20 @@ func viewOf(t *testing.T, data []byte) *View {
 	return v
 }
 
-// TestMetaExamples covers the part of the examples/ check that this
-// package can run: every raw document of a file the loader reads from a
-// Bundle root or control/ under examples/, YAML and JSON alike, parses
-// with the production front ends and validates against the authoring
-// view, and so does every ruralz/ document of another file that parses
-// (checkExamples). The rest of the check, each Bundle loading with zero
-// errors for each Environment of examples/control/environments.yaml and
-// without --env, runs through the configuration pipeline, which this
-// package cannot import; the bundles subtest skips with that reason
-// instead of passing silently.
+// TestMetaExamples validates the examples/ tree, the example Bundles of
+// docs/engineering/02-repository-layout-and-conventions.md "Generator
+// rules". The documents subtest checks every raw document of a file the
+// loader reads from a Bundle root or control/, YAML and JSON alike: it
+// parses with the production front ends and validates against the
+// authoring view, and so does every ruralz/ document of another file that
+// parses (checkExamples). The bundles subtest renders every Bundle without
+// --env and for each Environment of examples/control/ with no diagnostic,
+// warnings included, through the stages that exist as packages and the
+// rules of stages C, H and J that the check applies itself (checkBundles,
+// loadBundle).
 func TestMetaExamples(t *testing.T) {
 	if _, err := os.Stat(examplesRoot); err != nil {
-		t.Skipf("needs the examples/ tree, which does not exist yet: %v", err)
+		t.Fatalf("the examples/ tree is missing: %v", err)
 	}
 	t.Run("documents", func(t *testing.T) {
 		problems, validated := checkExamples(t, examplesRoot, authoringView(t))
@@ -700,8 +701,16 @@ func TestMetaExamples(t *testing.T) {
 		}
 	})
 	t.Run("bundles", func(t *testing.T) {
-		t.Skip("loading each Bundle under examples/ for each Environment of examples/control/environments.yaml " +
-			"and without --env needs the configuration pipeline, which this package cannot import")
+		problems, renders, err := checkBundles(t.Context(), mustStages(t), os.DirFS(examplesRoot))
+		if err != nil {
+			t.Fatalf("checkBundles() error = %v", err)
+		}
+		if renders == 0 {
+			t.Error("examples/ holds no Bundle")
+		}
+		for _, p := range problems {
+			t.Errorf("examples/: %s", p)
+		}
 	})
 }
 
