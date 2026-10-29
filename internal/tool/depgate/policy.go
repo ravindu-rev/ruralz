@@ -79,5 +79,6 @@ func advisoryFloors() map[string]string {
 		"oras.land/oras-go/v2":                "v2.6.2",
 		"github.com/lestrrat-go/jwx/v4":       "v4.5.0",
 		"github.com/hashicorp/raft-boltdb/v2": "v2.4.2",
+		"github.com/moby/go-archive":          "v0.3.0",
 	}
 }
