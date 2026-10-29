@@ -23,7 +23,7 @@ import (
 type claims map[string]any
 
 var (
-	_ expr.Value      = claims(nil)
+	_ expr.Tree       = claims(nil)
 	_ identity.Claims = claims(nil)
 )
 
@@ -52,6 +52,11 @@ func (c claims) AppendBody(dst []byte) ([]byte, error) {
 // Native returns a deep copy of the claims, so a caller that edits it
 // never changes the identity.
 func (c claims) Native() (any, error) { return jsonval.Clone(map[string]any(c)), nil }
+
+// Tree returns the claims for reading in place (expr.Tree): CEL views them
+// per evaluation without the copy Native makes, since they never change
+// after parse.
+func (c claims) Tree() any { return map[string]any(c) }
 
 // numericDate reads a NumericDate claim (RFC 7519 section 2): a JSON
 // number of seconds since the epoch, fractions allowed; ok is false for an

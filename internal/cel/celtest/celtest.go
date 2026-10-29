@@ -28,15 +28,33 @@ func Compiler(tb testing.TB) *cel.Compiler {
 // At returns the site of place with no attachment refinement.
 func At(place expr.PlaceID) expr.Site { return expr.Site{Place: place} }
 
-// Program compiles src at site with a new Compiler; it stops the test on
-// any Issue.
+// Program compiles src at site with a new Compiler and no input caps, so
+// every input counts as unbounded; it stops the test on any Issue.
 func Program(tb testing.TB, site expr.Site, src string) expr.Program {
 	tb.Helper()
-	prg, iss := Compiler(tb).NewBuilder(nil).Compile(site, src)
+	prg, iss := Compiler(tb).NewBuilder(nil, expr.InputCaps{}).Compile(site, src)
 	if prg == nil {
 		tb.Fatalf("celtest: compile %q at %s: %+v", src, site.Place, iss)
 	}
 	return prg
+}
+
+// Caps returns the input caps a snapshot of the default Gateway passes: a
+// 64 KiB request header block (limits.maxRequestHeaderBytes) with nothing
+// added by Policies, claims of at most 4 × 16 KiB, and Route and Consumer
+// data at the largest of routes and consumers, which must hold every Route
+// and Consumer the test evaluates.
+func Caps(routes []*expr.Route, consumers ...*expr.Consumer) expr.InputCaps {
+	caps := expr.InputCaps{RequestHeaderBytes: 64 << 10, ClaimsBytes: 4 * 16 << 10}
+	caps.Routes.Add(nil)
+	for _, r := range routes {
+		caps.Routes.Add(r)
+	}
+	caps.Consumers.Add(nil)
+	for _, c := range consumers {
+		caps.Consumers.Add(c)
+	}
+	return caps
 }
 
 // JSON decodes text as a body or claims document without a budget; it

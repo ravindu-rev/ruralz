@@ -16,7 +16,7 @@ import (
 // program, and that a different place or environment does not.
 func TestBuilderCompilesEachSiteOnce(t *testing.T) {
 	c := newCompiler(t)
-	b := c.NewBuilder(nil)
+	b := c.NewBuilder(nil, expr.InputCaps{})
 	src := `consumer == null ? source.ip : consumer.name`
 	p1, _ := b.Compile(at(expr.PlaceRateLimitKey), src)
 	p2, _ := b.Compile(expr.Site{Place: expr.PlaceRateLimitKey, Scope: phase.ScopeRoute}, src)
@@ -43,13 +43,13 @@ func TestBuilderCompilesEachSiteOnce(t *testing.T) {
 func TestBuilderReusesPreviousSet(t *testing.T) {
 	c := newCompiler(t)
 	keep, drop := `request.headers["x-tenant"] == "acme"`, `request.method == "GET"`
-	b1 := c.NewBuilder(nil)
+	b1 := c.NewBuilder(nil, expr.InputCaps{})
 	kept, _ := b1.Compile(at(expr.PlaceRouteMatchWhen), keep)
 	if _, iss := b1.Compile(at(expr.PlaceRouteMatchWhen), drop); iss != nil {
 		t.Fatalf("Compile(%q) = %+v", drop, iss)
 	}
 	set1 := b1.Build()
-	b2 := c.NewBuilder(set1)
+	b2 := c.NewBuilder(set1, expr.InputCaps{})
 	again, _ := b2.Compile(at(expr.PlaceRouteMatchWhen), keep)
 	if again != kept {
 		t.Errorf("reload recompiled %q: %p, want %p", keep, again, kept)
@@ -82,7 +82,7 @@ func siteKeyOf(t *testing.T, site expr.Site) siteKey {
 func TestBuilderDoesNotKeepErrors(t *testing.T) {
 	c := newCompiler(t)
 	bad := `response.status == 200`
-	b1 := c.NewBuilder(nil)
+	b1 := c.NewBuilder(nil, expr.InputCaps{})
 	if prg, iss := b1.Compile(at(expr.PlaceRouteMatchWhen), bad); prg != nil || len(iss) == 0 {
 		t.Fatalf("Compile(%q) = %v, %+v; want an Issue", bad, prg, iss)
 	}
@@ -90,7 +90,7 @@ func TestBuilderDoesNotKeepErrors(t *testing.T) {
 	if set.Len() != 0 {
 		t.Errorf("set holds %d programs, want 0", set.Len())
 	}
-	if prg, iss := c.NewBuilder(set).Compile(at(expr.PlaceRouteMatchWhen), bad); prg != nil || len(iss) == 0 {
+	if prg, iss := c.NewBuilder(set, expr.InputCaps{}).Compile(at(expr.PlaceRouteMatchWhen), bad); prg != nil || len(iss) == 0 {
 		t.Errorf("second Builder: %v, %+v; want an Issue", prg, iss)
 	}
 }
@@ -99,7 +99,7 @@ func TestBuilderDoesNotKeepErrors(t *testing.T) {
 // earlier steps is rejected after another.
 func TestBuilderStepsAreSiteSpecific(t *testing.T) {
 	c := newCompiler(t)
-	b := c.NewBuilder(nil)
+	b := c.NewBuilder(nil, expr.InputCaps{})
 	src := `steps.order.status == 200`
 	if prg, iss := b.Compile(sequential(expr.PlaceStepWhen, "order"), src); prg == nil {
 		t.Errorf("after order: %+v", iss)
@@ -113,7 +113,7 @@ func TestBuilderStepsAreSiteSpecific(t *testing.T) {
 // goroutines and expects one program per distinct source.
 func TestBuilderConcurrentCompile(t *testing.T) {
 	c := newCompiler(t)
-	b := c.NewBuilder(nil)
+	b := c.NewBuilder(nil, expr.InputCaps{})
 	const distinct = 20
 	got := make([][]expr.Program, 16)
 	var wg sync.WaitGroup
@@ -149,7 +149,7 @@ func TestProgramSetLenOfNil(t *testing.T) {
 	if s.Len() != 0 {
 		t.Errorf("nil Len = %d", s.Len())
 	}
-	if b := newCompiler(t).NewBuilder(s); b == nil {
+	if b := newCompiler(t).NewBuilder(s, expr.InputCaps{}); b == nil {
 		t.Error("NewBuilder(nil set) = nil")
 	}
 }

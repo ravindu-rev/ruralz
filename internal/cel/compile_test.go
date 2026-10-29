@@ -179,7 +179,7 @@ func TestCheckRejects(t *testing.T) {
 		}},
 		{"nested comprehensions", at(expr.PlaceTransformRequestBody), `request.body.items.all(i, i.tags.all(t, t.tags.all(u, u == "x")))`, expr.Issue{
 			Code: "RZ-CFG-015", Offset: -1,
-			Message: "CEL transform.request config.body: estimated cost 169123 exceeds 10000 at nominal sizes (strings 256, lists and maps 32)",
+			Message: "CEL transform.request config.body: estimated cost 170180 exceeds 10000 at nominal sizes (strings 256, lists and maps 32)",
 			Hint:    "nested comprehensions multiply: iterate over fewer or smaller values",
 		}},
 		{"nested header comprehensions", at(match), `request.headers.exists(k, request.headers.exists(j, k + j == "x"))`, expr.Issue{
@@ -207,7 +207,7 @@ func TestCheckRejects(t *testing.T) {
 			if !reflect.DeepEqual(iss[0], tc.want) {
 				t.Errorf("Check(%q)[0] =\n  %+v\nwant\n  %+v", tc.src, iss[0], tc.want)
 			}
-			b := c.NewBuilder(nil)
+			b := c.NewBuilder(nil, expr.InputCaps{})
 			if prg, biss := b.Compile(tc.site, tc.src); prg != nil || !reflect.DeepEqual(biss, iss) {
 				t.Errorf("Builder.Compile(%q) = %v, %+v; want nil and the Check Issues", tc.src, prg, biss)
 			}
@@ -293,7 +293,7 @@ func TestCheckEmptyIsAbsent(t *testing.T) {
 	if iss := c.Check(at(expr.PlaceRouteMatchWhen), ""); iss != nil {
 		t.Errorf("Check(\"\") = %+v, want nil", iss)
 	}
-	if prg, iss := c.NewBuilder(nil).Compile(at(expr.PlaceRouteMatchWhen), ""); prg != nil || iss != nil {
+	if prg, iss := c.NewBuilder(nil, expr.InputCaps{}).Compile(at(expr.PlaceRouteMatchWhen), ""); prg != nil || iss != nil {
 		t.Errorf("Compile(\"\") = %v, %+v; want nil, nil", prg, iss)
 	}
 }
@@ -332,8 +332,9 @@ func TestNominalSizes(t *testing.T) {
 		// compared with a one-character literal.
 		{at(expr.PlaceAuthzCELRule), `request.body.exists(x, x == 1)`, 195},
 		// Types and objects have size 1, as at runtime: comparing them is
-		// not unbounded.
-		{at(expr.PlaceAuthzCELRule), `type(request.body.a) == int`, 5},
+		// not unbounded. Selecting a of the dyn body adds the unit cel-go's
+		// estimator leaves out.
+		{at(expr.PlaceAuthzCELRule), `type(request.body.a) == int`, 6},
 		{at(expr.PlaceAuthzCELRule), `consumer == consumer`, 3},
 	}
 	for _, tc := range cases {

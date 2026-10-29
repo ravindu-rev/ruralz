@@ -26,6 +26,17 @@
 // iterates its keys in ascending byte order, so comprehensions, join results
 // and error selection are deterministic.
 //
+// Boxing a string, or an int of 256 or more, into a ref.Val allocates
+// unless the value is a constant. [PrepareRoute] and [PrepareConsumer]
+// therefore convert the Route and Consumer fields once per snapshot, names,
+// tiers, labels and list elements included; request.method,
+// request.scheme, auth.method, error.kind and the common response statuses
+// read constants; auth.claims of a method other than jwt is the empty map
+// without reading Claims; and an expr.Tree, such as verified JWT claims, is
+// viewed in place instead of through Native's copy. A string read from the
+// request itself, such as a header value or the path, is boxed on
+// selection.
+//
 // [Value] is the expr.Value of the CEL implementation. [FromNative] wraps a
 // decoded JSON tree (map[string]any, []any, string, json.Number, bool, nil)
 // without copying it: objects iterate in ascending key order, integer

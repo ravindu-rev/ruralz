@@ -337,3 +337,60 @@ func TestDefaults(t *testing.T) {
 		}
 	}
 }
+
+// TestRouteCapsAdd checks the Route caps of a snapshot: unknown until
+// Routes are added, known once even with none, and widened to the longest
+// name and label key or value, and the most labels, of every Route added,
+// never narrowed.
+func TestRouteCapsAdd(t *testing.T) {
+	var c RouteCaps
+	if c.Known {
+		t.Fatal("zero RouteCaps is known")
+	}
+	c.Add(nil)
+	if c != (RouteCaps{Known: true}) {
+		t.Fatalf("Add(nil) = %+v, want known and empty", c)
+	}
+	c.Add(&Route{Name: "orders", Labels: map[string]string{"team": "core", "a-long-label-key": "x"}})
+	c.Add(&Route{Name: "inventory-lookup", Labels: map[string]string{"tier": "gold"}})
+	want := RouteCaps{Known: true, NameBytes: 16, Labels: 2, LabelBytes: 16}
+	if c != want {
+		t.Errorf("caps = %+v, want %+v", c, want)
+	}
+	c.Add(&Route{Name: "r"})
+	if c != want {
+		t.Errorf("a smaller Route narrowed the caps to %+v", c)
+	}
+}
+
+// TestConsumerCapsAdd checks the Consumer caps of a snapshot: unknown
+// until Consumers are added, known once even with none, and widened to the
+// largest name, Tier, tag, label key or value and quota name, and the most
+// tags, labels and quotas, of every Consumer added, never narrowed.
+func TestConsumerCapsAdd(t *testing.T) {
+	var c ConsumerCaps
+	if c.Known {
+		t.Fatal("zero ConsumerCaps is known")
+	}
+	c.Add(nil)
+	if c != (ConsumerCaps{Known: true}) {
+		t.Fatalf("Add(nil) = %+v, want known and empty", c)
+	}
+	c.Add(&Consumer{
+		Name: "acme", Tier: "gold", Tags: []string{"eu", "partner"},
+		Labels: map[string]string{"team": "core", "a": "longer-value"},
+		Quotas: []string{"daily-tokens"},
+	})
+	c.Add(&Consumer{Name: "beta-industries", Tier: "free", Tags: []string{"x", "y", "z"}, Quotas: []string{"a", "b"}})
+	want := ConsumerCaps{
+		Known: true, NameBytes: 15, TierBytes: 4, Tags: 3, TagBytes: 7,
+		Labels: 2, LabelBytes: 12, Quotas: 2, QuotaNameBytes: 12,
+	}
+	if c != want {
+		t.Errorf("caps = %+v, want %+v", c, want)
+	}
+	c.Add(&Consumer{Name: "c"})
+	if c != want {
+		t.Errorf("a smaller Consumer narrowed the caps to %+v", c)
+	}
+}

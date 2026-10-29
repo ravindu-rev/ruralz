@@ -47,21 +47,47 @@
 // The static estimate sizes every string reached from a variable, typed or
 // dyn, at 256 bytes and every list or map at 32 entries (target); a dyn
 // value used as a comprehension range or an in container is sized as a
-// container. A second estimate with no size hints decides runtime
-// tracking: a program whose cost is bounded by 1,000,000 units at any input
-// size evaluates without cost tracking, any other one under the cost limit
-// of 1,000,000 units (target). A tracked program holding a comprehension
-// evaluates through ContextEval under the smaller of the request deadline
-// and 50 ms (target, ADR-0019).
+// container. A second estimate, under the snapshot's input caps
+// (expr.InputCaps, passed to NewBuilder), decides runtime tracking: the
+// client request's fields at the header cap, which counts the request
+// target, plus Policy edits, the claims and the Route and Consumer fields
+// at their caps, and every other value, such as a body or a field of a call
+// result, unbounded. A program whose bound under
+// the caps stays within 1,000,000 units cannot reach the cost limit and
+// evaluates without cost tracking; any other one evaluates under that
+// limit (target). A program is reused across snapshots only under equal
+// caps.
+//
+// Both estimates are cel-go's with two corrections that make them upper
+// bounds of the runtime cost (costFacts): a unit per evaluation of a field
+// selection on a dyn value, which cel-go's estimator does not charge but
+// its runtime does, and one more entry for a split result than its
+// string's size, as n separators split into n + 1 entries.
+//
+// A tracked program holding a comprehension evaluates through ContextEval
+// under the smaller of the request deadline and 50 ms (target, ADR-0019),
+// fixed when the evaluation starts: a request context that has already
+// ended stops it at the first interrupt check, and a cancellation during
+// the evaluation does not stop it sooner. An untracked comprehension has
+// no stop, since its bound caps its work. The stop is a context and timer
+// taken from a pool the Compiler owns and returned unless it fired, so an
+// evaluation that finishes in time builds no context, timer or closure.
+//
+// What remains of a tracked evaluation's allocations is cel-go's: the cost
+// tracker clones itself, grows its value stack and copies call arguments
+// for every call it observes, ContextEval derives a child context and an
+// async gate, and functions such as split build their results. An
+// untracked program allocates only for the values it builds and the
+// strings it reads from the request.
 //
 // # Evaluation
 //
 // Programs are immutable and safe for concurrent evaluation; they read the
 // expr.Vars they are given and never write it. A runtime failure is an
 // *expr.EvalError whose Kind classifies it and whose Error text never holds
-// request data. A Builder reuses the Program of an identical site and
-// source from the previous snapshot's ProgramSet, so a Hot Reload compiles
-// only changed expressions.
+// request data. A Builder reuses the Program of an identical site, source
+// and input caps from the previous snapshot's ProgramSet, so a Hot Reload
+// compiles only changed expressions.
 //
 // # Concurrency
 //

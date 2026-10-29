@@ -163,8 +163,9 @@ func (x *Value) Native() (any, error) {
 	}
 }
 
-// ToVal returns the CEL value of any expr.Value: a *Value directly, another
-// implementation through its Native tree. A nil Value is a body that is not
+// ToVal returns the CEL value of any expr.Value: a *Value directly, an
+// expr.Tree as a view of its tree in place, another implementation through
+// its Native tree, which copies it. A nil Value is a body that is not
 // available: an error wrapping ErrBody. An error is a new *types.Err on
 // every call.
 func ToVal(v expr.Value) ref.Val {
@@ -173,6 +174,8 @@ func ToVal(v expr.Value) ref.Val {
 		return errVal(errBodyUnavailable())
 	case *Value:
 		return x.Val()
+	case expr.Tree:
+		return nativeVal(x.Tree())
 	}
 	n, err := v.Native()
 	if err != nil {

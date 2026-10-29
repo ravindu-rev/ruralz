@@ -431,7 +431,7 @@ func checkReference(t *testing.T, progs map[string]expr.Program, data []byte) {
 // compileWhens compiles whenSources once.
 func compileWhens(tb testing.TB) map[string]expr.Program {
 	tb.Helper()
-	b := celtest.Compiler(tb).NewBuilder(nil)
+	b := celtest.Compiler(tb).NewBuilder(nil, expr.InputCaps{})
 	progs := map[string]expr.Program{}
 	for _, src := range whenSources() {
 		prg, iss := b.Compile(celtest.At(expr.PlaceRouteMatchWhen), src)

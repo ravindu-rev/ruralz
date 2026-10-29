@@ -325,7 +325,8 @@ func TestValuesHashable(t *testing.T) {
 	}
 	set[nativeVal(map[string]any{"a": []any{}})] = true
 	set[nativeVal([]any{map[string]any{}})] = true
-	set[sortedLabels(map[string]string{"a": "b"})] = true
+	set[preparedLabels(map[string]string{"a": "b"})] = true
+	set[preparedList([]string{"a"})] = true
 	if len(set) < 40 {
 		t.Errorf("only %d distinct values", len(set))
 	}

@@ -28,6 +28,12 @@ type siteEnv struct {
 	composition bool
 	mode        v1alpha1.CompositionMode
 	earlier     []string
+	// clientRequest reports that request is the client request, whose
+	// header block expr.InputCaps bounds. In an upstream leg, at Upstream
+	// scope and in the Upstream fields, it is the attempt's outgoing
+	// request, which upstream-scope Policies and upstream authentication
+	// extend beyond those caps.
+	clientRequest bool
 }
 
 // resolve returns the environment of site; false for an unknown place.
@@ -36,7 +42,7 @@ func resolve(site expr.Site) (siteEnv, bool) {
 	if !ok {
 		return siteEnv{}, false
 	}
-	se := siteEnv{place: p, vars: p.Vars}
+	se := siteEnv{place: p, vars: p.Vars, clientRequest: clientRequest(site)}
 	switch p.ID {
 	case expr.PlacePolicyWhen:
 		// response exists only when the Policy's first Phase at this
@@ -75,21 +81,45 @@ func resolve(site expr.Site) (siteEnv, bool) {
 	return se, true
 }
 
+// clientRequest reports whether request at site is the client request:
+// everywhere but at Upstream scope, in a Policy.spec.when first evaluated
+// in an upstream-leg Phase, and in the Upstream fields, which are
+// evaluated per attempt over the outgoing request.
+func clientRequest(site expr.Site) bool {
+	if site.Scope == phase.ScopeUpstream {
+		return false
+	}
+	if site.Place == expr.PlacePolicyWhen && site.FirstPhase.UpstreamLeg() && site.FirstPhase != phase.OnChunk {
+		return false
+	}
+	switch site.Place {
+	case expr.PlaceHashKey, expr.PlaceRetryOn, expr.PlaceFailureWhen, expr.PlaceMessagingKey:
+		return false
+	default:
+		return true
+	}
+}
+
 // key returns the site part of a program's identity: two sites with equal
 // keys accept the same sources and compile them to the same program.
 func (se siteEnv) key() siteKey {
-	k := siteKey{place: se.place.ID, vars: se.vars, reqBody: se.reqBody, respBody: se.respBody}
+	k := siteKey{
+		place: se.place.ID, vars: se.vars, reqBody: se.reqBody, respBody: se.respBody,
+		clientRequest: se.clientRequest,
+	}
 	if se.composition {
 		k.steps = string(se.mode) + "\x00" + strings.Join(se.earlier, "\x00")
 	}
 	return k
 }
 
-// siteKey identifies an environment and the site checks that apply in it.
+// siteKey identifies an environment, the site checks that apply in it and
+// the request the input caps can bound.
 type siteKey struct {
 	place             expr.PlaceID
 	vars              expr.Var
 	reqBody, respBody bool
+	clientRequest     bool
 	// steps holds the composition mode and the earlier step names.
 	steps string
 }

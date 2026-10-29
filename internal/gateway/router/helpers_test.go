@@ -39,7 +39,7 @@ func compileSpecs(tb testing.TB, specs []spec) []Route {
 		m := s.m
 		routes[i] = Route{Index: idx, Name: s.name, Match: &m}
 		if m.When != "" {
-			prg, iss := c.NewBuilder(nil).Compile(celtest.At(expr.PlaceRouteMatchWhen), m.When)
+			prg, iss := c.NewBuilder(nil, expr.InputCaps{}).Compile(celtest.At(expr.PlaceRouteMatchWhen), m.When)
 			if prg == nil {
 				tb.Fatalf("compile match.when %q: %+v", m.When, iss)
 			}

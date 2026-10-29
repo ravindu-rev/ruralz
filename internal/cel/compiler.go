@@ -14,6 +14,7 @@ import (
 	"cel.dev/cel-go/ext"
 
 	"github.com/ravindu-rev/ruralz/internal/cel/celtypes"
+	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
@@ -22,13 +23,15 @@ import (
 const comprehensionStop = 50 * time.Millisecond
 
 // Compiler is the expr.Compiler on cel-go: it owns one environment per set
-// of declared variables and the compiled defaults of retryOn and
-// failureWhen. It is safe for concurrent use; a process builds one with
-// New.
+// of declared variables, the compiled defaults of retryOn and failureWhen,
+// and the comprehension stops its programs share. It is safe for
+// concurrent use; a process builds one with New.
 type Compiler struct {
 	provider *celtypes.Provider
 	// stop is comprehensionStop; tests shorten it.
 	stop time.Duration
+	// stops times the comprehension stops of every program planned here.
+	stops *stopPool
 
 	mu   sync.Mutex
 	envs map[expr.Var]*celgo.Env
@@ -41,8 +44,11 @@ type Compiler struct {
 var _ expr.Compiler = (*Compiler)(nil)
 
 // New returns a Compiler with the defaults of retryOn and failureWhen
-// compiled.
-func New() (*Compiler, error) {
+// compiled, timing comprehension stops on the wall clock.
+func New() (*Compiler, error) { return newWithClock(clock.Real()) }
+
+// newWithClock is New with the clock that times comprehension stops.
+func newWithClock(clk clock.Clock) (*Compiler, error) {
 	p, err := celtypes.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("cel: %w", err)
@@ -50,6 +56,7 @@ func New() (*Compiler, error) {
 	c := &Compiler{
 		provider: p,
 		stop:     comprehensionStop,
+		stops:    newStopPool(clk),
 		envs:     map[expr.Var]*celgo.Env{},
 		defaults: map[expr.PlaceID]*Program{},
 	}
@@ -60,7 +67,7 @@ func New() (*Compiler, error) {
 		{expr.PlaceRetryOn, expr.DefaultRetryOn},
 		{expr.PlaceFailureWhen, expr.DefaultFailureWhen},
 	} {
-		prg, iss := c.program(expr.Site{Place: d.place}, d.src)
+		prg, iss := c.program(expr.Site{Place: d.place}, d.src, expr.InputCaps{})
 		if prg == nil {
 			return nil, fmt.Errorf("cel: default of %s: %s", d.place, firstMessage(iss))
 		}
@@ -91,10 +98,12 @@ func (c *Compiler) ReferencesRequestBody(src string) (bool, error) {
 	return cc.an.refs.RequestBody, nil
 }
 
-// NewBuilder starts a snapshot's program set. prev, the active snapshot's
-// set, lends its programs to identical sites and sources; nil is valid.
-func (c *Compiler) NewBuilder(prev expr.ProgramSet) expr.Builder {
-	b := &Builder{c: c, entries: map[programKey]*buildEntry{}}
+// NewBuilder starts a snapshot's program set under the snapshot's input
+// caps, which decide each program's cost tracking (cappedEstimator). prev,
+// the active snapshot's set, lends its programs to identical sites,
+// sources and caps; nil is valid.
+func (c *Compiler) NewBuilder(prev expr.ProgramSet, caps expr.InputCaps) expr.Builder {
+	b := &Builder{c: c, caps: caps, entries: map[programKey]*buildEntry{}}
 	if ps, ok := prev.(*ProgramSet); ok && ps != nil {
 		b.prev = ps.progs
 	}
@@ -129,6 +138,8 @@ func (c *Compiler) env(vars expr.Var) (*celgo.Env, error) {
 		celgo.CustomTypeAdapter(c.provider),
 		ext.Strings(ext.StringsVersion(5)),
 		ext.Encoders(ext.EncodersVersion(1)),
+		// After ext.Strings, so these replace its split estimates.
+		celgo.CostEstimatorOptions(splitEstimates()...),
 		celgo.ASTValidators(
 			celgo.ValidateDurationLiterals(),
 			celgo.ValidateTimestampLiterals(),
@@ -148,9 +159,10 @@ func (c *Compiler) env(vars expr.Var) (*celgo.Env, error) {
 
 // checkedExpr is a source that parsed and type-checked at a site.
 type checkedExpr struct {
-	env *celgo.Env
-	ast *celgo.Ast
-	an  *analysis
+	env   *celgo.Env
+	ast   *celgo.Ast
+	an    *analysis
+	facts *costFacts
 }
 
 // checked parses and type-checks src at se and analyzes the result. It
@@ -165,7 +177,7 @@ func (c *Compiler) checked(se siteEnv, src string) (*checkedExpr, []expr.Issue) 
 	if iss.Err() != nil {
 		return nil, celIssues(se, src, iss)
 	}
-	return &checkedExpr{env: env, ast: a, an: analyze(a.NativeRep(), se)}, nil
+	return &checkedExpr{env: env, ast: a, an: analyze(a.NativeRep(), se), facts: collectCostFacts(a.NativeRep())}, nil
 }
 
 // compiled is a source that passed every check at its site.
@@ -174,9 +186,31 @@ type compiled struct {
 	se   siteEnv
 	src  string
 	cost expr.CostRange
-	// tracked reports a program whose cost can pass the runtime limit at
-	// some input size, so it evaluates under cost tracking.
-	tracked bool
+}
+
+// tracked reports whether cc can pass the runtime cost limit with its
+// inputs at caps, so it evaluates under cost tracking: its bound under
+// the capped estimator, which leaves every uncapped input unbounded,
+// exceeds the limit (docs/architecture/02-configuration-model.md
+// "Limits").
+func (cc *compiled) tracked(caps expr.InputCaps) (bool, error) {
+	bound, err := cc.cappedBound(caps)
+	if err != nil {
+		return false, err
+	}
+	return bound > runtimeCostLimit, nil
+}
+
+// cappedBound returns the most an evaluation of cc can cost with its
+// inputs within caps: cel-go's estimate under the capped estimator plus
+// the selections it does not charge (costFacts.bound).
+func (cc *compiled) cappedBound(caps expr.InputCaps) (uint64, error) {
+	e := cappedEstimator{caps: caps, clientRequest: cc.se.clientRequest, paths: cc.facts.paths}
+	est, err := cc.env.EstimateCost(cc.ast, e)
+	if err != nil {
+		return 0, err
+	}
+	return cc.facts.bound(cc.ast.NativeRep(), est, e), nil
 }
 
 // compile runs every check on src at site: parse and type-check, the site
@@ -198,36 +232,38 @@ func (c *Compiler) compile(site expr.Site, src string) (*compiled, []expr.Issue)
 	if msg, hint, bad := resultMismatch(se.place.Result, cc.ast.OutputType()); bad {
 		iss = append(iss, wholeIssue(codeInvalid, se, msg, hint))
 	}
-	est, err := cc.env.EstimateCost(cc.ast, nominalEstimator{containers: cc.an.containers})
+	nominal := nominalEstimator{containers: cc.an.containers}
+	est, err := cc.env.EstimateCost(cc.ast, nominal)
 	if err != nil {
 		return nil, append(iss, wholeIssue(codeCost, se, "cost estimate: "+err.Error(), ""))
 	}
+	est.Max = cc.facts.bound(cc.ast.NativeRep(), est, nominal)
 	if msg, hint, bad := costFinding(est, cc.an); bad {
 		iss = append(iss, wholeIssue(codeCost, se, msg, hint))
 	}
 	if len(iss) > 0 {
 		return nil, iss
 	}
-	bound, err := cc.env.EstimateCost(cc.ast, unsizedEstimator{})
-	if err != nil {
-		return nil, []expr.Issue{wholeIssue(codeCost, se, "cost estimate: "+err.Error(), "")}
-	}
 	return &compiled{
 		checkedExpr: *cc,
 		se:          se,
 		src:         src,
 		cost:        expr.CostRange{Min: est.Min, Max: est.Max},
-		tracked:     bound.Max > runtimeCostLimit,
 	}, nil
 }
 
-// program compiles src at site and plans its program.
-func (c *Compiler) program(site expr.Site, src string) (*Program, []expr.Issue) {
+// program compiles src at site and plans its program, tracked unless its
+// cost with its inputs at caps stays within the runtime limit.
+func (c *Compiler) program(site expr.Site, src string, caps expr.InputCaps) (*Program, []expr.Issue) {
 	cc, iss := c.compile(site, src)
 	if cc == nil {
 		return nil, iss
 	}
-	prg, err := c.plan(cc)
+	tracked, err := cc.tracked(caps)
+	if err != nil {
+		return nil, []expr.Issue{wholeIssue(codeCost, cc.se, "cost estimate: "+err.Error(), "")}
+	}
+	prg, err := c.plan(cc, tracked)
 	if err != nil {
 		return nil, []expr.Issue{wholeIssue(codeInvalid, cc.se, err.Error(), "")}
 	}

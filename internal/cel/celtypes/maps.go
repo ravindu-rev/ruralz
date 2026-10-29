@@ -228,14 +228,18 @@ func (s querySource) size() int { return len(s.r.Query()) }
 
 func (s querySource) raw() any { return s.r.Query() }
 
-// sortedStrings is a map[string]string with its keys sorted once, for the
-// labels of a prepared Route or Consumer.
+// sortedStrings is a map[string]string with its keys sorted and its values
+// converted once, for the labels of a prepared Route or Consumer.
 type sortedStrings struct {
 	m    map[string]string
 	keys []string
+	vals map[string]ref.Val
 }
 
-func (s *sortedStrings) lookup(key string) (ref.Val, bool) { return lookupString(s.m, key) }
+func (s *sortedStrings) lookup(key string) (ref.Val, bool) {
+	v, ok := s.vals[key]
+	return v, ok
+}
 
 func (s *sortedStrings) sortedKeys() []string { return s.keys }
 

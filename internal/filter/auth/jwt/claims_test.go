@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/expr"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 )
 
@@ -43,6 +44,29 @@ func TestClaimsValue(t *testing.T) {
 	again, _ := id.Claims.AppendBody(nil)
 	if string(again) != want {
 		t.Fatal("editing the Native form changed the identity's claims")
+	}
+}
+
+// TestClaimsTreeIsReadInPlace checks that verified claims are an
+// expr.Tree whose Tree is the decoded payload itself, so CEL views
+// auth.claims per evaluation without the copy Native makes.
+func TestClaimsTreeIsReadInPlace(t *testing.T) {
+	c := claims{"scope": "orders:read", "nested": map[string]any{"a": true}}
+	var v expr.Value = c
+	tr, ok := v.(expr.Tree)
+	if !ok {
+		t.Fatal("claims do not implement expr.Tree")
+	}
+	m, ok := tr.Tree().(map[string]any)
+	if !ok || m["scope"] != "orders:read" {
+		t.Fatalf("Tree = %#v", tr.Tree())
+	}
+	m["probe"] = true
+	if _, shared := c["probe"]; !shared {
+		t.Error("Tree returned a copy, not the claims")
+	}
+	if a := testing.AllocsPerRun(100, func() { _ = tr.Tree() }); a != 0 {
+		t.Errorf("Tree allocates %v times", a)
 	}
 }
 

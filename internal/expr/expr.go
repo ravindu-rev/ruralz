@@ -269,6 +269,112 @@ type ProgramSet interface {
 	Len() int
 }
 
+// InputCaps are the largest inputs the expressions of one snapshot can
+// read. The CEL implementation estimates each program's cost with its
+// inputs at these caps, and a program whose estimate stays within the
+// runtime cost limit cannot reach it, so it evaluates without cost
+// tracking (docs/architecture/02-configuration-model.md "Limits"). An
+// input without a cap, a zero field or any variable not listed here, such
+// as a body, counts as unbounded; the zero InputCaps tracks every program
+// that could pass the limit with unbounded inputs. The snapshot compiler
+// fills the caps from the Revision; an undercounted cap could let an
+// untracked evaluation pass the limit, so every field is an upper bound.
+type InputCaps struct {
+	// RequestHeaderBytes bounds every string, list and map of the client
+	// request as CEL reads it in the client leg: request.method, scheme,
+	// host, path, pathParams, query and headers, keys, values and entry
+	// counts alike, in bytes or entries. It is the snapshot's effective
+	// limits.maxRequestHeaderBytes, above which RZ-RT-002 refuses the
+	// request before any expression runs; that count includes the request
+	// target, the HTTP/1.1 request line or the HTTP/2 and HTTP/3
+	// pseudo-header fields, so the one limit bounds the method, host, path
+	// and query with the header fields
+	// (docs/architecture/03-data-plane.md "Listeners and protocols").
+	RequestHeaderBytes int64
+	// AddedHeaderBytes is the most bytes, four per field line for its
+	// separators, the client-leg Policies of any one Route of the snapshot
+	// can add to the client request's headers and query before an
+	// expression reads them, which RequestHeaderBytes does not cover: the
+	// sum of header.AddedRequestBytes over its headers Policies, plus, for
+	// each transform.request Policy, every set entry with target header or
+	// query at its name and httpfield.MaxComputedValueBytes (or
+	// httpfield.MaxQueryValueBytes) plus 4 bytes, the headers Policy caps
+	// the transform step takes. A negative value leaves the request's
+	// fields unbounded, for a snapshot with an edit no bound covers.
+	AddedHeaderBytes int64
+	// ClaimsBytes bounds auth.claims: every string, map and list of a
+	// verified token's payload, in bytes or entries. auth.jwt decodes a
+	// token of at most 16 KiB into at most four times that, so the
+	// snapshot compiler passes 4 × 16 KiB.
+	ClaimsBytes int64
+	// Routes bounds the route variable at the largest of the snapshot's
+	// Routes.
+	Routes RouteCaps
+	// Consumers bounds the consumer variable at the largest of the
+	// snapshot's Consumers.
+	Consumers ConsumerCaps
+}
+
+// RouteCaps bound the route variable at the largest of a snapshot's Routes:
+// the longest name and label key or value in bytes, and the most labels.
+// Known is false until the snapshot's Routes are added; an unknown
+// RouteCaps counts route as unbounded.
+type RouteCaps struct {
+	Known              bool
+	NameBytes          int64
+	Labels, LabelBytes int64
+}
+
+// Add widens c to cover r and marks c known; with a nil r it only marks c
+// known, the caps of a snapshot without Routes.
+func (c *RouteCaps) Add(r *Route) {
+	c.Known = true
+	if r == nil {
+		return
+	}
+	c.NameBytes = max(c.NameBytes, int64(len(r.Name)))
+	c.Labels = max(c.Labels, int64(len(r.Labels)))
+	for k, v := range r.Labels {
+		c.LabelBytes = max(c.LabelBytes, int64(len(k)), int64(len(v)))
+	}
+}
+
+// ConsumerCaps bound the consumer variable at the largest of a snapshot's
+// Consumers: the longest name, tier, tag, label key or value and quota name
+// in bytes, and the most tags, labels and quotas. Known is false until the
+// snapshot's Consumers are added; an unknown ConsumerCaps counts consumer
+// as unbounded.
+type ConsumerCaps struct {
+	Known                  bool
+	NameBytes, TierBytes   int64
+	Tags, TagBytes         int64
+	Labels, LabelBytes     int64
+	Quotas, QuotaNameBytes int64
+}
+
+// Add widens c to cover cons and marks c known; with a nil cons it only
+// marks c known, the caps of a snapshot without Consumers.
+func (c *ConsumerCaps) Add(cons *Consumer) {
+	c.Known = true
+	if cons == nil {
+		return
+	}
+	c.NameBytes = max(c.NameBytes, int64(len(cons.Name)))
+	c.TierBytes = max(c.TierBytes, int64(len(cons.Tier)))
+	c.Tags = max(c.Tags, int64(len(cons.Tags)))
+	for _, t := range cons.Tags {
+		c.TagBytes = max(c.TagBytes, int64(len(t)))
+	}
+	c.Labels = max(c.Labels, int64(len(cons.Labels)))
+	for k, v := range cons.Labels {
+		c.LabelBytes = max(c.LabelBytes, int64(len(k)), int64(len(v)))
+	}
+	c.Quotas = max(c.Quotas, int64(len(cons.Quotas)))
+	for _, q := range cons.Quotas {
+		c.QuotaNameBytes = max(c.QuotaNameBytes, int64(len(q)))
+	}
+}
+
 // Builder collects the programs of one snapshot. Compile is safe for
 // concurrent use by the loader's workers; Build is called once after.
 type Builder interface {
@@ -287,8 +393,11 @@ type Compiler interface {
 	// ReferencesRequestBody reports whether an authz.cel rule selects
 	// request.body, which moves it to onRequestBody.
 	ReferencesRequestBody(src string) (bool, error)
-	// NewBuilder starts a snapshot's program set; prev may be nil.
-	NewBuilder(prev ProgramSet) Builder
+	// NewBuilder starts a snapshot's program set under the snapshot's
+	// input caps, which decide whether each program needs cost tracking;
+	// prev may be nil, and the zero InputCaps counts every input as
+	// unbounded.
+	NewBuilder(prev ProgramSet, caps InputCaps) Builder
 	// Default returns the compiled default of PlaceRetryOn or
 	// PlaceFailureWhen, used when the field is absent.
 	Default(p PlaceID) Program
@@ -327,6 +436,16 @@ type Value interface {
 	// Native converts to map[string]any, []any, string, json.Number, bool
 	// or nil, for code that edits documents (transforms).
 	Native() (any, error)
+}
+
+// Tree is implemented by a Value backed by a decoded JSON tree that never
+// changes once built, such as verified JWT claims. Tree returns that tree
+// (map[string]any, []any, string, json.Number, bool or nil) for reading in
+// place, so the CEL implementation views it per evaluation without the
+// copy Native makes for editing. Callers never modify the returned tree.
+type Tree interface {
+	Value
+	Tree() any
 }
 
 // ErrTooLarge is returned by DecodeJSON past its budget.

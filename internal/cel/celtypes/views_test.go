@@ -139,7 +139,7 @@ func TestMapSourcesValue(t *testing.T) {
 	if !reflect.DeepEqual(qm.Value(), map[string]string{"a": "1", "b": "2"}) || !slices.Equal(iterKeys(qm), []string{"a", "b"}) {
 		t.Errorf("querySource Value %v", qm.Value())
 	}
-	lm := sortedLabels(map[string]string{"z": "1", "a": "2"}).(mapView[*sortedStrings])
+	lm := preparedLabels(map[string]string{"z": "1", "a": "2"}).(mapView[*sortedStrings])
 	if !reflect.DeepEqual(lm.Value(), map[string]string{"z": "1", "a": "2"}) || lm.Size() != types.Int(2) {
 		t.Errorf("sortedStrings Value %v", lm.Value())
 	}

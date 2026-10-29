@@ -9,11 +9,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// programKey identifies a program: the site's environment and checks, and
-// the source.
+// programKey identifies a program: the site's environment and checks, the
+// source, and the input caps that decided its cost tracking.
 type programKey struct {
 	site siteKey
 	src  string
+	caps expr.InputCaps
 }
 
 // ProgramSet is the expr.ProgramSet of one snapshot: the programs its
@@ -38,6 +39,8 @@ func (s *ProgramSet) Len() int {
 // called once, after every Compile has returned.
 type Builder struct {
 	c *Compiler
+	// caps are the snapshot's input caps.
+	caps expr.InputCaps
 	// prev holds the previous snapshot's programs; read-only.
 	prev map[programKey]*Program
 
@@ -55,9 +58,10 @@ type buildEntry struct {
 // Compile-time check of the contract.
 var _ expr.Builder = (*Builder)(nil)
 
-// Compile returns the program of src at site, reusing the previous
-// snapshot's program for an identical site and source, or nil and at least
-// one error Issue. An empty src is absent: nil and no Issue.
+// Compile returns the program of src at site under the Builder's caps,
+// reusing the previous snapshot's program for an identical site, source
+// and caps, or nil and at least one error Issue. An empty src is absent:
+// nil and no Issue.
 func (b *Builder) Compile(site expr.Site, src string) (expr.Program, []expr.Issue) {
 	if src == "" {
 		return nil, nil
@@ -68,7 +72,7 @@ func (b *Builder) Compile(site expr.Site, src string) (expr.Program, []expr.Issu
 		_, iss := b.c.compile(site, src)
 		return nil, iss
 	}
-	key := programKey{site: se.key(), src: src}
+	key := programKey{site: se.key(), src: src, caps: b.caps}
 	b.mu.Lock()
 	e, found := b.entries[key]
 	if !found {
@@ -81,7 +85,7 @@ func (b *Builder) Compile(site expr.Site, src string) (expr.Program, []expr.Issu
 			e.prg = prg
 			return
 		}
-		e.prg, e.iss = b.c.program(site, src)
+		e.prg, e.iss = b.c.program(site, src, b.caps)
 	})
 	if e.prg == nil {
 		return nil, e.iss

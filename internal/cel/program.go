@@ -33,20 +33,23 @@ type Program struct {
 	cost  expr.CostRange
 	prg   celgo.Program
 	// tracked programs run under the runtime cost limit; stoppable ones,
-	// tracked with a comprehension, also under stop or the deadline.
+	// tracked with a comprehension, also under stop or the deadline, timed
+	// by the Compiler's stops.
 	tracked, stoppable bool
 	stop               time.Duration
+	stops              *stopPool
 }
 
 // Compile-time check of the contract.
 var _ expr.Program = (*Program)(nil)
 
 // plan builds the program of a compiled source: a tracked one under the
-// runtime cost limit, a stoppable one with interrupt checks.
-func (c *Compiler) plan(cc *compiled) (*Program, error) {
+// runtime cost limit, a stoppable one, tracked with a comprehension, with
+// interrupt checks.
+func (c *Compiler) plan(cc *compiled, tracked bool) (*Program, error) {
 	opts := []celgo.ProgramOption{celgo.EvalOptions(celgo.OptOptimize)}
-	stoppable := cc.tracked && cc.an.folds
-	if cc.tracked {
+	stoppable := tracked && cc.an.folds
+	if tracked {
 		opts = append(opts, celgo.CostLimit(runtimeCostLimit))
 	}
 	if stoppable {
@@ -62,9 +65,10 @@ func (c *Compiler) plan(cc *compiled) (*Program, error) {
 		refs:      cc.an.refs,
 		cost:      cc.cost,
 		prg:       prg,
-		tracked:   cc.tracked,
+		tracked:   tracked,
 		stoppable: stoppable,
 		stop:      c.stop,
+		stops:     c.stops,
 	}, nil
 }
 
@@ -116,8 +120,9 @@ func (p *Program) EvalValue(ctx context.Context, v *expr.Vars) (expr.Value, erro
 }
 
 // eval evaluates the program over v. A stoppable program runs through
-// ContextEval under the smaller of ctx's deadline and the stop; any other
-// program cannot run past the runtime limit and ignores ctx.
+// ContextEval under a pooled stop that fires at the smaller of ctx's
+// deadline and the stop, or at once when ctx has already ended (stopPool);
+// any other program cannot run past the runtime limit and ignores ctx.
 func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 	if v == nil {
 		v = &expr.Vars{}
@@ -128,9 +133,9 @@ func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 		err error
 	)
 	if p.stoppable {
-		sctx, cancel := context.WithTimeout(ctx, p.stop)
+		sctx, st := p.stops.start(ctx, p.stop)
 		out, _, err = p.prg.ContextEval(sctx, act)
-		cancel()
+		p.stops.end(st)
 	} else {
 		out, _, err = p.prg.Eval(act)
 	}

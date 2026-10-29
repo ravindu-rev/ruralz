@@ -155,6 +155,20 @@ func (s stringsSource) length() int { return len(*s.p) }
 
 func (s stringsSource) raw() any { return *s.p }
 
+// valueList is a []string with its elements converted to CEL strings once,
+// for the tags and quotas of a prepared Consumer: reading an element, as
+// in and exists do, allocates nothing.
+type valueList struct {
+	strs []string
+	vals []ref.Val
+}
+
+func (l *valueList) at(i int) ref.Val { return l.vals[i] }
+
+func (l *valueList) length() int { return len(l.vals) }
+
+func (l *valueList) raw() any { return l.strs }
+
 // jsonArray is a decoded JSON array; elements convert on selection.
 type jsonArray struct{ l []any }
 

@@ -43,10 +43,27 @@ func examples() []example {
 	}
 }
 
+// exampleCaps are the input caps of a snapshot of the example Bundle on a
+// default Gateway: a 64 KiB request header block, claims of at most
+// 4 × 16 KiB, and Routes and Consumers whose names, tiers, tags, labels and
+// quota names fit metadata.name's 63 bytes.
+func exampleCaps() expr.InputCaps {
+	return expr.InputCaps{
+		RequestHeaderBytes: 64 << 10,
+		ClaimsBytes:        4 * 16 << 10,
+		Routes:             expr.RouteCaps{Known: true, NameBytes: 63, Labels: 32, LabelBytes: 63},
+		Consumers: expr.ConsumerCaps{
+			Known: true, NameBytes: 63, TierBytes: 63, Tags: 32, TagBytes: 63,
+			Labels: 32, LabelBytes: 63, Quotas: 8, QuotaNameBytes: 63,
+		},
+	}
+}
+
 // TestExampleBundleEstimates checks that every expression of the example
 // Bundle passes RZ-CFG-014 and RZ-CFG-015 in its site, the authz-orders rule
-// included, and pins each estimate in testdata/estimates.golden, so a cel-go
-// upgrade that moves an estimate shows in review. -update rewrites it.
+// included, and pins each estimate and tracking decision, with every input
+// unbounded and with the example caps, in testdata/estimates.golden, so a
+// cel-go upgrade that moves either shows in review. -update rewrites it.
 func TestExampleBundleEstimates(t *testing.T) {
 	c := newCompiler(t)
 	var out bytes.Buffer
@@ -56,7 +73,15 @@ func TestExampleBundleEstimates(t *testing.T) {
 			t.Errorf("%s %q: %+v", ex.site.Place, ex.src, iss)
 			continue
 		}
-		fmt.Fprintf(&out, "%s\t%s\tcost %d..%d\ttracked %v\n", ex.site.Place, ex.src, cc.cost.Min, cc.cost.Max, cc.tracked)
+		unbounded, err := cc.tracked(expr.InputCaps{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		capped, err := cc.tracked(exampleCaps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&out, "%s\t%s\tcost %d..%d\ttracked %v\tcapped %v\n", ex.site.Place, ex.src, cc.cost.Min, cc.cost.Max, unbounded, capped)
 	}
 	path := filepath.Join("testdata", "estimates.golden")
 	if *update {

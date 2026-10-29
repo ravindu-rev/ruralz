@@ -9,6 +9,8 @@ import (
 
 	"cel.dev/cel-go/checker"
 	"cel.dev/cel-go/common/types"
+
+	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
 // Cost limits of docs/architecture/02-configuration-model.md "Limits" and
@@ -66,16 +68,138 @@ func (nominalEstimator) EstimateCallCost(string, string, *checker.AstNode, []che
 	return nil
 }
 
-// unsizedEstimator gives no size, so cel-go treats every input as
-// unbounded: an estimate within the runtime limit then holds for any
-// input, and the program needs no cost tracking.
-type unsizedEstimator struct{}
+// cappedEstimator decides runtime tracking: it sizes the inputs a snapshot
+// caps (expr.InputCaps) at their caps and gives no size for any other
+// value, which cel-go then treats as unbounded. An estimate within the
+// runtime limit therefore holds for every input within the caps, and the
+// program needs no cost tracking. Only a value reached from a capped
+// variable field is sized (costFacts.paths): a value an expression
+// computes, such as a split element or a field of a call result, gets no
+// size unless cel-go derives one from sized operands, so no cap is ever
+// applied to data it does not bound. With the zero caps every input is
+// unbounded.
+type cappedEstimator struct {
+	caps expr.InputCaps
+	// clientRequest reports that request is the client request, whose
+	// header block the caps bound (siteEnv.clientRequest).
+	clientRequest bool
+	// paths are the expression's values reached from a Ruralz variable.
+	paths map[int64][]string
+}
 
-// EstimateSize implements checker.CostEstimator.
-func (unsizedEstimator) EstimateSize(checker.AstNode) *checker.SizeEstimate { return nil }
+// EstimateSize implements checker.CostEstimator. Objects, types and null
+// have size 1, as cel-go's runtime cost charges a value without a size.
+func (e cappedEstimator) EstimateSize(n checker.AstNode) *checker.SizeEstimate {
+	if t := n.Type(); t != nil {
+		switch t.Kind() {
+		case types.StructKind, types.TypeKind, types.NullTypeKind:
+			return &checker.SizeEstimate{Min: 1, Max: 1}
+		default:
+		}
+	}
+	path, rooted := e.paths[n.Expr().ID()]
+	if !rooted {
+		return nil
+	}
+	limit, ok := e.capOf(path)
+	if !ok {
+		return nil
+	}
+	return &checker.SizeEstimate{Min: 0, Max: limit}
+}
 
-// EstimateCallCost implements checker.CostEstimator.
-func (unsizedEstimator) EstimateCallCost(string, string, *checker.AstNode, []checker.AstNode) *checker.CallEstimate {
+// capOf returns the cap of the value at path, a field path from a
+// variable (checker.AstNode.Path), in bytes for a string and entries for a
+// list or map; false when no cap bounds it.
+func (e cappedEstimator) capOf(path []string) (uint64, bool) {
+	if len(path) < 2 {
+		return 0, false
+	}
+	c := e.caps
+	switch path[0] {
+	case "request":
+		switch path[1] {
+		case "method", "scheme", "host", "path", "pathParams", "query", "headers":
+			if !e.clientRequest || c.RequestHeaderBytes <= 0 || c.AddedHeaderBytes < 0 {
+				return 0, false
+			}
+			return uint64(c.RequestHeaderBytes) + uint64(c.AddedHeaderBytes), true
+		default:
+			return 0, false
+		}
+	case "auth":
+		if path[1] != "claims" || c.ClaimsBytes <= 0 {
+			return 0, false
+		}
+		return uint64(c.ClaimsBytes), true
+	case "route":
+		return routeCap(c.Routes, path[1], len(path) > 2)
+	case "consumer":
+		return consumerCap(c.Consumers, path[1], len(path) > 2)
+	default:
+		return 0, false
+	}
+}
+
+// routeCap returns the cap of route.<field>, or of its keys and values when
+// element is set.
+func routeCap(c expr.RouteCaps, field string, element bool) (uint64, bool) {
+	if !c.Known {
+		return 0, false
+	}
+	var n int64
+	switch {
+	case field == "name" && !element:
+		n = c.NameBytes
+	case field == "labels":
+		n = pick(element, c.LabelBytes, c.Labels)
+	default:
+		return 0, false
+	}
+	if n < 0 {
+		return 0, false
+	}
+	return uint64(n), true
+}
+
+// consumerCap returns the cap of consumer.<field>, or of its elements,
+// keys and values when element is set.
+func consumerCap(c expr.ConsumerCaps, field string, element bool) (uint64, bool) {
+	if !c.Known {
+		return 0, false
+	}
+	var n int64
+	switch {
+	case field == "name" && !element:
+		n = c.NameBytes
+	case field == "tier" && !element:
+		n = c.TierBytes
+	case field == "tags":
+		n = pick(element, c.TagBytes, c.Tags)
+	case field == "labels":
+		n = pick(element, c.LabelBytes, c.Labels)
+	case field == "quotas":
+		n = pick(element, c.QuotaNameBytes, c.Quotas)
+	default:
+		return 0, false
+	}
+	if n < 0 {
+		return 0, false
+	}
+	return uint64(n), true
+}
+
+// pick returns elem when element is set, else whole.
+func pick(element bool, elem, whole int64) int64 {
+	if element {
+		return elem
+	}
+	return whole
+}
+
+// EstimateCallCost implements checker.CostEstimator: cel-go's and the
+// extensions' own estimates apply.
+func (cappedEstimator) EstimateCallCost(string, string, *checker.AstNode, []checker.AstNode) *checker.CallEstimate {
 	return nil
 }
 

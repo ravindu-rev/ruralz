@@ -78,7 +78,7 @@ func TestRefs(t *testing.T) {
 	c := newCompiler(t)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			prg, iss := c.NewBuilder(nil).Compile(tc.site, tc.src)
+			prg, iss := c.NewBuilder(nil, expr.InputCaps{}).Compile(tc.site, tc.src)
 			if prg == nil {
 				t.Fatalf("Compile(%q) = %+v", tc.src, iss)
 			}

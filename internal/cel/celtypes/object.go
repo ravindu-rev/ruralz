@@ -183,7 +183,7 @@ func getField(k objKind, i int, target any) (any, error) {
 		}
 	case kindError:
 		if e, ok := target.(*expr.AttemptError); ok && e != nil {
-			return types.String(e.Kind), nil
+			return errorKindVal(e.Kind), nil
 		}
 	case kindUpstream:
 		if u, ok := target.(*expr.Upstream); ok && u != nil {
@@ -312,9 +312,9 @@ func isFieldSet(k objKind, i int, target any) bool {
 func requestField(r *expr.Request, i int) (any, error) {
 	switch i {
 	case reqMethod:
-		return types.String(r.Method), nil
+		return methodVal(r.Method), nil
 	case reqScheme:
-		return types.String(r.Scheme), nil
+		return schemeVal(r.Scheme), nil
 	case reqHost:
 		return types.String(r.Host), nil
 	case reqPath:
@@ -403,19 +403,38 @@ func tlsVersionVal(v uint16) ref.Val {
 	}
 }
 
-// routeField returns field i of r.
+// routeField returns field i of r: the prepared value when r is prepared,
+// else the value converted now.
 func routeField(r *expr.Route, i int) ref.Val {
+	if p, ok := r.Prepared.(*prepared); ok {
+		if i == routeName {
+			return p.name
+		}
+		return p.labels
+	}
 	if i == routeName {
 		return types.String(r.Name)
-	}
-	if p, ok := r.Prepared.(*prepared); ok && p.labels != nil {
-		return p.labels
 	}
 	return mapView[stringSource]{stringSource{&r.Labels}}
 }
 
-// consumerField returns field i of c.
+// consumerField returns field i of c: the prepared value when c is
+// prepared, else the value converted now.
 func consumerField(c *expr.Consumer, i int) ref.Val {
+	if p, ok := c.Prepared.(*prepared); ok {
+		switch i {
+		case consumerName:
+			return p.name
+		case consumerTier:
+			return p.tier
+		case consumerTags:
+			return p.tags
+		case consumerLabels:
+			return p.labels
+		default:
+			return p.quotas
+		}
+	}
 	switch i {
 	case consumerName:
 		return types.String(c.Name)
@@ -424,9 +443,6 @@ func consumerField(c *expr.Consumer, i int) ref.Val {
 	case consumerTags:
 		return listView[stringsSource]{stringsSource{&c.Tags}}
 	case consumerLabels:
-		if p, ok := c.Prepared.(*prepared); ok && p.labels != nil {
-			return p.labels
-		}
 		return mapView[stringSource]{stringSource{&c.Labels}}
 	default:
 		return listView[stringsSource]{stringsSource{&c.Quotas}}
@@ -450,12 +466,12 @@ func consumerFieldSet(c *expr.Consumer, i int) bool {
 }
 
 // authField returns field i of a: claims is an empty map for methods
-// other than jwt.
+// other than jwt (expr.Auth), read without converting a.Claims.
 func authField(a *expr.Auth, i int) (any, error) {
 	if i == authMethod {
-		return types.String(a.Method), nil
+		return authMethodVal(a.Method), nil
 	}
-	if a.Claims == nil {
+	if a.Claims == nil || a.Method != authMethodJWT {
 		return mapView[*jsonObject]{}, nil
 	}
 	return bodyField(a.Claims)
@@ -465,7 +481,7 @@ func authField(a *expr.Auth, i int) (any, error) {
 func responseField(r *expr.Response, i int) (any, error) {
 	switch i {
 	case respStatus:
-		return types.Int(r.Status), nil
+		return statusVal(r.Status), nil
 	case respHeaders:
 		return mapView[headerSource]{headerSource{&r.Header}}, nil
 	default:
@@ -485,7 +501,7 @@ func upstreamField(u *expr.Upstream, i int) ref.Val {
 func stepField(s *expr.Step, i int) (any, error) {
 	switch i {
 	case stepStatus:
-		return types.Int(s.Status), nil
+		return statusVal(s.Status), nil
 	case stepHeaders:
 		return mapView[headerSource]{headerSource{&s.Header}}, nil
 	default:

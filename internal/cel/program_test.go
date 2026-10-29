@@ -49,10 +49,17 @@ func testVars() *expr.Vars {
 	}
 }
 
-// mustProgram compiles src at site or stops the test.
+// mustProgram compiles src at site with no input caps, every input
+// unbounded, or stops the test.
 func mustProgram(tb testing.TB, c *Compiler, site expr.Site, src string) *Program {
 	tb.Helper()
-	prg, iss := c.program(site, src)
+	return mustCapped(tb, c, site, src, expr.InputCaps{})
+}
+
+// mustCapped compiles src at site under caps or stops the test.
+func mustCapped(tb testing.TB, c *Compiler, site expr.Site, src string, caps expr.InputCaps) *Program {
+	tb.Helper()
+	prg, iss := c.program(site, src, caps)
 	if prg == nil {
 		tb.Fatalf("program(%q) = %+v", src, iss)
 	}
@@ -191,8 +198,10 @@ func longScope(n int) *expr.Vars {
 	return v
 }
 
-// TestTrackedPrograms checks the tracking decision: a program whose cost is
-// bounded within the runtime limit at any input size is untracked.
+// TestTrackedPrograms checks the tracking decision with every input
+// unbounded, the zero caps: a program whose cost is bounded within the
+// runtime limit at any input size is untracked (TestTrackingFollowsTheCaps
+// covers the snapshot's caps).
 func TestTrackedPrograms(t *testing.T) {
 	c := newCompiler(t)
 	cases := []struct {
@@ -238,11 +247,12 @@ func TestStoppableProgramHonorsContext(t *testing.T) {
 }
 
 // TestComprehensionStop checks that the stop bounds a tracked comprehension
-// even when the request has no deadline. The stop is shortened to 1 ns, so
-// it has passed before the first interrupt check.
+// even when the request has no deadline. The stop is set to zero, so it
+// has passed before the first interrupt check (TestComprehensionStopFires
+// covers a stop that fires during the evaluation).
 func TestComprehensionStop(t *testing.T) {
 	c := newCompiler(t)
-	c.stop = time.Nanosecond
+	c.stop = 0
 	prg := mustProgram(t, c, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`)
 	_, err := prg.EvalBool(context.Background(), longScope(1000))
 	var ee *expr.EvalError
