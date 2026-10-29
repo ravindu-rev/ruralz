@@ -20,10 +20,10 @@ Read only the sections the task needs.
 ## How work runs
 
 1. The work is the user's request, or the first row of `docs/roadmap/02-steps.md`.
-2. Build it with its tests. Every requirement and every bug gets a named test case that fails without the change. No review, verification, audit or mutation passes, and no plan files.
+2. Build the complete feature with its tests: every behavior, option, limit, error and edge case the owning documents define for the current milestone. Never a minimal, partial or stand-in version, even when the complete design is complex. Fix a bug at its root cause, for every path and input it affects, never with a narrow patch or workaround. Every requirement and every bug gets a named test case that fails without the change. No review, verification, audit or mutation passes, and no plan files.
 3. Finish all the requested work first. Then run the gates once, fix every failure and rerun until they pass. Never run the gates per step or per file.
 4. Delete each finished row from `docs/roadmap/02-steps.md`. If the work changed the design, rewrite the owning document's text so it states the design as it is now.
-5. When the docs do not define something (a YAML field, CLI noun or verb, Policy type, `RZ` code, library, limit or trade-off), ask the owner and write the answer into the owning document. Never invent one.
+5. When the docs do not define something (a YAML field, CLI noun or verb, Policy type, `RZ` code, library, limit or trade-off), ask the owner and write the answer into the owning document. Never invent one. Where a step could do more than its documents define, propose the addition to the owner instead of leaving it out, and recommend the fuller option.
 6. Commit only when asked.
 
 ## Gates
