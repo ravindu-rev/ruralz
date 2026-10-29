@@ -80,8 +80,10 @@ func m1Families() []family {
 		{RateLimitDecisionsTotal, Counter, BoundsNone, "{decisions}", []string{"policy", "result=allow|deny_local|deny_global|fail_open"}, P, true},
 		{RateLimitBucketEvictionsTotal, Counter, BoundsNone, "{entries}", []string{"policy"}, P, false},
 		{QuotaDecisionsTotal, Counter, BoundsNone, "{decisions}", []string{"policy", "result=allow|deny|no_quota|fail_open"}, P, true},
-		{CacheRequestsTotal, Counter, BoundsNone, "{requests}", []string{"route", "result=hit|miss|bypass|stale|stale_error"}, R, false},
+		{CacheRequestsTotal, Counter, BoundsNone, "{requests}", []string{"route", "result=hit|miss|bypass|stale|stale_error|coalesced"}, R, false},
 		{CacheStoreSkippedTotal, Counter, BoundsNone, "{stores}", []string{"policy", "reason=size_limit|buffer_budget|memory"}, P, false},
+		{CacheRevalidationsTotal, Counter, BoundsNone, "{revalidations}", []string{"route", "result=refreshed|ended|kept|skipped"}, R, false},
+		{CacheRevalidationDropsTotal, Counter, BoundsNone, "{revalidations}", []string{"reason=queue_full|queue_wait|partitions_full"}, L, false},
 		{UpstreamAttemptsTotal, Counter, BoundsNone, "{attempts}", []string{"upstream", sc, "error=none|connect|timeout|reset|tls"}, U, true},
 		{UpstreamAttemptDurationSeconds, Histogram, BoundsRequest, "s", []string{"upstream"}, U, true},
 		{UpstreamRetriesTotal, Counter, BoundsNone, "{retries}", []string{"upstream"}, U, false},
@@ -316,12 +318,14 @@ func TestLookup(t *testing.T) {
 }
 
 func TestReasons(t *testing.T) {
-	// The M1 degraded reasons plus crl_stale.
+	// The M1 degraded reasons plus crl_stale and
+	// cache_revalidation_saturated.
 	want := []string{
 		"lkg_boot", "lkg_write_failed", "state_store_memory_fallback", "state_store_unauthenticated",
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
+		"cache_revalidation_saturated",
 	}
 	if !slices.Equal(ReasonNames(), want) {
 		t.Fatalf("ReasonNames = %v", ReasonNames())
@@ -340,8 +344,40 @@ func TestReasons(t *testing.T) {
 	if Reason(0).String() != "" || NumReasons.String() != "" || Reason(200).String() != "" {
 		t.Error("an out-of-range Reason has a name")
 	}
-	if ReasonCRLStale.String() != "crl_stale" || ReasonCleartextHop.String() != "cleartext_hop" {
+	if ReasonCRLStale.String() != "crl_stale" || ReasonCleartextHop.String() != "cleartext_hop" ||
+		ReasonCacheRevalidationSaturated.String() != "cache_revalidation_saturated" {
 		t.Error("named reasons do not match their constants")
+	}
+}
+
+// TestCacheEnumerations checks the label values of the Response Cache
+// families: ruralz_cache_requests_total results with coalesced last, the
+// Route-scoped ruralz_cache_revalidations_total results, and the Node-wide
+// ruralz_cache_revalidation_drops_total reasons (the revalidation workers
+// are shared by every cache Policy of the Node, so drops have no route).
+func TestCacheEnumerations(t *testing.T) {
+	tests := []struct {
+		family, label string
+		values        []string
+		want          []string
+		class         Class
+	}{
+		{CacheRequestsTotal, "result", CacheResults(), []string{"hit", "miss", "bypass", "stale", "stale_error", "coalesced"}, ClassRoute},
+		{CacheRevalidationsTotal, "result", CacheRevalidationResults(), []string{"refreshed", "ended", "kept", "skipped"}, ClassRoute},
+		{CacheRevalidationDropsTotal, "reason", CacheRevalidationDropReasons(), []string{"queue_full", "queue_wait", "partitions_full"}, ClassListener},
+	}
+	for _, tt := range tests {
+		if !slices.Equal(tt.values, tt.want) {
+			t.Errorf("%s %s values = %v, want %v", tt.family, tt.label, tt.values, tt.want)
+		}
+		f, ok := Lookup(tt.family)
+		if !ok || f.Kind != Counter || f.Class != tt.class {
+			t.Fatalf("family %+v", f)
+		}
+		last := f.Labels[len(f.Labels)-1]
+		if last.Name != tt.label || !slices.Equal(last.Values, tt.want) {
+			t.Errorf("%s label %+v, want %s=%v", tt.family, last, tt.label, tt.want)
+		}
 	}
 }
 

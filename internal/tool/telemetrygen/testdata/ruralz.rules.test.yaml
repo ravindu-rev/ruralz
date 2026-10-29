@@ -56,6 +56,8 @@ tests:
         values: '0x40'
       - series: 'ruralz_node_degraded_info{instance="n1",reason="crl_stale"}'
         values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="cache_revalidation_saturated"}'
+        values: '0x40'
       - series: 'ruralz_security_cleartext_hops{instance="n1",hop="client"}'
         values: '0x40'
       - series: 'ruralz_security_cleartext_hops{instance="n1",hop="upstream"}'
@@ -99,6 +101,8 @@ tests:
       - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_cache_requests_total"}'
         values: '0x40'
       - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_cache_store_skipped_total"}'
+        values: '0x40'
+      - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_cache_revalidations_total"}'
         values: '0x40'
       - series: 'ruralz_telemetry_folded_label_sets{instance="n1",instrument="ruralz_upstream_attempts_total"}'
         values: '0x40'
@@ -232,6 +236,31 @@ tests:
             exp_annotations:
               dashboard: Ruralz Gateway overview
               summary: 'Node n1 is degraded: crl_stale'
+
+  # A saturated Response Cache revalidation queue tickets after 5 minutes
+  # and never pages.
+  - name: saturated cache revalidation
+    interval: 1m
+    input_series:
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="cache_revalidation_saturated"}'
+        values: '0 0 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RuralzNodeDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              reason: cache_revalidation_saturated
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n1 is degraded: cache_revalidation_saturated'
+      - eval_time: 10m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
 
   # Reasons raised before the first scrape (the series start at 1, such as
   # lkg_boot at boot) fire too: the page after 5 minutes, the ticket after

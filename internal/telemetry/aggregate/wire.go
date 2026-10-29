@@ -49,6 +49,10 @@ func wireRoute(m *emit.RouteMetrics, name string, hs handleSet) {
 		for i := range m.Cache {
 			m.Cache[i] = hs.counter(i)
 		}
+	case catalog.CacheRevalidationsTotal:
+		for i := range m.Revalidations {
+			m.Revalidations[i] = hs.counter(i)
+		}
 	}
 }
 

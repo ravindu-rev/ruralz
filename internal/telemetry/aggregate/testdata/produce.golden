@@ -255,21 +255,46 @@ ruralz_cache_requests_total{result="miss",route="_overflow"} 0 start=0s
 ruralz_cache_requests_total{result="bypass",route="_overflow"} 0 start=0s
 ruralz_cache_requests_total{result="stale",route="_overflow"} 0 start=0s
 ruralz_cache_requests_total{result="stale_error",route="_overflow"} 0 start=0s
+ruralz_cache_requests_total{result="coalesced",route="_overflow"} 0 start=0s
 ruralz_cache_requests_total{result="hit",route="legacy"} 0 start=0s
 ruralz_cache_requests_total{result="miss",route="legacy"} 0 start=0s
 ruralz_cache_requests_total{result="bypass",route="legacy"} 0 start=0s
 ruralz_cache_requests_total{result="stale",route="legacy"} 0 start=0s
 ruralz_cache_requests_total{result="stale_error",route="legacy"} 0 start=0s
+ruralz_cache_requests_total{result="coalesced",route="legacy"} 0 start=0s
 ruralz_cache_requests_total{result="hit",route="orders"} 0 start=0s
 ruralz_cache_requests_total{result="miss",route="orders"} 1 start=0s
 ruralz_cache_requests_total{result="bypass",route="orders"} 0 start=0s
 ruralz_cache_requests_total{result="stale",route="orders"} 0 start=0s
 ruralz_cache_requests_total{result="stale_error",route="orders"} 0 start=0s
+ruralz_cache_requests_total{result="coalesced",route="orders"} 0 start=0s
 ruralz_cache_requests_total{result="hit",route="users"} 0 start=0s
 ruralz_cache_requests_total{result="miss",route="users"} 0 start=0s
 ruralz_cache_requests_total{result="bypass",route="users"} 0 start=0s
 ruralz_cache_requests_total{result="stale",route="users"} 0 start=0s
 ruralz_cache_requests_total{result="stale_error",route="users"} 0 start=0s
+ruralz_cache_requests_total{result="coalesced",route="users"} 0 start=0s
+# ruralz_cache_revalidations_total counter {revalidations} monotonic=true cumulative=true
+ruralz_cache_revalidations_total{result="refreshed",route="_overflow"} 0 start=0s
+ruralz_cache_revalidations_total{result="ended",route="_overflow"} 0 start=0s
+ruralz_cache_revalidations_total{result="kept",route="_overflow"} 0 start=0s
+ruralz_cache_revalidations_total{result="skipped",route="_overflow"} 0 start=0s
+ruralz_cache_revalidations_total{result="refreshed",route="legacy"} 0 start=0s
+ruralz_cache_revalidations_total{result="ended",route="legacy"} 0 start=0s
+ruralz_cache_revalidations_total{result="kept",route="legacy"} 0 start=0s
+ruralz_cache_revalidations_total{result="skipped",route="legacy"} 0 start=0s
+ruralz_cache_revalidations_total{result="refreshed",route="orders"} 0 start=0s
+ruralz_cache_revalidations_total{result="ended",route="orders"} 0 start=0s
+ruralz_cache_revalidations_total{result="kept",route="orders"} 0 start=0s
+ruralz_cache_revalidations_total{result="skipped",route="orders"} 0 start=0s
+ruralz_cache_revalidations_total{result="refreshed",route="users"} 0 start=0s
+ruralz_cache_revalidations_total{result="ended",route="users"} 0 start=0s
+ruralz_cache_revalidations_total{result="kept",route="users"} 0 start=0s
+ruralz_cache_revalidations_total{result="skipped",route="users"} 0 start=0s
+# ruralz_cache_revalidation_drops_total counter {revalidations} monotonic=true cumulative=true
+ruralz_cache_revalidation_drops_total{reason="queue_full"} 0 start=0s
+ruralz_cache_revalidation_drops_total{reason="queue_wait"} 0 start=0s
+ruralz_cache_revalidation_drops_total{reason="partitions_full"} 0 start=0s
 # ruralz_upstream_attempts_total counter {attempts} monotonic=true cumulative=true
 ruralz_upstream_attempts_total{error="none",status_class="1xx",upstream="_overflow"} 0 start=0s
 ruralz_upstream_attempts_total{error="none",status_class="2xx",upstream="_overflow"} 0 start=0s
@@ -466,6 +491,7 @@ ruralz_node_degraded_info{reason="jwks_stale"} 0 start=0s
 ruralz_node_degraded_info{reason="cleartext_hop"} 1 start=0s
 ruralz_node_degraded_info{reason="telemetry_export_failing"} 0 start=0s
 ruralz_node_degraded_info{reason="crl_stale"} 0 start=0s
+ruralz_node_degraded_info{reason="cache_revalidation_saturated"} 0 start=0s
 # ruralz_node_buffered_bytes gauge By
 ruralz_node_buffered_bytes{} 0 start=0s
 # ruralz_telemetry_spans_total counter {spans} monotonic=true cumulative=true
@@ -499,6 +525,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_ratelimit_bucket_evictions
 ruralz_telemetry_folded_label_sets{instrument="ruralz_quota_decisions_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_cache_requests_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_cache_store_skipped_total"} 0 start=0s
+ruralz_telemetry_folded_label_sets{instrument="ruralz_cache_revalidations_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_attempts_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_attempt_duration_seconds"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_retries_total"} 0 start=0s
@@ -511,7 +538,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
 # ruralz_telemetry_series gauge {series}
-ruralz_telemetry_series{state="live"} 1267 start=0s
-ruralz_telemetry_series{state="retiring"} 5 start=0s
+ruralz_telemetry_series{state="live"} 1287 start=0s
+ruralz_telemetry_series{state="retiring"} 10 start=0s
 # ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
 ruralz_tap_events_dropped_total{} 0 start=0s

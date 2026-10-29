@@ -305,44 +305,60 @@ func TestUnmatchedRoute(t *testing.T) {
 	}
 }
 
-// A Bundle that mixes cached and uncached Routes pre-creates
-// ruralz_cache_requests_total label sets for the cached ones only. The
-// uncached Routes' cache handles record nothing and spend none of the
-// family's budget; a cached name that is not a Route is rejected, and a
-// repeated one counts once.
+// A Bundle that mixes cached and uncached Routes pre-creates the Response
+// Cache label sets, ruralz_cache_requests_total and
+// ruralz_cache_revalidations_total, for the cached ones only. The uncached
+// Routes' cache handles record nothing and spend none of the families'
+// budget; a cached name that is not a Route is rejected, and a repeated one
+// counts once.
 func TestCachedRoutes(t *testing.T) {
-	// The cache family fits one Route; the uncached a and b come first in
+	// Each cache family fits one Route; the uncached a and b come first in
 	// admission order but take none of it.
-	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 5} })
+	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: emit.NumCacheResults} })
 	pl, bind := admitBind(t, r, emit.Shape{Routes: []string{"c", "a", "b"}, CachedRoutes: []string{"c"}})
 	defer bind.Release()
-	if got := pl.Folded(catalog.CacheRequestsTotal); got != 0 {
-		t.Errorf("cache folded = %d, want 0", got)
+	for _, fam := range []string{catalog.CacheRequestsTotal, catalog.CacheRevalidationsTotal} {
+		if got := pl.Folded(fam); got != 0 {
+			t.Errorf("%s folded = %d, want 0", fam, got)
+		}
 	}
 	for _, name := range []string{"a", "b", "c"} {
 		pl.Route(name).Cache[emit.CacheHit].Add(0, 1)
+		pl.Route(name).Revalidations[emit.RevalidationRefreshed].Add(0, 1)
 	}
 	pts := collectNow(t, r, clk)
-	got := familySeries(pts, catalog.CacheRequestsTotal)
-	for _, res := range []string{"hit", "miss", "bypass", "stale", "stale_error"} {
-		mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="c"}`, catalog.CacheRequestsTotal, res))
-		mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="_overflow"}`, catalog.CacheRequestsTotal, res))
+	for _, fam := range []struct {
+		name   string
+		values []string
+		hit    string
+	}{
+		{catalog.CacheRequestsTotal, catalog.CacheResults(), "hit"},
+		{catalog.CacheRevalidationsTotal, catalog.CacheRevalidationResults(), "refreshed"},
+	} {
+		got := familySeries(pts, fam.name)
+		for _, res := range fam.values {
+			mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="c"}`, fam.name, res))
+			mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="_overflow"}`, fam.name, res))
+		}
+		if len(got) != 2*len(fam.values) {
+			t.Errorf("%s label sets = %d, want %d for c and _overflow", fam.name, len(got), 2*len(fam.values))
+		}
+		if v := mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="c"}`, fam.name, fam.hit)).value; v != 1 {
+			t.Errorf("%s c %s = %v, want 1", fam.name, fam.hit, v)
+		}
+		if v := mustGet(t, pts, fmt.Sprintf(`%s{result=%q,route="_overflow"}`, fam.name, fam.hit)).value; v != 0 {
+			t.Errorf("%s _overflow %s = %v, want 0 (uncached Routes record nothing)", fam.name, fam.hit, v)
+		}
 	}
-	if len(got) != 2*emit.NumCacheResults {
-		t.Errorf("cache label sets = %d, want %d for c and _overflow", len(got), 2*emit.NumCacheResults)
-	}
-	if v := mustGet(t, pts, catalog.CacheRequestsTotal+`{result="hit",route="c"}`).value; v != 1 {
-		t.Errorf("c hit = %v, want 1", v)
-	}
-	if v := mustGet(t, pts, catalog.CacheRequestsTotal+`{result="hit",route="_overflow"}`).value; v != 0 {
-		t.Errorf("_overflow hit = %v, want 0 (uncached Routes record nothing)", v)
-	}
-	// Without a cached Route the family has no label set at all.
+	// Without a cached Route the families have no label set at all.
 	r2, clk2 := newTestRegistry(t, nil)
 	_, bind2 := admitBind(t, r2, emit.Shape{Routes: []string{"a"}})
 	defer bind2.Release()
-	if got := familySeries(collectNow(t, r2, clk2), catalog.CacheRequestsTotal); len(got) != 0 {
-		t.Errorf("cache label sets without a cached Route: %v", got)
+	pts2 := collectNow(t, r2, clk2)
+	for _, fam := range []string{catalog.CacheRequestsTotal, catalog.CacheRevalidationsTotal} {
+		if got := familySeries(pts2, fam); len(got) != 0 {
+			t.Errorf("%s label sets without a cached Route: %v", fam, got)
+		}
 	}
 	for _, s := range []emit.Shape{
 		{Routes: []string{"a"}, CachedRoutes: []string{"b"}},

@@ -113,10 +113,13 @@ func TestRetiringAndRelease(t *testing.T) {
 // series end, their handles record into _overflow, and the overflow
 // series never rises by a folded set's accumulated value.
 func TestRetiringCeilingFoldsOldest(t *testing.T) {
-	// One cached Route's counter families: 5 + 5 series (requests and
-	// cache); histograms 16. Ceiling 30 holds one retiring Route (26
-	// series).
-	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: 30} })
+	// One cached Route's counter families: the 5 status classes, the cache
+	// results and the revalidation results; histograms 16. The ceiling
+	// holds one retiring Route, with less slack than its smallest group,
+	// so folding takes a Route's groups whole.
+	perRoute := numClasses + emit.NumCacheResults + emit.NumRevalidationResults + histSeries
+	ceiling := perRoute + 1
+	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{Retiring: ceiling} })
 	var plans []*Plan
 	var binds []emit.Binding
 	for i := range 4 {
@@ -140,16 +143,21 @@ func TestRetiringCeilingFoldsOldest(t *testing.T) {
 	if got := mustGet(t, pts, reqKey("r2", "2xx")).value; got != 2 {
 		t.Errorf("r2 = %v", got)
 	}
-	if _, ret := seriesState(t, pts); ret > 30 {
-		t.Errorf("retiring %v over the ceiling 30", ret)
+	if _, ret := seriesState(t, pts); ret > float64(ceiling) {
+		t.Errorf("retiring %v over the ceiling %d", ret, ceiling)
 	}
 	if got := mustGet(t, pts, reqKey(Overflow, "2xx")).value; got != 0 {
 		t.Errorf("overflow = %v, want 0: folding never carries values", got)
 	}
-	for _, fam := range []string{catalog.HTTPRequestsTotal, catalog.CacheRequestsTotal} {
+	// r0 and r1 folded: two Routes' label sets of each family.
+	for fam, want := range map[string]float64{
+		catalog.HTTPRequestsTotal:       2 * numClasses,
+		catalog.CacheRequestsTotal:      2 * emit.NumCacheResults,
+		catalog.CacheRevalidationsTotal: 2 * emit.NumRevalidationResults,
+	} {
 		folded := mustGet(t, pts, fmt.Sprintf(`%s{instrument=%q}`, catalog.TelemetryFoldedLabelSets, fam)).value
-		if folded != 10 {
-			t.Errorf("%s folded label sets = %v, want 10", fam, folded)
+		if folded != want {
+			t.Errorf("%s folded label sets = %v, want %v", fam, folded, want)
 		}
 	}
 	// A request still pinned to r0's snapshot records into _overflow.

@@ -123,6 +123,8 @@ const (
 	QuotaDecisionsTotal                 = "ruralz_quota_decisions_total"
 	CacheRequestsTotal                  = "ruralz_cache_requests_total"
 	CacheStoreSkippedTotal              = "ruralz_cache_store_skipped_total"
+	CacheRevalidationsTotal             = "ruralz_cache_revalidations_total"
+	CacheRevalidationDropsTotal         = "ruralz_cache_revalidation_drops_total"
 	UpstreamAttemptsTotal               = "ruralz_upstream_attempts_total"
 	UpstreamAttemptDurationSeconds      = "ruralz_upstream_attempt_duration_seconds"
 	UpstreamRetriesTotal                = "ruralz_upstream_retries_total"
@@ -179,6 +181,29 @@ func WriteKinds() []string { return []string{"refund", "cache_set", "cache_inval
 // empty.
 func BasicRefusalCauses() []string { return []string{"queue", "create", "delay", "source"} }
 
+// CacheResults returns the result values of ruralz_cache_requests_total in
+// label order, which the access log's cache field repeats: hit, miss,
+// bypass, stale, stale_error, and coalesced for a miss that reused a
+// concurrent miss's fetch.
+func CacheResults() []string {
+	return []string{"hit", "miss", "bypass", "stale", "stale_error", "coalesced"}
+}
+
+// CacheRevalidationResults returns the result values of
+// ruralz_cache_revalidations_total in label order: a 304 refreshed the
+// entry, the stale window ended, a 5xx or no response kept the entry, or
+// the job changed nothing (another Node held the lease, a lease call
+// failed, or the lease no longer held the job's token).
+func CacheRevalidationResults() []string { return []string{"refreshed", "ended", "kept", "skipped"} }
+
+// CacheRevalidationDropReasons returns the reason values of
+// ruralz_cache_revalidation_drops_total in label order: the queue was full,
+// a job waited too long in the queue, or the Node already tracked its most
+// partitions queued, running or held.
+func CacheRevalidationDropReasons() []string {
+	return []string{"queue_full", "queue_wait", "partitions_full"}
+}
+
 // Families returns the M1 metric families (docs/architecture/10-observability.md
 // "Ruralz Gateway metrics").
 func Families() []Family {
@@ -218,8 +243,10 @@ func Families() []Family {
 		{RateLimitDecisionsTotal, Counter, BoundsNone, "{decisions}", []Label{pol, {Name: "result", Values: []string{"allow", "deny_local", "deny_global", "fail_open"}}}, ClassPolicy, true},
 		{RateLimitBucketEvictionsTotal, Counter, BoundsNone, "{entries}", []Label{pol}, ClassPolicy, false},
 		{QuotaDecisionsTotal, Counter, BoundsNone, "{decisions}", []Label{pol, {Name: "result", Values: []string{"allow", "deny", "no_quota", "fail_open"}}}, ClassPolicy, true},
-		{CacheRequestsTotal, Counter, BoundsNone, "{requests}", []Label{route, {Name: "result", Values: []string{"hit", "miss", "bypass", "stale", "stale_error"}}}, ClassRoute, false},
+		{CacheRequestsTotal, Counter, BoundsNone, "{requests}", []Label{route, {Name: "result", Values: CacheResults()}}, ClassRoute, false},
 		{CacheStoreSkippedTotal, Counter, BoundsNone, "{stores}", []Label{pol, {Name: "reason", Values: []string{"size_limit", "buffer_budget", "memory"}}}, ClassPolicy, false},
+		{CacheRevalidationsTotal, Counter, BoundsNone, "{revalidations}", []Label{route, {Name: "result", Values: CacheRevalidationResults()}}, ClassRoute, false},
+		{CacheRevalidationDropsTotal, Counter, BoundsNone, "{revalidations}", []Label{{Name: "reason", Values: CacheRevalidationDropReasons()}}, ClassListener, false},
 		{UpstreamAttemptsTotal, Counter, BoundsNone, "{attempts}", []Label{up, sc, {Name: "error", Values: []string{"none", "connect", "timeout", "reset", "tls"}}}, ClassUpstream, true},
 		{UpstreamAttemptDurationSeconds, Histogram, BoundsRequest, "s", []Label{up}, ClassUpstream, true},
 		{UpstreamRetriesTotal, Counter, BoundsNone, "{retries}", []Label{up}, ClassUpstream, false},
@@ -290,6 +317,7 @@ const (
 	ReasonCleartextHop
 	ReasonTelemetryExportFailing
 	ReasonCRLStale
+	ReasonCacheRevalidationSaturated
 	NumReasons
 )
 
@@ -308,6 +336,7 @@ func ReasonNames() []string {
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
+		"cache_revalidation_saturated",
 	}
 }
 

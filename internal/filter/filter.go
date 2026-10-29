@@ -345,6 +345,13 @@ type Tee interface {
 	// Result returns the copied body and whether it is complete; valid in
 	// Finish, after the response finished streaming.
 	Result() (body []byte, complete bool)
+	// Stopped returns a channel closed once the copy stopped without
+	// completing, while the response may still stream: past its limit or
+	// the buffer budget, or when its response was replaced or abandoned.
+	// It stays open while the copy runs and after it completes. Any
+	// goroutine may wait on it, so a coalesced miss stops waiting for a
+	// body its leader will never store.
+	Stopped() <-chan struct{}
 }
 
 // Exchange is one request as a Filter sees it, valid only during the call
@@ -406,8 +413,9 @@ type Exchange interface {
 	AddRateLimitField(f RateLimitField)
 	// SetCacheResult records the request's cache result for the access
 	// log's cache field: for the Response Cache, the result label of
-	// ruralz_cache_requests_total (hit, miss, bypass, stale or
-	// stale_error), a constant; a later call replaces an earlier one.
+	// ruralz_cache_requests_total (catalog.CacheResults: hit, miss, bypass,
+	// stale, stale_error or coalesced), a constant; a later call replaces
+	// an earlier one.
 	SetCacheResult(result string)
 	// Annotate adds an attribute to the current Filter span.
 	Annotate(key string, v slog.Value)

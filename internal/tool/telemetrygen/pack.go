@@ -77,7 +77,7 @@ func routeDashboard() dashboardDef {
 	sel := `{route=~"$route"}`
 	return dashboardDef{
 		uid: "ruralz-route-detail", title: dashRoute,
-		description: "Rate, errors, duration with exemplars and Response Cache results of the selected Routes.",
+		description: "Rate, errors, duration with exemplars, and Response Cache results and revalidations of the selected Routes.",
 		vars:        []queryVar{{name: "route", label: "Route", metric: catalog.HTTPRequestsTotal}},
 		panels: []panelDef{
 			ts("Requests by status class", unitReqps,
@@ -93,6 +93,12 @@ func routeDashboard() dashboardDef {
 				q(`sum by (route, result) (rate(ruralz_cache_requests_total`+sel+rateWindow+`))`, "{{route}} {{result}}")),
 			ts("Response Cache hit ratio", unitPercent,
 				q(`sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result=~"hit|stale"}`+rateWindow+`)) / sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result!="bypass"}`+rateWindow+`))`, "{{route}}")),
+			ts("Response Cache origin offload", unitPercent,
+				q(`sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result=~"hit|stale|coalesced"}`+rateWindow+`)) / sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result!="bypass"}`+rateWindow+`))`, "{{route}}")).
+				withDescription("Requests served without an origin fetch of their own, bypasses aside: hits, stale hits and coalesced misses. The hit ratio leaves coalesced misses out."),
+			ts("Response Cache revalidations", unitOps,
+				q(`sum by (route, result) (rate(ruralz_cache_revalidations_total`+sel+rateWindow+`))`, "{{route}} {{result}}")).
+				withDescription("Background revalidations of stale entries by outcome: refreshed by a 304, ended, kept after a 5xx or no response, or skipped without a change."),
 		},
 	}
 }
@@ -164,7 +170,7 @@ func upstreamsDashboard() dashboardDef {
 func stateDashboard() dashboardDef {
 	return dashboardDef{
 		uid: "ruralz-state-store", title: dashState,
-		description: "State Store round trips, breaker and fallbacks, dropped writes, and Rate Limit, Quota and Response Cache decisions.",
+		description: "State Store round trips, breaker and fallbacks, dropped writes, Rate Limit, Quota and Response Cache decisions, and dropped revalidations.",
 		panels: []panelDef{
 			ts("Round trips by op", unitOps,
 				q(`sum by (op) (rate(ruralz_state_calls_total`+rateWindow+`))`, "{{op}}")),
@@ -192,6 +198,10 @@ func stateDashboard() dashboardDef {
 				q(`sum by (policy) (rate(ruralz_ratelimit_bucket_evictions_total`+rateWindow+`))`, "{{policy}}")),
 			ts("Response Cache stores skipped", unitOps,
 				q(`sum by (policy, reason) (rate(ruralz_cache_store_skipped_total`+rateWindow+`))`, "{{policy}} {{reason}}")),
+			ts("Response Cache revalidation drops", unitShort,
+				q(`sum by (reason) (increase(ruralz_cache_revalidation_drops_total`+rateWindow+`))`, "dropped {{reason}}"),
+				q(`max by (instance) (ruralz_node_degraded_info{reason="cache_revalidation_saturated"})`, "saturated {{instance}}")).
+				withDescription("Background revalidations the Nodes dropped: queue_full, queue_wait or partitions_full; saturated is 1 while drops exceed 10% of those offered over a minute."),
 		},
 	}
 }

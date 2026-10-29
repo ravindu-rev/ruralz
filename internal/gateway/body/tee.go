@@ -6,6 +6,7 @@ package body
 import (
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
@@ -27,7 +28,8 @@ const (
 // reservation at once, counts ruralz_cache_store_skipped_total with reason
 // size_limit or buffer_budget, and never fails the response. It implements
 // filter.Tee. A Tee is written by one goroutine at a time; Result is read
-// in Finish, after the response finished streaming.
+// in Finish, after the response finished streaming; Stopped may be read
+// from any goroutine.
 type Tee struct {
 	bud     *Budget
 	b       []byte
@@ -38,6 +40,14 @@ type Tee struct {
 	skipped *[emit.NumSkipReasons]emit.Counter
 	stripe  emit.Stripe
 	rd      teeReader
+
+	// mu guards stop and stopped, the only fields other goroutines reach.
+	mu sync.Mutex
+	// stop is Stopped's channel, made on the first call, so a tee nobody
+	// watches allocates nothing for it.
+	stop chan struct{}
+	// stopped records that the copy ended without completing.
+	stopped bool
 }
 
 var _ filter.Tee = (*Tee)(nil)
@@ -105,6 +115,38 @@ func (t *Tee) skip(reason int) {
 	if t.skipped != nil && t.skipped[reason] != nil {
 		t.skipped[reason].Add(t.stripe, 1)
 	}
+	t.markStopped()
+}
+
+// Stopped returns a channel closed once the copy stopped without
+// completing: it skipped past its limit or the buffer budget, or the Tee
+// was released before Complete (its response was replaced or abandoned).
+// It stays open while the copy runs and after it completed; implements
+// filter.Tee.
+func (t *Tee) Stopped() <-chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stop == nil {
+		t.stop = make(chan struct{})
+		if t.stopped {
+			close(t.stop)
+		}
+	}
+	return t.stop
+}
+
+// markStopped records that the copy will never complete and closes
+// Stopped's channel once.
+func (t *Tee) markStopped() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.stopped {
+		return
+	}
+	t.stopped = true
+	if t.stop != nil {
+		close(t.stop)
+	}
 }
 
 // drop returns the reservation and recycles the array.
@@ -155,10 +197,14 @@ func (t *Tee) Reserved() int64 { return t.held * Increment }
 // budget's pool). Call it after Result was consumed: no slice obtained from
 // Result may be used afterwards. The Tee is inert after Release: Result
 // reports no copy, writes and reads through Reader copy nothing, and a
-// second Release does nothing.
+// second Release does nothing. Releasing a copy that never completed
+// closes Stopped's channel.
 func (t *Tee) Release() {
 	if t.state == teeReleased {
 		return
+	}
+	if t.state == teeCopying {
+		t.markStopped()
 	}
 	t.drop()
 	t.state, t.bud, t.skipped = teeReleased, nil, nil

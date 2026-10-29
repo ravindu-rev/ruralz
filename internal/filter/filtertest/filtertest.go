@@ -117,10 +117,16 @@ func (b *Budget) Release(n int64) {
 type Tee struct {
 	Body     []byte
 	Complete bool
+	// Stop is what Stopped returns: nil never stops; a test closes its
+	// own channel to stop the copy.
+	Stop chan struct{}
 }
 
 // Result implements filter.Tee.
 func (t *Tee) Result() ([]byte, bool) { return t.Body, t.Complete }
+
+// Stopped implements filter.Tee.
+func (t *Tee) Stopped() <-chan struct{} { return t.Stop }
 
 // Exchange is an in-memory filter.Exchange. Zero values are usable;
 // recorded effects (identity, rate-limit fields, cache result, annotations,

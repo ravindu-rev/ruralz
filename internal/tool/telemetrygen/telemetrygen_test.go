@@ -386,6 +386,107 @@ func TestDashboardPack(t *testing.T) {
 	}
 }
 
+// TestCachePanels: Route detail charts the Response Cache's background
+// revalidations per selected Route and result, and the State Store
+// dashboard the Node's dropped revalidations by reason beside the
+// cache_revalidation_saturated reason.
+func TestCachePanels(t *testing.T) {
+	find := func(d dashboardDef, title string) (panelDef, bool) {
+		for _, p := range d.panels {
+			if p.title == title {
+				return p, true
+			}
+		}
+		return panelDef{}, false
+	}
+	p, ok := find(routeDashboard(), "Response Cache revalidations")
+	if !ok || len(p.targets) != 1 ||
+		p.targets[0].expr != `sum by (route, result) (rate(ruralz_cache_revalidations_total{route=~"$route"}`+rateWindow+`))` ||
+		p.targets[0].legend != "{{route}} {{result}}" {
+		t.Errorf("Route detail revalidations panel = %+v, %v", p, ok)
+	}
+	// The hit ratio counts hits and stale hits; the origin offload adds the
+	// coalesced misses, which reused another miss's fetch. Both leave
+	// bypasses out.
+	ratio := func(results string) string {
+		return `sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result=~"` + results + `"}` + rateWindow +
+			`)) / sum by (route) (rate(ruralz_cache_requests_total{route=~"$route",result!="bypass"}` + rateWindow + `))`
+	}
+	for title, results := range map[string]string{
+		"Response Cache hit ratio":      "hit|stale",
+		"Response Cache origin offload": "hit|stale|coalesced",
+	} {
+		p, ok := find(routeDashboard(), title)
+		if !ok || len(p.targets) != 1 || p.targets[0].expr != ratio(results) || p.unit != unitPercent {
+			t.Errorf("Route detail panel %q = %+v, %v", title, p, ok)
+		}
+	}
+	p, ok = find(stateDashboard(), "Response Cache revalidation drops")
+	saturated := catalog.ReasonCacheRevalidationSaturated.String()
+	if !ok || len(p.targets) != 2 ||
+		p.targets[0].expr != `sum by (reason) (increase(ruralz_cache_revalidation_drops_total`+rateWindow+`))` ||
+		p.targets[1].expr != `max by (instance) (ruralz_node_degraded_info{reason="`+saturated+`"})` {
+		t.Errorf("State Store revalidation drops panel = %+v, %v", p, ok)
+	}
+	for _, reason := range catalog.CacheRevalidationDropReasons() {
+		if !strings.Contains(p.description, reason) {
+			t.Errorf("the drops panel description does not name %s", reason)
+		}
+	}
+}
+
+// TestPromtoolSaturatedTicketCase: the promtool fixture has a group that
+// raises cache_revalidation_saturated alone and expects the
+// RuralzNodeDegraded ticket after its 5 minutes, nothing before, and no
+// page. promtool runs it under the integration tag.
+func TestPromtoolSaturatedTicketCase(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("testdata", "ruralz.rules.test.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := string(data)
+	_, group, ok := strings.Cut(src, "\n  - name: saturated cache revalidation\n")
+	if !ok {
+		t.Fatal("no saturated cache revalidation group")
+	}
+	if end := strings.Index(group, "\n  - name: "); end >= 0 {
+		group = group[:end]
+	}
+	reason := catalog.ReasonCacheRevalidationSaturated.String()
+	for _, want := range []string{
+		"    interval: 1m\n    input_series:\n      - series: 'ruralz_node_degraded_info{instance=\"n1\",reason=\"" + reason + "\"}'\n        values: '0 0 1x30'\n",
+		"      - eval_time: 5m\n        alertname: RuralzNodeDegraded\n        exp_alerts: []\n",
+		"      - eval_time: 10m\n        alertname: RuralzNodeDegraded\n        exp_alerts:\n          - exp_labels:\n              severity: ticket\n" +
+			"              instance: n1\n              reason: " + reason + "\n            exp_annotations:\n" +
+			"              dashboard: " + dashOverview + "\n              summary: 'Node n1 is degraded: " + reason + "'\n",
+		"      - eval_time: 10m\n        alertname: RuralzNodeDegradedPage\n        exp_alerts: []\n",
+	} {
+		if !strings.Contains(group, want) {
+			t.Errorf("the saturated cache revalidation group lacks:\n%s", want)
+		}
+	}
+	if strings.Count(group, "- series:") != 1 || strings.Contains(group, "\t") {
+		t.Error("the group must raise the reason alone, indented with spaces")
+	}
+}
+
+// TestCacheRevalidationSaturatedTickets: the Response Cache's saturation
+// reason raises the RuralzNodeDegraded ticket, never the page.
+func TestCacheRevalidationSaturatedTickets(t *testing.T) {
+	reason := catalog.ReasonCacheRevalidationSaturated.String()
+	rules := map[string]alertRule{}
+	for _, r := range m1Rules() {
+		rules[r.name] = r
+	}
+	page, ticket := rules["RuralzNodeDegradedPage"], rules["RuralzNodeDegraded"]
+	if strings.Contains(page.expr, reason) {
+		t.Errorf("RuralzNodeDegradedPage %q pages on %s", page.expr, reason)
+	}
+	if strings.Contains(ticket.expr, reason) || !strings.Contains(ticket.expr, `reason!~"`) || ticket.severity != severityTicket {
+		t.Errorf("RuralzNodeDegraded (%q, %s) does not ticket on %s", ticket.expr, ticket.severity, reason)
+	}
+}
+
 func TestCheckDashboardDefsProblems(t *testing.T) {
 	defs := []dashboardDef{
 		{uid: "a", title: "A", vars: []queryVar{{name: "route", metric: "ruralz_nope_total"}}, panels: []panelDef{

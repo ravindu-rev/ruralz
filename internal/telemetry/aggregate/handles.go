@@ -253,6 +253,9 @@ func noopRouteMetrics() *emit.RouteMetrics {
 	for i := range m.Cache {
 		m.Cache[i] = noopCounter{}
 	}
+	for i := range m.Revalidations {
+		m.Revalidations[i] = noopCounter{}
+	}
 	return m
 }
 

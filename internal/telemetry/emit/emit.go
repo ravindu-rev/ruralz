@@ -106,14 +106,29 @@ const (
 	NumConnResults
 )
 
-// Cache results: hit, miss, bypass, stale, stale_error.
+// Cache results: hit, miss, bypass, stale, stale_error, coalesced
+// (catalog.CacheResults).
 const (
 	CacheHit = iota
 	CacheMiss
 	CacheBypass
 	CacheStale
 	CacheStaleError
+	// CacheCoalesced is a miss that reused a concurrent miss's fetch; the
+	// cache Filter records it when miss coalescing gives the follower the
+	// leader's response.
+	CacheCoalesced
 	NumCacheResults
+)
+
+// Cache revalidation results: refreshed, ended, kept, skipped
+// (catalog.CacheRevalidationResults).
+const (
+	RevalidationRefreshed = iota
+	RevalidationEnded
+	RevalidationKept
+	RevalidationSkipped
+	NumRevalidationResults
 )
 
 // Rate limit results: allow, deny_local, deny_global, fail_open.
@@ -253,6 +268,10 @@ type RouteMetrics struct {
 	Requests StatusCounter
 	Duration Histogram
 	Cache    [NumCacheResults]Counter
+	// Revalidations counts ruralz_cache_revalidations_total by the
+	// Revalidation* result; the Response Cache's background revalidation
+	// workers record into the handles of the Route that queued the job.
+	Revalidations [NumRevalidationResults]Counter
 }
 
 // AuthDecisions counts ruralz_auth_decisions_total: allow with no code,
@@ -339,8 +358,9 @@ type Shape struct {
 	Policies  []PolicyShape
 	// CachedRoutes are the names (a subset of Routes) of the Routes whose
 	// effective chain holds a cache Policy at any scope. Only these get
-	// ruralz_cache_requests_total label sets; every other Route's
-	// RouteMetrics.Cache holds no-op handles.
+	// ruralz_cache_requests_total and ruralz_cache_revalidations_total
+	// label sets; every other Route's RouteMetrics.Cache and Revalidations
+	// hold no-op handles.
 	CachedRoutes []string
 }
 

@@ -267,6 +267,18 @@ func TestExchangeZeroValue(t *testing.T) {
 	if body, complete := tee.Result(); string(body) != "copy" || !complete {
 		t.Fatalf("Tee.Result = %q, %v", body, complete)
 	}
+	// Stopped returns the test's channel: nil never stops.
+	if tee.Stopped() != nil {
+		t.Fatal("Tee.Stopped without Stop is not nil")
+	}
+	stop := make(chan struct{})
+	x.TeeV.Stop = stop
+	close(stop)
+	select {
+	case <-tee.Stopped():
+	default:
+		t.Fatal("Tee.Stopped does not return Stop")
+	}
 }
 
 func TestStoreAnswersEveryCall(t *testing.T) {

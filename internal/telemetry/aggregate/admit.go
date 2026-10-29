@@ -161,13 +161,13 @@ func (r *Registry) decide(n normShape) []unit {
 }
 
 // decideResources appends the units of the Routes or Upstreams in names.
-// Only the Routes in cached get ruralz_cache_requests_total label sets:
-// the others' cache handles stay no-ops and spend none of that family's
-// budget.
+// Only the Routes in cached get the Response Cache families' label sets
+// (cacheFamily): the others' cache handles stay no-ops and spend none of
+// those families' budget.
 func (r *Registry) decideResources(b *budget, units []unit, kind role, names []string, cached map[string]bool, stripedCap int) []unit {
 	for _, name := range names {
 		for _, f := range r.fams {
-			if f.role != kind || (f.cat.Name == catalog.CacheRequestsTotal && !cached[name]) {
+			if f.role != kind || (cacheFamily(f.cat.Name) && !cached[name]) {
 				continue
 			}
 			u := unit{fam: f, kind: kind, res: name, phases: []int8{-1}, fan: f.n}
@@ -183,6 +183,12 @@ func (r *Registry) decideResources(b *budget, units []unit, kind role, names []s
 		}
 	}
 	return units
+}
+
+// cacheFamily reports a Route family only Routes with a cache Policy
+// record: Response Cache requests and background revalidations.
+func cacheFamily(name string) bool {
+	return name == catalog.CacheRequestsTotal || name == catalog.CacheRevalidationsTotal
 }
 
 // admit decides one resource unit against the family and Revision limits.

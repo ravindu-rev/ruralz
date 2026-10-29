@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"testing/iotest"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
@@ -271,6 +272,83 @@ func TestTeePool(t *testing.T) {
 	if bud.Used() != 0 {
 		t.Fatalf("Used = %d", bud.Used())
 	}
+}
+
+// isClosed reports whether ch is closed, without blocking.
+func isClosed(ch <-chan struct{}) bool {
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// TestTeeStopped checks the stop signal the Response Cache's miss
+// coalescing waits on (filter.Tee.Stopped): it closes once the copy stops
+// without completing, past its limit, out of budget or released before
+// Complete; it stays open while copying and after a completed copy; and a
+// Stopped call made after the stop sees it.
+func TestTeeStopped(t *testing.T) {
+	tests := []struct {
+		name   string
+		budget int64
+		run    func(tee *Tee)
+		want   bool
+	}{
+		{"copying", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(10)) }, false},
+		{"completed", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(10)); tee.Complete() }, false},
+		{"completed then released", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(10)); tee.Complete(); tee.Release() }, false},
+		{"past the limit", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(64*kib + 1)) }, true},
+		// 128 KiB total, 32 KiB share: the tee gets 96 KiB of gate budget.
+		{"out of budget", 128 * kib, func(tee *Tee) { _, _ = tee.Write(pattern(100 * kib)) }, true},
+		{"released while copying", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(10)); tee.Release() }, true},
+		{"released before any byte", 1 << 20, func(tee *Tee) { tee.Release() }, true},
+		{"completed after a skip", 1 << 20, func(tee *Tee) { _, _ = tee.Write(pattern(64*kib + 1)); tee.Complete() }, true},
+	}
+	for _, tt := range tests {
+		for _, early := range []bool{true, false} {
+			bud := NewBudget(tt.budget, nil)
+			tee := bud.NewTee(64*kib, nil, 0)
+			var ch <-chan struct{}
+			if early {
+				ch = tee.Stopped()
+			}
+			tt.run(tee)
+			if !early {
+				ch = tee.Stopped()
+			}
+			if got := isClosed(ch); got != tt.want {
+				t.Errorf("%s (Stopped called first: %v): closed %v, want %v", tt.name, early, got, tt.want)
+			}
+			if tee.Stopped() != ch {
+				t.Errorf("%s: Stopped returned another channel", tt.name)
+			}
+			tee.Release()
+			if bud.Used() != 0 {
+				t.Fatalf("%s: Used = %d", tt.name, bud.Used())
+			}
+		}
+	}
+}
+
+// TestTeeStoppedWakesWaiters checks, under the race detector, that a
+// goroutine waiting on Stopped wakes when the writing goroutine skips.
+func TestTeeStoppedWakesWaiters(t *testing.T) {
+	bud := NewBudget(1<<20, nil)
+	tee := bud.NewTee(8, nil, 0)
+	woke := make(chan struct{})
+	go func() {
+		<-tee.Stopped()
+		close(woke)
+	}()
+	_, _ = tee.Write([]byte("past the limit"))
+	select {
+	case <-woke:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a waiter on Stopped did not wake when the copy skipped")
+	}
+	tee.Release()
 }
 
 // BenchmarkTee64KiB copies a 64 KiB response for the Response Cache.

@@ -330,6 +330,72 @@ func TestTeeResponse(t *testing.T) {
 	}
 }
 
+// TestTeeResponseStopped checks filter.Tee.Stopped through the exchange,
+// the stop signal the Response Cache's miss coalescing waits on: the tee
+// of a response a later onResponse Filter replaced, and that of a request
+// put back before its copy completed, report the copy stopped; a completed
+// copy never does.
+func TestTeeResponseStopped(t *testing.T) {
+	tests := []struct {
+		name string
+		// after runs once the tee started; it returns whether the request
+		// was already put back.
+		after func(x *Request, f *fixture) bool
+		want  bool
+	}{
+		{"copying", func(*Request, *fixture) bool { return false }, false},
+		{"response replaced", func(x *Request, _ *fixture) bool {
+			x.Exchange().ReplaceResponse(&filter.Response{Status: http.StatusServiceUnavailable})
+			return false
+		}, true},
+		{"body replaced", func(x *Request, _ *fixture) bool {
+			if err := x.Exchange().Message().SetBody(context.Background(), []byte("new")); err != nil {
+				t.Fatalf("SetBody: %v", err)
+			}
+			return false
+		}, true},
+		{"put back mid-copy", func(x *Request, f *fixture) bool {
+			_, _ = x.Tees()[0].Write([]byte("01234"))
+			f.pool.Put(x)
+			return true
+		}, true},
+		{"completed and put back", func(x *Request, f *fixture) bool {
+			_, _ = x.Tees()[0].Write([]byte("0123456789"))
+			x.Tees()[0].Complete()
+			f.pool.Put(x)
+			return true
+		}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := newFixture(t)
+			x := f.begin(serverRequest(http.MethodGet, "/", "", nil))
+			u, _ := upstreamReply(http.StatusOK, "0123456789")
+			x.SetResponse(u)
+			cache := testPolicy("cache", 0, phase.ClassCache, phase.ScopeRoute, 0)
+			x.Enter(cache, phase.OnResponse, nil)
+			tee := x.Exchange().TeeResponse(100)
+			if tee == nil {
+				t.Fatal("TeeResponse(100) started no tee")
+			}
+			stopped := tee.Stopped()
+			if put := tt.after(x, f); !put {
+				defer f.pool.Put(x)
+			}
+			select {
+			case <-stopped:
+				if !tt.want {
+					t.Error("Stopped closed, want open")
+				}
+			default:
+				if tt.want {
+					t.Error("Stopped open, want closed")
+				}
+			}
+		})
+	}
+}
+
 // TestRateLimitFields checks filter.Exchange.AddRateLimitField: the client
 // records the applied limits in order for the handler (RateLimitFields);
 // a leg view records nothing.
