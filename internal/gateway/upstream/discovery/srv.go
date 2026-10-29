@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 )
 
 // srvTarget is one Endpoint an SRV answer contributes before its target is
@@ -90,7 +92,7 @@ func usableSRV(r *net.SRV) bool {
 	if host == "" {
 		return false
 	}
-	if isName(host) {
+	if netaddr.IsName(host) {
 		return true
 	}
 	_, err := netip.ParseAddr(host)

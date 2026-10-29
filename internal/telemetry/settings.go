@@ -4,22 +4,19 @@
 package telemetry
 
 import (
-	"net"
-	"net/url"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/tracing"
 	"github.com/ravindu-rev/ruralz/internal/tlsconf"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// defaultOTLPPort is the port of an endpoint that names none.
-const defaultOTLPPort = "4317"
-
 // codeEndpoint is the schema error of a malformed otlp.endpoint; validation
-// reports it first through the field's pattern.
+// reports it first, through the field's pattern and the same parser
+// (netaddr.ParseOTLPEndpoint).
 const codeEndpoint = "RZ-CFG-005"
 
 // Settings are the telemetry settings of one Revision, compiled off the
@@ -54,13 +51,13 @@ func CompileSettings(t *v1alpha1.Telemetry, secrets secret.Store) (Settings, err
 	if t.OTLP == nil || t.OTLP.Endpoint == "" {
 		return s, nil
 	}
-	target, scheme, err := parseEndpoint(t.OTLP.Endpoint)
+	ep, err := netaddr.ParseOTLPEndpoint(t.OTLP.Endpoint)
 	if err != nil {
-		return Settings{}, err
+		return Settings{}, errcode.Wrap(codeEndpoint, err)
 	}
-	s.target = target
-	s.key = scheme + "://" + target
-	if scheme == "http" {
+	s.target = ep.Target
+	s.key = ep.Scheme + "://" + ep.Target
+	if ep.Scheme == "http" {
 		s.cleartext = true
 		return s, nil
 	}
@@ -83,33 +80,6 @@ func (s Settings) Close() {
 	if s.tls != nil {
 		s.tls.Close()
 	}
-}
-
-// parseEndpoint checks an otlp.endpoint: http or https, a host and an
-// optional port, an empty path or "/", no user information, query or
-// fragment. It returns the gRPC target host:port and the scheme.
-func parseEndpoint(raw string) (target, scheme string, err error) {
-	u, perr := url.Parse(raw)
-	switch {
-	case perr != nil:
-		return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint is not a URL")
-	case u.Scheme != "http" && u.Scheme != "https":
-		return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint must use http or https")
-	case u.User != nil, u.RawQuery != "", u.ForceQuery, u.Fragment != "", u.Opaque != "":
-		return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint has no user information, query or fragment")
-	case u.Path != "" && u.Path != "/":
-		return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint has no path")
-	case u.Hostname() == "":
-		return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint has no host")
-	}
-	port := u.Port()
-	if port == "" {
-		if strings.HasSuffix(u.Host, ":") {
-			return "", "", errcode.Errorf(codeEndpoint, "telemetry.otlp.endpoint has an empty port")
-		}
-		port = defaultOTLPPort
-	}
-	return net.JoinHostPort(u.Hostname(), port), u.Scheme, nil
 }
 
 // clientSpec converts telemetry.otlp.tls; nil stays nil (system roots).

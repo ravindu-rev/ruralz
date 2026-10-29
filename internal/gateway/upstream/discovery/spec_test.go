@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 )
 
 // TestSpecValidate covers the source shapes and the dns rule (service
@@ -93,19 +95,48 @@ func TestParseStatic(t *testing.T) {
 	}
 }
 
-// FuzzIsName: the allocation-free name test used on SRV answers agrees
-// with checkName, which validates configured names.
-func FuzzIsName(f *testing.F) {
-	for _, s := range []string{
-		"a", "a.", "orders.svc", "orders.svc.", "_http._tcp.orders", "10.0.0.1", "::1", "",
-		".", "..", "a..b", ".a", "bad name", "a\x00b", strings.Repeat("a", 63), strings.Repeat("a", 64),
+// TestSpecUsesNetaddr checks that the Upstream layer accepts exactly the
+// addresses, names and port names validation accepts: Validate refuses a
+// value if and only if internal/netaddr does, with netaddr's reason, and a
+// static address parses to netaddr's host, address and port.
+func TestSpecUsesNetaddr(t *testing.T) {
+	agrees := func(err, want error) bool {
+		if want == nil {
+			return err == nil
+		}
+		return errors.Is(err, ErrInvalidSpec) && strings.HasSuffix(err.Error(), ": "+want.Error())
+	}
+	for _, a := range []string{
+		"10.0.0.1:8080", "[2001:db8::1]:443", "[::ffff:10.0.0.1]:80", "[fe80::1%eth0]:80",
+		"api.internal:80", "API.internal.:080", "_svc.example:80", "api.internal",
+		"api.internal:0", "api.internal:65536", "api.internal:+80", "api.internal:http",
+		":80", "a b:80", "a..b:80", strings.Repeat("a", 64) + ".example:80",
+		strings.Repeat("a.", 127) + "a:80", "[::1]", "::1:80",
+	} {
+		hp, want := netaddr.ParseHostPort(a)
+		se, err := parseStatic(StaticEndpoint{Address: a})
+		switch {
+		case !agrees(err, want):
+			t.Errorf("parseStatic(%q) error = %v, netaddr says %v", a, err, want)
+		case err == nil && (se.host != hp.Host || se.addr != hp.Addr || se.port != hp.Port):
+			t.Errorf("parseStatic(%q) = %+v, netaddr parses %+v", a, se, hp)
+		}
+		if verr := (Spec{Static: []StaticEndpoint{{Address: a}}}).Validate(); !agrees(verr, want) {
+			t.Errorf("Validate(endpoint %q) = %v, netaddr says %v", a, verr, want)
+		}
+	}
+	for _, n := range []string{
+		"orders.svc", "orders.svc.", "_http._tcp.orders", "10.0.0.1", "", ".", "a..b",
+		"bad name", "a\x00b", strings.Repeat("a", 63), strings.Repeat("a", 64),
 		strings.Repeat("a.", 126) + "a", strings.Repeat("a.", 127) + "a",
 	} {
-		f.Add(s)
-	}
-	f.Fuzz(func(t *testing.T, s string) {
-		if got, want := isName(s), checkName(s) == nil; got != want {
-			t.Fatalf("isName(%q) = %v, checkName accepts %v", s, got, want)
+		if err, want := (Spec{DNS: &DNSSpec{Service: n, Port: 80}}).Validate(), netaddr.CheckName(n); !agrees(err, want) {
+			t.Errorf("Validate(service %q) = %v, netaddr says %v", n, err, want)
 		}
-	})
+	}
+	for _, p := range []string{"http", "grpc-web", "h2c", "h_ttp", "8080", "-", "a", "abcdefghijklmno", "abcdefghijklmnop"} {
+		if err, want := (Spec{DNS: &DNSSpec{Service: "orders.svc", PortName: p}}).Validate(), netaddr.CheckPortName(p); !agrees(err, want) {
+			t.Errorf("Validate(port name %q) = %v, netaddr says %v", p, err, want)
+		}
+	}
 }

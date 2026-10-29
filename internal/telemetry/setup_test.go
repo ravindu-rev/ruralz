@@ -5,12 +5,14 @@ package telemetry
 
 import (
 	"os"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel/attribute"
 	semconv "go.opentelemetry.io/otel/semconv/v1.43.0"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -117,6 +119,37 @@ func TestCompileSettingsEndpoint(t *testing.T) {
 		}
 		if s.target != tc.target || s.cleartext != tc.cleartext || (s.tls == nil) != tc.cleartext {
 			t.Errorf("CompileSettings(%q) = target %q, cleartext %v, tls %v", tc.endpoint, s.target, s.cleartext, s.tls != nil)
+		}
+		s.Close()
+	}
+}
+
+// TestCompileSettingsUsesNetaddr checks that the Node dials exactly the
+// endpoints validation accepts: CompileSettings refuses an endpoint if and
+// only if internal/netaddr does, as RZ-CFG-005 with netaddr's reason, and
+// otherwise dials netaddr's target, in cleartext for http.
+func TestCompileSettingsUsesNetaddr(t *testing.T) {
+	for _, e := range []string{
+		"https://collector:4317", "https://collector", "https://collector/", "HTTPS://Collector:4318",
+		"http://127.0.0.1:9000", "https://[::1]:4317", "https://[fe80::1%25eth0]:4317",
+		"grpc://collector", "https://user@collector", "https://collector/v1/traces", "https://collector?",
+		"https://collector?x=1", "https://collector#f", "https://collector:", "collector:4317",
+		"https://", "https:collector", "https://%zz", " https://collector",
+	} {
+		ep, want := netaddr.ParseOTLPEndpoint(e)
+		s, err := CompileSettings(&v1alpha1.Telemetry{OTLP: &v1alpha1.OTLP{Endpoint: e}}, nil)
+		if want != nil {
+			if code, _ := errcode.CodeOf(err); code != "RZ-CFG-005" || !strings.HasSuffix(err.Error(), want.Error()) {
+				t.Errorf("CompileSettings(%q) error = %v, want RZ-CFG-005 with %q", e, err, want)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("CompileSettings(%q) = %v, netaddr accepts it", e, err)
+			continue
+		}
+		if s.target != ep.Target || s.cleartext != (ep.Scheme == "http") {
+			t.Errorf("CompileSettings(%q) = target %q, cleartext %v; netaddr parses %+v", e, s.target, s.cleartext, ep)
 		}
 		s.Close()
 	}
