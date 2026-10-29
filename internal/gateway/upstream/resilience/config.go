@@ -59,7 +59,8 @@ const (
 	// MaxRetryAfter is the longest Upstream Retry-After a retry honors.
 	MaxRetryAfter = 10 * time.Second
 	// RetryDrainBytes is how much of a retried response's body the
-	// Upstream layer drains before closing it (proposed).
+	// Upstream layer drains, within the leg deadline, before closing it
+	// (docs/architecture/09-traffic-management-and-resilience.md "Retries").
 	RetryDrainBytes = 64 << 10
 	// BreakerWindow is the breaker's rolling window.
 	BreakerWindow = 10 * time.Second
@@ -101,12 +102,10 @@ type RetryConfig struct {
 	// by the retries left plus one, computed at each attempt start.
 	PerTryTimeout time.Duration
 	// RetryOn is the compiled retryOn program; nil runs the native form of
-	// expr.DefaultRetryOn (DefaultRetryOn). The native form is admitted
-	// only once a table test proves it equal to the CEL default over the
-	// 7 × 5 × 6 matrix through the CEL engine, which needs internal/cel and
-	// so lives outside this package. Until that test exists the Upstream
-	// core fills RetryOn with Compiler.Default(expr.PlaceRetryOn) and never
-	// leaves it nil.
+	// expr.DefaultRetryOn (DefaultRetryOn). TestNativeDefaultsEqualCEL in
+	// internal/gateway/upstream holds the native form equal to the CEL
+	// default over the 7 × 5 × 6 matrix; it lives there because it needs
+	// internal/cel.
 	RetryOn expr.Program
 }
 
@@ -130,10 +129,8 @@ type BreakerConfig struct {
 	// once.
 	OpenDuration time.Duration
 	// FailureWhen is the compiled failureWhen program; nil runs the native
-	// form of expr.DefaultFailureWhen (DefaultFailureWhen). As for
-	// RetryConfig.RetryOn, the Upstream core fills it with
-	// Compiler.Default(expr.PlaceFailureWhen) until the CEL-engine equality
-	// test exists.
+	// form of expr.DefaultFailureWhen (DefaultFailureWhen), held equal to
+	// the CEL default by the same test as RetryConfig.RetryOn.
 	FailureWhen expr.Program
 }
 
