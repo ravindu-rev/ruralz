@@ -362,3 +362,28 @@ func TestQuotaCandidates(t *testing.T) {
 		}
 	}
 }
+
+// TestZoneLabel checks the comparison behind the zone label of
+// ruralz_state_call_duration_seconds: same when the server's zone equals
+// the Node's RURALZ_ZONE, cross when they differ, unknown when either is
+// missing; each result is the index of its catalog.Zones() value.
+func TestZoneLabel(t *testing.T) {
+	for _, tc := range []struct {
+		node, server string
+		want         string
+	}{
+		{"eu-west-1a", "eu-west-1a", "same"},
+		{"eu-west-1a", "eu-west-1b", "cross"},
+		{"", "eu-west-1a", "unknown"},
+		{"eu-west-1a", "", "unknown"},
+		{"", "", "unknown"},
+	} {
+		got := ZoneLabel(tc.node, tc.server)
+		if zones := catalog.Zones(); got < 0 || got >= len(zones) || zones[got] != tc.want {
+			t.Errorf("ZoneLabel(%q, %q) = %d, want the index of %q in %v", tc.node, tc.server, got, tc.want, zones)
+		}
+	}
+	if emit.NumStateZones != len(catalog.Zones()) {
+		t.Errorf("emit.NumStateZones = %d, catalog.Zones() has %d", emit.NumStateZones, len(catalog.Zones()))
+	}
+}

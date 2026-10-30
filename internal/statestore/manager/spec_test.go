@@ -5,6 +5,7 @@ package manager
 
 import (
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -129,13 +130,13 @@ func TestSpecOf(t *testing.T) {
 			if err != nil {
 				t.Fatalf("SpecOf = %v", err)
 			}
-			if got.Main != tt.want.Main {
+			if !reflect.DeepEqual(got.Main, tt.want.Main) {
 				t.Errorf("Main = %+v, want %+v", redact(got.Main), redact(tt.want.Main))
 			}
 			switch {
 			case (got.Cache == nil) != (tt.want.Cache == nil):
 				t.Errorf("Cache = %v, want %v", got.Cache != nil, tt.want.Cache != nil)
-			case got.Cache != nil && *got.Cache != *tt.want.Cache:
+			case got.Cache != nil && !reflect.DeepEqual(*got.Cache, *tt.want.Cache):
 				t.Errorf("Cache = %+v, want %+v", redact(*got.Cache), redact(*tt.want.Cache))
 			}
 			if got.Limits || got.Caches {

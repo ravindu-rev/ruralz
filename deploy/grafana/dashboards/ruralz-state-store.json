@@ -174,8 +174,8 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "histogram_quantile(0.99, sum by (le, op) (rate(ruralz_state_call_duration_seconds_bucket[$__rate_interval])))",
-          "legendFormat": "{{op}}",
+          "expr": "histogram_quantile(0.99, sum by (le, op, zone) (rate(ruralz_state_call_duration_seconds_bucket[$__rate_interval])))",
+          "legendFormat": "{{op}} {{zone}}",
           "refId": "A"
         }
       ]
@@ -183,7 +183,7 @@
     {
       "id": 4,
       "type": "timeseries",
-      "title": "GCRA round trips within 1 ms",
+      "title": "Same-zone GCRA round trips within 1 ms",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
@@ -228,7 +228,7 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",le=\"0.001\"}[$__rate_interval])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\"}[$__rate_interval]))",
+          "expr": "sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",zone=\"same\",le=\"0.001\"}[$__rate_interval])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\",zone=\"same\"}[$__rate_interval]))",
           "legendFormat": "SLO-GW-5",
           "refId": "A"
         }

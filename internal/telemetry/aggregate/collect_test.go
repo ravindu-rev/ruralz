@@ -143,7 +143,7 @@ func goldenRegistry(t testing.TB) *Registry {
 	n := r.Node()
 	n.NodeResponses.Inc(0, "RZ-RT-001")
 	n.State.Calls[emit.StateOpGCRA][emit.StateResultOK].Add(0, 1)
-	n.State.CallDuration[emit.StateOpGCRA].Record(0, 700_000)
+	n.State.CallDuration[emit.StateOpGCRA][emit.StateZoneSame].Record(0, 700_000)
 	n.Config.Activated.Add(0, 2)
 	n.Config.ActivationDuration("compile", "le1000").Record(0, 250_000_000)
 	n.Config.RevisionInfo("active", "rev-0123456789ab")

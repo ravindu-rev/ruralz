@@ -45,7 +45,7 @@ func (h *histogram) RecordExemplar(s emit.Stripe, v uint64, _ emit.Exemplar) {
 type metrics struct {
 	calls [emit.NumStateOps][emit.NumStateResults]counter
 	ops   [emit.NumStateOps]counter
-	dur   [emit.NumStateOps]histogram
+	dur   [emit.NumStateOps][emit.NumStateZones]histogram
 }
 
 func (m *metrics) handles() *emit.StateMetrics {
@@ -55,12 +55,26 @@ func (m *metrics) handles() *emit.StateMetrics {
 			h.Calls[op][r] = &m.calls[op][r]
 		}
 		h.Ops[op] = &m.ops[op]
-		h.CallDuration[op] = &m.dur[op]
+		for z := range emit.NumStateZones {
+			h.CallDuration[op][z] = &m.dur[op][z]
+		}
 	}
 	return h
 }
 
 func (m *metrics) call(op int, r statestore.Result) uint64 { return m.calls[op][r].n.Load() }
+
+// durs returns the duration observations of op in every zone.
+func (m *metrics) durs(op int) uint64 {
+	var n uint64
+	for z := range emit.NumStateZones {
+		n += m.dur[op][z].n.Load()
+	}
+	return n
+}
+
+// zoned returns the duration observations of op labeled zone.
+func (m *metrics) zoned(op, zone int) uint64 { return m.dur[op][zone].n.Load() }
 
 // logRecorder is a slog.Handler keeping every record.
 type logRecorder struct {
@@ -177,6 +191,22 @@ type fixtureOptions struct {
 	sentinelTLS                    *tls.Config
 	sentinelUser, sentinelPassword string
 	sentinelURL                    func(addr string) string
+	// hosts are the loopback addresses of the cluster primaries or
+	// sentinel servers, in order (default 127.0.0.1), so zone maps can
+	// tell them apart.
+	hosts []string
+	// zone is the Node's RURALZ_ZONE (Deps.Zone), zones the connection's
+	// zone map (Config.Zones).
+	zone  string
+	zones statestore.Zones
+}
+
+// hostAt returns the loopback address of the i-th server of o.
+func (o fixtureOptions) hostAt(i int) string {
+	if i < len(o.hosts) {
+		return o.hosts[i]
+	}
+	return ""
 }
 
 // newFixture starts a fake server and a driver against it, and waits
@@ -191,6 +221,7 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 		for i := range o.cluster {
 			fo := o.fake
 			fo.cluster = f.cl
+			fo.host = o.hostAt(i)
 			n := newFakeServer(t, f.clk, fo)
 			f.nodes = append(f.nodes, n)
 			seeds[i] = n.addr
@@ -206,8 +237,10 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 		o.noServer = true
 	}
 	if o.sentinel > 0 {
-		for range o.sentinel {
-			f.nodes = append(f.nodes, newFakeServer(t, f.clk, o.fake))
+		for i := range o.sentinel {
+			fo := o.fake
+			fo.host = o.hostAt(i)
+			f.nodes = append(f.nodes, newFakeServer(t, f.clk, fo))
 		}
 		f.srv = f.nodes[0]
 		f.sent = newFakeSentinel(t, o.sentinelTLS, o.sentinelUser, o.sentinelPassword, map[string]string{"main": f.srv.addr})
@@ -237,8 +270,10 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 	}
 	d, err := New(t.Context(), statestore.Config{
 		Role: o.role, Driver: statestore.DriverRedis, Topology: o.topology, URL: url, DefaultTimeout: o.timeout, TLS: o.tls,
+		Zones: o.zones,
 	}, statestore.Deps{
 		Clock: f.clk, Metrics: f.m.handles(), Logger: slog.New(f.logs), Limits: lim, MACKey: o.mac, InFlight: f.gate,
+		Zone: o.zone,
 	}, o.opts)
 	if err != nil {
 		t.Fatal(err)

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -38,6 +39,11 @@ var (
 	// ErrTopology reports a topology other than standalone, cluster or
 	// sentinel.
 	ErrTopology = errors.New("manager: unknown State Store topology")
+	// ErrZones reports a zone map with a host that is neither a hostname
+	// nor an IP literal, or one host named twice. Stage H rejects both
+	// with RZ-CFG-005, so validated configuration never reaches this
+	// defensive check.
+	ErrZones = errors.New("manager: invalid State Store zone map")
 )
 
 // Spec is one Revision's State Store configuration.
@@ -62,7 +68,10 @@ type Spec struct {
 // surrounding SP, HTAB, CR and LF, as the resolver's URL check ignores
 // them. stateStore.tls reaches the main connection and
 // stateStore.cache.tls the cache connection, each as references with
-// secrets, which the driver reads at Open. Errors never contain a URL.
+// secrets, which the driver reads at Open; stateStore.zones reaches a
+// redis main connection and stateStore.cache.zones the cache connection,
+// each keyed by netaddr.CanonicalHost (zonesOf). Errors never contain a
+// URL.
 func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 	main := statestore.Config{Role: statestore.RoleMain, DefaultTimeout: statestore.DefaultTimeout}
 	if ss == nil {
@@ -95,6 +104,9 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 			return Spec{}, fmt.Errorf("stateStore.url: %w", err)
 		}
 		main.TLS = tlsOf(ss.TLS, secrets)
+		if main.Zones, err = zonesOf(ss.Zones); err != nil {
+			return Spec{}, fmt.Errorf("stateStore.zones: %w", err)
+		}
 	default:
 		return Spec{}, fmt.Errorf("%w %q", ErrDriver, driver)
 	}
@@ -112,9 +124,36 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 			return Spec{}, fmt.Errorf("stateStore.cache.url: %w", err)
 		}
 		cache.TLS = tlsOf(c.TLS, secrets)
+		if cache.Zones, err = zonesOf(c.Zones); err != nil {
+			return Spec{}, fmt.Errorf("stateStore.cache.zones: %w", err)
+		}
 		spec.Cache = &cache
 	}
 	return spec, nil
+}
+
+// zonesOf converts one connection's zone map (stateStore.zones,
+// stateStore.cache.zones) into the driver's form: each host in
+// netaddr.CanonicalHost form, the form the State client looks the hosts
+// of its servers up in, so hosts compare case-insensitively and IP
+// literals in canonical form. It returns nil without entries, and
+// ErrZones for a host CanonicalHost refuses or one host named twice.
+func zonesOf(entries []v1alpha1.StateStoreZone) (statestore.Zones, error) {
+	if len(entries) == 0 {
+		return nil, nil
+	}
+	z := make(statestore.Zones, len(entries))
+	for _, e := range entries {
+		host, err := netaddr.CanonicalHost(e.Host)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %w", ErrZones, err)
+		}
+		if _, dup := z[host]; dup {
+			return nil, fmt.Errorf("%w: one host is named twice", ErrZones)
+		}
+		z[host] = e.Zone
+	}
+	return z, nil
 }
 
 // topologyOf maps a redis topology, standalone when unset.

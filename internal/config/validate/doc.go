@@ -23,7 +23,11 @@
 //     Route match.hosts in the exact or one leading "*." form;
 //     trustedProxies entries that are CIDRs or addresses; an OTLP
 //     endpoint the Node can dial, with tls only beside an https one;
-//     clientCertificate and clientKey together; Route path and header
+//     clientCertificate and clientKey together; stateStore.zones and
+//     stateStore.cache.zones hosts that are hostnames or IP literals,
+//     named once per map after case folding and IP canonicalization
+//     (internal/netaddr.CanonicalHost), and stateStore.zones only beside
+//     driver redis; Route path and header
 //     criteria the Router compiles and a non-empty grpc service; no when
 //     on an aggregate step; a literal step path that passes the hardening
 //     of the client path with no dot segment, a step target that is a dot
@@ -48,8 +52,9 @@
 //   - RZ-CFG-041: one secret used with two destinations.
 //
 // The schema states, and stage F reports, ring-hash without hashKey,
-// a plugin Policy without plugin, a step maxBodyBytes below 1 and a step
-// with collection: true and no group. The
+// a plugin Policy without plugin, a step maxBodyBytes below 1, a step
+// with collection: true and no group, and a zone map zone outside 1 to 63
+// characters of [a-z0-9-]. The
 // config of a plugin Policy against its Plugin's configSchema
 // (RZ-CFG-021) ships with the plugin Policy, Planned (M2); RZ-CFG-034
 // belongs to stage K and RZ-CFG-040 to the Node's serve check.

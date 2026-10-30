@@ -169,8 +169,8 @@ func TestMetricsLabels(t *testing.T) {
 		{"refund", emit.StateOpRefund, statestore.ResultOK, 1},
 		{"skipped invalidation", emit.StateOpCacheInvalidate, statestore.ResultSkipped, 0},
 	} {
-		if f.m.call(tc.op, tc.res) != 1 || f.m.dur[tc.op].n.Load() != tc.dur {
-			t.Errorf("%s: %d calls, %d durations; want 1 and %d", tc.name, f.m.call(tc.op, tc.res), f.m.dur[tc.op].n.Load(), tc.dur)
+		if f.m.call(tc.op, tc.res) != 1 || f.m.durs(tc.op) != tc.dur {
+			t.Errorf("%s: %d calls, %d durations; want 1 and %d", tc.name, f.m.call(tc.op, tc.res), f.m.durs(tc.op), tc.dur)
 		}
 	}
 	if !f.d.RoundTrips() {

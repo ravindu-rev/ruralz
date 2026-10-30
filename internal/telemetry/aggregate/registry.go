@@ -344,7 +344,9 @@ func (r *Registry) buildNode() error {
 	n.TapEventsDropped = counter(catalog.TapEventsDroppedTotal, 0)
 	n.AccessLogCELErrors = counter(catalog.TelemetryAccessLogCELErrorsTotal, 0)
 	for op := range emit.NumStateOps {
-		n.State.CallDuration[op] = hist(catalog.StateCallDurationSeconds, op)
+		for zone := range emit.NumStateZones {
+			n.State.CallDuration[op][zone] = hist(catalog.StateCallDurationSeconds, op*emit.NumStateZones+zone)
+		}
 		n.State.Ops[op] = counter(catalog.StateOpsTotal, op)
 		for res := range emit.NumStateResults {
 			n.State.Calls[op][res] = counter(catalog.StateCallsTotal, op*emit.NumStateResults+res)

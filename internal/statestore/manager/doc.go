@@ -11,30 +11,46 @@
 //
 // SpecOf resolves Gateway spec.stateStore into driver configurations:
 // driver memory (the default) or redis; for redis, topology standalone
-// (the default) or cluster and the resolved url; timeout, 50 ms by
-// default, where 0 attempts no call; and the optional cache connection, a
-// second redis connection only the Response Cache uses, with the main
+// (the default), cluster or sentinel, the resolved url, the TLS block and
+// the zone map; timeout, 50 ms by default, where 0 attempts no call; and
+// the optional cache connection, a second redis connection only the
+// Response Cache uses, with its own TLS block and zone map and the main
 // timeout. Without stateStore the Node uses RURALZ_STATE_STORE_URL, when
-// it resolved, as a standalone redis URL, else the memory driver.
+// it resolved, as a standalone redis URL without a zone map, else the
+// memory driver.
+//
+// # Zones
+//
+// Each redis connection labels its calls' durations same, cross or
+// unknown by comparing the zone of the server a call went to, from its
+// zone map (stateStore.zones, stateStore.cache.zones, keyed by
+// netaddr.CanonicalHost), with the Node's RURALZ_ZONE, which the ruralzd
+// wiring passes in Config.Deps.Zone from internal/gateway/setting. The
+// zone map is not part of a driver's key: a Hot Reload that changes only
+// it keeps the driver, and the newer snapshot's handle gives the driver
+// its map at the snapshot's first call, after the swap (Handle.Store), so
+// the changed map labels calls from the swap on and a snapshot that is
+// never published changes nothing.
 //
 // # Drivers and handles
 //
 // Acquire returns one new Handle per role for a snapshot, meeting the
 // snapshot StoreHandle contract (Store, Enqueuer, Release). Drivers are
-// shared by key: the role, the driver and, for redis, the topology and
-// URL. A Hot Reload that keeps the State Store configuration therefore
-// keeps its driver, with its connections, breakers and loaded scripts, and
-// the memory driver with its counters. A new timeout or source keeps the
-// driver too: each call carries its Policy's stateStoreTimeout, and
-// Config.DefaultTimeout stays the value the driver opened with. A changed
-// driver, topology or URL opens a new driver through the injected opener
-// before the swap; the old driver closes once the last snapshot holding it
-// is freed and the post-commit queue has written or dropped every write
-// queued for it. Without a cache connection the Cache handle is the Main
-// handle, released once. Every driver receives the Node's one in-flight
-// ceiling (statestore.InFlight of Limits.InFlight, 8,192), so the main and
-// cache connections, and the old and new drivers of a Hot Reload, share
-// it.
+// shared by key: the role, the driver and, for redis, the topology, URL
+// and TLS block references. A Hot Reload that keeps the State Store
+// configuration therefore keeps its driver, with its connections, breakers
+// and loaded scripts, and the memory driver with its counters. A new
+// timeout, source or zone map keeps the driver too: each call carries its
+// Policy's stateStoreTimeout, Config.DefaultTimeout stays the value the
+// driver opened with, and the zone map moves as Zones says. A changed
+// driver, topology, URL or TLS block reference opens a new driver through
+// the injected opener before the swap; the old driver closes once the last
+// snapshot holding it is freed and the post-commit queue has written or
+// dropped every write queued for it. Without a cache connection the Cache
+// handle is the Main handle, released once. Every driver receives the
+// Node's one in-flight ceiling (statestore.InFlight of Limits.InFlight,
+// 8,192), so the main and cache connections, and the old and new drivers
+// of a Hot Reload, share it.
 //
 // # Post-commit queue
 //

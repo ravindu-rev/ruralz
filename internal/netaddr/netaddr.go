@@ -3,9 +3,10 @@
 
 // Package netaddr parses the network addresses a Bundle names, so that
 // validation (internal/config/validate) and the components that dial
-// them (internal/gateway/upstream/discovery, internal/telemetry) accept
-// exactly the same values: a static Endpoint address, the DNS names and
-// SRV service names of dns discovery, and the OTLP collector endpoint
+// them (internal/gateway/upstream/discovery, internal/telemetry,
+// internal/statestore) accept exactly the same values: a static Endpoint
+// address, the DNS names and SRV service names of dns discovery, the OTLP
+// collector endpoint, and the server hosts of the State Store zone maps
 // (docs/architecture/02-configuration-model.md "Semantic validation").
 //
 // The package is a leaf: it imports only the standard library and keeps
@@ -68,6 +69,26 @@ func ParseHostPort(address string) (HostPort, error) {
 		return HostPort{}, fmt.Errorf("the host is neither an IP address nor a DNS name: %w", err)
 	}
 	return HostPort{Host: h, Port: port}, nil
+}
+
+// CanonicalHost returns the comparison form of a host as a URL names it or
+// a Redis topology announces it, the key of the State Store zone maps
+// (Gateway spec.stateStore.zones and spec.stateStore.cache.zones,
+// docs/architecture/02-configuration-model.md "Gateway"): an IP literal in
+// its canonical text (netip.Addr.String: IPv6 compressed and lower-case,
+// an IPv4-mapped address and a zone kept as written), or a DNS name that
+// CheckName accepts, lower-cased, since hosts compare case-insensitively.
+// A trailing dot stays, as the host is written. An IPv6 literal takes no
+// brackets: they belong to the URL syntax around it. Anything else, such
+// as a host with a port, is an error.
+func CanonicalHost(h string) (string, error) {
+	if a, err := netip.ParseAddr(h); err == nil {
+		return a.String(), nil
+	}
+	if err := CheckName(h); err != nil {
+		return "", fmt.Errorf("the host is neither an IP literal nor a DNS name: %w", err)
+	}
+	return strings.ToLower(h), nil
 }
 
 // ParsePort parses a decimal port from 1 to 65535.

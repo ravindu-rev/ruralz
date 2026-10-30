@@ -238,6 +238,9 @@ type StateStore struct {
 	// Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004).
 	// +ruralz:default=50ms
 	Timeout *Duration `json:"timeout,omitempty"`
+	// Zones maps the server hosts of this connection to failure zones, which the Node compares with its RURALZ_ZONE to label each State Store call's duration same, cross or unknown. Driver redis only. A host the connection never dials has no effect, and a server whose host has no entry is unknown.
+	// +ruralz:list=map,key=host
+	Zones []StateStoreZone `json:"zones,omitempty"`
 	// Cache is a second connection that serves only the Response Cache. Without it the cache shares this connection under the State Store memory protection rules, and a Node warns at startup when it shares it with limit Policies.
 	Cache *StateStoreCache `json:"cache,omitempty"`
 }
@@ -279,4 +282,23 @@ type StateStoreCache struct {
 	// TLS configures the client side of the cache connection's TLS, as stateStore.tls does the main connection's; the cache connection never uses stateStore.tls. Beside a cleartext url a Node refuses it (RZ-CFG-042).
 	// +ruralz:impact=security
 	TLS *StateStoreTLS `json:"tls,omitempty"`
+	// Zones maps the server hosts of the cache connection to failure zones, as stateStore.zones does the main connection's; the cache connection never uses stateStore.zones.
+	// +ruralz:list=map,key=host
+	Zones []StateStoreZone `json:"zones,omitempty"`
+}
+
+// StateStoreZone maps one server host of a State Store connection
+// (stateStore.zones, stateStore.cache.zones) to its failure zone. Hosts
+// compare case-insensitively and IP literals in canonical form, so one
+// host is named once per connection.
+type StateStoreZone struct {
+	// Host is a hostname or an IP literal, written as the URL names it or the topology announces it: the standalone endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name.
+	// +ruralz:required
+	Host string `json:"host"`
+	// Zone is the server's failure zone, in the form of RURALZ_ZONE: 1 to 63 characters from [a-z0-9-].
+	// +ruralz:required
+	// +ruralz:pattern=^[a-z0-9-]+$
+	// +ruralz:minLength=1
+	// +ruralz:maxLength=63
+	Zone string `json:"zone"`
 }

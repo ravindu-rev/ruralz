@@ -100,7 +100,10 @@ func (d *Driver) maintain(ctx context.Context) {
 	}
 }
 
-// tick runs one maintenance pass.
+// tick runs one maintenance pass: it creates the State client when there
+// is none, follows the sentinel client's primary for the zone label,
+// keeps a cluster's slot map, probes half-open breakers, reads INFO memory
+// and retries pending script loads.
 func (d *Driver) tick(ctx context.Context) {
 	c := d.loadClient()
 	if c == nil {
@@ -113,6 +116,7 @@ func (d *Driver) tick(ctx context.Context) {
 			return
 		}
 	}
+	d.followPrimary(c)
 	if d.unmapped != nil {
 		now := d.clk.Now()
 		m := d.slots.Load()

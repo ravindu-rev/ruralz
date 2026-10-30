@@ -75,9 +75,59 @@ type Config struct {
 	// TLS is the connection's TLS block: Gateway spec.stateStore.tls for
 	// the main connection, spec.stateStore.cache.tls for the cache; nil
 	// without it.
-	TLS            *TLS
+	TLS *TLS
+	// Zones is the connection's zone map: Gateway spec.stateStore.zones
+	// for the main connection, spec.stateStore.cache.zones for the cache;
+	// nil without entries. It is not part of a driver's identity: a Hot
+	// Reload that changes only the zone map keeps the driver
+	// (ZoneSetter).
+	Zones          Zones
 	DefaultTimeout time.Duration
 	Source         Source
+}
+
+// Zones maps the server hosts of one redis connection, each in the
+// canonical form of netaddr.CanonicalHost, to their failure zones, names
+// of 1 to 63 characters from [a-z0-9-]
+// (docs/architecture/02-configuration-model.md "Gateway"). The State
+// client looks up the host of the server each call went to (the
+// standalone endpoint, the cluster shard's primary in the slot map or the
+// primary the sentinels name) and compares its zone with the Node's
+// (Deps.Zone, RURALZ_ZONE) to label the call's duration (ZoneLabel). A
+// Zones value is never modified once built.
+type Zones map[string]string
+
+// ZoneLabel returns the zone label index of
+// ruralz_state_call_duration_seconds (the emit.StateZone* constants) of a
+// call from a Node in zone node to a server in zone server: same when they
+// are equal, cross when they differ, and unknown when either is empty,
+// which is a Node without RURALZ_ZONE or a server whose host has no entry
+// in its connection's zone map
+// (docs/architecture/11-scalability-and-distributed-state.md "State client
+// and RZ-STS error codes").
+func ZoneLabel(node, server string) int {
+	switch {
+	case node == "" || server == "":
+		return emit.StateZoneUnknown
+	case node == server:
+		return emit.StateZoneSame
+	default:
+		return emit.StateZoneCross
+	}
+}
+
+// ZoneSetter is a Driver whose calls carry the zone label (the redis
+// driver). A Hot Reload keeps a driver whose connection's driver,
+// topology, URL and TLS block references are unchanged, and a changed zone
+// map labels its calls from the swap on: the Manager hands such a driver
+// the newer Revision's zone map of its connection at the first call
+// through the newer snapshot. The memory driver has no server zones
+// (stateStore.zones beside driver memory is RZ-CFG-005) and does not
+// implement it.
+type ZoneSetter interface {
+	// SetZones replaces the zone map later calls are labeled by. It is
+	// safe for concurrent use with calls.
+	SetZones(z Zones)
 }
 
 // TLS is the client TLS setting of one redis connection, Gateway
@@ -769,6 +819,10 @@ type Deps struct {
 	// InFlight is the Node's in-flight ceiling, shared by every driver the
 	// Manager opens; nil makes a driver keep its own of Limits.InFlight.
 	InFlight *InFlight
+	// Zone is the Node's failure zone, the RURALZ_ZONE process setting
+	// (internal/gateway/setting): 1 to 63 characters from [a-z0-9-], or
+	// empty, which labels every call's duration unknown (ZoneLabel).
+	Zone string
 }
 
 // InFlight is the Node-wide ceiling on State Store calls in flight

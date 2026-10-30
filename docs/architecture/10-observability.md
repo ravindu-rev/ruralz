@@ -167,7 +167,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_upstream_degraded_info` | Gauge | info | `upstream`, `reason` | panic, discovery_stale, balancer_budget |
 | `ruralz_upstream_cel_errors_total` | Counter | errors | `upstream`, `field` | hashKey, retryOn, failureWhen |
 | `ruralz_upstream_pool_connections` | Gauge | connections | `upstream`, `state` | idle, active |
-| `ruralz_state_call_duration_seconds` | Histogram, fast | seconds | `op` | SLI of SLO-GW-5 |
+| `ruralz_state_call_duration_seconds` | Histogram, fast | seconds | `op`, `zone` | SLI of SLO-GW-5, `zone="same"` calls only |
 | `ruralz_state_calls_total` | Counter | calls | `op`, `result` | ok, error, timeout, skipped |
 | `ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; post-commit writes dropped: a full class, an open breaker, a failed invalidation retry, the Drain flush |
 | `ruralz_state_write_queue_items` | Gauge | items | none | Queue depth |
@@ -201,7 +201,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_telemetry_series` | Gauge | series | `state` | live, retiring |
 | `ruralz_tap_events_dropped_total` | Counter | events | none | Slow `/tap` subscribers |
 
-`origin` is `upstream`, `node`, or `dependency` for Node-generated Upstream or `AIProvider` failures (`RZ-UP` codes, `RZ-AI-004`, `RZ-AI-005`, `RZ-AI-013`). `stage` is verify, plugin_compile, compile, swap or total; `size_class` is le1000, le10000 or gt10000 Routes. `op` is gcra, quota, budget, cache_get, semantic_get, script_multi (merged consumptive calls), pipeline (a read batch, pack 8.7 rule 3), or a write kind: cache_set, semantic_set, cache_invalidate, refund or settle. `kind` is a write kind for dropped writes, any single-operation `op` otherwise.
+`origin` is `upstream`, `node`, or `dependency` for Node-generated Upstream or `AIProvider` failures (`RZ-UP` codes, `RZ-AI-004`, `RZ-AI-005`, `RZ-AI-013`). `stage` is verify, plugin_compile, compile, swap or total; `size_class` is le1000, le10000 or gt10000 Routes. `op` is gcra, quota, budget, cache_get, semantic_get, script_multi (merged consumptive calls), pipeline (a read batch, pack 8.7 rule 3), or a write kind: cache_set, semantic_set, cache_invalidate, refund or settle. `kind` is a write kind for dropped writes, any single-operation `op` otherwise. `zone` is same, cross or unknown: the zone of the server a call went to, from its connection's `stateStore.zones` or `stateStore.cache.zones`, compared with the Node's `RURALZ_ZONE` ([State client](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)).
 
 Both binaries read `ruralz_runtime_*` from `runtime/metrics` (SDK names: OQ-observability-15). The Plugin names and reasons follow [WASM plugin system](05-wasm-plugin-system.md#observability); `ruralz_plugin_call_overhead_seconds`, which measures SM-6, spans instance checkout to guest entry and guest return to call end.
 
@@ -580,7 +580,7 @@ Folding never carries accumulated values. A folded label set's series end: they 
 
 A CI test of 1,000 Hot Reloads, each renaming every Route, MUST keep `ruralz_telemetry_series{state="retiring"}` within 25,000 (target), fold only retiring sets, never raise an `_overflow` series by a folded set's accumulated value, return to the single-Revision count once old snapshots are freed, and see at most 2 `ruralz_config_revision_info` series. It runs in stage 8, in `test/integration/telemetry`, on the controllable-clock test build. Its Revisions hold enough Routes that three old Revisions exceed the 25,000 ceiling, so folding happens: at a few points of the run, slow requests pin successive Revisions until two retired Revisions and a closing one hold label sets at once, then end, releasing them. The test awaits each of the 1,000 activations before writing the next Revision, since the loader keeps only the latest pending one.
 
-For 1,000 Routes, 300 Upstreams, 300 Policy and Phase pairs, 50 Plugin Policies and 100 AI model label sets, the worst case per Node is about 66,400 series (hypothesis):
+For 1,000 Routes, 300 Upstreams, 300 Policy and Phase pairs, 50 Plugin Policies and 100 AI model label sets, the worst case per Node is about 66,700 series (hypothesis):
 
 | Families | Series |
 |---|---|
@@ -588,9 +588,9 @@ For 1,000 Routes, 300 Upstreams, 300 Policy and Phase pairs, 50 Plugin Policies 
 | Filter, upstream attempt, Plugin and AI histograms | 4,800; 4,800; 1,600; 6,400 (hypothesis) |
 | AI token and cost counters at their limits; other AI counters | 12,000; 800 (hypothesis) |
 | Cache counters (400 cached Routes, 100 Semantic Cache Routes); Plugin guest events | 2,800; 800 (hypothesis) |
-| Upstream-scoped, with skipped probes and `balancer_budget`; Policy-scoped; other and fixed families, with `_overflow` sets and the new degraded reasons | 4,200; 4,000; 3,200 (hypothesis) |
+| Upstream-scoped, with skipped probes and `balancer_budget`; Policy-scoped; other and fixed families, with `_overflow` sets, the new degraded reasons and the 24 `op` and `zone` label sets of `ruralz_state_call_duration_seconds` | 4,200; 4,000; 3,456 (hypothesis) |
 
-With the Route histogram at its limit it is about 82,400 (hypothesis): about 8.2 million series per 100-Node Cluster, at most 12.5 million with every retiring ceiling full (hypothesis). Beyond the limits, traces and logs carry per-Route detail (OQ-observability-10, OQ-observability-12).
+With the Route histogram at its limit it is about 82,700 (hypothesis): about 8.3 million series per 100-Node Cluster, at most 12.5 million with every retiring ceiling full (hypothesis). Beyond the limits, traces and logs carry per-Route detail (OQ-observability-10, OQ-observability-12).
 
 ## Open questions
 

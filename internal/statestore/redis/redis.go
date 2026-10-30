@@ -80,6 +80,10 @@ type Driver struct {
 	// probe bounds a PING probe: the Gateway's stateStore.timeout, the
 	// default of every Policy's stateStoreTimeout.
 	probe time.Duration
+	// zone is the Node's RURALZ_ZONE (Deps.Zone); zones is the zone table
+	// of the connection's zone map, replaced by SetZones.
+	zone  string
+	zones atomic.Pointer[zoneTable]
 
 	reg      registry
 	single   *shard // standalone, sentinel: the primary
@@ -199,12 +203,13 @@ func New(ctx context.Context, cfg statestore.Config, deps statestore.Deps, opts 
 	}
 	d := &Driver{
 		cfg: cfg, topo: topo, ep: ep, clk: clk, log: logger, metrics: deps.Metrics, mac: mac, lim: lim,
-		opts: opts, gate: gate, sha: scriptSHA(), probe: probe, tlsc: tlsc,
+		opts: opts, gate: gate, sha: scriptSHA(), probe: probe, tlsc: tlsc, zone: deps.Zone,
 		reg:   registry{byAddr: map[string]*shard{}},
 		ready: make(chan struct{}), closing: make(chan struct{}), idle: make(chan struct{}, 1),
 		maintDone: make(chan struct{}), wake: make(chan struct{}, 1),
 		conns: connSet{conns: map[*trackedConn]struct{}{}},
 	}
+	d.zones.Store(newZoneTable(deps.Zone, cfg.Zones))
 	d.trips.New = func() any { return d.newTrip() }
 	switch topo {
 	case statestore.TopologyCluster:
@@ -397,12 +402,13 @@ func (d *Driver) countOps(s emit.Stripe, label int, n uint64) {
 	}
 }
 
-// observe records one round trip's duration.
-func (d *Driver) observe(s emit.Stripe, label int, elapsed time.Duration) {
-	if d.metrics == nil || label < 0 || label >= emit.NumStateOps {
+// observe records one round trip's duration by its op label and zone
+// label (tripZone).
+func (d *Driver) observe(s emit.Stripe, label, zone int, elapsed time.Duration) {
+	if d.metrics == nil || label < 0 || label >= emit.NumStateOps || zone < 0 || zone >= emit.NumStateZones {
 		return
 	}
-	if h := d.metrics.CallDuration[label]; h != nil {
+	if h := d.metrics.CallDuration[label][zone]; h != nil {
 		h.Record(s, uint64(max(elapsed, 0)))
 	}
 }

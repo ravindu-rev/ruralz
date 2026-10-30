@@ -153,3 +153,63 @@ func TestParseOTLPEndpoint(t *testing.T) {
 		}
 	}
 }
+
+// TestCanonicalHost: a State Store zone map host is an IP literal in its
+// canonical text or a DNS name lower-cased, so two spellings of one host
+// compare equal and anything else, a port or brackets included, is
+// refused without quoting the host.
+func TestCanonicalHost(t *testing.T) {
+	for in, want := range map[string]string{
+		"valkey-0.state.internal":  "valkey-0.state.internal",
+		"Valkey-0.STATE.internal":  "valkey-0.state.internal",
+		"valkey-0.state.internal.": "valkey-0.state.internal.",
+		"_cache.internal":          "_cache.internal",
+		"10.0.2.15":                "10.0.2.15",
+		"2001:DB8::1":              "2001:db8::1",
+		"2001:0db8:0:0:0:0:0:1":    "2001:db8::1",
+		"0:0:0:0:0:0:0:1":          "::1",
+		"::ffff:10.0.0.1":          "::ffff:10.0.0.1",
+		"fe80::1%eth0":             "fe80::1%eth0",
+		"localhost":                "localhost",
+	} {
+		got, err := CanonicalHost(in)
+		if err != nil || got != want {
+			t.Errorf("CanonicalHost(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{
+		"", "valkey:6379", "10.0.2.15:6379", "[2001:db8::1]", "[::1]:6379", "a..b", "host/path", "a b",
+		"user@host", strings.Repeat("a", 64) + ".internal", "ä.internal",
+	} {
+		got, err := CanonicalHost(in)
+		if err == nil {
+			t.Errorf("CanonicalHost(%q) = %q, want an error", in, got)
+			continue
+		}
+		if !strings.Contains(err.Error(), "neither an IP literal nor a DNS name") {
+			t.Errorf("CanonicalHost(%q) = %v", in, err)
+		}
+		if len(in) > 4 && strings.Contains(err.Error(), in) {
+			t.Errorf("CanonicalHost(%q): the error quotes the host: %v", in, err)
+		}
+	}
+}
+
+// FuzzCanonicalHost: the canonical form is a fixed point, accepted again
+// unchanged, so the zone map's keys and the hosts the State client looks
+// up meet in one form.
+func FuzzCanonicalHost(f *testing.F) {
+	for _, s := range []string{"a", "A.b.", "10.0.0.1", "2001:DB8::1", "::ffff:1.2.3.4", "fe80::1%Eth0", "[::1]", "x:1", ""} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, h string) {
+		c, err := CanonicalHost(h)
+		if err != nil {
+			return
+		}
+		again, err := CanonicalHost(c)
+		if err != nil || again != c {
+			t.Fatalf("CanonicalHost(%q) = %q, then %q, %v", h, c, again, err)
+		}
+	})
+}

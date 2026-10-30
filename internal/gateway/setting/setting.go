@@ -9,13 +9,13 @@
 // as *Error values and ruralzd exits 2 (ExitUsage) naming each setting.
 // Settings errors carry no RZ code.
 //
-// Load checks syntax, the configuration mode, the secret root overlap
-// rule and reads the State Store entry MAC key. The owners of the other
-// settings read their files later: internal/adminauth the admin token
-// files and TLS directory, internal/egress.ParseAllow the fetch allow-list
-// (whose syntax Load already checked, so both reject the same values), and
-// internal/secret/resolver RURALZ_STATE_STORE_URL through its env
-// provider, which is why Settings never holds that URL.
+// Load checks syntax, RURALZ_ZONE included, the configuration mode, the
+// secret root overlap rule and reads the State Store entry MAC key. The
+// owners of the other settings read their files later: internal/adminauth
+// the admin token files and TLS directory, internal/egress.ParseAllow the
+// fetch allow-list (whose syntax Load already checked, so both reject the
+// same values), and internal/secret/resolver RURALZ_STATE_STORE_URL
+// through its env provider, which is why Settings never holds that URL.
 package setting
 
 import (
@@ -54,6 +54,9 @@ const (
 	EnvFetchAllow = "RURALZ_FETCH_ALLOW"
 	// EnvStateStoreMACKeyFile is the State Store entry MAC key file.
 	EnvStateStoreMACKeyFile = "RURALZ_STATE_STORE_MAC_KEY_FILE"
+	// EnvZone is the Node's failure-zone name, which the State client
+	// compares with the State Store zone maps.
+	EnvZone = "RURALZ_ZONE"
 	// EnvTrustPolicyFile is Planned (M2); unused in M1.
 	EnvTrustPolicyFile = "RURALZ_TRUST_POLICY_FILE"
 	// EnvEnrollmentTokenFile is Planned (M2); unused in M1.
@@ -101,6 +104,9 @@ once at start:
                                    root, owner-only (0600 or 0400), 32 bytes
                                    or more; one final newline is not part of
                                    the key
+  RURALZ_ZONE                      failure zone of this Node, compared with
+                                   the State Store zone maps: 1 to 63
+                                   characters from [a-z0-9-] (default none)
   RURALZ_ADMIN_TOKEN_FILE          admin operator token
   RURALZ_ADMIN_METRICS_TOKEN_FILE  admin /metrics token
   RURALZ_ADMIN_TLS_DIR             admin TLS directory (tls.crt, tls.key, ca.crt)
@@ -126,6 +132,8 @@ var (
 	ErrInsideSecretRoot = errors.New("must lie outside " + EnvSecretRoot)
 	// ErrFetchAllow reports an unparsable RURALZ_FETCH_ALLOW entry.
 	ErrFetchAllow = errors.New("invalid allow-list entry")
+	// ErrZone reports a RURALZ_ZONE outside its form.
+	ErrZone = errors.New("zone must be 1 to 63 characters from [a-z0-9-]")
 	// ErrMACKeyFile reports a MAC key file that is not a readable regular
 	// file.
 	ErrMACKeyFile = errors.New("MAC key file is not a readable regular file")
@@ -258,6 +266,13 @@ type Settings struct {
 	// MACKey is the content of MACKeyFile without one final newline, read
 	// at start; unset without the setting. Its text forms are redacted.
 	MACKey MACKey
+	// Zone is RURALZ_ZONE, the Node's failure-zone name, empty without the
+	// setting. The wiring passes it to the State Store Manager as
+	// statestore.Deps.Zone: the State client compares it with the zone of
+	// the server each call went to, from Gateway spec.stateStore.zones or
+	// spec.stateStore.cache.zones, to label the call's duration same,
+	// cross or unknown.
+	Zone string
 	// EnrollmentTokenFile is RURALZ_ENROLLMENT_TOKEN_FILE (M2, unused);
 	// kept for the secret root rule.
 	EnrollmentTokenFile string
@@ -331,6 +346,9 @@ func Load(args []string, lookupEnv func(string) (string, bool)) (Settings, error
 	if v := get(EnvFetchAllow); v != "" {
 		l.fetchAllow(v)
 		s.FetchAllow = v
+	}
+	if v := get(EnvZone); v != "" {
+		s.Zone = l.zone(v)
 	}
 	s.AdminTokenFile = l.absolute(EnvAdminTokenFile, get(EnvAdminTokenFile))
 	s.AdminMetricsTokenFile = l.absolute(EnvAdminMetricsTokenFile, get(EnvAdminMetricsTokenFile))
@@ -465,6 +483,25 @@ func (l *loader) fetchAllow(v string) {
 			l.fail(EnvFetchAllow, fmt.Errorf("%w %d (%q): %w", ErrFetchAllow, i+1, echo(e), err))
 		}
 	}
+}
+
+// maxZone bounds a RURALZ_ZONE value.
+const maxZone = 63
+
+// zone checks RURALZ_ZONE: 1 to 63 characters from [a-z0-9-], the form of
+// the zone of each State Store zone map entry, so the State client can
+// find the Node's zone among them (pack section 2).
+func (l *loader) zone(v string) string {
+	ok := len(v) <= maxZone
+	for i := 0; ok && i < len(v); i++ {
+		c := v[i]
+		ok = c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-'
+	}
+	if !ok {
+		l.fail(EnvZone, fmt.Errorf("%w, got %q", ErrZone, echo(v)))
+		return ""
+	}
+	return v
 }
 
 // envProxyEntry opts Bundle fetches into the proxy variables.

@@ -156,6 +156,7 @@ func TestSystemdEnvFile(t *testing.T) {
 	known := []string{
 		setting.EnvConfig, setting.EnvLogLevel, setting.EnvStateStoreURL, setting.EnvAdminMetricsTokenFile,
 		setting.EnvAdminTLSDir, setting.EnvSecretRoot, setting.EnvFetchAllow, setting.EnvStateStoreMACKeyFile,
+		setting.EnvZone,
 	}
 	line := regexp.MustCompile(`^(#?)(RURALZ_[A-Z0-9_]+)=(.*)$`)
 	set := map[string]string{}

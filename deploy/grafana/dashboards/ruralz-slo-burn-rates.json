@@ -500,7 +500,7 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "1 - (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",le=\"0.001\"}[30d])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\"}[30d]))) / 0.01",
+          "expr": "1 - (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",zone=\"same\",le=\"0.001\"}[30d])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\",zone=\"same\"}[30d]))) / 0.01",
           "legendFormat": "remaining",
           "refId": "A"
         }
@@ -568,7 +568,7 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",le=\"0.001\"}[5m])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\"}[5m]))) / 0.01",
+          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",zone=\"same\",le=\"0.001\"}[5m])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\",zone=\"same\"}[5m]))) / 0.01",
           "legendFormat": "5 min",
           "refId": "A"
         },
@@ -578,7 +578,7 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",le=\"0.001\"}[1h])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\"}[1h]))) / 0.01",
+          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",zone=\"same\",le=\"0.001\"}[1h])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\",zone=\"same\"}[1h]))) / 0.01",
           "legendFormat": "1 h",
           "refId": "B"
         },
@@ -588,7 +588,7 @@
             "uid": "${datasource}"
           },
           "exemplar": false,
-          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",le=\"0.001\"}[6h])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\"}[6h]))) / 0.01",
+          "expr": "(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op=\"gcra\",zone=\"same\",le=\"0.001\"}[6h])) / sum(rate(ruralz_state_call_duration_seconds_count{op=\"gcra\",zone=\"same\"}[6h]))) / 0.01",
           "legendFormat": "6 h",
           "refId": "C"
         }

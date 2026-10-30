@@ -3920,6 +3920,17 @@
             "security"
           ],
           "x-ruralz-secret": true
+        },
+        "zones": {
+          "description": "Zones maps the server hosts of this connection to failure zones, which the Node compares with its RURALZ_ZONE to label each State Store call's duration same, cross or unknown. Driver redis only. A host the connection never dials has no effect, and a server whose host has no entry is unknown.",
+          "items": {
+            "$ref": "#/$defs/StateStoreZone"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "host",
+            "type": "map"
+          }
         }
       },
       "type": "object"
@@ -3947,6 +3958,17 @@
             "security"
           ],
           "x-ruralz-secret": true
+        },
+        "zones": {
+          "description": "Zones maps the server hosts of the cache connection to failure zones, as stateStore.zones does the main connection's; the cache connection never uses stateStore.zones.",
+          "items": {
+            "$ref": "#/$defs/StateStoreZone"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "host",
+            "type": "map"
+          }
         }
       },
       "required": [
@@ -4001,6 +4023,28 @@
         "sentinel"
       ],
       "type": "string"
+    },
+    "StateStoreZone": {
+      "additionalProperties": false,
+      "description": "StateStoreZone maps one server host of a State Store connection (stateStore.zones, stateStore.cache.zones) to its failure zone. Hosts compare case-insensitively and IP literals in canonical form, so one host is named once per connection.",
+      "properties": {
+        "host": {
+          "description": "Host is a hostname or an IP literal, written as the URL names it or the topology announces it: the standalone endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name.",
+          "type": "string"
+        },
+        "zone": {
+          "description": "Zone is the server's failure zone, in the form of RURALZ_ZONE: 1 to 63 characters from [a-z0-9-].",
+          "maxLength": 63,
+          "minLength": 1,
+          "pattern": "^[a-z0-9-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "host",
+        "zone"
+      ],
+      "type": "object"
     },
     "TLSVersion": {
       "description": "TLSVersion is a minimum TLS protocol version.",

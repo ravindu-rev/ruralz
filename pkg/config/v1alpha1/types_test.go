@@ -11,9 +11,10 @@ import (
 )
 
 // TestDecodeGatewayM1Fields decodes the fields M1 adds to Gateway:
-// stateStore.cache (OQ-scalability-and-distributed-state-3 (a)) and
+// stateStore.cache (OQ-scalability-and-distributed-state-3 (a)),
 // telemetry.otlp.tls with sni, caCertificate, clientCertificate and
-// clientKey (OQ-observability-2 (a)).
+// clientKey (OQ-observability-2 (a)), and the zone maps stateStore.zones
+// and stateStore.cache.zones, each the connection's own.
 func TestDecodeGatewayM1Fields(t *testing.T) {
 	const doc = `{
 	  "listeners": [{"name": "http", "protocol": "http", "port": 8080}],
@@ -33,7 +34,12 @@ func TestDecodeGatewayM1Fields(t *testing.T) {
 	    "driver": "redis",
 	    "url": {"secretRef": {"provider": "env", "name": "RURALZ_STATE_STORE_URL"}},
 	    "timeout": "50ms",
-	    "cache": {"topology": "cluster", "url": {"secretRef": {"provider": "env", "name": "RURALZ_CACHE_URL"}}}
+	    "zones": [{"host": "valkey-0.state.internal", "zone": "eu-west-1a"}, {"host": "10.0.2.15", "zone": "eu-west-1b"}],
+	    "cache": {
+	      "topology": "cluster",
+	      "url": {"secretRef": {"provider": "env", "name": "RURALZ_CACHE_URL"}},
+	      "zones": [{"host": "cache.state.internal", "zone": "eu-west-1a"}]
+	    }
 	  }
 	}`
 	var g GatewaySpec
@@ -54,6 +60,13 @@ func TestDecodeGatewayM1Fields(t *testing.T) {
 	}
 	if time.Duration(*g.StateStore.Timeout) != 50*time.Millisecond {
 		t.Fatalf("timeout = %v", *g.StateStore.Timeout)
+	}
+	want := []StateStoreZone{{Host: "valkey-0.state.internal", Zone: "eu-west-1a"}, {Host: "10.0.2.15", Zone: "eu-west-1b"}}
+	if z := g.StateStore.Zones; len(z) != len(want) || z[0] != want[0] || z[1] != want[1] {
+		t.Fatalf("stateStore.zones = %+v, want %+v", z, want)
+	}
+	if z := c.Zones; len(z) != 1 || z[0] != (StateStoreZone{Host: "cache.state.internal", Zone: "eu-west-1a"}) {
+		t.Fatalf("stateStore.cache.zones = %+v", z)
 	}
 }
 

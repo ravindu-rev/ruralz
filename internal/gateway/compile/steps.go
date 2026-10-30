@@ -99,7 +99,8 @@ func (b *build) resolve(ctx context.Context) (diag.List, error) {
 func (b *build) stores(ctx context.Context) (diag.List, error) {
 	spec, err := manager.SpecOf(b.gw.Spec.StateStore, b.secrets)
 	if err != nil {
-		// The schema and the resolution rule out every SpecOf error.
+		// The schema, stage H (the zone map hosts) and the resolution rule
+		// out every SpecOf error.
 		return nil, fmt.Errorf("compile: stateStore: %w", err)
 	}
 	spec.Limits, spec.Caches = b.limitPolicies, b.cachePolicies

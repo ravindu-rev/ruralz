@@ -104,6 +104,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 		noTrip()
 		return
 	}
+	zone := d.tripZone(tr)
 	if !d.launch(ctx, tr) {
 		d.putTrip(tr)
 		fail(calls, statestore.ErrFailed)
@@ -121,7 +122,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 				c.Err, c.Elapsed = statestore.ErrTimeout, elapsed
 			}
 		}
-		d.finishRead(stripe, statestore.ResultTimeout, elapsed, reads)
+		d.finishRead(stripe, zone, statestore.ResultTimeout, elapsed, reads)
 		return
 	}
 	if !d.parseLookups(ctx, tr, calls, elapsed) {
@@ -129,15 +130,15 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	}
 	tr.settle(true)
 	d.putTrip(tr)
-	d.finishRead(stripe, res, elapsed, reads)
+	d.finishRead(stripe, zone, res, elapsed, reads)
 }
 
 // finishRead records one attempted lookup round trip of reads key reads
 // (ruralz_state_ops_total{kind="cache_get"}: each HMGET and each GET of a
 // generation key).
-func (d *Driver) finishRead(stripe emit.Stripe, res statestore.Result, elapsed time.Duration, reads int) {
+func (d *Driver) finishRead(stripe emit.Stripe, zone int, res statestore.Result, elapsed time.Duration, reads int) {
 	d.count(stripe, emit.StateOpPipeline, res)
-	d.observe(stripe, emit.StateOpPipeline, elapsed)
+	d.observe(stripe, emit.StateOpPipeline, zone, elapsed)
 	d.countOps(stripe, emit.StateOpCacheGet, uint64(reads)) //nolint:gosec // G115: a small non-negative count
 }
 

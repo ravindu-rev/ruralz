@@ -117,13 +117,20 @@ type fakeOptions struct {
 	info string
 	// reject closes every connection once accepted.
 	reject bool
+	// host is the loopback address the server listens on; default
+	// 127.0.0.1.
+	host string
 }
 
 // newFakeServer starts a fake server on a loopback port; it closes when
 // t ends.
 func newFakeServer(t testing.TB, clk clock.Clock, o fakeOptions) *fakeServer {
 	t.Helper()
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	host := o.host
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", net.JoinHostPort(host, "0"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -396,14 +396,30 @@ ruralz_upstream_pool_connections{state="active",upstream="orders-svc"} 0 start=0
 ruralz_upstream_pool_connections{state="idle",upstream="users-svc"} 0 start=0s
 ruralz_upstream_pool_connections{state="active",upstream="users-svc"} 0 start=0s
 # ruralz_state_call_duration_seconds histogram s bounds=[1e-05 2.5e-05 5e-05 0.0001 0.00015 0.00025 0.0005 0.001 0.0025 0.005 0.01 0.025 0.1] cumulative=true
-ruralz_state_call_duration_seconds{op="gcra"} count=1 sum=0.0007 buckets=[0 0 0 0 0 0 0 1 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="quota"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="cache_get"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="script_multi"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="pipeline"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="cache_set"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="cache_invalidate"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
-ruralz_state_call_duration_seconds{op="refund"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="gcra",zone="same"} count=1 sum=0.0007 buckets=[0 0 0 0 0 0 0 1 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="gcra",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="gcra",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="quota",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="quota",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="quota",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_get",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_get",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_get",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="script_multi",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="script_multi",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="script_multi",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="pipeline",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="pipeline",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="pipeline",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_set",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_set",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_set",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_invalidate",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_invalidate",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="cache_invalidate",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="refund",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="refund",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="refund",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
 # ruralz_state_calls_total counter {calls} monotonic=true cumulative=true
 ruralz_state_calls_total{op="gcra",result="ok"} 1 start=0s
 ruralz_state_calls_total{op="gcra",result="error"} 0 start=0s
@@ -548,7 +564,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
 # ruralz_telemetry_series gauge {series}
-ruralz_telemetry_series{state="live"} 1296 start=0s
+ruralz_telemetry_series{state="live"} 1552 start=0s
 ruralz_telemetry_series{state="retiring"} 10 start=0s
 # ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
 ruralz_tap_events_dropped_total{} 0 start=0s

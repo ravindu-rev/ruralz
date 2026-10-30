@@ -95,7 +95,7 @@ func m1Families() []family {
 		{UpstreamDegradedInfo, Gauge, BoundsNone, "1", []string{"upstream", "reason=panic|discovery_stale|balancer_budget"}, U, false},
 		{UpstreamCELErrorsTotal, Counter, BoundsNone, "{errors}", []string{"upstream", "field=hashKey|retryOn|failureWhen"}, U, false},
 		{UpstreamPoolConnections, Gauge, BoundsNone, "{connections}", []string{"upstream", "state=idle|active"}, U, false},
-		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []string{"op=" + ops}, L, true},
+		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []string{"op=" + ops, "zone=same|cross|unknown"}, L, true},
 		{StateCallsTotal, Counter, BoundsNone, "{calls}", []string{"op=" + ops, "result=ok|error|timeout|skipped"}, L, true},
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []string{"kind=" + singleOps}, L, true},
 		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []string{"kind=refund|cache_set|cache_invalidate"}, L, false},
@@ -408,6 +408,36 @@ func TestOpsAndWriteKinds(t *testing.T) {
 		if !slices.Contains(Ops(), k) {
 			t.Errorf("write kind %s is not an op", k)
 		}
+	}
+}
+
+// TestStateZones checks the zone enumeration of
+// ruralz_state_call_duration_seconds: same, cross and unknown, in that
+// label order, after op, on the listener-class family that never folds, so
+// the SLO-GW-5 SLI (op="gcra", zone="same") is always exported.
+func TestStateZones(t *testing.T) {
+	want := []string{"same", "cross", "unknown"}
+	if !slices.Equal(Zones(), want) {
+		t.Fatalf("Zones = %v, want %v", Zones(), want)
+	}
+	f, ok := Lookup(StateCallDurationSeconds)
+	if !ok || f.Kind != Histogram || f.Class != ClassListener || len(f.Labels) != 2 {
+		t.Fatalf("family %+v", f)
+	}
+	if op, zone := f.Labels[0], f.Labels[1]; op.Name != "op" || zone.Name != "zone" || !slices.Equal(zone.Values, want) {
+		t.Fatalf("labels %+v, want op then zone=%v", f.Labels, want)
+	}
+	// Only the duration carries the zone: the call counters stay by op.
+	for _, name := range []string{StateCallsTotal, StateOpsTotal} {
+		g, _ := Lookup(name)
+		if slices.ContainsFunc(g.Labels, func(l Label) bool { return l.Name == "zone" }) {
+			t.Errorf("%s carries a zone label", name)
+		}
+	}
+	// Zones returns a fresh slice.
+	Zones()[0] = "changed"
+	if Zones()[0] != "same" {
+		t.Error("Zones returned shared state")
 	}
 }
 

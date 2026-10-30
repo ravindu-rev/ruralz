@@ -93,7 +93,7 @@ groups:
           dashboard: SLO burn rates
           summary: SLO-GW-2 (Gateway-added time within 1 ms) burns its 30-day error budget 6 times too fast over 6h and 30m
       - alert: RuralzErrorBudgetBurnPage
-        expr: '(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",le="0.001"}[1h])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra"}[1h]))) > 0.14 and (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",le="0.001"}[5m])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra"}[5m]))) > 0.14'
+        expr: '(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",zone="same",le="0.001"}[1h])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra",zone="same"}[1h]))) > 0.14 and (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",zone="same",le="0.001"}[5m])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra",zone="same"}[5m]))) > 0.14'
         labels:
           severity: page
           slo: SLO-GW-5
@@ -101,7 +101,7 @@ groups:
           dashboard: SLO burn rates
           summary: SLO-GW-5 (GCRA State Store round trips within 1 ms) burns its 30-day error budget 14 times too fast over 1h and 5m
       - alert: RuralzErrorBudgetBurnTicket
-        expr: '(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",le="0.001"}[6h])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra"}[6h]))) > 0.06 and (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",le="0.001"}[30m])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra"}[30m]))) > 0.06'
+        expr: '(1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",zone="same",le="0.001"}[6h])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra",zone="same"}[6h]))) > 0.06 and (1 - sum(rate(ruralz_state_call_duration_seconds_bucket{op="gcra",zone="same",le="0.001"}[30m])) / sum(rate(ruralz_state_call_duration_seconds_count{op="gcra",zone="same"}[30m]))) > 0.06'
         labels:
           severity: ticket
           slo: SLO-GW-5

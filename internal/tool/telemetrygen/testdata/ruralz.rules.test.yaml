@@ -502,18 +502,18 @@ tests:
               dashboard: SLO burn rates
               summary: SLO-GW-2 (Gateway-added time within 1 ms) burns its 30-day error budget 6 times too fast over 6h and 30m
 
-  # SLO-GW-5: slow GCRA round trips page; slow script_multi round trips are
-  # excluded from the SLI.
+  # SLO-GW-5: slow same-zone GCRA round trips page; slow script_multi round
+  # trips and cross- and unknown-zone calls are excluded from the SLI.
   - name: SLO-GW-5 burn rate
     interval: 1m
     input_series:
-      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",le="0.001"}'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",zone="same",le="0.001"}'
         values: '0+50x120'
-      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra"}'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra",zone="same"}'
         values: '0+100x120'
-      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",le="0.001"}'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",zone="same",le="0.001"}'
         values: '0x120'
-      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi"}'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi",zone="same"}'
         values: '0+100x120'
     alert_rule_test:
       - eval_time: 70m
@@ -528,13 +528,32 @@ tests:
   - name: SLO-GW-5 script_multi excluded
     interval: 1m
     input_series:
-      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",le="0.001"}'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",zone="same",le="0.001"}'
         values: '0+100x120'
-      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra"}'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra",zone="same"}'
         values: '0+100x120'
-      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",le="0.001"}'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="script_multi",zone="same",le="0.001"}'
         values: '0x120'
-      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi"}'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="script_multi",zone="same"}'
+        values: '0+100x120'
+    alert_rule_test:
+      - eval_time: 70m
+        alertname: RuralzErrorBudgetBurnPage
+        exp_alerts: []
+  - name: SLO-GW-5 cross- and unknown-zone calls excluded
+    interval: 1m
+    input_series:
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",zone="same",le="0.001"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra",zone="same"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",zone="cross",le="0.001"}'
+        values: '0x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra",zone="cross"}'
+        values: '0+100x120'
+      - series: 'ruralz_state_call_duration_seconds_bucket{instance="n1",op="gcra",zone="unknown",le="0.001"}'
+        values: '0x120'
+      - series: 'ruralz_state_call_duration_seconds_count{instance="n1",op="gcra",zone="unknown"}'
         values: '0+100x120'
     alert_rule_test:
       - eval_time: 70m

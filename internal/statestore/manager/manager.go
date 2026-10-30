@@ -73,6 +73,8 @@ type Config struct {
 	// Deps go to every driver and give the queue its clock, metrics and
 	// logger. A nil Clock is the real clock, a nil Logger discards, zero
 	// Limits are statestore.DefaultLimits; a nil Status records nothing.
+	// Zone is the Node's RURALZ_ZONE (setting.Settings.Zone), empty
+	// without one.
 	Deps statestore.Deps
 	// Openers open the drivers.
 	Openers Openers
@@ -110,6 +112,9 @@ func (hs Handles) Release() {
 type Handle struct {
 	m *Manager
 	e *entry
+	// view is the snapshot's view of a driver whose calls carry the zone
+	// label (statestore.ZoneSetter); nil for any other driver.
+	view *zoneView
 	// fallback, limits, caches and shared record what this snapshot's
 	// Revision uses (degraded reasons and warnings): limits a ratelimit or
 	// quota Policy on this driver, caches a cache Policy on it.
@@ -117,8 +122,16 @@ type Handle struct {
 	released                         atomic.Bool
 }
 
-// Store returns the driver.
-func (h *Handle) Store() statestore.Store { return h.e.driver }
+// Store returns the driver, or, for a driver whose calls carry the zone
+// label (statestore.ZoneSetter), the snapshot's view of it, which hands
+// the driver the snapshot's zone map at its first call (zoneView). One
+// handle always returns the same value.
+func (h *Handle) Store() statestore.Store {
+	if h.view != nil {
+		return h.view
+	}
+	return h.e.driver
+}
 
 // Enqueuer returns the post-commit queue's Enqueuer for the driver.
 func (h *Handle) Enqueuer() statestore.Enqueuer { return h.e.bind }
@@ -191,6 +204,75 @@ type entry struct {
 	// closing is set once its close starts. All are guarded by m.mu.
 	limits, caches int
 	closing        bool
+	// zoneSeq is the Acquire sequence number of the snapshot whose zone
+	// map the driver holds: the snapshot that opened it, or the newest
+	// whose view handed it its map since. zoneMu orders the handovers.
+	zoneMu  sync.Mutex
+	zoneSeq atomic.Uint64
+}
+
+// viewFor returns the view of e's driver for the snapshot acquired as
+// seq with zone map zones, or nil when the driver's calls carry no zone
+// label (the memory driver).
+func (e *entry) viewFor(seq uint64, zones statestore.Zones) *zoneView {
+	zs, ok := e.driver.(statestore.ZoneSetter)
+	if !ok {
+		return nil
+	}
+	return &zoneView{Store: e.driver, e: e, setter: zs, seq: seq, zones: zones}
+}
+
+// zoneView is one snapshot's view of a driver whose calls carry the zone
+// label (docs/architecture/11-scalability-and-distributed-state.md "State
+// client and RZ-STS error codes"): a Hot Reload keeps the driver when only
+// the zone map changes, and the changed map labels calls from the swap
+// on. The first call through the view hands the driver the snapshot's
+// zone map, unless the snapshot that opened the driver or a newer one
+// already handed it its own: a snapshot's Filters and revalidation
+// workers call the State Store only once it serves, so the map changes at
+// the first call after the swap, a snapshot that is never published never
+// changes it, and the calls of older snapshots still running after the
+// swap keep the newer map. Every other method is the driver's.
+type zoneView struct {
+	statestore.Store
+	e      *entry
+	setter statestore.ZoneSetter
+	seq    uint64
+	zones  statestore.Zones
+}
+
+// Consume adopts the snapshot's zone map, then runs the driver's Consume.
+func (v *zoneView) Consume(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) int {
+	v.adopt()
+	return v.Store.Consume(ctx, rb, calls)
+}
+
+// Read adopts the snapshot's zone map, then runs the driver's Read.
+func (v *zoneView) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
+	v.adopt()
+	v.Store.Read(ctx, rb, calls)
+}
+
+// Write adopts the snapshot's zone map, then runs the driver's Write.
+func (v *zoneView) Write(ctx context.Context, batch []*statestore.Write) {
+	v.adopt()
+	v.Store.Write(ctx, batch)
+}
+
+// adopt hands the driver the snapshot's zone map unless it holds the map
+// of this snapshot or of a newer one: one atomic load once the handover is
+// done, a lock only for the handover itself.
+func (v *zoneView) adopt() {
+	if v.e.zoneSeq.Load() >= v.seq {
+		return
+	}
+	v.e.zoneMu.Lock()
+	defer v.e.zoneMu.Unlock()
+	if v.e.zoneSeq.Load() >= v.seq {
+		return
+	}
+	v.setter.SetZones(v.zones)
+	v.e.zoneSeq.Store(v.seq)
 }
 
 // Write implements postcommit.Target.
@@ -251,6 +333,9 @@ type Manager struct {
 	shut    bool // Close is closing every driver
 	entries map[key]*entry
 	seq     uint64
+	// acquires numbers the Acquire calls, so the handles of a newer
+	// snapshot carry a greater sequence number (zoneView).
+	acquires uint64
 	// live counts drivers opened and not yet closed; drained closes when
 	// it is 0 after shut.
 	live          int
@@ -317,16 +402,20 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 		m.mu.Unlock()
 		return Handles{}, ErrClosed
 	}
-	me, err := m.entryLocked(ctx, mainCfg)
+	m.acquires++
+	seq := m.acquires
+	me, err := m.entryLocked(ctx, mainCfg, seq)
 	if err != nil {
 		m.mu.Unlock()
 		return Handles{}, err
 	}
 	ce := me
+	var cacheZones statestore.Zones
 	if spec.Cache != nil {
 		cacheCfg := *spec.Cache
 		cacheCfg.Role = statestore.RoleCache
-		if ce, err = m.entryLocked(ctx, cacheCfg); err != nil {
+		cacheZones = cacheCfg.Zones
+		if ce, err = m.entryLocked(ctx, cacheCfg, seq); err != nil {
 			m.mu.Unlock()
 			me.drop(ctx)
 			m.refresh()
@@ -334,7 +423,7 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 		}
 	}
 	main := &Handle{
-		m: m, e: me,
+		m: m, e: me, view: me.viewFor(seq, mainCfg.Zones),
 		fallback: mainCfg.Source == statestore.SourceFallback,
 		limits:   spec.Limits,
 		caches:   spec.Caches && ce == me,
@@ -343,7 +432,7 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 	hs := Handles{Main: main, Cache: main}
 	m.countLocked(main, 1)
 	if ce != me {
-		hs.Cache = &Handle{m: m, e: ce, caches: spec.Caches}
+		hs.Cache = &Handle{m: m, e: ce, view: ce.viewFor(seq, cacheZones), caches: spec.Caches}
 		m.countLocked(hs.Cache, 1)
 	}
 	m.mu.Unlock()
@@ -378,8 +467,10 @@ func (m *Manager) countLocked(h *Handle, d int) {
 	}
 }
 
-// entryLocked returns cfg's open entry with a new reference, or opens one.
-func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config) (*entry, error) {
+// entryLocked returns cfg's open entry with a new reference, or opens one
+// for the snapshot acquired as seq, whose zone map (cfg.Zones) the new
+// driver opens with.
+func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config, seq uint64) (*entry, error) {
 	k := keyOf(cfg)
 	if e := m.entries[k]; e != nil && e.Hold() {
 		return e, nil
@@ -397,6 +488,7 @@ func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config) (*entr
 	}
 	m.seq++
 	e := &entry{m: m, key: k, id: roleName(cfg.Role) + "-" + strconv.FormatUint(m.seq, 10), driver: d}
+	e.zoneSeq.Store(seq)
 	e.bind = m.queue.Bind(e)
 	e.refs.Store(1)
 	m.entries[k] = e

@@ -59,6 +59,7 @@ func TestLabelIndexes(t *testing.T) {
 		{catalog.UpstreamCELErrorsTotal, "field", map[int]string{CELHashKey: "hashKey", CELRetryOn: "retryOn", CELFailureWhen: "failureWhen"}, NumCELFields},
 		{catalog.UpstreamPoolConnections, "state", map[int]string{PoolIdle: "idle", PoolActive: "active"}, NumPoolStates},
 		{catalog.StateCallsTotal, "result", map[int]string{StateResultOK: "ok", StateResultError: "error", StateResultTimeout: "timeout", StateResultSkipped: "skipped"}, NumStateResults},
+		{catalog.StateCallDurationSeconds, "zone", map[int]string{StateZoneSame: "same", StateZoneCross: "cross", StateZoneUnknown: "unknown"}, NumStateZones},
 		{catalog.StateWritesDroppedTotal, "kind", map[int]string{WriteRefund: "refund", WriteCacheSet: "cache_set", WriteCacheInvalidate: "cache_invalidate"}, NumWriteKinds},
 	}
 	for _, tt := range tests {
@@ -140,7 +141,8 @@ func TestPhaseIndexes(t *testing.T) {
 		t.Fatal("PolicyMetrics arrays are not sized by phase.Count and NumModes")
 	}
 	var sm StateMetrics
-	if len(sm.Calls) != NumStateOps || len(sm.Calls[0]) != NumStateResults || len(sm.WritesDropped) != NumWriteKinds {
+	if len(sm.Calls) != NumStateOps || len(sm.Calls[0]) != NumStateResults || len(sm.WritesDropped) != NumWriteKinds ||
+		len(sm.CallDuration) != NumStateOps || len(sm.CallDuration[0]) != NumStateZones {
 		t.Fatal("StateMetrics arrays are not sized by the label constants")
 	}
 }

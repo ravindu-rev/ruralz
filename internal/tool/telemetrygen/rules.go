@@ -116,9 +116,10 @@ func slos() []slo {
 		},
 		sloGW3(),
 		{
-			// script_multi round trips are excluded by selecting op="gcra".
+			// script_multi round trips are excluded by selecting op="gcra",
+			// and cross and unknown calls by selecting zone="same".
 			id: "SLO-GW-5", title: "GCRA State Store round trips within 1 ms", objective: 99000,
-			good: withinBound(catalog.StateCallDurationSeconds, `op="gcra"`, 0.001),
+			good: withinBound(catalog.StateCallDurationSeconds, `op="gcra",zone="same"`, 0.001),
 		},
 		{
 			id: "SLO-GW-6", title: "Compile of up to 10,000 Routes within 2 s", objective: 99000,

@@ -81,6 +81,22 @@
 // connection error, an error reply such as NOSCRIPT or OOM, and an
 // unparsable reply are RZ-STS-002.
 //
+// Each round trip's duration in ruralz_state_call_duration_seconds
+// carries a zone label: the driver looks up the host of the server the
+// round trip goes to, the standalone endpoint, the cluster shard's primary
+// in the slot map or the primary the sentinels named last, in the
+// connection's zone map (statestore.Config.Zones, keyed by
+// netaddr.CanonicalHost) and compares its zone with the Node's RURALZ_ZONE
+// (statestore.Deps.Zone): same, cross, or unknown for a host without an
+// entry, a slot without a known owner or a Node without a zone. A slot map
+// change labels the slot's next call by its new primary; under sentinel,
+// every dial of the primary the sentinels named, and every maintenance
+// pass reading the primary the client sends to, moves the primary shard to
+// that server's zone. A pipelined round trip over several servers is cross
+// when any of them is, else unknown when any of them is. SetZones replaces
+// the zone map, which a Hot Reload may change without reopening the
+// driver, and touches no connection.
+//
 // Consume merges the longest prefix of calls sharing a hash slot into one
 // EVALSHA of the ruralz_v1.lua library (script_multi when longer than one).
 // Read pipelines a GET of the generation key and an HMGET of the partition

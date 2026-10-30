@@ -280,7 +280,7 @@ func TestHistogramInvariants(t *testing.T) {
 	pl, bind := admitBind(t, r, emit.Shape{Listeners: []string{"l"}})
 	defer bind.Release()
 	hists := map[string]emit.Histogram{
-		fmt.Sprintf(`%s{op="gcra"}`, catalog.StateCallDurationSeconds):                                r.Node().State.CallDuration[emit.StateOpGCRA],
+		fmt.Sprintf(`%s{op="gcra",zone="same"}`, catalog.StateCallDurationSeconds):                    r.Node().State.CallDuration[emit.StateOpGCRA][emit.StateZoneSame],
 		fmt.Sprintf(`%s{size_class="le1000",stage="total"}`, catalog.ConfigActivationDurationSeconds): r.Node().Config.ActivationDuration("total", "le1000"),
 		fmt.Sprintf(`%s{listener="l"}`, catalog.HTTPRequestBodyBytes):                                 pl.Listener("l").RequestBody,
 		fmt.Sprintf(`%s{listener="l"}`, catalog.ListenerTLSHandshakeDurationSeconds):                  pl.Listener("l").TLSHandshake,

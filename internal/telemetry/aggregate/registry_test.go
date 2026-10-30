@@ -57,6 +57,10 @@ func TestNodeSeriesPrecreatedAtZero(t *testing.T) {
 	if got := len(familySeries(pts, catalog.StateCallsTotal)); got != emit.NumStateOps*emit.NumStateResults {
 		t.Errorf("state calls series = %d, want %d", got, emit.NumStateOps*emit.NumStateResults)
 	}
+	// One duration label set per op and zone, exported from start.
+	if got := len(familySeries(pts, catalog.StateCallDurationSeconds)); got != emit.NumStateOps*emit.NumStateZones {
+		t.Errorf("state call duration label sets = %d, want %d", got, emit.NumStateOps*emit.NumStateZones)
+	}
 	if got := len(familySeries(pts, catalog.ConfigActivationDurationSeconds)); got != 15 {
 		t.Errorf("activation duration label sets = %d, want 15", got)
 	}
@@ -97,8 +101,8 @@ func TestRuntimeMetrics(t *testing.T) {
 }
 
 // The State Store handles are fixed arrays indexed by emit.StateOp*,
-// emit.StateResult* and emit.Write*, each index labeled with the catalog
-// value at that position.
+// emit.StateZone*, emit.StateResult* and emit.Write*, each index labeled
+// with the catalog value at that position.
 func TestStateMetricsIndexes(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)
 	st := r.Node().State
@@ -108,7 +112,12 @@ func TestStateMetricsIndexes(t *testing.T) {
 			st.Calls[op][res].Add(0, uint64(1+op*10+res))
 		}
 		st.Ops[op].Add(1, uint64(100+op))
-		st.CallDuration[op].Record(2, uint64(op+1)*1000)
+		for zone := range emit.NumStateZones {
+			// zone+1 observations of (op+1) µs each.
+			for range zone + 1 {
+				st.CallDuration[op][zone].Record(2, uint64(op+1)*1000)
+			}
+		}
 	}
 	for k := range emit.NumWriteKinds {
 		st.WritesDropped[k].Add(3, uint64(1000+k))
@@ -126,9 +135,12 @@ func TestStateMetricsIndexes(t *testing.T) {
 		if got := mustGet(t, pts, key).value; got != float64(100+op) {
 			t.Errorf("%s = %v", key, got)
 		}
-		key = fmt.Sprintf(`%s{op=%q}`, catalog.StateCallDurationSeconds, opName)
-		if p := mustGet(t, pts, key); p.count != 1 || !approx(p.sum, float64(op+1)*1e-6) {
-			t.Errorf("%s = count %d sum %v", key, p.count, p.sum)
+		for zone, zoneName := range catalog.Zones() {
+			key = fmt.Sprintf(`%s{op=%q,zone=%q}`, catalog.StateCallDurationSeconds, opName, zoneName)
+			n := uint64(zone + 1)
+			if p := mustGet(t, pts, key); p.count != n || !approx(p.sum, float64(n)*float64(op+1)*1e-6) {
+				t.Errorf("%s = count %d sum %v, want count %d", key, p.count, p.sum, n)
+			}
 		}
 	}
 	for k, kind := range catalog.WriteKinds() {
@@ -394,7 +406,7 @@ func TestNodeAccessors(t *testing.T) {
 		{"value count", func() error { _, err := r.Gauge(catalog.NodeDegradedInfo); return err }, ErrLabelValues},
 		{"gauge as counter", func() error { _, err := r.Counter(catalog.NodeDegradedInfo, "lkg_boot"); return err }, ErrNotNodeFamily},
 		{"counter as gauge", func() error { _, err := r.Gauge(catalog.TelemetrySpansTotal); return err }, ErrNotNodeFamily},
-		{"histogram as counter", func() error { _, err := r.Counter(catalog.StateCallDurationSeconds, "gcra"); return err }, ErrNotNodeFamily},
+		{"histogram as counter", func() error { _, err := r.Counter(catalog.StateCallDurationSeconds, "gcra", "same"); return err }, ErrNotNodeFamily},
 		{"func on counter", func() error { return r.GaugeFunc(catalog.TelemetrySpansTotal, nil, func() int64 { return 1 }) }, ErrNotNodeFamily},
 		{"func bad value", func() error { return r.GaugeFunc(catalog.NodeDegradedInfo, []string{"x"}, nil) }, ErrLabelValues},
 	}

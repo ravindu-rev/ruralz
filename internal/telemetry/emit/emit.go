@@ -249,6 +249,15 @@ const (
 	NumStateResults
 )
 
+// State Store call zones, in catalog.Zones() order: same, cross, unknown.
+// They index the second dimension of StateMetrics.CallDuration.
+const (
+	StateZoneSame = iota
+	StateZoneCross
+	StateZoneUnknown
+	NumStateZones
+)
+
 // Post-commit write kinds, in catalog.WriteKinds() order: refund,
 // cache_set, cache_invalidate.
 const (
@@ -330,9 +339,11 @@ type UpstreamMetrics struct {
 }
 
 // StateMetrics are the State Store handles, indexed by the StateOp*,
-// StateResult* and Write* constants (never by statestore.OpKind values).
+// StateZone*, StateResult* and Write* constants (never by
+// statestore.OpKind values).
 type StateMetrics struct {
-	CallDuration  [NumStateOps]Histogram
+	// CallDuration is ruralz_state_call_duration_seconds by op and zone.
+	CallDuration  [NumStateOps][NumStateZones]Histogram
 	Calls         [NumStateOps][NumStateResults]Counter
 	Ops           [NumStateOps]Counter // by kind (single-operation ops)
 	WritesDropped [NumWriteKinds]Counter

@@ -170,6 +170,7 @@ func (d *Driver) writeRound(ctx context.Context, batch []*statestore.Write, step
 		d.putTrip(tr)
 		return false
 	}
+	zone := d.tripZone(tr)
 	if !d.launch(ctx, tr) {
 		d.putTrip(tr)
 		skipRound(statestore.ErrFailed)
@@ -217,7 +218,7 @@ func (d *Driver) writeRound(ctx context.Context, batch []*statestore.Write, step
 		d.putTrip(tr)
 	}
 	d.count(0, label, res)
-	d.observe(0, label, elapsed)
+	d.observe(0, label, zone, elapsed)
 	return pending
 }
 

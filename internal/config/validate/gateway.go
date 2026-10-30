@@ -4,12 +4,15 @@
 package validate
 
 import (
+	"cmp"
+	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/clientaddr"
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/netaddr"
 	"github.com/ravindu-rev/ruralz/internal/routematch"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -17,8 +20,9 @@ import (
 
 // gateway checks the Gateway rules a Node would otherwise refuse or
 // ignore at activation: listener ports, listener TLS, listener hostnames,
-// trustedProxies, the OTLP endpoint and client TLS, and the client pairs
-// of stateStore.tls and stateStore.cache.tls.
+// trustedProxies, the OTLP endpoint and client TLS, the client pairs of
+// stateStore.tls and stateStore.cache.tls, and the zone maps
+// stateStore.zones and stateStore.cache.zones.
 func (u *unit) gateway() {
 	g, ok := hub.Object[v1alpha1.Gateway](u.r)
 	if !ok || g == nil {
@@ -39,16 +43,93 @@ func (u *unit) gateway() {
 		u.otlp(t.OTLP)
 	}
 	if s := g.Spec.StateStore; s != nil {
+		base := specPath(diag.Field("stateStore"))
 		// stateStore.tls and stateStore.cache.tls take the client pair rule
 		// of the other client TLS blocks; their cleartext-URL conflict
 		// needs the resolved URL, so the Node checks it (RZ-CFG-042).
 		if s.TLS != nil {
-			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("tls")), s.TLS.ClientCertificate, s.TLS.ClientKey)
+			u.clientPair(base.Append(diag.Field("tls")), s.TLS.ClientCertificate, s.TLS.ClientKey)
 		}
-		if c := s.Cache; c != nil && c.TLS != nil {
-			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("cache"), diag.Field("tls")), c.TLS.ClientCertificate, c.TLS.ClientKey)
+		u.zones("stateStore.zones", base, s.Zones)
+		u.zonesDriver(base, s)
+		if c := s.Cache; c != nil {
+			cache := base.Append(diag.Field("cache"))
+			if c.TLS != nil {
+				u.clientPair(cache.Append(diag.Field("tls")), c.TLS.ClientCertificate, c.TLS.ClientKey)
+			}
+			// The cache connection is always redis, whatever the main
+			// driver: its zone map needs no driver check.
+			u.zones("stateStore.cache.zones", cache, c.Zones)
 		}
 	}
+}
+
+// zones checks one connection's zone map (stateStore.zones or
+// stateStore.cache.zones, named by field) under base: each host a
+// hostname or an IP literal, in the form the State client looks hosts up
+// in (netaddr.CanonicalHost), and named once in the map after case
+// folding and IP canonicalization. Two hosts equal as written are
+// duplicate keyed-list entries, which stage F reports first; a host in
+// both maps is each connection's own and no finding. An entry for a host
+// the connection never dials is no finding either: URLs are secrets, and
+// cluster and sentinel hosts appear only at run time. Of two entries
+// naming one host, the later in the source is the finding, whatever the
+// key order of the map list.
+func (u *unit) zones(field string, base diag.Path, zones []v1alpha1.StateStoreZone) {
+	type entry struct {
+		written, host string
+		path          diag.Path
+		loc           diag.Location
+	}
+	valid := make([]entry, 0, len(zones))
+	for _, z := range zones {
+		u.w.charge(1)
+		hp := base.Append(diag.Field("zones"), diag.Keyed("host", z.Host), diag.Field("host"))
+		host, err := netaddr.CanonicalHost(z.Host)
+		if err != nil {
+			u.report(CodeSchema, hp, field+" host "+quote(z.Host)+" is neither a hostname nor an IP literal",
+				"write the host alone, as the URL names it or the topology announces it, without a port or brackets", nil)
+			continue
+		}
+		valid = append(valid, entry{written: z.Host, host: host, path: hp, loc: u.f.path(hp)})
+	}
+	slices.SortStableFunc(valid, func(a, b entry) int {
+		return cmp.Or(strings.Compare(a.loc.File, b.loc.File), cmp.Compare(a.loc.Line, b.loc.Line), cmp.Compare(a.loc.Column, b.loc.Column))
+	})
+	first := make(map[string]entry, len(valid))
+	for _, e := range valid {
+		if f, dup := first[e.host]; dup {
+			u.reportAt(CodeSchema, e.path, e.loc, field+" names host "+quote(e.written)+" twice, first as "+quote(f.written),
+				"name each host once: hosts compare case-insensitively and IP literals in canonical form",
+				[]diag.Related{{Location: f.loc, Message: "first named in"}})
+			continue
+		}
+		first[e.host] = e
+	}
+}
+
+// zonesDriver checks that stateStore.zones has entries only beside driver
+// redis: the memory driver has no servers, so its zone map could never
+// apply. The driver is the materialized default memory when unset.
+func (u *unit) zonesDriver(base diag.Path, s *v1alpha1.StateStore) {
+	if len(s.Zones) == 0 {
+		return
+	}
+	driver := v1alpha1.StateStoreDriverMemory
+	if s.Driver != nil {
+		driver = *s.Driver
+	}
+	if driver == v1alpha1.StateStoreDriverRedis {
+		return
+	}
+	dp := base.Append(diag.Field("driver"))
+	msg := "stateStore.zones applies to driver redis only, and this State Store uses the default driver " + string(driver)
+	var related []diag.Related
+	if n := u.f.node(dp); n != nil && n.Style != tree.StyleDefaulted {
+		msg = "stateStore.zones applies to driver redis only, and this State Store uses driver " + string(driver)
+		related = []diag.Related{{Location: u.f.path(dp), Message: "driver set in"}}
+	}
+	u.report(CodeSchema, base.Append(diag.Field("zones")), msg, "remove zones or use driver redis", related)
 }
 
 // otlp checks the OTLP exporter: an endpoint the Node's telemetry

@@ -103,7 +103,7 @@ func TestTimeoutHoldsInFlightUntilReply(t *testing.T) {
 	if c.Err != statestore.ErrTimeout || c.Done || c.Elapsed != callTO {
 		t.Fatalf("held reply: Done %v Err %v Elapsed %v, want RZ-STS-001 after %v", c.Done, c.Err, c.Elapsed, callTO)
 	}
-	if f.m.call(emit.StateOpGCRA, statestore.ResultTimeout) != 1 || f.m.dur[emit.StateOpGCRA].n.Load() != 1 {
+	if f.m.call(emit.StateOpGCRA, statestore.ResultTimeout) != 1 || f.m.durs(emit.StateOpGCRA) != 1 {
 		t.Fatal("the timeout is not counted with its duration")
 	}
 	if f.gate.Len() != 1 {

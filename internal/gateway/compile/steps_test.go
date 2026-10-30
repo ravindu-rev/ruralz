@@ -6,6 +6,7 @@ package compile
 import (
 	"context"
 	"errors"
+	"maps"
 	"slices"
 	"strings"
 	"testing"
@@ -237,5 +238,30 @@ func TestStateStoreSpec(t *testing.T) {
 		policyDoc("hdr", "headers", headersConfig, ""), policyDoc("rl", "ratelimit", rateLimitConfig, "")), nil)
 	if spec, _ := h.stores.last(); spec.Limits || spec.Caches {
 		t.Errorf("Spec = limits %v, caches %v; want neither, as no Route reaches rl", spec.Limits, spec.Caches)
+	}
+}
+
+// TestStateStoreZonesSpec covers the zone maps the compile hands the State
+// Store manager: stateStore.zones for the main connection and
+// stateStore.cache.zones for the cache connection, each its own, keyed by
+// netaddr.CanonicalHost so hosts compare case-insensitively and IP
+// literals in canonical form.
+func TestStateStoreZonesSpec(t *testing.T) {
+	h := newHarness(t)
+	h.env.set("RURALZ_SECRET_REDIS", "redis://u:p@main.internal:6379")
+	h.env.set("RURALZ_SECRET_CACHE", "redis://u:p@cache.internal:6379")
+	h.mustCompile(h.validate(
+		gateway("  stateStore:\n    driver: redis\n    url: {secretRef: {provider: env, name: RURALZ_SECRET_REDIS}}\n"+
+			"    zones:\n      - {host: Main.INTERNAL, zone: eu-west-1a}\n      - {host: \"2001:0DB8::1\", zone: eu-west-1b}\n"+
+			"    cache:\n      url: {secretRef: {provider: env, name: RURALZ_SECRET_CACHE}}\n"+
+			"      zones: [{host: cache.internal, zone: eu-west-1b}]\n"),
+		upstreamDoc("up", "127.0.0.1:9000", ""), routeDoc("r", "/", "up", ""),
+	), nil)
+	spec, _ := h.stores.last()
+	if want := (statestore.Zones{"main.internal": "eu-west-1a", "2001:db8::1": "eu-west-1b"}); !maps.Equal(spec.Main.Zones, want) {
+		t.Errorf("main zones = %v, want %v", spec.Main.Zones, want)
+	}
+	if spec.Cache == nil || !maps.Equal(spec.Cache.Zones, statestore.Zones{"cache.internal": "eu-west-1b"}) {
+		t.Errorf("cache = %+v, want the cache connection's own zone map", spec.Cache)
 	}
 }

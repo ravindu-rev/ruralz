@@ -94,6 +94,12 @@ func (d *Driver) dial(ctx context.Context, dst string, dialer *net.Dialer, tlsCf
 		if d.unmapped != nil && d.loadClient() == nil {
 			d.unmapped.brk.ConnectSucceeded()
 		}
+		if d.topo == statestore.TopologySentinel {
+			// Every other connection of the sentinel topology goes to the
+			// primary the sentinels named: its host labels the primary
+			// shard's calls from this answer on.
+			d.single.setHost(dst)
+		}
 	}
 	tc := &trackedConn{Conn: nc, d: d, sh: sh, sentinel: sentinel}
 	if !d.conns.add(tc) {

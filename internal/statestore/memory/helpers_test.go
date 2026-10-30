@@ -40,7 +40,7 @@ func (h *histogram) RecordExemplar(emit.Stripe, uint64, emit.Exemplar) { h.n.Add
 type metrics struct {
 	calls [emit.NumStateOps][emit.NumStateResults]counter
 	ops   [emit.NumStateOps]counter
-	dur   [emit.NumStateOps]histogram
+	dur   [emit.NumStateOps][emit.NumStateZones]histogram
 }
 
 func newMetrics() *metrics { return &metrics{} }
@@ -52,7 +52,9 @@ func (m *metrics) handles() *emit.StateMetrics {
 			h.Calls[op][r] = &m.calls[op][r]
 		}
 		h.Ops[op] = &m.ops[op]
-		h.CallDuration[op] = &m.dur[op]
+		for z := range emit.NumStateZones {
+			h.CallDuration[op][z] = &m.dur[op][z]
+		}
 	}
 	return h
 }
@@ -61,7 +63,9 @@ func (m *metrics) handles() *emit.StateMetrics {
 func (m *metrics) durations() uint64 {
 	var t uint64
 	for i := range m.dur {
-		t += m.dur[i].n.Load()
+		for z := range m.dur[i] {
+			t += m.dur[i][z].n.Load()
+		}
 	}
 	return t
 }

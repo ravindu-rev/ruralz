@@ -30,6 +30,12 @@ type shard struct {
 	id string
 	// addr is host:port as rueidis dials it; never logged.
 	addr string
+	// host is the netaddr.CanonicalHost form of the shard's server host,
+	// which its calls' zone label looks up in the zone map: addr's host,
+	// or for the sentinel topology's primary shard the host of the
+	// primary the sentinels named last; nil without a server (the
+	// unmapped and overflow shards, a sentinel primary not yet named).
+	host atomic.Pointer[string]
 
 	brk  *breaker.Breaker
 	pace *breaker.Pacer
@@ -109,6 +115,7 @@ func (d *Driver) shardAt(addr string) *shard {
 		return r.overflow
 	}
 	sh := d.newShard(addr)
+	sh.setHost(addr)
 	r.byAddr[addr] = sh
 	return sh
 }

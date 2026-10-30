@@ -174,6 +174,14 @@ func Ops() []string {
 // WriteKinds returns the dropped-write kinds of M1.
 func WriteKinds() []string { return []string{"refund", "cache_set", "cache_invalidate"} }
 
+// Zones returns the zone values of ruralz_state_call_duration_seconds in
+// label order, a closed enumeration that operator settings decide, never
+// requests: the server a call went to is in the Node's RURALZ_ZONE, in
+// another zone, or either zone is unknown
+// (docs/architecture/11-scalability-and-distributed-state.md "State client
+// and RZ-STS error codes").
+func Zones() []string { return []string{"same", "cross", "unknown"} }
+
 // BasicRefusalCauses returns the cause values of
 // ruralz_auth_basic_refusals_total in label order: the auth.basic throttle
 // refused an attempt before any hash because the hash queue was full or
@@ -260,7 +268,7 @@ func Families() []Family {
 		{UpstreamDegradedInfo, Gauge, BoundsNone, "1", []Label{up, {Name: "reason", Values: []string{"panic", "discovery_stale", "balancer_budget"}}}, ClassUpstream, false},
 		{UpstreamCELErrorsTotal, Counter, BoundsNone, "{errors}", []Label{up, {Name: "field", Values: []string{"hashKey", "retryOn", "failureWhen"}}}, ClassUpstream, false},
 		{UpstreamPoolConnections, Gauge, BoundsNone, "{connections}", []Label{up, {Name: "state", Values: []string{"idle", "active"}}}, ClassUpstream, false},
-		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []Label{{Name: "op", Values: Ops()}}, ClassListener, true},
+		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []Label{{Name: "op", Values: Ops()}, {Name: "zone", Values: Zones()}}, ClassListener, true},
 		{StateCallsTotal, Counter, BoundsNone, "{calls}", []Label{{Name: "op", Values: Ops()}, {Name: "result", Values: []string{"ok", "error", "timeout", "skipped"}}}, ClassListener, true},
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []Label{{Name: "kind", Values: Ops()}}, ClassListener, true},
 		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []Label{{Name: "kind", Values: WriteKinds()}}, ClassListener, false},

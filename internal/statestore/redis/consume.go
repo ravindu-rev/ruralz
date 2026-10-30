@@ -180,6 +180,7 @@ func (d *Driver) consume(ctx context.Context, rb *statestore.RequestBudget, grou
 		skip(err)
 		return
 	}
+	zone := d.tripZone(tr)
 	if !d.launch(ctx, tr) {
 		d.putTrip(tr)
 		skip(statestore.ErrFailed)
@@ -190,7 +191,7 @@ func (d *Driver) consume(ctx context.Context, rb *statestore.RequestBudget, grou
 		for _, c := range group {
 			c.Err, c.Elapsed = statestore.ErrTimeout, elapsed
 		}
-		d.finishConsume(stripe, label, group, statestore.ResultTimeout, elapsed)
+		d.finishConsume(stripe, label, zone, group, statestore.ResultTimeout, elapsed)
 		return
 	}
 	res := statestore.ResultOK
@@ -215,13 +216,13 @@ func (d *Driver) consume(ctx context.Context, rb *statestore.RequestBudget, grou
 	}
 	tr.settle(true)
 	d.putTrip(tr)
-	d.finishConsume(stripe, label, group, res, elapsed)
+	d.finishConsume(stripe, label, zone, group, res, elapsed)
 }
 
 // finishConsume records one attempted consumptive round trip.
-func (d *Driver) finishConsume(stripe emit.Stripe, label int, group []*statestore.Call, res statestore.Result, elapsed time.Duration) {
+func (d *Driver) finishConsume(stripe emit.Stripe, label, zone int, group []*statestore.Call, res statestore.Result, elapsed time.Duration) {
 	d.count(stripe, label, res)
-	d.observe(stripe, label, elapsed)
+	d.observe(stripe, label, zone, elapsed)
 	for _, c := range group {
 		d.countOps(stripe, c.Kind.Label(), 1)
 	}

@@ -11,12 +11,15 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/ravindu-rev/ruralz/api/schema"
 	"github.com/ravindu-rev/ruralz/internal/egress"
 	"github.com/ravindu-rev/ruralz/internal/nodedir"
 )
@@ -107,6 +110,7 @@ func TestLoadValid(t *testing.T) {
 		EnvAdminTLSDir, filepath.Join(f.base, "admin", "tls")+"/",
 		EnvStateStoreMACKeyFile, f.key,
 		EnvStateStoreURL, "redis://user:pw@127.0.0.1:6379",
+		EnvZone, "eu-west-1a",
 	).lookup)
 	if err != nil {
 		t.Fatal(err)
@@ -122,6 +126,7 @@ func TestLoadValid(t *testing.T) {
 		AdminMetricsTokenFile: filepath.Join(f.base, "admin", "metrics.token"),
 		AdminTLSDir:           filepath.Join(f.base, "admin", "tls"),
 		MACKeyFile:            f.key,
+		Zone:                  "eu-west-1a",
 	}
 	key := s.MACKey
 	s.MACKey = MACKey{}
@@ -142,7 +147,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if s.Mode != ModeFile || s.Config != "/srv/bundle" || s.DataDir != DefaultDataDir ||
 		s.LogLevel != LogInfo || s.SecretRoot != DefaultSecretRoot || s.MACKey.IsSet() ||
-		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" {
+		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" || s.Zone != "" {
 		t.Fatalf("Load = %+v", s)
 	}
 	if DefaultDataDir != nodedir.DefaultRoot {
@@ -315,6 +320,20 @@ func TestLoadExit2(t *testing.T) {
 		{name: "mac key empty", env: good.with(EnvStateStoreMACKeyFile, empty), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyShort},
 		{name: "mac key too large", env: good.with(EnvStateStoreMACKeyFile, long), setting: EnvStateStoreMACKeyFile, want: ErrMACKeyLong},
 		{name: "mac key inside root", env: good.with(EnvStateStoreMACKeyFile, insideKey), setting: EnvStateStoreMACKeyFile, want: ErrInsideSecretRoot},
+		// RURALZ_ZONE: 1 to 63 characters from [a-z0-9-].
+		{name: "zone", env: good.with(EnvZone, "eu-west-1a"), want: nil},
+		{name: "zone one character", env: good.with(EnvZone, "a"), want: nil},
+		{name: "zone digits and hyphens", env: good.with(EnvZone, "-0-"), want: nil},
+		{name: "zone 63 characters", env: good.with(EnvZone, strings.Repeat("z", 63)), want: nil},
+		{name: "zone empty is unset", env: good.with(EnvZone, ""), want: nil},
+		{name: "zone 64 characters", env: good.with(EnvZone, strings.Repeat("z", 64)), setting: EnvZone, want: ErrZone, msg: "1 to 63 characters"},
+		{name: "zone uppercase", env: good.with(EnvZone, "EU-west-1a"), setting: EnvZone, want: ErrZone, msg: `got "EU-west-1a"`},
+		{name: "zone underscore", env: good.with(EnvZone, "eu_west_1a"), setting: EnvZone, want: ErrZone},
+		{name: "zone dot", env: good.with(EnvZone, "eu.west"), setting: EnvZone, want: ErrZone},
+		{name: "zone blank", env: good.with(EnvZone, " "), setting: EnvZone, want: ErrZone},
+		{name: "zone trailing newline", env: good.with(EnvZone, "lab-a\n"), setting: EnvZone, want: ErrZone},
+		{name: "zone non-ASCII", env: good.with(EnvZone, "zoné"), setting: EnvZone, want: ErrZone},
+		{name: "zone long echo bounded", env: good.with(EnvZone, strings.Repeat("Z", 200)), setting: EnvZone, want: ErrZone, msg: `..."`},
 		// M2 settings only warn.
 		{name: "M2 settings set", env: good.with(EnvTrustPolicyFile, "p", EnvEnrollmentTokenFile, "/run/enroll", EnvRegistryAuthFile, "a"), want: nil},
 	}
@@ -454,6 +473,7 @@ func TestLoadReportsEverySetting(t *testing.T) {
 		EnvFetchAllow:           "nope",
 		EnvStateStoreMACKeyFile: "rel",
 		EnvAdminTLSDir:          "tls",
+		EnvZone:                 "Zone A",
 	}.lookup)
 	var got []string
 	for _, e := range err.(interface{ Unwrap() []error }).Unwrap() {
@@ -463,7 +483,7 @@ func TestLoadReportsEverySetting(t *testing.T) {
 		}
 		got = append(got, se.Setting)
 	}
-	want := []string{EnvConfig, EnvLogLevel, EnvFetchAllow, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvDataDir}
+	want := []string{EnvConfig, EnvLogLevel, EnvFetchAllow, EnvZone, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvDataDir}
 	if !slices.Equal(got, want) {
 		t.Fatalf("settings reported %v, want %v", got, want)
 	}
@@ -576,7 +596,7 @@ func TestExitCode(t *testing.T) {
 	if (&Error{Err: ErrUsage}).Error() != ErrUsage.Error() {
 		t.Error("usage error text")
 	}
-	if !strings.HasPrefix(Usage, "usage: ruralzd\n") || !strings.Contains(Usage, EnvStateStoreMACKeyFile) {
+	if !strings.HasPrefix(Usage, "usage: ruralzd\n") || !strings.Contains(Usage, EnvStateStoreMACKeyFile) || !strings.Contains(Usage, EnvZone) {
 		t.Error("Usage text")
 	}
 }
@@ -599,14 +619,15 @@ func TestModeAndLevelStrings(t *testing.T) {
 func TestLoadOSEnvironment(t *testing.T) {
 	for _, name := range []string{
 		EnvConfig, EnvDataDir, EnvLogLevel, EnvSecretRoot, EnvFetchAllow,
-		EnvAdminTokenFile, EnvAdminMetricsTokenFile, EnvAdminTLSDir, EnvStateStoreMACKeyFile,
+		EnvAdminTokenFile, EnvAdminMetricsTokenFile, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvZone,
 		EnvTrustPolicyFile, EnvEnrollmentTokenFile, EnvRegistryAuthFile,
 	} {
 		t.Setenv(name, "")
 	}
 	t.Setenv(EnvConfig, "/srv/os-bundle")
+	t.Setenv(EnvZone, "lab-a")
 	s, err := Load(nil, nil)
-	if err != nil || s.Config != "/srv/os-bundle" {
+	if err != nil || s.Config != "/srv/os-bundle" || s.Zone != "lab-a" {
 		t.Fatalf("Load = %+v, %v", s, err)
 	}
 }
@@ -640,6 +661,66 @@ func FuzzLoadFetchAllow(f *testing.F) {
 			if !errors.As(err, &se) || se.Setting != EnvFetchAllow || !errors.Is(err, ErrFetchAllow) {
 				t.Fatalf("error %v does not name %s with ErrFetchAllow", err, EnvFetchAllow)
 			}
+		}
+	})
+}
+
+// zoneKeywords returns the pattern, minLength and maxLength of the zone of
+// a State Store zone map entry in the embedded rendered schema.
+func zoneKeywords(t testing.TB) (*regexp.Regexp, int, int) {
+	t.Helper()
+	var doc struct {
+		Defs map[string]struct {
+			Properties map[string]struct {
+				Pattern   string `json:"pattern"`
+				MinLength int    `json:"minLength"`
+				MaxLength int    `json:"maxLength"`
+			} `json:"properties"`
+		} `json:"$defs"`
+	}
+	if err := json.Unmarshal(schema.RenderedV1alpha1(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	z, ok := doc.Defs["StateStoreZone"].Properties["zone"]
+	if !ok || z.Pattern == "" || z.MaxLength == 0 {
+		t.Fatalf("the rendered schema has no StateStoreZone zone keywords: %+v", z)
+	}
+	return regexp.MustCompile(z.Pattern), z.MinLength, z.MaxLength
+}
+
+// FuzzZoneMatchesSchema keeps RURALZ_ZONE in the form of the zones of
+// Gateway spec.stateStore.zones and spec.stateStore.cache.zones (foundation
+// pack section 2; the configuration model "Gateway"): Load accepts a set
+// value exactly when the schema's pattern, minLength and maxLength accept
+// it as a zone, keeps it verbatim, and refuses every other value with an
+// *Error naming the setting and wrapping ErrZone.
+func FuzzZoneMatchesSchema(f *testing.F) {
+	pattern, minLen, maxLen := zoneKeywords(f)
+	for _, s := range []string{
+		"a", "eu-west-1a", "-", "0", strings.Repeat("a", 63), strings.Repeat("a", 64), "A", "a_b", "a.b", "a b",
+		" a", "a\n", "zoné", "\x00", "lab-a\r",
+	} {
+		f.Add(s)
+	}
+	f.Fuzz(func(t *testing.T, v string) {
+		if v == "" {
+			return // unset
+		}
+		n := utf8.RuneCountInString(v)
+		schemaOK := pattern.MatchString(v) && n >= minLen && n <= maxLen
+		s, err := Load(nil, env{EnvConfig: "/srv/bundle", EnvZone: v}.lookup)
+		if (err == nil) != schemaOK {
+			t.Fatalf("RURALZ_ZONE=%q: Load error %v, schema accepts %v", v, err, schemaOK)
+		}
+		if err == nil {
+			if s.Zone != v {
+				t.Fatalf("RURALZ_ZONE=%q: Zone = %q", v, s.Zone)
+			}
+			return
+		}
+		var se *Error
+		if !errors.As(err, &se) || se.Setting != EnvZone || !errors.Is(err, ErrZone) {
+			t.Fatalf("error %v does not name %s with ErrZone", err, EnvZone)
 		}
 	})
 }
