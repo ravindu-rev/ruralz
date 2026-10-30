@@ -193,10 +193,9 @@ supply-chain: $(GOVULNCHECK) ## Stage 6: go mod verify, govulncheck, G2, G3, Raf
 	$(GOVULNCHECK) ./...
 	go run ./internal/tool/depgate
 
-# Stage 8 checks the systemd unit with systemd-analyze verify, which needs
-# the unit's executables: it checks a copy whose /usr/local/bin/ paths name
-# the helper and an empty stand-in for ruralzd.
-integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag integration), State Store flavors, promtool rules, systemd unit and Dockerfile checks
+# Stage 8's go test includes test/t5's unit check: systemd-analyze verify of
+# the systemd unit and systemd-sysusers with its sysusers.d entry.
+integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag integration, test/t5's systemd unit check included), State Store flavors, promtool rules, Dockerfile check
 	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./...
 	if [[ ! -f deploy/container/Dockerfile ]]; then \
 		echo "integration: skip Dockerfile check: deploy/container/Dockerfile is not present yet"; \
@@ -204,15 +203,6 @@ integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag int
 		echo "integration: skip Dockerfile check: no Docker daemon"; \
 	else \
 		docker buildx build --check -f deploy/container/Dockerfile .; \
-	fi
-	if ! command -v systemd-analyze >/dev/null; then \
-		echo "integration: skip systemd unit check: no systemd-analyze"; \
-	else \
-		unit=$$(mktemp -d); trap 'rm -rf "$$unit"' EXIT; \
-		install -m 0755 /dev/null "$$unit/ruralzd"; \
-		install -m 0755 deploy/systemd/ruralzd-handover "$$unit/ruralzd-handover"; \
-		sed "s|/usr/local/bin/|$$unit/|g" deploy/systemd/ruralzd.service >"$$unit/ruralzd.service"; \
-		systemd-analyze verify "$$unit/ruralzd.service"; \
 	fi
 
 # Every selected gate runs even after another fails, so the job summary
@@ -303,12 +293,11 @@ endif
 soak: ## Release soak on RH-1: S2 at half saturation for 2 hours (tag e2e, test/bench/harness)
 	$(MAKE) --no-print-directory bench-latency BENCH_RUN=^TestSoak BENCH_TIMEOUT=$(SOAK_TIMEOUT)
 
-t5: ## T5 live systemd verification (tag t5, test/t5; systemd as PID 1 and sudo), run by t5-systemd.yml
-ifeq ($(call has_tests,test/t5),)
-	@echo "t5: skip: test/t5 has no suite yet"
-else
+# The helper checks run anywhere. The live suite runs only with
+# RURALZ_TEST_T5=1, as root on a host whose PID 1 is systemd, and installs
+# the linux ruralzd archive `make release-dry-run` left in dist/release/.
+t5: ## T5 systemd verification (tag t5, test/t5): helper checks; with RURALZ_TEST_T5=1, as root under systemd, the live suite on the release-dry-run archive; run by t5-systemd.yml
 	go test -tags t5 -p 1 -timeout 60m $(TEST_FLAGS) ./test/t5/...
-endif
 
 image-checks: ## Compose end-to-end suite and air-gapped image start (tag compose, test/compose; Docker), run by image-checks.yml
 ifeq ($(call has_tests,test/compose),)

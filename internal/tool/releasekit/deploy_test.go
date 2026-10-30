@@ -133,22 +133,26 @@ func TestSystemdUnit(t *testing.T) {
 	}
 }
 
-// TestSystemdAdminToken: the admin token is a systemd credential, kept and
-// read outside RURALZ_SECRET_ROOT, which a Node refuses to start with.
+// TestSystemdAdminToken: the admin token is a file outside
+// RURALZ_SECRET_ROOT, which a Node refuses to start with, and never a
+// systemd credential: systemd hides credentials from ExecReload=
+// processes, mounting an inaccessible directory over /run/credentials, so
+// a handover successor could not read the token, would refuse to start
+// and every reload would fail.
 func TestSystemdAdminToken(t *testing.T) {
 	s := unitFile(t, readRepo(t, "deploy/systemd/ruralzd.service"))["Service"]
-	if len(s["LoadCredential"]) != 1 {
-		t.Fatalf("LoadCredential = %q, want one admin token", s["LoadCredential"])
-	}
-	id, source, _ := strings.Cut(s["LoadCredential"][0], ":")
-	tokenFile, ok := envValue(s, setting.EnvAdminTokenFile)
-	if !ok || tokenFile != "/run/credentials/ruralzd.service/"+id {
-		t.Errorf("RURALZ_ADMIN_TOKEN_FILE = %q, want the credential %s", tokenFile, id)
-	}
-	for _, p := range []string{source, tokenFile} {
-		if !path.IsAbs(p) || p == setting.DefaultSecretRoot || strings.HasPrefix(p, setting.DefaultSecretRoot+"/") {
-			t.Errorf("%s is not an absolute path outside RURALZ_SECRET_ROOT %s", p, setting.DefaultSecretRoot)
+	for k, v := range s {
+		if strings.Contains(k, "Credential") {
+			t.Errorf("Service %s = %q: an ExecReload= process cannot read credentials", k, v)
 		}
+	}
+	tokenFile, ok := envValue(s, setting.EnvAdminTokenFile)
+	if !ok || tokenFile != "/etc/ruralzd/admin-token" {
+		t.Errorf("RURALZ_ADMIN_TOKEN_FILE = %q, want /etc/ruralzd/admin-token", tokenFile)
+	}
+	if !path.IsAbs(tokenFile) || tokenFile == setting.DefaultSecretRoot || strings.HasPrefix(tokenFile, setting.DefaultSecretRoot+"/") ||
+		strings.HasPrefix(tokenFile, "/run/credentials/") {
+		t.Errorf("%s is not an absolute path outside RURALZ_SECRET_ROOT %s and the credentials directory", tokenFile, setting.DefaultSecretRoot)
 	}
 }
 

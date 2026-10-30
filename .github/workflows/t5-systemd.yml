@@ -1,0 +1,131 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# t5-systemd: the live T5 verification
+# (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md, "Handover
+# under systemd"; docs/engineering/03-testing-and-quality-strategy.md,
+# "Test pyramid"). Each leg runs on a runner whose PID 1 is systemd: it
+# builds the release archives with `make release-dry-run`, then runs
+# `make t5` as root with RURALZ_TEST_T5=1, so test/t5 installs the leg's
+# linux ruralzd archive by the T5 install steps and drives the unit with
+# systemctl, beside the helper checks. Legs: ubuntu-24.04 and
+# ubuntu-24.04-arm, and ubuntu-22.04 while GitHub offers it, whose systemd
+# 249 is the nearest to the unit's 247 floor. It runs weekly (Wednesday
+# 04:43 UTC), on demand, when release.yml calls it, and on every push to
+# main that changes deploy/systemd/ or the handover, drain and sdnotify
+# packages; a failed scheduled or push run opens or updates a
+# nightly-failure issue, which blocks the next release.
+name: t5-systemd
+
+on:
+  schedule:
+    - cron: "43 4 * * 3"
+  push:
+    branches: [main]
+    paths:
+      - deploy/systemd/**
+      - internal/gateway/handover/**
+      - internal/gateway/drain/**
+      - internal/gateway/sdnotify/**
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; t5-systemd always runs every case
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; t5-systemd always runs every case
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: t5-systemd-${{ github.ref }}
+  cancel-in-progress: false
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  t5:
+    name: T5 systemd (${{ matrix.runner }})
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm, ubuntu-22.04]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags and history give the version and the archive timestamps.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: systemd is PID 1
+        run: |
+          test -d /run/systemd/system
+          systemctl --version | head -n 1
+      - run: make release-dry-run
+      - name: T5 suite as root
+        # The live suite installs files under /usr/local and /etc, creates
+        # the ruralz system user and runs systemctl; the runner's Go and
+        # caches are kept.
+        run: |
+          sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
+            RURALZ_TEST_T5=1 TEST_FLAGS=-v make t5
+
+  issues:
+    name: T5 issues
+    needs: t5
+    # Scheduled and push runs of this workflow only: under release.yml
+    # (workflow_call) the github context, and so github.workflow, is the
+    # caller's, and the release run reports its own failures.
+    if: failure() && github.workflow == 't5-systemd' && (github.event_name == 'schedule' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+
+          # upsert <title> <body file>: comment on the open nightly-failure
+          # issue with this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$1\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$2"
+            else
+              gh issue create --label nightly-failure --title "$1" --body-file "$2"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r job; do
+              if [[ ! "$job" =~ ^T5\ systemd\  ]]; then
+                continue
+              fi
+              printf 'The t5-systemd job "%s" failed in the %s run %s (commit %s). A t5-systemd failure blocks the next release.\n' \
+                "$job" "$EVENT" "$RUN_URL" "$SHA" >"$body"
+              upsert "nightly failure: $job" "$body"
+            done

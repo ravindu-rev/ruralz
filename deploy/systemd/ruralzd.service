@@ -3,18 +3,19 @@
 #
 # ruralzd.service: Ruralz Gateway (ruralzd) on a VM with systemd, topology
 # T5, in file mode (docs/operations/01-deployment-topologies.md, "T5 and
-# T6"). Needs systemd 247 or newer (LoadCredential=). Install from the
-# linux ruralzd release archive:
+# T6"). Needs systemd 247 or newer. Install from the linux ruralzd release
+# archive:
 #
 #   /usr/local/bin/ruralzd                 the binary
 #   /usr/local/bin/ruralzd-handover        deploy/systemd/ruralzd-handover
 #   /etc/systemd/system/ruralzd.service    this file
 #   /etc/sysusers.d/ruralzd.conf           from ruralzd.sysusers: the user ruralz
 #   /etc/ruralzd/ruralzd.env               from ruralzd.env; sets RURALZ_CONFIG
-#   /etc/ruralzd/admin-token               the admin operator token, mode 0600
+#   /etc/ruralzd/admin-token               the admin operator token, mode 0640
 #   /etc/sysctl.d/99-ruralzd.conf          net.ipv4.tcp_migrate_req = 1
 #
-# then run `systemd-sysusers` to create the system user and group ruralz.
+# then run `systemd-sysusers` to create the system user and group ruralz,
+# and `chgrp ruralz /etc/ruralzd/admin-token` so the service reads its token.
 #
 # `systemctl reload ruralzd` after replacing /usr/local/bin/ruralzd runs a
 # Zero-Downtime Upgrade handover (docs/operations/
@@ -41,11 +42,11 @@ StateDirectory=ruralz
 StateDirectoryMode=0700
 Environment=RURALZ_DATA_DIR=/var/lib/ruralz
 EnvironmentFile=/etc/ruralzd/ruralzd.env
-# The admin operator token is a systemd credential, outside
-# RURALZ_SECRET_ROOT (default /etc/ruralz) both where it is kept and where
-# the service reads it ($CREDENTIALS_DIRECTORY).
-LoadCredential=admin-token:/etc/ruralzd/admin-token
-Environment=RURALZ_ADMIN_TOKEN_FILE=/run/credentials/ruralzd.service/admin-token
+# The admin operator token, outside RURALZ_SECRET_ROOT (default /etc/ruralz),
+# which the group ruralz reads. It is a plain file, not a LoadCredential=
+# credential: systemd hides credentials from ExecReload= processes, so a
+# handover successor could not read it and every reload would fail.
+Environment=RURALZ_ADMIN_TOKEN_FILE=/etc/ruralzd/admin-token
 ExecStart=/usr/local/bin/ruralzd
 ExecReload=/usr/local/bin/ruralzd-handover /usr/local/bin/ruralzd
 # Reloads share the start timeout: it exceeds the helper's 75 s wait plus
