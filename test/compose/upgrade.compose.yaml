@@ -1,0 +1,94 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# The Zero-Downtime Upgrade project of the Compose suite
+# (docs/engineering/03-testing-and-quality-strategy.md "Compose suite";
+# docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Binary
+# upgrades"): the old and the new ruralzd containers join the mock
+# Upstream's network namespace, share one data volume and run as user
+# 65532, so SO_REUSEPORT steering, the data-directory lock and
+# handover.sock work across them. The suite starts upstream and
+# ruralzd-old, then ruralzd-new, which hands over from ruralzd-old. Both
+# serve the quickstart Bundle with the same RURALZ_CONFIG.
+#
+#   RURALZ_COMPOSE_OLD_IMAGE   the previous release's image by digest, or
+#                              the image under test when none exists
+#   RURALZ_COMPOSE_IMAGE       the ruralzd image under test
+#   RURALZ_COMPOSE_MOCK_IMAGE  the suite's mock image
+#   RURALZ_COMPOSE_RUN         the test's directory: bundle/, admin/ and
+#                              mock/, as in quickstart.compose.yaml
+
+services:
+  upstream:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    command: [serve, -upstream, "127.0.0.1:9000", -upstream-routes, /etc/mock/routes.json, -control, "0.0.0.0:9100"]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      # Closing the old process's listeners migrates its queued
+      # connections to the new process's sockets (Linux 5.14 or newer).
+      net.ipv4.tcp_migrate_req: "1"
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/mock
+        target: /etc/mock
+        read_only: true
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::9901"
+      - "127.0.0.1::9100"
+
+  ruralzd-old:
+    image: ${RURALZ_COMPOSE_OLD_IMAGE:?the image upgraded from}
+    network_mode: service:upstream
+    depends_on: [upstream]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 40s
+    environment:
+      RURALZ_CONFIG: /etc/ruralz-bundle
+      RURALZ_FETCH_ALLOW: "127.0.0.1"
+      RURALZ_ADMIN_TLS_DIR: /run/ruralz-admin/tls
+      RURALZ_ADMIN_TOKEN_FILE: /run/ruralz-admin/token
+    volumes:
+      - data:/var/lib/ruralz
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/bundle
+        target: /etc/ruralz-bundle
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/admin
+        target: /run/ruralz-admin
+        read_only: true
+
+  ruralzd-new:
+    image: ${RURALZ_COMPOSE_IMAGE:?the ruralzd image under test}
+    network_mode: service:upstream
+    depends_on: [upstream]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 40s
+    environment:
+      RURALZ_CONFIG: /etc/ruralz-bundle
+      RURALZ_FETCH_ALLOW: "127.0.0.1"
+      RURALZ_ADMIN_TLS_DIR: /run/ruralz-admin/tls
+      RURALZ_ADMIN_TOKEN_FILE: /run/ruralz-admin/token
+    volumes:
+      - data:/var/lib/ruralz
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/bundle
+        target: /etc/ruralz-bundle
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/admin
+        target: /run/ruralz-admin
+        read_only: true
+
+volumes:
+  data: {}

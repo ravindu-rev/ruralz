@@ -1,0 +1,8 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: compose
+spec:
+  variables:
+    # The Collector service of rest.compose.yaml.
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector:4317"

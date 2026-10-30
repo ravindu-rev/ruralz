@@ -5,7 +5,7 @@ version: "2"
 
 run:
   go: "1.26"
-  build-tags: [integration, e2e, t5]
+  build-tags: [integration, e2e, t5, compose]
 
 linters:
   default: standard

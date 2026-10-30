@@ -84,6 +84,17 @@ BENCH_RECORDS ?= $(DIST)/bench
 BENCH_RUN ?= ^TestLatency
 BENCH_TIMEOUT ?= 175m
 SOAK_TIMEOUT ?= 150m
+# image-checks.yml. IMAGE=<ref>@<digest> is the image under test; empty,
+# image-checks builds one for the runner's platform from
+# deploy/container/Dockerfile and the linux binary and notices a
+# `make release-dry-run` left. PREVIOUS_IMAGE is the image the upgrade
+# starts from, the previous release by digest (empty: the image under
+# test). Both can come from workflow inputs, so the recipe reads them from
+# the environment.
+IMAGE ?=
+PREVIOUS_IMAGE ?=
+export IMAGE PREVIOUS_IMAGE
+IMAGE_CHECKS_TIMEOUT ?= 60m
 # Stage 12. NOTICES_DIR receives depgate's per-artifact NOTICE and
 # THIRD_PARTY_LICENSES, which the archives and the image ship. An empty
 # NOTES_FROM starts the notes at the newest vX.Y.Z tag before NOTES_TO,
@@ -299,11 +310,30 @@ soak: ## Release soak on RH-1: S2 at half saturation for 2 hours (tag e2e, test/
 t5: ## T5 systemd verification (tag t5, test/t5): helper checks; with RURALZ_TEST_T5=1, as root under systemd, the live suite on the release-dry-run archive; run by t5-systemd.yml
 	go test -tags t5 -p 1 -timeout 60m $(TEST_FLAGS) ./test/t5/...
 
-image-checks: ## Compose end-to-end suite and air-gapped image start (tag compose, test/compose; Docker), run by image-checks.yml
+# image-checks tests IMAGE, or builds the image for the runner's platform
+# from what `make release-dry-run` left: dist/linux_<arch>/ruralzd and its
+# notices. The suite runs the CLI that RURALZ_TEST_BIN_DIR names, else
+# dist/linux_<arch>/ruralz when present, else one it builds from the
+# commit.
+image-checks: ## Compose end-to-end suite and air-gapped image start (tag compose, test/compose; Docker) on IMAGE=<ref>@<digest> or the dry run's image, run by image-checks.yml
 ifeq ($(call has_tests,test/compose),)
 	@echo "image-checks: skip: test/compose has no suite yet"
 else
-	go test -tags compose -p 1 -timeout 60m $(TEST_FLAGS) ./test/compose/...
+	image="$${IMAGE:-}"; \
+	if [[ -z "$$image" ]]; then \
+		image=ruralzd:image-checks; \
+		for f in dist/linux_$(HOST_ARCH)/ruralzd dist/notices/ruralzd_linux_$(HOST_ARCH)/NOTICE dist/notices/ruralzd_linux_$(HOST_ARCH)/THIRD_PARTY_LICENSES; do \
+			if [[ ! -f $$f ]]; then echo "image-checks: $$f is missing: run make release-dry-run first, or set IMAGE=<ref>@<digest>" >&2; exit 2; fi; \
+		done; \
+		echo "image-checks: building $$image for linux/$(HOST_ARCH) from deploy/container/Dockerfile"; \
+		docker buildx build --load --platform linux/$(HOST_ARCH) --file deploy/container/Dockerfile \
+			--build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) --tag "$$image" .; \
+	fi; \
+	bindir="$${RURALZ_TEST_BIN_DIR:-}"; \
+	if [[ -z "$$bindir" && -x dist/linux_$(HOST_ARCH)/ruralz ]]; then bindir="$(CURDIR)/dist/linux_$(HOST_ARCH)"; fi; \
+	echo "image-checks: image $$image, upgrade from $${PREVIOUS_IMAGE:-the same image}, CLI $${bindir:-built from the commit}"; \
+	RURALZ_TEST_IMAGE="$$image" RURALZ_TEST_PREVIOUS_IMAGE="$${PREVIOUS_IMAGE:-}" RURALZ_TEST_BIN_DIR="$$bindir" \
+		go test -tags compose -p 1 -timeout $(IMAGE_CHECKS_TIMEOUT) $(TEST_FLAGS) ./test/compose/...
 endif
 
 # Stage 12 tooling is called with:
