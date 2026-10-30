@@ -130,8 +130,11 @@ func (n *Node) renderBundle(ctx context.Context, src []byte) (*Render, error) {
 	if gateways != 1 {
 		return nil, fmt.Errorf("topology: %s: the rendered Bundle holds %d Gateways, want exactly one to rewrite", n.name, gateways)
 	}
+	// The parsed tree still holds the rendered Bundle's "$${" escapes, since
+	// substitution never runs on it, so it is written verbatim: the default
+	// encoder would escape them again and change the values served.
 	var out bytes.Buffer
-	if err := profile.Encode(&out, roots); err != nil {
+	if err := profile.EncodeWith(&out, roots, profile.EncodeOptions{Verbatim: true}); err != nil {
 		return nil, fmt.Errorf("topology: %s: %w", n.name, err)
 	}
 	r.Bytes = out.Bytes()

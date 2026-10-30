@@ -83,6 +83,31 @@ func TestNodesServeTheirOwnTestRender(t *testing.T) {
 	}
 }
 
+// A literal "${" in a rendered Bundle is written "$${", so substitution
+// leaves it alone; the test render keeps that escape as it is instead of
+// escaping it again, so the Node serves the value the Bundle holds.
+func TestTestRenderKeepsSubstitutionEscapes(t *testing.T) {
+	topo := standinTopology(t)
+	o := nodeOptions(t, topo)
+	o.Bundle = []byte(testBundle + `---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: literal
+spec:
+  type: headers
+  config:
+    request:
+      set:
+        - name: x-literal
+          value: "$${HOME}"
+`)
+	n := addNodes(t, topo, 1, o)[0]
+	if got := string(n.Render().Bytes); !strings.Contains(got, `value: "$${HOME}"`) || strings.Contains(got, "$$${") {
+		t.Errorf("test render holds\n%s\nwant the escape $${HOME} kept as it is", got)
+	}
+}
+
 // checkRewrittenRefs checks that the test render names only file
 // references under the Node's secret root, keyed ones keeping their key,
 // and that each file holds a registered canary.
