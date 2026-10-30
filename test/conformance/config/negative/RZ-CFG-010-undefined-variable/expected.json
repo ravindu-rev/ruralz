@@ -1,0 +1,22 @@
+[
+  {
+    "code": "RZ-CFG-010",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 18,
+    "column": 16,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "endpoints",
+      {
+        "address": "${ORDERS_ADDRESS}"
+      },
+      "address"
+    ],
+    "message": "variable \"ORDERS_ADDRESS\" is not defined and has no default"
+  }
+]

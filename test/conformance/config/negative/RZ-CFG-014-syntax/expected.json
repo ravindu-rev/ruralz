@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 27,
+    "column": 37,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "when"
+    ],
+    "message": "CEL Route.spec.match.when: Syntax error: mismatched input '<EOF>' expecting {'[', '{', '(', '.', '-', '!', 'true', 'false', 'null', NUM_FLOAT, NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}"
+  }
+]

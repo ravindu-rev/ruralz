@@ -1,0 +1,17 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: partner-orders
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {template: "/partner/v1/orders/{orderId}"}
+    methods: [GET]
+  policies:
+    - name: apikey-partner              # auth.api-key, slot auth: replaces jwt-default
+    - name: quota-partner               # charges the Consumer's daily request quota
+  excludePolicies:
+    - name: cors-default                # a server-to-server API
+  upstreams:
+    - name: orders
+  timeout: 5s

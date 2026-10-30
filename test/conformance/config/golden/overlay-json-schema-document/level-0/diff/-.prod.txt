@@ -1,0 +1,8 @@
+ruralz bundle diff: rev-b3ea8c5645cd -> rev-ff4065c49987 (environment: prod)
+
+~ Policy/order-shape                            ruralz.yaml                  [security]
+    + spec.config.schema.properties.total: {"type":"number"}
+    - spec.config.schema.properties.id: {"type":"string"}
+    - spec.config.schema.required: ["id"]
+
+1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: security

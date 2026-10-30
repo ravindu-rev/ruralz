@@ -1,0 +1,1 @@
+ruralz.yaml:29:11 error RZ-CFG-015 Route/orders spec.match.when: CEL Route.spec.match.when: estimated cost 10001 exceeds 10000 at nominal sizes (strings 256, lists and maps 32) (nested comprehensions multiply: iterate over fewer or smaller values)

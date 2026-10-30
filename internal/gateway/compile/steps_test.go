@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 )
@@ -53,6 +54,28 @@ func TestServeCheck(t *testing.T) {
 	}
 	if len(h.meter.shapes) != 0 || len(h.cel.caps) != 0 {
 		t.Errorf("%d Admits and %d Builders after the serve check refused", len(h.meter.shapes), len(h.cel.caps))
+	}
+	// Serve runs the same check alone, with the same findings, and
+	// without a file table locates them by each resource's own source.
+	ds, err := Serve(h.tc.pipe, res.Validated, res.Files)
+	if err != nil || !slices.Equal(lines(ds), want) {
+		t.Errorf("Serve = %v\n%s\nwant\n%s", err, text(ds), strings.Join(want, "\n"))
+	}
+	if ds, err := Serve(h.tc.pipe, res.Validated, nil); err != nil || !slices.Equal(lines(ds), want) {
+		t.Errorf("Serve without files = %v\n%s\nwant\n%s", err, text(ds), strings.Join(want, "\n"))
+	}
+	clean := h.validate(gateway(""), upstreamDoc("up", "127.0.0.1:9000", ""), routeDoc("r", "/", "up", ""))
+	if ds, err := Serve(h.tc.pipe, clean.Validated, clean.Files); err != nil || len(ds) != 0 {
+		t.Errorf("Serve of a served Revision = %v\n%s", err, text(ds))
+	}
+	for name, call := range map[string]func() error{
+		"no pipeline": func() error { _, err := Serve(nil, res.Validated, res.Files); return err },
+		"no Revision": func() error { _, err := Serve(h.tc.pipe, nil, nil); return err },
+		"no Bundle":   func() error { _, err := Serve(h.tc.pipe, &hub.Validated{}, nil); return err },
+	} {
+		if err := call(); !errors.Is(err, ErrInput) {
+			t.Errorf("Serve with %s = %v, want ErrInput", name, err)
+		}
 	}
 }
 

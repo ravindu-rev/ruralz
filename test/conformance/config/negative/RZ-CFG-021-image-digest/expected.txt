@@ -1,0 +1,1 @@
+ruralz.yaml:16:10 error RZ-CFG-021 Plugin/geo-block spec.image: Plugin image "ghcr.io/acme/ruralz-plugins/geo-block:1.4.0" has no @sha256: digest (pin the artifact by digest, as in <repository>:<tag>@sha256:<64 hex>)

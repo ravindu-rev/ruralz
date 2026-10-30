@@ -1,0 +1,24 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "overlays/prod/routes.yaml",
+    "line": 8,
+    "column": 15,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "upstreams",
+      {
+        "name": "orders"
+      },
+      "$patch"
+    ],
+    "message": "unsupported $patch value \"bogus\" in a list entry",
+    "hint": "use $patch: delete, or {$patch: replace} as the first element of an orderedMap list",
+    "environment": "prod"
+  }
+]

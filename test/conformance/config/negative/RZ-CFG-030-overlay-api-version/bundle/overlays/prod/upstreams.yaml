@@ -1,0 +1,7 @@
+apiVersion: ruralz/v0test
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  endpoints:
+    - address: "orders.prod.svc:8080"

@@ -1,0 +1,16 @@
+# A first entry {$patch: replace} replaces the whole list, which is how an
+# overlay reorders.
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: summary
+spec:
+  composition:
+    steps:
+      - $patch: replace
+      - name: items
+        upstream: orders
+        path: /items
+      - name: order
+        upstream: orders
+        path: /order

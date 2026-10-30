@@ -1,0 +1,4 @@
+code: RZ-CFG-043
+stage: J
+binaries: [ruralz, ruralzd]
+source: base

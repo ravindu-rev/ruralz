@@ -1,0 +1,7 @@
+# ruralz.io/patch: delete removes the resource.
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders-beta
+  annotations:
+    ruralz.io/patch: delete

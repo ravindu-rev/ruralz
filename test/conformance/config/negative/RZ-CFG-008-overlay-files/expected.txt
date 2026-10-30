@@ -1,0 +1,1 @@
+overlays/prod/b.yaml:4:9 error RZ-CFG-008 Upstream/orders metadata.name: Upstream/orders is declared twice in the overlay; results never depend on file order (first declared in overlays/prod/a.yaml:4:9) [environment=prod]

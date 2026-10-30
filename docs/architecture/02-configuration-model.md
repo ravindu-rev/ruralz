@@ -1057,7 +1057,7 @@ A Policy's type class is the impact class of its type's Filter class in the [Pol
 Exit status is 0 for no changes, 1 for changes and 2 for errors; [CLI and API surface](../reference/01-cli-and-api-surface.md) MUST match. Human-readable form:
 
 ```text
-ruralz bundle diff: rev-162af81f5de4 -> rev-68f782530463 (environment: prod)
+ruralz bundle diff: rev-91afbfc3f53a -> rev-0d2d8e396759 (environment: prod)
 
 ~ Route/orders-summary                          routes/orders-summary.yaml   [traffic]
     ~ spec.timeout: 5s -> 4s
@@ -1085,10 +1085,10 @@ JSON form (`--output json`), versioned by `format` independently of the apiVersi
 ```json
 {
   "format": "ruralz.diff.v1",
-  "from": {"revision": "rev-162af81f5de4",
-           "digest": "sha256:162af81f5de482d540e09cf25205ffe39b705fd2dcf5eca88eb42e92b098a85e"},
-  "to": {"revision": "rev-68f782530463", "bundle": "./shop-bundle",
-         "digest": "sha256:68f782530463d5c1f0e2b9a7c4d8e6f1a3b5c7d9e0f2a4b6c8d0e2f4a6b8c0d2"},
+  "from": {"revision": "rev-91afbfc3f53a",
+           "digest": "sha256:91afbfc3f53a7b879729deb398cbace90a1046f88b302f019be30d9455bc1582"},
+  "to": {"revision": "rev-0d2d8e396759", "bundle": "./shop-bundle",
+         "digest": "sha256:0d2d8e396759301270db025b8ca69a475a9431c927a2eb7203d72658aa7e6eb7"},
   "environment": "prod",
   "resources": [
     {"kind": "Route", "name": "orders-summary", "change": "modified", "source": "routes/orders-summary.yaml",
@@ -1697,7 +1697,7 @@ Working with it:
 CONTROL="--control https://control.shop.example:8090 --token-file /run/secrets/ruralz-ci-token"
 ruralz bundle validate --env prod --environments control/environments.yaml ./shop-bundle
 ruralz bundle render --env prod --environments control/environments.yaml --effective --route orders-summary ./shop-bundle
-ruralz bundle diff $CONTROL rev-162af81f5de4 ./shop-bundle --env prod --environments control/environments.yaml --output json
+ruralz bundle diff $CONTROL rev-91afbfc3f53a ./shop-bundle --env prod --environments control/environments.yaml --output json
 ruralz bundle build --env prod --environments control/environments.yaml ./shop-bundle
 ruralz bundle push $CONTROL --env staging ./shop-bundle
 ```

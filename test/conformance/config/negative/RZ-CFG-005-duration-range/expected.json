@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 29,
+    "column": 12,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "timeout"
+    ],
+    "message": "duration \"9999999999h\" is out of range: the largest is 2562047h47m16.854775807s"
+  }
+]

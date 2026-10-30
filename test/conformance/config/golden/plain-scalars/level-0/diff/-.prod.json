@@ -1,0 +1,23 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-f4cf3f1709c0",
+    "digest": "sha256:f4cf3f1709c0617eeaa80196440eca66e621927d7c644d8486549ce1c83cfe1a"
+  },
+  "to": {
+    "revision": "rev-f4cf3f1709c0",
+    "bundle": "./plain-scalars",
+    "digest": "sha256:f4cf3f1709c0617eeaa80196440eca66e621927d7c644d8486549ce1c83cfe1a"
+  },
+  "environment": "prod",
+  "resources": [],
+  "effective": [],
+  "summary": {
+    "changed": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 0,
+    "routeChainsChanged": 0,
+    "impact": []
+  }
+}

@@ -1,0 +1,6 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: prod
+spec:
+  overlay: production

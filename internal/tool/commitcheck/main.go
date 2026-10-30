@@ -13,6 +13,11 @@
 //	                                     every Deprecated footer reads
 //	                                     "<surface>; removed in MAJOR.MINOR.0", at least
 //	                                     two minor releases after the minor that ships it
+//	commitcheck golden -range BASE..HEAD
+//	                                     the range, from its merge base, changes or
+//	                                     deletes no file of the golden corpus
+//	                                     (test/conformance/config) that the newest
+//	                                     release tag holds
 //
 // Exit status: 0 pass, 1 findings, 2 usage or git error.
 package main
@@ -34,7 +39,7 @@ func main() {
 
 func run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD | commitcheck title -title TITLE | commitcheck deprecations -range BASE..HEAD")
+		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD | commitcheck title -title TITLE | commitcheck deprecations -range BASE..HEAD | commitcheck golden -range BASE..HEAD")
 		return 2
 	}
 	fs := flag.NewFlagSet("commitcheck "+args[0], flag.ContinueOnError)
@@ -110,8 +115,47 @@ func run(ctx context.Context, args []string) int {
 		}
 		_, _ = fmt.Fprintf(os.Stdout, "commitcheck deprecations: %d commit(s) checked\n", len(commits))
 		return 0
+	case "golden":
+		return runGolden(ctx, fs, args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "commitcheck: unknown command %q\n", args[0])
 		return 2
 	}
+}
+
+// runGolden runs commitcheck golden: it fails a range that changes or
+// deletes a golden-corpus file the newest release tag holds
+// (docs/engineering/03-testing-and-quality-strategy.md "Golden tests").
+func runGolden(ctx context.Context, fs *flag.FlagSet, args []string) int {
+	rng := fs.String("range", "", "git revision range, such as origin/main..HEAD")
+	dir := fs.String("C", ".", "git repository directory")
+	if err := fs.Parse(args); err != nil || *rng == "" {
+		fmt.Fprintln(os.Stderr, "commitcheck golden: -range is required")
+		return 2
+	}
+	base, head, err := splitRange(*rng)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
+		return 2
+	}
+	tag, held, err := gitHeld(ctx, *dir)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
+		return 2
+	}
+	changes, err := gitCorpusChanges(ctx, *dir, base, head)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
+		return 2
+	}
+	problems := checkGolden(tag, held, changes)
+	for _, p := range problems {
+		fmt.Fprintln(os.Stderr, p)
+	}
+	if len(problems) > 0 {
+		fmt.Fprintln(os.Stderr, "Golden entries are append-only: restore these files and add an entry or a schema level with go test ./test/conformance/config -run Golden -update.")
+		return 1
+	}
+	_, _ = fmt.Fprintf(os.Stdout, "commitcheck golden: %d corpus file(s) changed, none that a release holds\n", len(changes))
+	return 0
 }

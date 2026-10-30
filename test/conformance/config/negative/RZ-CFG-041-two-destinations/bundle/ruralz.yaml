@@ -1,0 +1,51 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+  policies:
+    - name: upstream-oauth
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-oauth
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://auth.shop.example/oauth2/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: acme
+spec:
+  credentials:
+    apiKeys:
+      - name: retrievable
+        secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}

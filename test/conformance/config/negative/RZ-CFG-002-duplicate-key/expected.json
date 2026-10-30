@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-002",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 7,
+    "message": "duplicate key \"port\"",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 9,
+        "column": 7,
+        "message": "first defined at"
+      }
+    ]
+  }
+]

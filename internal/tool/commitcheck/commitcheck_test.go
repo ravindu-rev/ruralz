@@ -130,7 +130,7 @@ func TestGitCommits(t *testing.T) {
 
 func TestRunUsage(t *testing.T) {
 	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 ||
-		run(t.Context(), []string{"deprecations"}) != 2 {
+		run(t.Context(), []string{"deprecations"}) != 2 || run(t.Context(), []string{"golden"}) != 2 {
 		t.Error("usage errors must exit 2")
 	}
 	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat(cli): add version"}) != 0 {

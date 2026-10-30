@@ -1,0 +1,4 @@
+PHASE             LEG     POLICY            FROM     REASON
+onRequestHeaders  client  cors-default      Gateway  slot cors, inherited
+onResponse        client  headers-security  Gateway  own slot
+onResponse        client  cors-default      Gateway  slot cors, inherited

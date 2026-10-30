@@ -1,0 +1,20 @@
+# A set list (match.methods), an atomic list (config.limits) and a scalar
+# (timeout) are replaced.
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    methods: [GET]
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: limit
+spec:
+  config:
+    limits:
+      - requests: 50
+        window: 1s

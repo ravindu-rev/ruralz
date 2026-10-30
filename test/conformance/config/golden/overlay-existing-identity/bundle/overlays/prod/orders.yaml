@@ -1,0 +1,13 @@
+# An existing identity: deep-merged, maps recursively, the overlay winning.
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+  labels:
+    tier: gold
+spec:
+  healthCheck:
+    active: {interval: 5s}
+  retries:
+    attempts: 3
+  timeout: 2s

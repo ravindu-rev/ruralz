@@ -1,0 +1,1 @@
+ruralz.yaml:12:10 error RZ-CFG-012 Gateway/edge spec.stateStore.url: a literal value is not allowed in a secret field; reference the secret as {secretRef: {provider, name}}

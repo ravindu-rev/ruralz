@@ -1,0 +1,86 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-a9d0366d244d",
+    "digest": "sha256:a9d0366d244da0925c25f0144796f79677174d515bdce0ab4968d8f62c684317"
+  },
+  "to": {
+    "revision": "rev-d5ce06b861ce",
+    "bundle": "./overlay-patch-annotation",
+    "digest": "sha256:d5ce06b861cea424a0dfbfc9caef23c78475979d36b22696078f822baec077a1"
+  },
+  "environment": "replace",
+  "resources": [
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing",
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "endpoints",
+            {
+              "address": "orders.prod.svc:8080"
+            }
+          ],
+          "to": {
+            "address": "orders.prod.svc:8080",
+            "weight": 1
+          }
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "endpoints",
+            {
+              "address": "orders.shop.svc:8080"
+            }
+          ],
+          "from": {
+            "address": "orders.shop.svc:8080",
+            "weight": 1
+          }
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "retries"
+          ],
+          "from": {
+            "attempts": 3,
+            "perTryTimeout": "1s"
+          }
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "timeout"
+          ],
+          "from": "5s"
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "routing",
+      "traffic"
+    ]
+  }
+}

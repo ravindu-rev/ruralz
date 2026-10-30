@@ -1,0 +1,1 @@
+overlays/prod/gateway.yaml:2:7 error RZ-CFG-016 Gateway/edge-prod kind: an overlay cannot add a Gateway: ruralz.yaml declares the Bundle's only Gateway [environment=prod]

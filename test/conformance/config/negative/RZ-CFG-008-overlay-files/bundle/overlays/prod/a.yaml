@@ -1,0 +1,6 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  timeout: 2s

@@ -1,0 +1,2 @@
+environments.yaml:7:11 error RZ-CFG-022 Environment/staging spec.promotion.from: promotion cycle: staging -> prod -> staging (promotion.from chains must end at an Environment without a promotion)
+environments.yaml:15:11 error RZ-CFG-022 Environment/prod spec.promotion.from: promotion cycle: prod -> staging -> prod (promotion.from chains must end at an Environment without a promotion)

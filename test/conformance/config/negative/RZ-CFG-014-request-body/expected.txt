@@ -1,0 +1,1 @@
+ruralz.yaml:39:24 error RZ-CFG-014 Policy/limit-tenant spec.config.key: CEL ratelimit config.key: request.body is not available here (the request body is read only in body Phases and composition) (attached at ruralz.yaml:28:7)

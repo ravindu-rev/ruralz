@@ -1,0 +1,1 @@
+ruralz.yaml:1:1 error RZ-CFG-004: %TAG directives are not allowed

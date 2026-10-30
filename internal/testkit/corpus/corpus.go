@@ -1,25 +1,48 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package corpus loads the configuration conformance corpora under
-// test/conformance/config as fuzz seeds (TQ "Fuzzing": "seeded from the
-// golden and negative corpora"). Every fuzz target that parses
-// configuration seeds itself through this one helper:
+// Package corpus reads the configuration conformance corpus under
+// test/conformance/config (docs/engineering/03-testing-and-quality-
+// strategy.md "Golden tests"): the golden entries, the JSON subset pairs
+// and the negative fixtures. The conformance suite runs every entry from
+// it, and every fuzz target that parses configuration seeds itself
+// through its helpers (TQ "Fuzzing": "seeded from the golden and negative
+// corpora"):
 //
 //	func FuzzProfileYAML(f *testing.F) {
 //		corpus.AddYAML(f)
 //		f.Fuzz(func(t *testing.T, data []byte) { ... })
 //	}
 //
-// The corpus holds golden entries under golden/<entry>/ (bundle/,
-// environments.yaml, expected.json, canonical/<env>.json, ...), JSON
-// subset pairs under json-subset/<case>/{yaml,json}/, and negative
-// fixtures under <code>-<slug>/ (fixture.yaml, bundle/, optional
-// environments.yaml).
+// # Layout
+//
+// A golden entry, golden/<entry>/, holds its inputs and its outputs per
+// schema level:
+//
+//	bundle/              the input Bundle, a frozen copy
+//	bundle-json/         optionally, the JSON twin of bundle/
+//	from/, to/           a diff entry's two Bundles, in place of bundle/
+//	environments.yaml    the Environments the entry renders, if any
+//	level-<n>/           the outputs at schema level n: expected.json
+//	                     (the digests), canonical/<render>.json,
+//	                     rendered/<render>.yaml and .json,
+//	                     diagnostics/<render>.txt and .json,
+//	                     effective/<render>/<route>.txt and .json,
+//	                     diff/<from>.<to>.txt and .json
+//
+// A JSON subset pair, json-subset/<case>/, holds the two Bundles yaml/ and
+// json/. A negative fixture is any other directory that holds a
+// fixture.yaml, by convention negative/<code>-<slug>/: its Bundle in
+// bundle/, an optional environments.yaml and its expected diagnostics in
+// expected.txt and expected.json. A raw/ directory, wherever it sits, is
+// an ordinary directory of the Bundle that holds it; only Git treats it
+// apart (.gitattributes stores it byte for byte).
+//
 // Every part is optional: an absent directory yields no entries and no
 // error, so targets run before the corpus exists. Only regular files are
-// read (symbolic links, FIFOs and other special files that negative
-// fixtures create are skipped), and files above MaxSeedBytes are left out.
+// read (symbolic links, FIFOs and other special files that tests create
+// are skipped), dot-directories are skipped, and files above MaxSeedBytes
+// are left out.
 package corpus
 
 import (
@@ -31,6 +54,7 @@ import (
 	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -48,6 +72,41 @@ const Dir = "test/conformance/config"
 // MaxSeedBytes bounds one seed file; larger files are skipped (hostile
 // inputs are generated at test time, never committed).
 const MaxSeedBytes = 1 << 20
+
+// Names of the directories and files of the layout.
+const (
+	// GoldenDir holds the golden entries.
+	GoldenDir = "golden"
+	// JSONSubsetDir holds the JSON subset pairs.
+	JSONSubsetDir = "json-subset"
+	// NegativeDir holds the negative fixtures.
+	NegativeDir = "negative"
+	// BundleDir is the input Bundle of a golden entry or a negative
+	// fixture.
+	BundleDir = "bundle"
+	// BundleJSONDir is the JSON twin of a golden entry's Bundle.
+	BundleJSONDir = "bundle-json"
+	// FromDir and ToDir are the Bundles of a diff entry.
+	FromDir = "from"
+	ToDir   = "to"
+	// YAMLDir and JSONDir are the Bundles of a JSON subset pair.
+	YAMLDir = "yaml"
+	JSONDir = "json"
+	// EnvironmentsFile is the Environments an entry renders.
+	EnvironmentsFile = "environments.yaml"
+	// FixtureFile describes a negative fixture.
+	FixtureFile = "fixture.yaml"
+	// ExpectedFile is a level's digests, or a negative fixture's
+	// diagnostics in their JSON form.
+	ExpectedFile = "expected.json"
+	// ExpectedTextFile is a negative fixture's diagnostics in their text
+	// form.
+	ExpectedTextFile = "expected.txt"
+	// CanonicalDir holds a level's canonical/<render>.json files.
+	CanonicalDir = "canonical"
+	// levelPrefix starts the name of a level directory, level-<n>.
+	levelPrefix = "level-"
+)
 
 // Kind classifies an entry.
 type Kind int
@@ -78,38 +137,108 @@ func (k Kind) String() string {
 // File is one corpus file.
 type File struct {
 	// Name is the slash-separated path relative to its Bundle root (for
-	// Bundle files) or to its entry directory.
+	// Bundle files), to its level directory (for outputs) or to its entry
+	// directory.
 	Name string
 	Data []byte
 }
 
 // Bundle is one Bundle directory of an entry.
 type Bundle struct {
-	// Name is the directory name: "bundle", or "yaml" and "json" for a
-	// JSON subset pair.
+	// Name is the directory name: BundleDir, BundleJSONDir, FromDir or
+	// ToDir, or YAMLDir and JSONDir for a JSON subset pair.
 	Name  string
 	Files []File
+}
+
+// Level is the outputs of a golden entry at one schema level
+// (level-<n>/).
+type Level struct {
+	// N is the schema level.
+	N int
+	// Expected is expected.json, the digests at the level.
+	Expected []byte
+	// Canonical holds canonical/<render>.json by render.
+	Canonical map[string][]byte
+	// Files holds every file of the level, expected.json included, by its
+	// path relative to the level directory, sorted.
+	Files []File
+}
+
+// File returns the level's file name.
+func (l *Level) File(name string) ([]byte, bool) {
+	i := slices.IndexFunc(l.Files, func(f File) bool { return f.Name == name })
+	if i < 0 {
+		return nil, false
+	}
+	return l.Files[i].Data, true
 }
 
 // Entry is one golden entry, JSON subset pair or negative fixture.
 type Entry struct {
 	Kind Kind
 	// Name is the entry path relative to the corpus directory, for example
-	// "golden/minimal" or "RZ-CFG-005-missing-spec".
+	// "golden/shop-bundle" or "negative/RZ-CFG-005-missing-spec".
 	Name string
 	// Code is the RZ code of a negative fixture: the "code:" line of
 	// fixture.yaml when present, else the code the directory name starts
 	// with ("RZ-CFG-005-..." or "005-..."); empty otherwise.
-	Code    string
+	Code string
+	// Bundles are the entry's Bundle directories, sorted by name.
 	Bundles []Bundle
 	// Environments is environments.yaml when present.
 	Environments []byte
 	// Fixture is fixture.yaml of a negative fixture.
 	Fixture []byte
-	// Expected is expected.json when present.
+	// Expected is expected.json of a negative fixture.
 	Expected []byte
-	// Canonical holds golden canonical/<env>.json by <env>.
-	Canonical map[string][]byte
+	// ExpectedText is expected.txt of a negative fixture.
+	ExpectedText []byte
+	// Levels are the schema levels of a golden entry, sorted by N.
+	Levels []Level
+	// Unknown lists the entry's files that fit no part of the layout, by
+	// their paths relative to the entry directory.
+	Unknown []string
+}
+
+// Bundle returns the entry's Bundle directory name.
+func (e *Entry) Bundle(name string) (Bundle, bool) {
+	i := slices.IndexFunc(e.Bundles, func(b Bundle) bool { return b.Name == name })
+	if i < 0 {
+		return Bundle{}, false
+	}
+	return e.Bundles[i], true
+}
+
+// IsDiff reports a diff entry: a golden entry whose Bundles are from/ and
+// to/ in place of bundle/.
+func (e *Entry) IsDiff() bool {
+	_, from := e.Bundle(FromDir)
+	_, to := e.Bundle(ToDir)
+	return e.Kind == Golden && from && to
+}
+
+// Level returns the entry's level n.
+func (e *Entry) Level(n int) (*Level, bool) {
+	i := slices.IndexFunc(e.Levels, func(l Level) bool { return l.N == n })
+	if i < 0 {
+		return nil, false
+	}
+	return &e.Levels[i], true
+}
+
+// LevelDir returns the name of the directory of schema level n, level-<n>.
+func LevelDir(n int) string { return levelPrefix + strconv.Itoa(n) }
+
+// ParseLevel returns the schema level a directory name level-<n> names:
+// n is a decimal integer without a sign or a leading zero.
+func ParseLevel(name string) (int, bool) {
+	digits, ok := strings.CutPrefix(name, levelPrefix)
+	if !ok || digits == "" || !allDigits(digits) || (len(digits) > 1 && digits[0] == '0') || len(digits) > 9 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(digits)
+	return n, err == nil
 }
 
 // Corpus is a loaded corpus.
@@ -251,19 +380,19 @@ func entries(names []string, all map[string][]byte) []Entry {
 	// golden/ and json-subset/.
 	var negatives []string
 	for _, n := range names {
-		if path.Base(n) == "fixture.yaml" && !underAny(n, "golden/", "json-subset/") {
+		if path.Base(n) == FixtureFile && !underAny(n, GoldenDir+"/", JSONSubsetDir+"/") {
 			negatives = append(negatives, path.Dir(n))
 		}
 	}
 	for _, n := range names {
 		parts := strings.Split(n, "/")
 		switch {
-		case parts[0] == "golden" && len(parts) >= 3:
-			e := entryOf(Golden, "golden/"+parts[1])
-			addFile(e, strings.Join(parts[2:], "/"), all[n], "bundle")
-		case parts[0] == "json-subset" && len(parts) >= 3:
-			e := entryOf(JSONSubset, "json-subset/"+parts[1])
-			addFile(e, strings.Join(parts[2:], "/"), all[n], "yaml", "json")
+		case parts[0] == GoldenDir && len(parts) >= 3:
+			e := entryOf(Golden, GoldenDir+"/"+parts[1])
+			addFile(e, strings.Join(parts[2:], "/"), all[n], BundleDir, BundleJSONDir, FromDir, ToDir)
+		case parts[0] == JSONSubsetDir && len(parts) >= 3:
+			e := entryOf(JSONSubset, JSONSubsetDir+"/"+parts[1])
+			addFile(e, strings.Join(parts[2:], "/"), all[n], YAMLDir, JSONDir)
 		default:
 			dir := deepestPrefix(negatives, n)
 			if dir == "" {
@@ -273,7 +402,7 @@ func entries(names []string, all map[string][]byte) []Entry {
 			if dir != "." {
 				rel = strings.TrimPrefix(n, dir+"/")
 			}
-			addFile(entryOf(Negative, dir), rel, all[n], "bundle")
+			addFile(entryOf(Negative, dir), rel, all[n], BundleDir)
 		}
 	}
 	out := make([]Entry, 0, len(byDir))
@@ -281,6 +410,8 @@ func entries(names []string, all map[string][]byte) []Entry {
 		if e.Kind == Negative {
 			e.Code = negativeCode(path.Base(e.Name), e.Fixture)
 		}
+		slices.SortFunc(e.Bundles, func(a, b Bundle) int { return strings.Compare(a.Name, b.Name) })
+		slices.SortFunc(e.Levels, func(a, b Level) int { return a.N - b.N })
 		out = append(out, *e)
 	}
 	slices.SortFunc(out, func(a, b Entry) int {
@@ -312,7 +443,10 @@ func deepestPrefix(dirs []string, name string) string {
 	return best
 }
 
-// addFile files rel (relative to the entry directory) into e.
+// addFile files rel (relative to the entry directory) into e: a file of
+// one of the Bundle directories bundleDirs, of a level directory of a
+// golden entry, or one of the entry's own files; anything else is
+// recorded as unknown.
 func addFile(e *Entry, rel string, data []byte, bundleDirs ...string) {
 	first, rest, nested := strings.Cut(rel, "/")
 	if nested && slices.Contains(bundleDirs, first) {
@@ -324,18 +458,41 @@ func addFile(e *Entry, rel string, data []byte, bundleDirs ...string) {
 		e.Bundles[i].Files = append(e.Bundles[i].Files, File{Name: rest, Data: data})
 		return
 	}
+	if n, ok := ParseLevel(first); ok && nested && e.Kind == Golden {
+		addLevelFile(e, n, rest, data)
+		return
+	}
 	switch {
-	case rel == "environments.yaml":
+	case rel == EnvironmentsFile:
 		e.Environments = data
-	case rel == "fixture.yaml":
+	case rel == FixtureFile && e.Kind == Negative:
 		e.Fixture = data
-	case rel == "expected.json":
+	case rel == ExpectedFile && e.Kind == Negative:
 		e.Expected = data
-	case first == "canonical" && nested && path.Ext(rest) == ".json" && !strings.Contains(rest, "/"):
-		if e.Canonical == nil {
-			e.Canonical = map[string][]byte{}
+	case rel == ExpectedTextFile && e.Kind == Negative:
+		e.ExpectedText = data
+	default:
+		e.Unknown = append(e.Unknown, rel)
+	}
+}
+
+// addLevelFile files rel (relative to level-<n>/) into level n of e.
+func addLevelFile(e *Entry, n int, rel string, data []byte) {
+	i := slices.IndexFunc(e.Levels, func(l Level) bool { return l.N == n })
+	if i < 0 {
+		e.Levels = append(e.Levels, Level{N: n})
+		i = len(e.Levels) - 1
+	}
+	l := &e.Levels[i]
+	l.Files = append(l.Files, File{Name: rel, Data: data})
+	if rel == ExpectedFile {
+		l.Expected = data
+	}
+	if render, ok := strings.CutPrefix(rel, CanonicalDir+"/"); ok && path.Ext(render) == ".json" && !strings.Contains(render, "/") {
+		if l.Canonical == nil {
+			l.Canonical = map[string][]byte{}
 		}
-		e.Canonical[strings.TrimSuffix(rest, ".json")] = data
+		l.Canonical[strings.TrimSuffix(render, ".json")] = data
 	}
 }
 
@@ -354,11 +511,18 @@ func negativeCode(dir string, fixture []byte) string {
 			}
 		}
 	}
+	return DirCode(dir)
+}
+
+// DirCode returns the RZ code a negative fixture's directory name starts
+// with: "RZ-<AREA>-<NNN>-<slug>", in any case, or "<NNN>-<slug>" for an
+// RZ-CFG code; "" for any other name.
+func DirCode(dir string) string {
 	upper := strings.ToUpper(dir)
 	if rest, ok := strings.CutPrefix(upper, "RZ-"); ok {
 		// RZ-<AREA>-<NNN>-...
 		area, tail, ok := strings.Cut(rest, "-")
-		if ok && len(tail) >= 3 && allDigits(tail[:3]) && area != "" {
+		if ok && len(tail) >= 3 && allDigits(tail[:3]) && area != "" && (len(tail) == 3 || tail[3] == '-') {
 			return "RZ-" + area + "-" + tail[:3]
 		}
 		return ""
@@ -398,18 +562,20 @@ func (c *Corpus) YAML() [][]byte { return contents(c.Files(".yaml", ".yml")) }
 // forms, expected digests and diagnostics), sorted by path.
 func (c *Corpus) JSON() [][]byte { return contents(c.Files(".json")) }
 
-// Canonical returns every golden canonical form, sorted by entry and
-// Environment.
+// Canonical returns every golden canonical form, sorted by entry, level
+// and render.
 func (c *Corpus) Canonical() [][]byte {
 	var out [][]byte
 	for _, e := range c.Entries {
-		envs := make([]string, 0, len(e.Canonical))
-		for env := range e.Canonical {
-			envs = append(envs, env)
-		}
-		slices.Sort(envs)
-		for _, env := range envs {
-			out = append(out, e.Canonical[env])
+		for _, l := range e.Levels {
+			renders := make([]string, 0, len(l.Canonical))
+			for r := range l.Canonical {
+				renders = append(renders, r)
+			}
+			slices.Sort(renders)
+			for _, r := range renders {
+				out = append(out, l.Canonical[r])
+			}
 		}
 	}
 	return out

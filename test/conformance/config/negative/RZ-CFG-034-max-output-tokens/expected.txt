@@ -1,0 +1,1 @@
+ruralz.yaml:19:1 error RZ-CFG-034 AIModel/chat spec.limits.maxOutputTokens: AIModel "chat" sets no limits.maxOutputTokens, but a Route with an ai.token-budget Policy reaches it (set limits.maxOutputTokens: a Token Budget reserves it as the output cap when a client sends none) (reached from Route "chat" in ruralz.yaml:64:1)

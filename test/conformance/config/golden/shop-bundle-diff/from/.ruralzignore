@@ -1,0 +1,3 @@
+# Kept beside the resources, never loaded into a Revision.
+*.draft.yaml
+samples/

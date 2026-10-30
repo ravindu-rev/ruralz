@@ -1,0 +1,21 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {
+    "name": "headers-security"
+  },
+  "spec": {
+    "type": "headers",
+    "overridable": false,
+    "config": {
+      "response": {
+        "set": [
+          {
+            "name": "strict-transport-security",
+            "value": "max-age=31536000"
+          }
+        ]
+      }
+    }
+  }
+}

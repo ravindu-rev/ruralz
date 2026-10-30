@@ -1,0 +1,20 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {
+    "name": "headers-internal"
+  },
+  "spec": {
+    "type": "headers",
+    "config": {
+      "request": {
+        "set": [
+          {
+            "name": "x-shop-consumer",
+            "valueExpression": "consumer == null ? \"anonymous\" : consumer.name"
+          }
+        ]
+      }
+    }
+  }
+}

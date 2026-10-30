@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders-history
+spec:
+  match:
+    hosts: ["api.shop.example"]
+    path: {template: "/v1/orders/{orderId}/history"}
+    methods: [GET]
+  upstreams:
+    - name: order-history               # not written yet: loaded, this draft would fail with RZ-CFG-009

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-004",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 1,
+    "column": 1,
+    "message": "%TAG directives are not allowed"
+  }
+]

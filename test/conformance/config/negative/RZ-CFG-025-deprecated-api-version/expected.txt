@@ -1,0 +1,1 @@
+ruralz.yaml:11:13 warning RZ-CFG-025 Upstream/orders apiVersion: apiVersion ruralz/v0test is deprecated and is removed in 0.9.0 (use ruralz/v1alpha1)

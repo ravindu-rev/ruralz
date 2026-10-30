@@ -1,0 +1,28 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 39,
+    "column": 24,
+    "resource": {
+      "kind": "Policy",
+      "name": "limit-tenant"
+    },
+    "path": [
+      "spec",
+      "config",
+      "key"
+    ],
+    "message": "CEL ratelimit config.key: request.body is not available here",
+    "hint": "the request body is read only in body Phases and composition",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 28,
+        "column": 7,
+        "message": "attached at"
+      }
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+[
+  {
+    "code": "RZ-CFG-015",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 29,
+    "column": 11,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "when"
+    ],
+    "message": "CEL Route.spec.match.when: estimated cost 10001 exceeds 10000 at nominal sizes (strings 256, lists and maps 32)",
+    "hint": "nested comprehensions multiply: iterate over fewer or smaller values"
+  }
+]

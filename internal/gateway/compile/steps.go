@@ -11,6 +11,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/config/pipeline"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
@@ -18,25 +19,45 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
+// Serve is the serve check, step 7 of the validation gate, on its own:
+// every resource of v, a Revision pl produced, against pl's served-feature
+// table and Policy type registry, each RZ-CFG-040 finding located through
+// files (pipeline.Result.Files; nil locates it by its resource's own
+// source), exactly as Compile reports them. It needs none of the Node's
+// other parts, so the configuration conformance suite runs the Node's
+// serve check in process. v must hold a Bundle; for anything else it is
+// ErrInput.
+func Serve(pl *pipeline.Pipeline, v *hub.Validated, files *tree.FileTable) (diag.List, error) {
+	if pl == nil || v == nil || v.Bundle == nil {
+		return nil, fmt.Errorf("%w: Serve needs a pipeline and a validated Revision", ErrInput)
+	}
+	return serve(pl, v, locator{files: files})
+}
+
 // serve is the serve check, step 7 of the validation gate: every resource
 // of v, whether a Route reaches it or not, against the served-feature
 // table (registry.Registry.CheckFeatures) and, for a Policy, the Policy
 // type registry (CheckServed). It returns every RZ-CFG-040 finding,
 // sorted.
 func (c *Compiler) serve(v *hub.Validated, loc locator) (diag.List, error) {
-	idx := c.d.Pipeline.HubIndex()
+	return serve(c.d.Pipeline, v, loc)
+}
+
+// serve is the serve check with pl's hub index and registry.
+func serve(pl *pipeline.Pipeline, v *hub.Validated, loc locator) (diag.List, error) {
+	idx, reg := pl.HubIndex(), pl.Registry()
 	var out diag.List
 	for _, r := range v.Bundle.Resources() {
 		if r.Tree != nil {
 			at := func(p tree.Pos) diag.Location { return loc.pos(r, p) }
-			ds, err := c.reg.CheckFeatures(idx, r.Kind, r.Name, r.Tree, at)
+			ds, err := reg.CheckFeatures(idx, r.Kind, r.Name, r.Tree, at)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, ds...)
 		}
 		if p, ok := hub.Object[v1alpha1.Policy](r); ok && p != nil {
-			if d, bad := c.reg.CheckServed(p); bad {
+			if d, bad := reg.CheckServed(p); bad {
 				d.Location = loc.at(r, d.Path)
 				out = append(out, d)
 			}

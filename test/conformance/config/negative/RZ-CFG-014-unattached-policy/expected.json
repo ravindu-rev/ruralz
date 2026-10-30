@@ -1,0 +1,25 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 21,
+    "column": 35,
+    "resource": {
+      "kind": "Policy",
+      "name": "stamp-status"
+    },
+    "path": [
+      "spec",
+      "config",
+      "request",
+      "set",
+      {
+        "name": "x-status"
+      },
+      "valueExpression"
+    ],
+    "message": "CEL headers config.request.set[].valueExpression: undeclared reference to 'response'",
+    "hint": "headers config.request.set[].valueExpression has request, source, route, consumer, auth, now"
+  }
+]

@@ -11,6 +11,12 @@
 # under a raw/ directory and are stored byte for byte (golden tests).
 test/fixtures/**/raw/** -text
 
+# The golden corpus of the configuration conformance suite: every file LF
+# on every checkout, except those under a raw/ directory, which hold CRLF
+# or a byte order mark and are stored byte for byte (Golden tests).
+test/conformance/config/** text eol=lf
+test/conformance/config/**/raw/** -text
+
 # Upstream conformance suites vendored by scripts/update-test-suites.sh are
 # stored byte for byte, as their pinned archive digests describe them.
 test/fixtures/yaml-test-suite/data/** -text linguist-vendored

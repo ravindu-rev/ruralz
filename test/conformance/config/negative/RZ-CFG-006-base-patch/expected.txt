@@ -1,0 +1,1 @@
+ruralz.yaml:29:7 error RZ-CFG-006 Route/orders spec.upstreams[name=orders].$patch: $patch is valid only in overlays

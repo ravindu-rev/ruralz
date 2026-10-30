@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "raw/orders.yaml",
+    "line": 24,
+    "column": 3,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "timout"
+    ],
+    "message": "unknown field \"timout\"",
+    "hint": "did you mean \"timeout\"?"
+  }
+]

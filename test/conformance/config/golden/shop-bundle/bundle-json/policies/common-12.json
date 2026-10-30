@@ -1,0 +1,24 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {
+    "name": "upstream-oauth"
+  },
+  "spec": {
+    "type": "auth.upstream-oauth2",
+    "config": {
+      "tokenUrl": "https://auth.shop.example/oauth2/token",
+      "clientId": "gateway-edge",
+      "clientSecret": {
+        "secretRef": {
+          "provider": "kubernetes",
+          "name": "upstream-oauth",
+          "key": "client-secret"
+        }
+      },
+      "scopes": [
+        "orders.read"
+      ]
+    }
+  }
+}

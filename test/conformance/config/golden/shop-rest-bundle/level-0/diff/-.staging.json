@@ -1,0 +1,48 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-3c77243ace07",
+    "digest": "sha256:3c77243ace079ff8335af3c0242ae0f90fe015923576c994208c3f849946e63e"
+  },
+  "to": {
+    "revision": "rev-b868f8c8e2da",
+    "bundle": "./shop-rest-bundle",
+    "digest": "sha256:b868f8c8e2da4bdcaf2207d04fdf0dc39f68e7e67fe4ddec8f90985285e2eb14"
+  },
+  "environment": "staging",
+  "resources": [
+    {
+      "kind": "Gateway",
+      "name": "edge",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "metadata"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "telemetry",
+            "otlp",
+            "endpoint"
+          ],
+          "from": "https://otel-collector:4317",
+          "to": "https://otel-collector.observability:4317"
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "metadata"
+    ]
+  }
+}

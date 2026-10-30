@@ -1,0 +1,38 @@
+[
+  {
+    "code": "RZ-CFG-022",
+    "severity": "error",
+    "file": "environments.yaml",
+    "line": 7,
+    "column": 11,
+    "resource": {
+      "kind": "Environment",
+      "name": "staging"
+    },
+    "path": [
+      "spec",
+      "promotion",
+      "from"
+    ],
+    "message": "promotion cycle: staging -> prod -> staging",
+    "hint": "promotion.from chains must end at an Environment without a promotion"
+  },
+  {
+    "code": "RZ-CFG-022",
+    "severity": "error",
+    "file": "environments.yaml",
+    "line": 15,
+    "column": 11,
+    "resource": {
+      "kind": "Environment",
+      "name": "prod"
+    },
+    "path": [
+      "spec",
+      "promotion",
+      "from"
+    ],
+    "message": "promotion cycle: prod -> staging -> prod",
+    "hint": "promotion.from chains must end at an Environment without a promotion"
+  }
+]

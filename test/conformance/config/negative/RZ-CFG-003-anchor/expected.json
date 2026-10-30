@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 6,
+    "column": 14,
+    "message": "anchors are not allowed (&listeners)"
+  }
+]

@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-001",
+    "severity": "error",
+    "file": "raw/upstream.yaml",
+    "line": 1,
+    "column": 1,
+    "message": "byte order mark (U+FEFF) is not allowed"
+  }
+]

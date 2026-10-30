@@ -1,0 +1,23 @@
+[
+  {
+    "code": "RZ-CFG-009",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 28,
+    "column": 13,
+    "resource": {
+      "kind": "Route",
+      "name": "stock"
+    },
+    "path": [
+      "spec",
+      "upstreams",
+      {
+        "name": "inventroy"
+      },
+      "name"
+    ],
+    "message": "Upstream \"inventroy\" not found",
+    "hint": "did you mean \"inventory\"?"
+  }
+]

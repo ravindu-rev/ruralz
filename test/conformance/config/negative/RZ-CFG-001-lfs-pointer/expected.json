@@ -1,0 +1,9 @@
+[
+  {
+    "code": "RZ-CFG-001",
+    "severity": "error",
+    "file": "routes/orders.yaml",
+    "message": "Git LFS pointer, not the file's content: a Bundle holds the content itself",
+    "hint": "fetch the content with git lfs pull, or commit the file without LFS"
+  }
+]

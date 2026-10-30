@@ -1,0 +1,18 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Upstream",
+  "metadata": {
+    "name": "llm"
+  },
+  "spec": {
+    "protocol": "ai",
+    "ai": {
+      "surface": "openai",
+      "models": [
+        {
+          "name": "support-chat"
+        }
+      ]
+    }
+  }
+}

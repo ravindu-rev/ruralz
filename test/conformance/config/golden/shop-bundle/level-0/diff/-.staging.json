@@ -1,0 +1,76 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-8b37dd66d216",
+    "digest": "sha256:8b37dd66d2162b46823e4d9edcee6d04c692e4fb9f461a6f5e66c6873713842c"
+  },
+  "to": {
+    "revision": "rev-5331fcb198ff",
+    "bundle": "./shop-bundle",
+    "digest": "sha256:5331fcb198ff663828111f0e46c4952185a74867ed8a777bce3fed0d5159155b"
+  },
+  "environment": "staging",
+  "resources": [
+    {
+      "kind": "Gateway",
+      "name": "edge",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "metadata"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "telemetry",
+            "otlp",
+            "endpoint"
+          ],
+          "from": "https://otel-collector:4317",
+          "to": "https://otel-collector.observability:4317"
+        }
+      ]
+    },
+    {
+      "kind": "AIModel",
+      "name": "support-chat",
+      "change": "modified",
+      "source": "ai/models.yaml",
+      "impact": [
+        "ai"
+      ],
+      "ops": [
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "candidates",
+            {
+              "name": "secondary"
+            }
+          ],
+          "from": {
+            "model": "gpt-4.1-mini",
+            "name": "secondary",
+            "provider": "openai-prod",
+            "when": "ai.estimatedInputTokens < 100000"
+          }
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 2,
+    "added": 0,
+    "removed": 0,
+    "modified": 2,
+    "routeChainsChanged": 0,
+    "impact": [
+      "ai",
+      "metadata"
+    ]
+  }
+}

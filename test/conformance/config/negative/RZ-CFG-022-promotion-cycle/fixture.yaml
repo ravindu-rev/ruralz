@@ -1,0 +1,4 @@
+code: RZ-CFG-022
+stage: C
+binaries: [ruralz]
+source: environments

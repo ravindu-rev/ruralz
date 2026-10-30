@@ -1,0 +1,25 @@
+[
+  {
+    "code": "RZ-CFG-016",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 7,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge-internal"
+    },
+    "path": [
+      "kind"
+    ],
+    "message": "a Bundle has exactly one Gateway, and ruralz.yaml already declares Gateway/edge",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 4,
+        "column": 9,
+        "message": "first declared in"
+      }
+    ]
+  }
+]
