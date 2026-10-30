@@ -279,8 +279,8 @@ func (r *Renderer) rewrite(ctx context.Context, res *pipeline.Result, out *Rende
 			if !c.Info.InSecret || c.Node.Kind != tree.KindMap {
 				return nil
 			}
-			ref, ok := c.Node.Get("secretRef")
-			if !ok || ref.Kind != tree.KindMap {
+			ref, ok := secretRefOf(c.Node)
+			if !ok {
 				return schemaidx.ErrSkipChildren
 			}
 			provider, name := text(ref, "provider"), text(ref, "name")
@@ -308,6 +308,20 @@ func (r *Renderer) rewrite(ctx context.Context, res *pipeline.Result, out *Rende
 	}
 	failed.Sort()
 	return changed, failed, nil
+}
+
+// secretRefOf returns the reference that the x-ruralz-secret field field
+// holds: the secretRef member of a SecretValue, or the field itself when
+// it is a SecretRef, holding provider, as a Consumer API key's secretRef
+// is (docs/architecture/02-configuration-model.md "Consumer"). It reports
+// false for anything else, such as a SecretValue whose secretRef is not a
+// map.
+func secretRefOf(field *tree.Node) (*tree.Node, bool) {
+	if inner, ok := field.Get("secretRef"); ok {
+		return inner, inner.Kind == tree.KindMap
+	}
+	_, isRef := field.Get("provider")
+	return field, isRef
 }
 
 // rewriteGateway rewrites the Gateway envelope gw: listener ports and

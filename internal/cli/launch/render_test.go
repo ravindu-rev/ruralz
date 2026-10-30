@@ -366,6 +366,100 @@ func TestRenderOverrides(t *testing.T) {
 	}
 }
 
+// consumerKeyBundle is a Bundle whose Consumer holds an API key by a file
+// secretRef: the secret field is the SecretRef itself, not a SecretValue
+// holding one.
+const consumerKeyBundle = `apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: public
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: hello
+spec:
+  protocol: http
+  endpoints:
+    - address: "127.0.0.1:9000"
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: apikey
+spec:
+  type: auth.api-key
+  config: {header: x-api-key}
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: partner
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        secretRef: {provider: file, name: /etc/ruralz/keys/partner}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hello
+spec:
+  match:
+    path: {prefix: /}
+  policies:
+    - name: apikey
+  upstreams:
+    - name: hello
+`
+
+// TestRenderOverridesConsumerKey: a Consumer API key's secretRef, a secret
+// field that is a SecretRef itself, takes its override like any other
+// reference, and without an entry fails the render with RZ-CFG-026 at the
+// Consumer.
+func TestRenderOverridesConsumerKey(t *testing.T) {
+	ws := newTestWorkspace(t)
+	dir := t.TempDir()
+	src := writeTestFile(t, dir, "bundle.yaml", consumerKeyBundle)
+	writeTestFile(t, dir, "local/partner-key", "key-canary")
+	overrides := writeTestFile(t, dir, "overrides.yaml", "file:/etc/ruralz/keys/partner: local/partner-key\n")
+	r := NewRenderer(testPipeline(t), ws, Request{Source: src, Overrides: overrides})
+	rend := mustRender(t, r)
+	if rend.TestDigest == rend.Revision {
+		t.Error("the rewritten API key reference kept the Revision digest")
+	}
+	key := filepath.Join(ws.SecretRoot(), "file", "etc", "ruralz", "keys", "partner")
+	text := swapped(t, r, ws, rend)
+	ref := `secretRef:\n\s+provider: file\n\s+name: ` + regexp.QuoteMeta(quoted(key)) + `\n`
+	if !regexp.MustCompile(ref).MatchString(text) || strings.Contains(text, "name: /etc/ruralz/keys/partner\n") {
+		t.Errorf("the test render does not name the copy %s:\n%s", key, text)
+	}
+	if got, err := os.ReadFile(key); err != nil || string(got) != "key-canary" { //nolint:gosec // G304: a copy in the test's private directory.
+		t.Errorf("copy %s = %q, %v", key, got, err)
+	}
+	if digestOf(t, ws.Config()) != rend.TestDigest {
+		t.Error("the swapped test render does not build to the test digest")
+	}
+
+	writeTestFile(t, dir, "overrides.yaml", "env:RURALZ_SECRET_OTHER: local/partner-key\n")
+	_, err := r.Render(t.Context())
+	var f *Failure
+	if !errors.As(err, &f) || len(f.Diagnostics) != 1 {
+		t.Fatalf("Render without the key's entry = %v", err)
+	}
+	d := f.Diagnostics[0]
+	want := "secretRef file:/etc/ruralz/keys/partner has no entry in --secret-overrides " + overrides + "; with overrides every file reference needs one"
+	if d.Code != codeSecret || d.Message != want || d.Resource == nil || d.Resource.Kind != "Consumer" || d.Resource.Name != "partner" {
+		t.Errorf("diagnostic = %+v, want %q at Consumer/partner", d, want)
+	}
+}
+
 // quoted returns the YAML form of a path in the test render: bare when the
 // encoder writes it plain, else double-quoted.
 func quoted(p string) string {

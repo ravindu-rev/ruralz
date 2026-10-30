@@ -235,6 +235,8 @@ Every M1 command of pack section 9 has end-to-end cases for each documented exit
 | `ruralz node dump` | The saved Revision, secrets omitted |
 | `ruralz version`, `ruralz completion` | The build metadata; a script for each of the four shells |
 
+The suite checks this list against the documents: every command that pack section 9 or the CLI reference's [command table](../reference/01-cli-and-api-surface.md#command-table) plans for the milestone in progress, or an earlier one, maps to end-to-end tests that run it, and the suite maps no other command.
+
 The air-gapped start runs inside a loopback-only network namespace: a Node on the REST example Bundle, with every dependency on loopback, becomes ready within the readiness wait, passes scenario 2's checks and shows only the expected degraded reasons, and every non-loopback dial fails without delaying readiness.
 
 ### Process harness

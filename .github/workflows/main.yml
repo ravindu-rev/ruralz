@@ -4,7 +4,8 @@
 # main: CI stage 10 on every merge to main
 # (docs/engineering/02-repository-layout-and-conventions.md, "CI stages"), 45
 # minutes (target). The end-to-end suite runs on the process harness with the
-# secret leak assertions in every run, and the quickstart script goes from each
+# secret leak assertions in every run and uploads the harness's failure
+# evidence when a test fails, and the quickstart script goes from each
 # ruralzd archive of a release dry run to a first proxied request on a clean
 # runner of that archive's platform, without Go (SM-7,
 # docs/operations/01-deployment-topologies.md, "Quickstart"). A failure does
@@ -61,10 +62,32 @@ jobs:
           redis-server --version
       - name: End-to-end suite as root
         # Root lets the air-gapped start and the handover runs use private
-        # network namespaces; the runner's Go and caches are kept.
+        # network namespaces; the runner's Go and caches are kept. A failed
+        # test leaves the harness's evidence in a directory named after it
+        # under RURALZ_TEST_ARTIFACT_DIR (testing strategy, "Process
+        # harness").
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/e2e-evidence
         run: |
           sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
             "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make e2e
+      - name: Hand the failure evidence to the runner user
+        # The suite ran as root, so root owns the evidence files.
+        if: failure()
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/e2e-evidence
+        run: |
+          if [[ -d "$RURALZ_TEST_ARTIFACT_DIR" ]]; then
+            sudo chown -R "$(id -u):$(id -g)" "$RURALZ_TEST_ARTIFACT_DIR"
+          fi
+      - name: Upload the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: e2e-evidence
+          path: ${{ runner.temp }}/e2e-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
 
   quickstart-archives:
     name: 10. Quickstart archives
