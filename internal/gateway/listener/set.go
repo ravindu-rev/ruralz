@@ -82,8 +82,10 @@ type Options struct {
 	Host string
 	// Steer is set in the process holding the data-directory lock: each
 	// port's reuseport group is pinned to the socket serving it after every
-	// bind (ADR-0015 "Pinning"). A handover successor leaves it unset and
-	// calls Pin once it holds the lock.
+	// bind, and each port the Set does not serve yet is first probe-bound
+	// without SO_REUSEPORT (ADR-0015 "Pinning"). A handover successor
+	// leaves it unset, so it skips the probe of ports the holder's sockets
+	// listen on, and calls Pin once it holds the lock.
 	Steer bool
 }
 
@@ -104,11 +106,14 @@ type Set struct {
 	ports     map[int]*endpoint        // the endpoint serving each bound port
 	groups    map[int]*reuseport.Group // per bound port with a listening socket
 	lingering map[*endpoint]struct{}
-	servers   map[*server]struct{} // every Server shard not stopped yet
-	pending   *Plan
-	steer     bool
-	stopped   bool
-	closed    bool
+	// unlingered is closed, and cleared, once no socket lingers; nil until
+	// WaitLingers waits.
+	unlingered chan struct{}
+	servers    map[*server]struct{} // every Server shard not stopped yet
+	pending    *Plan
+	steer      bool
+	stopped    bool
+	closed     bool
 }
 
 // New returns a Set serving no listener.
@@ -172,11 +177,13 @@ type update struct {
 // Prepare readies the listeners of next before the snapshot swap: an
 // endpoint whose listener identity is unchanged is kept (with a new TLS
 // state when its TLS settings changed); every other listener binds a new
-// socket on its port, on every interface or Options.Host. Two listeners on
-// one port, a listener on the admin port and a port that cannot be bound
-// are RZ-CFG-039; a TLS state that cannot be built carries its tlsconf
-// code (RZ-CFG-026 for certificates). On error nothing changes. secrets
-// is the Revision's resolved secret table.
+// socket on its port, on every interface or Options.Host, after a probe
+// bind when the Set steers and does not serve the port yet. Two listeners
+// on one port, a listener on the admin port, a port another process
+// listens on and a port that cannot be bound are RZ-CFG-039; a TLS state
+// that cannot be built carries its tlsconf code (RZ-CFG-026 for
+// certificates). On error nothing changes. secrets is the Revision's
+// resolved secret table.
 func (s *Set) Prepare(ctx context.Context, next *snapshot.Snapshot, secrets secret.Store) (*Plan, error) {
 	if next == nil {
 		return nil, errors.New("listener: prepare: no snapshot")
@@ -248,7 +255,12 @@ func checkPorts(next *snapshot.Snapshot) error {
 
 // newEndpoint builds the endpoint of l: its TLS state on https, then its
 // socket, bound without listening where the platform can (Linux), else
-// listening.
+// listening. In the lock holder (steer) a port with none of the Set's
+// sockets is first probe-bound without SO_REUSEPORT, so a port another
+// process listens on, such as a ruralzd with another RURALZ_DATA_DIR,
+// refuses the Revision instead of joining that process's reuseport group
+// (docs/architecture/03-data-plane.md "Listeners and protocols"); port 0,
+// a free port, needs no probe. The caller holds s.mu.
 func (s *Set) newEndpoint(ctx context.Context, l *snapshot.Listener, secrets secret.Store) (*endpoint, error) {
 	ep := &endpoint{s: s, key: l.Key(), stopped: make(chan struct{}), unlinger: make(chan struct{})}
 	ep.metrics.Store(metricsOf(l))
@@ -266,6 +278,15 @@ func (s *Set) newEndpoint(ctx context.Context, l *snapshot.Listener, secrets sec
 		return nil, errcode.Errorf(codeSchema, "listener %q: protocol %q is not http or https", l.Name, l.Protocol)
 	}
 	addr := net.JoinHostPort(s.opts.Host, strconv.Itoa(l.Port))
+	if s.steer && l.Port != 0 && s.groups[l.Port] == nil {
+		if err := reuseport.Probe(ctx, addr); err != nil {
+			ep.discard()
+			if cerr := ctx.Err(); cerr != nil {
+				return nil, cerr
+			}
+			return nil, errcode.Wrap(codeBind, fmt.Errorf("listener %q: probe bind: %w", l.Name, err))
+		}
+	}
 	sock, err := reuseport.Bind(ctx, addr)
 	if errors.Is(err, errors.ErrUnsupported) {
 		var tcp *net.TCPListener
@@ -442,6 +463,10 @@ func (s *Set) lingerLocked(ep *endpoint) {
 func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 	ep.stopOnce.Do(func() {
 		delete(s.lingering, ep)
+		if len(s.lingering) == 0 && s.unlingered != nil {
+			close(s.unlingered)
+			s.unlingered = nil
+		}
 		if ep.acc != nil {
 			_ = ep.acc.Close()
 		}
@@ -587,9 +612,12 @@ func (s *Set) Addr(name string) net.Addr {
 }
 
 // Pin pins each port's reuseport group to the socket serving the port, and
-// every group after later binds: the lock holder's pinning of ADR-0015. A
-// handover successor calls it once it holds the lock, when the previous
-// holder's sockets are closed. Off Linux it returns errors.ErrUnsupported.
+// every group after later binds, probing the ports it does not serve yet:
+// the lock holder's pinning of ADR-0015. A handover successor calls it
+// once it holds the lock, when the previous holder's sockets are closed;
+// a holder calls it to re-pin each group to its own sockets when the
+// successor it steered to is lost during the linger, and keeps serving.
+// Off Linux it returns errors.ErrUnsupported.
 func (s *Set) Pin() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -601,6 +629,34 @@ func (s *Set) Pin() error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// WaitLingers waits until no socket a Hot Reload replaced on its port
+// lingers, so each port's reuseport group holds only the socket serving
+// it; it returns ctx's error when ctx ends first. The kernel moves the
+// last socket of a group into the place of one that closes, so a socket
+// closing while a handover successor's socket is in its group would move
+// the successor's socket to a position the Set's groups do not mirror: a
+// holder waits before it accepts a handover, holding activations, so no
+// socket of its own closes until its linger's end.
+func (s *Set) WaitLingers(ctx context.Context) error {
+	for {
+		s.mu.Lock()
+		if len(s.lingering) == 0 {
+			s.mu.Unlock()
+			return nil
+		}
+		if s.unlingered == nil {
+			s.unlingered = make(chan struct{})
+		}
+		done := s.unlingered
+		s.mu.Unlock()
+		select {
+		case <-done:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // SteerToSuccessor steers every port's reuseport group to the socket a

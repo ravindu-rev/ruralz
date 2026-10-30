@@ -193,6 +193,28 @@ func TestDisableKeepAlives(t *testing.T) {
 	check(true)
 }
 
+// TestEnableKeepAlives checks a lost handover's undo: after
+// EnableKeepAlives responses keep their connections alive again.
+func TestEnableKeepAlives(t *testing.T) {
+	f := newFixture(t, nil)
+	base := serve(t, f.srv, "http")
+	c := &http.Client{Transport: &http.Transport{}}
+	defer c.CloseIdleConnections()
+	check := func(wantClose bool) {
+		t.Helper()
+		resp := clientGet(t, c, base+PathHealthz, "")
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		if resp.Close != wantClose {
+			t.Fatalf("Connection: close = %v, want %v", resp.Close, wantClose)
+		}
+	}
+	f.srv.DisableKeepAlives()
+	check(true)
+	f.srv.EnableKeepAlives()
+	check(false)
+}
+
 // TestOptionsAsteriskAuthenticated checks that "OPTIONS *" is not
 // answered by net/http's built-in handler: it is authenticated like any
 // other unknown path.

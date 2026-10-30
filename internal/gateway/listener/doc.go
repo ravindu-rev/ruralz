@@ -91,9 +91,24 @@
 //
 // In the process that holds the data-directory lock (Options.Steer, or
 // [Set.Pin] once a handover successor takes the lock), each port's
-// reuseport group is pinned to the socket serving it, after every bind
-// (ADR-0015 "Pinning"). [Set.SteerToSuccessor] steers every group to the
-// socket a handover successor added (ADR-0015 "Steering").
+// reuseport group is pinned to the socket serving it, after every bind,
+// and a port the Set does not serve yet is first probe-bound without
+// SO_REUSEPORT and closed at once (reuseport.Probe), so a port another
+// process listens on, such as a ruralzd with another RURALZ_DATA_DIR,
+// refuses the Revision with RZ-CFG-039 instead of joining that process's
+// group (ADR-0015 "Pinning"). A handover successor skips the probe: the
+// holder's sockets listen on its ports. [Set.SteerToSuccessor] steers
+// every group to the socket a handover successor added (ADR-0015
+// "Steering"); [Set.Pin] re-pins every group to the holder's own sockets
+// when that successor is lost during the linger. A holder calls
+// [Set.WaitLingers] before it accepts a handover: the kernel moves a
+// group's last socket into the place of one that closes, so no socket of
+// the holder may close while the successor's socket is in its group.
+//
+// [AdminPort] keeps the admin listener's socket the same way: probe-bound
+// and pinned by the lock holder, bound without listening by a successor
+// until its handover is accepted, steered and re-pinned with the client
+// listeners.
 //
 // The Drain (internal/gateway/drain) drives the rest: [Set.Bound] tells
 // whether any socket accepts; [Set.StopAccepting] closes every socket,

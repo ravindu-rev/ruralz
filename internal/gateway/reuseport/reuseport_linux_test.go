@@ -6,6 +6,7 @@
 package reuseport
 
 import (
+	"context"
 	"errors"
 	"net"
 	"slices"
@@ -14,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // dials is the number of connections each routing check makes; a hashed
@@ -279,5 +282,126 @@ func TestListenEveryInterfaceIsDualStack(t *testing.T) {
 	_ = probe.Close()
 	if got := route(t, "[::1]:"+port, ln); !slices.Equal(got, all(0)) {
 		t.Fatalf("IPv6: routed to %v", got)
+	}
+}
+
+// bindPlain binds a socket to 127.0.0.1:port without SO_REUSEADDR or
+// SO_REUSEPORT and closes it: it fails while any socket holds the port, a
+// closing connection included.
+func bindPlain(port int) error {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, unix.IPPROTO_TCP)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(fd) }()
+	return unix.Bind(fd, &unix.SockaddrInet4{Port: port, Addr: [4]byte{127, 0, 0, 1}})
+}
+
+// TestProbeRefusesListeningPort checks the probe bind of ADR-0015
+// "Pinning": a port another socket listens on fails the probe with
+// EADDRINUSE whether that socket set SO_REUSEPORT, which a bind with
+// SO_REUSEPORT would join, or not, and a probe of every interface fails
+// on a port a loopback socket listens on.
+func TestProbeRefusesListeningPort(t *testing.T) {
+	var lc net.ListenConfig
+	tests := []struct {
+		name   string
+		listen func(t *testing.T) *net.TCPListener
+		every  bool // probe ":<port>" instead of the listener's address
+	}{
+		{name: "SO_REUSEPORT listener", listen: func(t *testing.T) *net.TCPListener { return listenOn(t, "127.0.0.1:0") }},
+		{name: "plain listener", listen: func(t *testing.T) *net.TCPListener {
+			t.Helper()
+			ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ln.Close() })
+			return ln.(*net.TCPListener)
+		}},
+		{name: "every interface", every: true, listen: func(t *testing.T) *net.TCPListener { return listenOn(t, "127.0.0.1:0") }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ln := tt.listen(t)
+			addr := ln.Addr().String()
+			if tt.every {
+				addr = ":" + strconv.Itoa(ln.Addr().(*net.TCPAddr).Port)
+			}
+			if err := Probe(t.Context(), addr); !errors.Is(err, syscall.EADDRINUSE) {
+				t.Fatalf("Probe(%s) = %v, want EADDRINUSE", addr, err)
+			}
+		})
+	}
+}
+
+// TestProbeLeavesPortFree checks that a probe of a free port succeeds and
+// keeps nothing bound: a bind without SO_REUSEADDR succeeds right after.
+func TestProbeLeavesPortFree(t *testing.T) {
+	ln := listenOn(t, "127.0.0.1:0")
+	port := ln.Addr().(*net.TCPAddr).Port
+	if err := ln.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := Probe(t.Context(), "127.0.0.1:"+strconv.Itoa(port)); err != nil {
+		t.Fatalf("Probe of a free port = %v, want nil", err)
+	}
+	if err := bindPlain(port); err != nil {
+		t.Fatalf("bind after the probe = %v, want the port free", err)
+	}
+}
+
+// TestProbeIgnoresClosingConnections checks that the probe sets
+// SO_REUSEADDR: a connection the previous listener closed first keeps the
+// port in TIME_WAIT, which fails a bind without SO_REUSEADDR, but not the
+// probe, so a restart right after a Drain is not refused.
+func TestProbeIgnoresClosingConnections(t *testing.T) {
+	var lc net.ListenConfig
+	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	addr := ln.Addr().String()
+	port := ln.Addr().(*net.TCPAddr).Port
+	var d net.Dialer
+	client, err := d.DialContext(t.Context(), "tcp", addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = client.Close() }()
+	server, err := ln.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := server.Close(); err != nil { // the active close: the server side keeps the port
+		t.Fatal(err)
+	}
+	if err := client.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Read(make([]byte, 1)); err == nil {
+		t.Fatal("read after the server closed returned data")
+	}
+	_ = client.Close()
+	_ = ln.Close()
+	if err := bindPlain(port); !errors.Is(err, unix.EADDRINUSE) {
+		t.Fatalf("bind without SO_REUSEADDR = %v, want EADDRINUSE from the closing connection", err)
+	}
+	if err := Probe(t.Context(), addr); err != nil {
+		t.Fatalf("Probe beside a closing connection = %v, want nil", err)
+	}
+}
+
+// TestProbeInputs checks that a done context and a malformed address fail
+// the probe before any socket is created.
+func TestProbeInputs(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := Probe(ctx, "127.0.0.1:0"); !errors.Is(err, context.Canceled) {
+		t.Errorf("Probe with a done context = %v, want context.Canceled", err)
+	}
+	if err := Probe(t.Context(), "localhost:80"); !errors.Is(err, ErrAddress) {
+		t.Errorf("Probe(localhost:80) = %v, want ErrAddress", err)
 	}
 }

@@ -50,7 +50,7 @@ func Bind(ctx context.Context, addr string) (*Socket, error) {
 	if err != nil {
 		return nil, err
 	}
-	fd, err := bindFD(a)
+	fd, err := bindFD(a, true)
 	if err != nil {
 		return nil, &net.OpError{Op: "listen", Net: "tcp", Addr: tcpAddrOf(a), Err: err}
 	}
@@ -62,8 +62,9 @@ func Bind(ctx context.Context, addr string) (*Socket, error) {
 	return &Socket{fd: fd, addr: sockaddrTCP(sa)}, nil
 }
 
-// bindFD creates, configures and binds the socket of a.
-func bindFD(a bindAddr) (int, error) {
+// bindFD creates, configures and binds the socket of a, with SO_REUSEPORT
+// when reusePort is set.
+func bindFD(a bindAddr, reusePort bool) (int, error) {
 	family := unix.AF_INET6
 	if a.ip.Is4() {
 		family = unix.AF_INET
@@ -76,7 +77,7 @@ func bindFD(a bindAddr) (int, error) {
 	if err != nil {
 		return -1, os.NewSyscallError("socket", err)
 	}
-	if err := configure(fd, family); err != nil {
+	if err := configure(fd, family, reusePort); err != nil {
 		_ = unix.Close(fd)
 		return -1, err
 	}
@@ -87,15 +88,46 @@ func bindFD(a bindAddr) (int, error) {
 	return fd, nil
 }
 
+// Probe binds a TCP socket to addr without SO_REUSEPORT and closes it at
+// once, without listening, so it never receives a connection: it fails,
+// with an error matching syscall.EADDRINUSE, when another socket listens
+// on the port, with SO_REUSEPORT or not. A lock holder probes each port
+// it does not serve yet before binding it with SO_REUSEPORT, so a port
+// another process listens on, such as a ruralzd with another
+// RURALZ_DATA_DIR, refuses the bind instead of joining that process's
+// reuseport group ("Pinning" in ADR-0015). Like every listening socket the
+// probe sets SO_REUSEADDR, so the closing connections of an earlier
+// process, such as those in TIME_WAIT, never fail it. An empty host
+// probes every interface, as Bind binds it.
+func Probe(ctx context.Context, addr string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	a, err := parseAddr(addr)
+	if err != nil {
+		return err
+	}
+	fd, err := bindFD(a, false)
+	if err != nil {
+		return &net.OpError{Op: "probe", Net: "tcp", Addr: tcpAddrOf(a), Err: err}
+	}
+	if err := unix.Close(fd); err != nil {
+		return &net.OpError{Op: "probe", Net: "tcp", Addr: tcpAddrOf(a), Err: os.NewSyscallError("close", err)}
+	}
+	return nil
+}
+
 // configure sets the options every ruralzd listening socket carries:
-// SO_REUSEADDR (as net.Listen sets it), SO_REUSEPORT and, on IPv6, dual
-// stack.
-func configure(fd, family int) error {
+// SO_REUSEADDR (as net.Listen sets it), SO_REUSEPORT unless reusePort is
+// false (a probe) and, on IPv6, dual stack.
+func configure(fd, family int, reusePort bool) error {
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEADDR, 1); err != nil {
 		return os.NewSyscallError("setsockopt", err)
 	}
-	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
-		return os.NewSyscallError("setsockopt", err)
+	if reusePort {
+		if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_REUSEPORT, 1); err != nil {
+			return os.NewSyscallError("setsockopt", err)
+		}
 	}
 	if family == unix.AF_INET6 {
 		if err := unix.SetsockoptInt(fd, unix.IPPROTO_IPV6, unix.IPV6_V6ONLY, 0); err != nil {

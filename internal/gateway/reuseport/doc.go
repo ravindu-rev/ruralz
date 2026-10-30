@@ -20,7 +20,10 @@
 // waits on name resolution. [Bind] binds without listening: a bound TCP
 // socket joins its port's reuseport group only when [Socket.Listen] is
 // called, so it receives no connection before, while a port conflict
-// already fails at Bind ("Bind, not listen" in ADR-0015).
+// already fails at Bind ("Bind, not listen" in ADR-0015). [Probe] binds a
+// port without SO_REUSEPORT and closes it at once: a lock holder probes
+// each port it does not serve yet, so a port another process listens on
+// refuses the bind instead of joining that process's group ("Pinning").
 //
 // # Steering
 //
@@ -37,7 +40,9 @@
 //
 // Linux supports all of it. On BSD and macOS (development only), Listen
 // sets SO_REUSEPORT, so a second socket binds a port that a listening one
-// holds; Bind and Steer return errors.ErrUnsupported. Elsewhere (Windows,
-// which has no ruralzd) sockets are plain and a second socket on a port
-// fails to bind. [SharedPorts] and [Steering] report the platform's case.
+// holds; Bind and Steer return errors.ErrUnsupported, and Probe listens
+// for an instant, since only Linux binds without listening. Elsewhere
+// (Windows, which has no ruralzd) sockets are plain and a second socket on
+// a port fails to bind. [SharedPorts] and [Steering] report the platform's
+// case.
 package reuseport

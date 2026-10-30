@@ -191,6 +191,13 @@ func (s *Server) Serve(ln net.Listener) error {
 // "In-place handover", step 6).
 func (s *Server) DisableKeepAlives() { s.srv.SetKeepAlivesEnabled(false) }
 
+// EnableKeepAlives keeps admin connections alive again after
+// DisableKeepAlives: a holder whose handover successor is lost during the
+// linger re-pins its sockets and keeps serving, health checkers included
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "In-place
+// handover", step 5).
+func (s *Server) EnableKeepAlives() { s.srv.SetKeepAlivesEnabled(true) }
+
 // Shutdown ends every /tap stream and profile window at once, stops
 // accepting, waits within ctx for the remaining requests and closes the
 // connections still open when ctx ends. The admin hop stops counting.

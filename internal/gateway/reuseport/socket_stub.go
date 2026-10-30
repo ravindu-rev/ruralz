@@ -42,6 +42,18 @@ func Steer(syscall.Conn, int) error {
 	return fmt.Errorf("reuseport: steer: %w", errors.ErrUnsupported)
 }
 
+// Probe checks that no socket listens on addr's port with a plain socket,
+// without SO_REUSEPORT, closed at once. Binding without listening is
+// Linux only, so the probe listens for that instant; this platform runs
+// ruralzd for development only.
+func Probe(ctx context.Context, addr string) error {
+	ln, err := listenTCP(ctx, net.ListenConfig{}, addr)
+	if err != nil {
+		return err
+	}
+	return ln.Close()
+}
+
 // listenTCP listens on addr through lc.
 func listenTCP(ctx context.Context, lc net.ListenConfig, addr string) (*net.TCPListener, error) {
 	if _, err := parseAddr(addr); err != nil {
