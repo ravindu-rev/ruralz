@@ -687,6 +687,20 @@ func (n *Node) StateStoreProxy(store string) ([]*faultproxy.Proxy, bool) {
 	return slices.Clone(l.fault), true
 }
 
+// StateStoreURL returns the URL of the State Store store through this
+// Node's own proxies, the value its NodeOptions.StateStoreURLs references
+// hold, carrying the ACL user's password canary: what a test writes into
+// a file secret to move the Node to that State Store.
+func (n *Node) StateStoreURL(store string) (string, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	l, ok := n.links[store]
+	if !ok {
+		return "", false
+	}
+	return l.url, true
+}
+
 // RESPProxy returns the counting RESP proxies in front of the State Store
 // store for this Node, with StateStoreOptions.RESPProxy.
 func (n *Node) RESPProxy(store string) ([]*respproxy.Proxy, bool) {

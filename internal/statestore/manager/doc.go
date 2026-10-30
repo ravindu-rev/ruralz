@@ -50,13 +50,31 @@
 // handle is the Main handle, released once. Every driver receives the
 // Node's one in-flight ceiling (statestore.InFlight of Limits.InFlight,
 // 8,192), so the main and cache connections, and the old and new drivers
-// of a Hot Reload, share it.
+// of a Hot Reload or a rotation, share it.
+//
+// # Rotated URL secrets
+//
+// A redis connection watches the secret its URL was read from
+// (Spec.MainURL, Spec.CacheURL): a rotated value that differs from the URL
+// in use, which the resolver polls for a file secret every 2 s, opens a
+// new driver for that connection at once, on the resolver's goroutine and
+// off the request path, as a changed URL does at a Hot Reload. Each
+// snapshot's handle keeps its Store and Enqueuer, which reach the driver
+// serving the connection at each call and enqueue, so calls and later
+// writes move to the new driver, which dials, authenticates and loads its
+// scripts under the reconnect pacing; a call in progress finishes on the
+// old driver, which closes once it and the writes queued for it are done.
+// The connection moves to the rotated value's key, so a later Revision
+// resolving that value shares it. A value the opener refuses keeps the old
+// driver and fails the watch, a rotation failure the resolver counts. An
+// env secret, such as RURALZ_STATE_STORE_URL, is never polled, so its URL
+// changes only with a restart.
 //
 // # Post-commit queue
 //
-// The Manager owns the Node's postcommit.Queue, and each driver's
-// Enqueuer queues writes for that driver. Close flushes the queue for up
-// to 5 s at Drain, then closes every driver.
+// The Manager owns the Node's postcommit.Queue, and each connection's
+// Enqueuer queues writes for the driver serving it. Close flushes the
+// queue for up to 5 s at Drain, then closes every driver.
 //
 // # Degraded states and warnings
 //

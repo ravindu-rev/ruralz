@@ -279,8 +279,8 @@ func TestQueuedWriteKeepsDriverOpen(t *testing.T) {
 	}
 	<-d.writeEntered
 	hs.Main.Release()
-	if d.closed.Load() || hs.Main.e.refs.Load() != 1 {
-		t.Fatalf("closed %v, references %d: the queued write must hold the driver", d.closed.Load(), hs.Main.e.refs.Load())
+	if refs := hs.Main.e.gen.Load().refs.Load(); d.closed.Load() || refs != 1 {
+		t.Fatalf("closed %v, driver references %d: the queued write must hold the driver", d.closed.Load(), refs)
 	}
 	close(d.blockWrite)
 	waitFor(t, "the driver close", func() bool { return d.closes.Load() == 1 })

@@ -64,22 +64,45 @@ type driver struct {
 
 	blockWrite   chan struct{}
 	writeEntered chan struct{}
-	blockClose   bool
-	closeErr     error
+	// blockConsume, when set, holds Consume until it is closed, after
+	// signalling consumeEntered.
+	blockConsume   chan struct{}
+	consumeEntered chan struct{}
+	blockClose     bool
+	closeErr       error
 
 	statusCalls atomic.Int64
 	closes      atomic.Int64
 	closed      atomic.Bool
 	lateWrites  atomic.Int64 // writes after Close
+	calls       atomic.Int64 // Consume and Read calls
+	lateCalls   atomic.Int64 // calls ending after Close
 }
 
 var _ statestore.Driver = (*driver)(nil)
 
 func (d *driver) Consume(context.Context, *statestore.RequestBudget, []*statestore.Call) int {
+	d.calls.Add(1)
+	if d.consumeEntered != nil {
+		d.consumeEntered <- struct{}{}
+	}
+	if d.blockConsume != nil {
+		<-d.blockConsume
+	}
+	if d.closed.Load() {
+		d.lateCalls.Add(1)
+	}
 	return 1
 }
-func (d *driver) Read(context.Context, *statestore.RequestBudget, []*statestore.Call) {}
-func (d *driver) AdmitStoreBytes(statestore.CacheKey, int) bool                       { return true }
+
+func (d *driver) Read(context.Context, *statestore.RequestBudget, []*statestore.Call) {
+	d.calls.Add(1)
+	if d.closed.Load() {
+		d.lateCalls.Add(1)
+	}
+}
+
+func (d *driver) AdmitStoreBytes(statestore.CacheKey, int) bool { return true }
 
 func (d *driver) Supports(statestore.Capability) bool { return true }
 
@@ -146,8 +169,10 @@ func (d *driver) Close(ctx context.Context) error {
 }
 
 // opener is a fake statestore.Opener recording every driver it opens.
+// err refuses every configuration, refuse those it returns an error for.
 type opener struct {
 	err    error
+	refuse func(cfg statestore.Config) error
 	setup  func(d *driver)
 	events *events
 
@@ -158,6 +183,11 @@ type opener struct {
 func (o *opener) open(_ context.Context, cfg statestore.Config, _ statestore.Deps) (statestore.Driver, error) {
 	if o.err != nil {
 		return nil, o.err
+	}
+	if o.refuse != nil {
+		if err := o.refuse(cfg); err != nil {
+			return nil, err
+		}
 	}
 	o.mu.Lock()
 	defer o.mu.Unlock()

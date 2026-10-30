@@ -68,7 +68,12 @@
 // through its own fault proxy, or counting RESP proxy, one per endpoint of
 // the URL (the server, a cluster's seeds or the sentinels), and the harness
 // writes the URL through those proxies into the secret that
-// NodeOptions.StateStoreURLs names. The harness chooses TLS from
+// NodeOptions.StateStoreURLs names; Node.StateStoreURL returns it, for a
+// test that rotates a Node's URL secret to another State Store. With
+// counting RESP proxies, each primary of a process cluster also announces
+// a counting proxy of its own, shared by every Node (StateStore.Proxies),
+// so the commands a cluster's slot map sends to the servers directly are
+// counted too. The harness chooses TLS from
 // internal/testkit/pki and credentials on every hop it owns: rediss:// with
 // an ACL user, an https OTLP sink, and admin TLS through
 // RURALZ_ADMIN_TLS_DIR with operator and metrics tokens. Transport turns

@@ -54,6 +54,15 @@ type Spec struct {
 	// Cache configures the Response Cache connection, Gateway
 	// spec.stateStore.cache; nil shares Main.
 	Cache *statestore.Config
+	// MainURL and CacheURL are the secret references the redis
+	// connections' URLs were read from: stateStore.url and
+	// stateStore.cache.url, or EnvRef for the fallback URL; nil for the
+	// memory driver and without a cache connection. The Manager watches
+	// each in Secrets, so a rotated value that differs from the URL in use
+	// opens a new client for its connection at once.
+	MainURL, CacheURL *secret.Ref
+	// Secrets is the Revision's secret table holding those references.
+	Secrets secret.Store
 	// Limits reports a ratelimit or quota Policy in the Revision; they use
 	// Main.
 	Limits bool
@@ -66,20 +75,22 @@ type Spec struct {
 // caller. Without stateStore it uses the fallback URL when secrets holds
 // EnvRef, else the memory driver (SourceFallback). URL values lose
 // surrounding SP, HTAB, CR and LF, as the resolver's URL check ignores
-// them. stateStore.tls reaches the main connection and
-// stateStore.cache.tls the cache connection, each as references with
-// secrets, which the driver reads at Open; stateStore.zones reaches a
-// redis main connection and stateStore.cache.zones the cache connection,
-// each keyed by netaddr.CanonicalHost (zonesOf). Errors never contain a
-// URL.
+// them. Each redis connection's url reference and secrets go into the
+// Spec (MainURL, CacheURL, Secrets) for the Manager's rotation watch.
+// stateStore.tls reaches the main connection and stateStore.cache.tls the
+// cache connection, each as references with secrets, which the driver
+// reads at Open; stateStore.zones reaches a redis main connection and
+// stateStore.cache.zones the cache connection, each keyed by
+// netaddr.CanonicalHost (zonesOf). Errors never contain a URL.
 func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 	main := statestore.Config{Role: statestore.RoleMain, DefaultTimeout: statestore.DefaultTimeout}
 	if ss == nil {
 		if u, ok := urlOf(secrets, EnvRef()); ok {
 			main.Driver, main.Topology, main.URL, main.Source = statestore.DriverRedis, statestore.TopologyStandalone, u, statestore.SourceEnv
-		} else {
-			main.Driver, main.Source = statestore.DriverMemory, statestore.SourceFallback
+			ref := EnvRef()
+			return Spec{Main: main, MainURL: &ref, Secrets: secrets}, nil
 		}
+		main.Driver, main.Source = statestore.DriverMemory, statestore.SourceFallback
 		return Spec{Main: main}, nil
 	}
 	main.Source = statestore.SourceGateway
@@ -111,6 +122,10 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 		return Spec{}, fmt.Errorf("%w %q", ErrDriver, driver)
 	}
 	spec := Spec{Main: main}
+	if main.Driver == statestore.DriverRedis {
+		ref := secret.RefOf(ss.URL.SecretRef)
+		spec.MainURL, spec.Secrets = &ref, secrets
+	}
 	if c := ss.Cache; c != nil {
 		cache := statestore.Config{
 			Role: statestore.RoleCache, Driver: statestore.DriverRedis,
@@ -127,7 +142,8 @@ func SpecOf(ss *v1alpha1.StateStore, secrets secret.Store) (Spec, error) {
 		if cache.Zones, err = zonesOf(c.Zones); err != nil {
 			return Spec{}, fmt.Errorf("stateStore.cache.zones: %w", err)
 		}
-		spec.Cache = &cache
+		ref := secret.RefOf(c.URL.SecretRef)
+		spec.Cache, spec.CacheURL, spec.Secrets = &cache, &ref, secrets
 	}
 	return spec, nil
 }

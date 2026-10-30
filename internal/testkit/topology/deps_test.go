@@ -19,6 +19,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockidp"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/otlpsink"
@@ -138,6 +139,75 @@ func TestStateStoreRESPProxy(t *testing.T) {
 	ping(t, topo, u)
 	if got := counters[0].Snapshot().Count("PING"); got != 1 {
 		t.Errorf("the counter saw %d PING commands, want 1", got)
+	}
+}
+
+// With RESPProxy each primary of a process cluster announces a counting
+// proxy of its own: the cluster's slot map names the proxies, so commands
+// a cluster client sends to the servers directly are counted too.
+func TestClusterRESPProxiesCountEveryCommand(t *testing.T) {
+	topo := standinTopology(t)
+	ss := topo.StartStateStore("cluster", StateStoreOptions{Kind: redisserver.ProcessCluster, RESPProxy: true})
+	proxies := ss.Proxies()
+	if len(proxies) != 3 {
+		t.Fatalf("Proxies() = %d proxies, want one per primary", len(proxies))
+	}
+	slots, err := ss.Deployment().Primary().Do(t.Context(), "CLUSTER", "SLOTS")
+	if err != nil {
+		t.Fatal(err)
+	}
+	named := map[string]bool{}
+	for _, r := range slots.Elems {
+		if len(r.Elems) >= 3 && len(r.Elems[2].Elems) >= 2 {
+			named[net.JoinHostPort(r.Elems[2].Elems[0].Str, strconv.FormatInt(r.Elems[2].Elems[1].Int, 10))] = true
+		}
+	}
+	for i, p := range proxies {
+		if !named[p.Addr()] {
+			t.Errorf("the slot map %v does not name the proxy %s of primary %d", slots, p.Addr(), i)
+		}
+		u := &url.URL{Scheme: "redis", Host: p.Addr(), User: url.UserPassword(StateStoreUser, storePassword(t, ss))}
+		ping(t, topo, u)
+		if got := p.Snapshot().Count("PING"); got != 1 {
+			t.Errorf("the proxy of primary %d counted %d PING commands, want 1", i, got)
+		}
+	}
+	if n := len(topo.StartStateStore("plain", StateStoreOptions{RESPProxy: true}).Proxies()); n != 0 {
+		t.Errorf("a counted standalone State Store announces %d proxies, want none", n)
+	}
+}
+
+// storePassword returns the ACL user's password of the State Store s.
+func storePassword(t *testing.T, s *StateStore) string {
+	t.Helper()
+	u, err := url.Parse(s.URL())
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := u.User.Password()
+	return p
+}
+
+// StateStoreURL returns the URL a Node reaches a State Store through, also
+// one no reference of its test render holds.
+func TestStateStoreURL(t *testing.T) {
+	topo := standinTopology(t)
+	topo.StartStateStore("main", StateStoreOptions{})
+	topo.StartStateStore("other", StateStoreOptions{})
+	o := nodeOptions(t, topo)
+	o.StateStoreURLs = map[string]string{refStoreURL: "main", "file:/etc/ruralz/unused-url": "other"}
+	n := addNodes(t, topo, 1, o)[0]
+	v, _ := n.SecretValue(refStoreURL)
+	if got, ok := n.StateStoreURL("main"); !ok || got != string(v) {
+		t.Errorf("StateStoreURL(main) = %q, %v; want the referenced secret's value", got, ok)
+	}
+	other, ok := n.StateStoreURL("other")
+	proxies, _ := n.StateStoreProxy("other")
+	if u, err := url.Parse(other); !ok || err != nil || len(proxies) != 1 || u.Host != proxies[0].Addr() {
+		t.Errorf("StateStoreURL(other) = %q, %v; want the URL through the Node's own proxy", other, ok)
+	}
+	if _, ok := n.StateStoreURL("none"); ok {
+		t.Error("StateStoreURL of a State Store the Node has no proxy to reports one")
 	}
 }
 

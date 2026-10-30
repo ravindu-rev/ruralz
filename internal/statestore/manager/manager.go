@@ -4,6 +4,7 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -30,12 +31,15 @@ const DefaultStatusInterval = time.Second
 // statusSource holds the State Store degraded reasons the Manager raises.
 const statusSource = "statestore"
 
-// Errors of Acquire.
+// Errors of Acquire and of a rotation.
 var (
 	// ErrClosed reports Acquire after Close.
 	ErrClosed = errors.New("manager: closed")
 	// ErrNoOpener reports a driver without an opener.
 	ErrNoOpener = errors.New("manager: no opener for the State Store driver")
+	// ErrEmptyURL reports a rotated State Store url secret whose value is
+	// empty once trimmed; the connection keeps its client.
+	ErrEmptyURL = errors.New("manager: the rotated State Store url is empty")
 )
 
 // OpenError is an opener's refusal of one connection's configuration,
@@ -106,38 +110,43 @@ func (hs Handles) Release() {
 	}
 }
 
-// Handle is a snapshot's reference to a State Store driver: Store and
+// Handle is a snapshot's reference to a State Store connection: Store and
 // Enqueuer are valid until Release, which the snapshot calls once when
 // it is freed. Later Release calls do nothing.
 type Handle struct {
 	m *Manager
 	e *entry
-	// view is the snapshot's view of a driver whose calls carry the zone
-	// label (statestore.ZoneSetter); nil for any other driver.
-	view *zoneView
+	// view is the snapshot's view of a connection whose driver can change
+	// under it (a rotated url secret) or whose calls carry the zone label
+	// (statestore.ZoneSetter); nil for any other, such as the memory
+	// driver.
+	view *view
 	// fallback, limits, caches and shared record what this snapshot's
 	// Revision uses (degraded reasons and warnings): limits a ratelimit or
-	// quota Policy on this driver, caches a cache Policy on it.
+	// quota Policy on this connection, caches a cache Policy on it.
 	fallback, limits, caches, shared bool
 	released                         atomic.Bool
 }
 
-// Store returns the driver, or, for a driver whose calls carry the zone
-// label (statestore.ZoneSetter), the snapshot's view of it, which hands
-// the driver the snapshot's zone map at its first call (zoneView). One
-// handle always returns the same value.
+// Store returns the connection's driver, or, for a connection whose
+// driver a rotated url secret can replace or whose calls carry the zone
+// label, the snapshot's view of it: each call goes to the driver serving
+// the connection then, and the first call hands the driver the snapshot's
+// zone map (view). One handle always returns the same value.
 func (h *Handle) Store() statestore.Store {
 	if h.view != nil {
 		return h.view
 	}
-	return h.e.driver
+	return h.e.gen.Load().driver
 }
 
-// Enqueuer returns the post-commit queue's Enqueuer for the driver.
-func (h *Handle) Enqueuer() statestore.Enqueuer { return h.e.bind }
+// Enqueuer returns the connection's Enqueuer: each write queues for the
+// driver serving the connection when it is enqueued.
+func (h *Handle) Enqueuer() statestore.Enqueuer { return h.e.enq }
 
-// Release drops the snapshot's reference; the driver closes once no
-// snapshot and no queued write holds it.
+// Release drops the snapshot's reference; the connection retires once no
+// snapshot holds it, and its driver closes once no queued write or call
+// holds that.
 func (h *Handle) Release() {
 	if !h.released.CompareAndSwap(false, true) {
 		return
@@ -146,14 +155,14 @@ func (h *Handle) Release() {
 	m.mu.Lock()
 	m.countLocked(h, -1)
 	m.mu.Unlock()
-	// Release has no caller context; the driver close inherits nothing.
-	h.e.drop(context.Background())
+	h.e.drop()
 	m.refresh()
 }
 
-// key identifies a shareable driver: memory by role only, redis by role,
-// topology, URL and the stateStore.tls references. Rotations of the
-// referenced values keep the driver, which follows them itself.
+// key identifies a shareable connection: memory by role only, redis by
+// role, topology, URL and the stateStore.tls references. Rotations of the
+// TLS values keep the driver, which follows them itself; a rotation of
+// the URL value moves the connection to the new value's key.
 type key struct {
 	role     statestore.Role
 	driver   statestore.DriverKind
@@ -190,123 +199,239 @@ func refOrZero(r *secret.Ref) secret.Ref {
 	return *r
 }
 
-// entry is one open driver. refs counts live handles and queued writes;
-// at zero the driver closes and the entry is never reused.
+// urlSource is the secret a connection's URL was read from: the reference
+// and the Revision's secret table holding it; zero without one (memory).
+type urlSource struct {
+	ref     secret.Ref
+	secrets secret.Store
+}
+
+// set reports a reference the Manager can watch.
+func (s urlSource) set() bool { return s.secrets != nil && s.ref != (secret.Ref{}) }
+
+// entry is one connection: the role, driver and, for redis, topology, URL
+// and TLS block references that snapshots share, and the driver serving it
+// now (gen). refs counts live handles; at zero the entry retires: it leaves
+// the Manager, stops watching its URL secret and drops its hold on its
+// generation, whose driver then closes once no queued write or call holds
+// it. A rotated URL secret value replaces the generation (rotate).
 type entry struct {
-	m      *Manager
-	key    key
-	id     string // main-1, cache-2: logs never carry the URL
-	driver statestore.Driver
-	bind   *postcommit.Binding
+	m   *Manager
+	enq *enqueuer
+	url urlSource
+	// labels reports drivers whose calls carry the zone label
+	// (statestore.ZoneSetter).
+	labels bool
+	gen    atomic.Pointer[generation]
 	refs   atomic.Int64
+	// key, cfg (the configuration a rotation reopens with, its URL the one
+	// in use), limits, caches, retired and stopWatch are guarded by m.mu.
 	// limits counts live handles whose Revision has a ratelimit or quota
-	// Policy on this driver, caches those with a cache Policy on it;
-	// closing is set once its close starts. All are guarded by m.mu.
+	// Policy on this connection, caches those with a cache Policy on it.
+	key            key
+	cfg            statestore.Config
 	limits, caches int
-	closing        bool
-	// zoneSeq is the Acquire sequence number of the snapshot whose zone
-	// map the driver holds: the snapshot that opened it, or the newest
-	// whose view handed it its map since. zoneMu orders the handovers.
+	retired        bool
+	stopWatch      func()
+	// zones is the zone map the current driver holds, and zoneSeq the
+	// Acquire sequence number of the snapshot that handed it: the snapshot
+	// that opened the connection, or the newest whose view handed the
+	// driver its map since. zoneMu orders the handovers and the rotations,
+	// which open the new driver with zones.
 	zoneMu  sync.Mutex
+	zones   statestore.Zones
 	zoneSeq atomic.Uint64
 }
 
-// viewFor returns the view of e's driver for the snapshot acquired as
-// seq with zone map zones, or nil when the driver's calls carry no zone
-// label (the memory driver).
-func (e *entry) viewFor(seq uint64, zones statestore.Zones) *zoneView {
-	zs, ok := e.driver.(statestore.ZoneSetter)
-	if !ok {
-		return nil
+// Hold takes a handle reference while one is held, so a retired entry is
+// never revived.
+func (e *entry) Hold() bool { return holdRef(&e.refs) }
+
+// drop releases one handle reference and retires the entry at zero.
+func (e *entry) drop() {
+	if e.refs.Add(-1) == 0 {
+		e.m.retire(e)
 	}
-	return &zoneView{Store: e.driver, e: e, setter: zs, seq: seq, zones: zones}
 }
 
-// zoneView is one snapshot's view of a driver whose calls carry the zone
-// label (docs/architecture/11-scalability-and-distributed-state.md "State
-// client and RZ-STS error codes"): a Hot Reload keeps the driver when only
-// the zone map changes, and the changed map labels calls from the swap
-// on. The first call through the view hands the driver the snapshot's
-// zone map, unless the snapshot that opened the driver or a newer one
-// already handed it its own: a snapshot's Filters and revalidation
-// workers call the State Store only once it serves, so the map changes at
-// the first call after the swap, a snapshot that is never published never
-// changes it, and the calls of older snapshots still running after the
-// swap keep the newer map. Every other method is the driver's.
-type zoneView struct {
-	statestore.Store
-	e      *entry
-	setter statestore.ZoneSetter
-	seq    uint64
-	zones  statestore.Zones
-}
-
-// Consume adopts the snapshot's zone map, then runs the driver's Consume.
-func (v *zoneView) Consume(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) int {
-	v.adopt()
-	return v.Store.Consume(ctx, rb, calls)
-}
-
-// Read adopts the snapshot's zone map, then runs the driver's Read.
-func (v *zoneView) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
-	v.adopt()
-	v.Store.Read(ctx, rb, calls)
-}
-
-// Write adopts the snapshot's zone map, then runs the driver's Write.
-func (v *zoneView) Write(ctx context.Context, batch []*statestore.Write) {
-	v.adopt()
-	v.Store.Write(ctx, batch)
-}
-
-// adopt hands the driver the snapshot's zone map unless it holds the map
-// of this snapshot or of a newer one: one atomic load once the handover is
-// done, a lock only for the handover itself.
-func (v *zoneView) adopt() {
-	if v.e.zoneSeq.Load() >= v.seq {
-		return
+// hold returns the generation serving the connection, holding it for one
+// call or enqueue: the current one, or the next when a rotation retired it
+// meanwhile. held is false only when every generation tried is closing,
+// as after the entry retired; the caller then uses it unheld, and its
+// closing driver answers as a closed driver does.
+func (e *entry) hold() (g *generation, held bool) {
+	g = e.gen.Load()
+	if g.Hold() {
+		return g, true
 	}
-	v.e.zoneMu.Lock()
-	defer v.e.zoneMu.Unlock()
-	if v.e.zoneSeq.Load() >= v.seq {
-		return
+	if next := e.gen.Load(); next != g {
+		g = next
+		if g.Hold() {
+			return g, true
+		}
 	}
-	v.setter.SetZones(v.zones)
-	v.e.zoneSeq.Store(v.seq)
+	return g, false
 }
 
-// Write implements postcommit.Target.
-func (e *entry) Write(ctx context.Context, batch []*statestore.Write) { e.driver.Write(ctx, batch) }
-
-// Hold implements postcommit.Target: a reference is taken only while one
-// is held, so a closing driver is never revived.
-func (e *entry) Hold() bool {
+// holdRef increments n while it is above zero.
+func holdRef(n *atomic.Int64) bool {
 	for {
-		n := e.refs.Load()
-		if n <= 0 {
+		v := n.Load()
+		if v <= 0 {
 			return false
 		}
-		if e.refs.CompareAndSwap(n, n+1) {
+		if n.CompareAndSwap(v, v+1) {
 			return true
 		}
 	}
 }
 
-// Release implements postcommit.Target.
-func (e *entry) Release() {
-	// A queued write's release has no caller context.
-	e.drop(context.Background())
+// generation is one driver of a connection: the one its first snapshot
+// opened, or one a rotation of its URL secret opened. refs counts the
+// entry's hold while it is current, queued writes and calls in progress;
+// at zero the driver closes on a goroutine the Manager owns.
+type generation struct {
+	m      *Manager
+	id     string // main-1, cache-2: logs never carry the URL
+	url    string // the URL the driver opened with, compared at a rotation
+	driver statestore.Driver
+	bind   *postcommit.Binding
+	refs   atomic.Int64
+	// closing is set once the close starts; guarded by m.mu.
+	closing bool
 }
 
-// drop releases one reference and retires the entry at zero.
-func (e *entry) drop(ctx context.Context) {
-	if e.refs.Add(-1) == 0 {
-		e.m.retire(ctx, e)
+// Write implements postcommit.Target.
+func (g *generation) Write(ctx context.Context, batch []*statestore.Write) {
+	g.driver.Write(ctx, batch)
+}
+
+// Hold implements postcommit.Target: a reference is taken only while one
+// is held, so a closing driver is never revived.
+func (g *generation) Hold() bool { return holdRef(&g.refs) }
+
+// Release implements postcommit.Target, and ends a call's or the entry's
+// hold: at zero the driver closes.
+func (g *generation) Release() {
+	if g.refs.Add(-1) == 0 {
+		g.m.closeGen(g)
 	}
 }
 
-// view is the State Store status the Manager last applied.
+// enqueuer is a connection's Enqueuer: each write queues for the
+// generation serving the connection, held while it enqueues, so a
+// rotation in between never drops it.
+type enqueuer struct{ e *entry }
+
+// Enqueue implements statestore.Enqueuer.
+func (q *enqueuer) Enqueue(class statestore.WriteClass, w *statestore.Write) bool {
+	g, held := q.e.hold()
+	if held {
+		defer g.Release()
+	}
+	return g.bind.Enqueue(class, w)
+}
+
+// viewFor returns the view of e for the snapshot acquired as seq with zone
+// map zones, or nil when e's driver never changes and labels no zones (the
+// memory driver).
+func (e *entry) viewFor(seq uint64, zones statestore.Zones) *view {
+	if !e.labels && !e.url.set() {
+		return nil
+	}
+	return &view{e: e, seq: seq, zones: zones}
+}
+
+// view is one snapshot's view of a connection. Each call goes to the
+// generation serving the connection when it starts, held until it ends, so
+// a rotated URL secret moves later calls to the new driver while a call
+// in progress finishes on the old one
+// (docs/architecture/11-scalability-and-distributed-state.md "State client
+// and RZ-STS error codes").
+//
+// For drivers whose calls carry the zone label, a Hot Reload keeps the
+// driver when only the zone map changes, and the changed map labels calls
+// from the swap on. The first call through the view hands the driver the
+// snapshot's zone map, unless the snapshot that opened the connection or a
+// newer one already handed it its own: a snapshot's Filters and
+// revalidation workers call the State Store only once it serves, so the
+// map changes at the first call after the swap, a snapshot that is never
+// published never changes it, and the calls of older snapshots still
+// running after the swap keep the newer map.
 type view struct {
+	e     *entry
+	seq   uint64
+	zones statestore.Zones
+}
+
+var _ statestore.Store = (*view)(nil)
+
+// Consume adopts the snapshot's zone map, then runs the serving driver's
+// Consume.
+func (v *view) Consume(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) int {
+	v.adopt()
+	g, held := v.e.hold()
+	if held {
+		defer g.Release()
+	}
+	return g.driver.Consume(ctx, rb, calls)
+}
+
+// Read adopts the snapshot's zone map, then runs the serving driver's
+// Read.
+func (v *view) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
+	v.adopt()
+	g, held := v.e.hold()
+	if held {
+		defer g.Release()
+	}
+	g.driver.Read(ctx, rb, calls)
+}
+
+// Write adopts the snapshot's zone map, then runs the serving driver's
+// Write.
+func (v *view) Write(ctx context.Context, batch []*statestore.Write) {
+	v.adopt()
+	g, held := v.e.hold()
+	if held {
+		defer g.Release()
+	}
+	g.driver.Write(ctx, batch)
+}
+
+// AdmitStoreBytes runs the serving driver's AdmitStoreBytes.
+func (v *view) AdmitStoreBytes(key statestore.CacheKey, n int) bool {
+	return v.e.gen.Load().driver.AdmitStoreBytes(key, n)
+}
+
+// Supports runs the serving driver's Supports.
+func (v *view) Supports(c statestore.Capability) bool { return v.e.gen.Load().driver.Supports(c) }
+
+// RoundTrips runs the serving driver's RoundTrips.
+func (v *view) RoundTrips() bool { return v.e.gen.Load().driver.RoundTrips() }
+
+// adopt hands the serving driver the snapshot's zone map unless the
+// connection holds the map of this snapshot or of a newer one: one atomic
+// load once the handover is done, a lock only for the handover itself.
+func (v *view) adopt() {
+	e := v.e
+	if !e.labels || e.zoneSeq.Load() >= v.seq {
+		return
+	}
+	e.zoneMu.Lock()
+	defer e.zoneMu.Unlock()
+	if e.zoneSeq.Load() >= v.seq {
+		return
+	}
+	if zs, ok := e.gen.Load().driver.(statestore.ZoneSetter); ok {
+		zs.SetZones(v.zones)
+	}
+	e.zones = v.zones
+	e.zoneSeq.Store(v.seq)
+}
+
+// status is the State Store status the Manager last applied.
+type status struct {
 	fallback, breaker, eviction, unauth, shared bool
 	hops                                        int
 }
@@ -328,13 +453,18 @@ type Manager struct {
 	queue   *postcommit.Queue
 	every   time.Duration
 
-	mu      sync.Mutex
-	closed  bool // Acquire refuses
-	shut    bool // Close is closing every driver
+	mu     sync.Mutex
+	closed bool // Acquire refuses, and URL rotations open nothing
+	shut   bool // Close is closing every driver
+	// entries maps keys to the connections snapshots share; conns holds
+	// every connection not retired, mapped or not; gens holds every
+	// generation whose driver is open or closing.
 	entries map[key]*entry
+	conns   map[*entry]struct{}
+	gens    map[*generation]struct{}
 	seq     uint64
 	// acquires numbers the Acquire calls, so the handles of a newer
-	// snapshot carry a greater sequence number (zoneView).
+	// snapshot carry a greater sequence number (view).
 	acquires uint64
 	// live counts drivers opened and not yet closed; drained closes when
 	// it is 0 after shut.
@@ -349,7 +479,7 @@ type Manager struct {
 
 	// statusMu serializes refresh; last and scratch belong to it.
 	statusMu sync.Mutex
-	last     view
+	last     status
 	scratch  []probe
 
 	stopWatch context.CancelFunc
@@ -380,7 +510,8 @@ func New(ctx context.Context, cfg Config) *Manager {
 	}
 	m := &Manager{
 		deps: deps, clk: deps.Clock, log: deps.Logger, status: deps.Status, openers: cfg.Openers, every: every,
-		entries: map[key]*entry{}, drained: make(chan struct{}), cancels: map[uint64]context.CancelFunc{},
+		entries: map[key]*entry{}, conns: map[*entry]struct{}{}, gens: map[*generation]struct{}{},
+		drained: make(chan struct{}), cancels: map[uint64]context.CancelFunc{},
 		watchDone: make(chan struct{}), finished: make(chan struct{}),
 	}
 	m.queue = postcommit.New(ctx, deps, cfg.Queue)
@@ -391,7 +522,7 @@ func New(ctx context.Context, cfg Config) *Manager {
 }
 
 // Acquire returns new handles for one snapshot of spec: each handle holds
-// one reference, released once by the snapshot. A driver whose key is
+// one reference, released once by the snapshot. A connection whose key is
 // open is shared; another is opened through its opener, which never
 // dials. On error no reference is left held.
 func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
@@ -404,7 +535,7 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 	}
 	m.acquires++
 	seq := m.acquires
-	me, err := m.entryLocked(ctx, mainCfg, seq)
+	me, err := m.entryLocked(ctx, mainCfg, sourceOf(spec.MainURL, spec.Secrets), seq)
 	if err != nil {
 		m.mu.Unlock()
 		return Handles{}, err
@@ -415,9 +546,9 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 		cacheCfg := *spec.Cache
 		cacheCfg.Role = statestore.RoleCache
 		cacheZones = cacheCfg.Zones
-		if ce, err = m.entryLocked(ctx, cacheCfg, seq); err != nil {
+		if ce, err = m.entryLocked(ctx, cacheCfg, sourceOf(spec.CacheURL, spec.Secrets), seq); err != nil {
 			m.mu.Unlock()
-			me.drop(ctx)
+			me.drop()
 			m.refresh()
 			return Handles{}, err
 		}
@@ -440,9 +571,17 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 	return hs, nil
 }
 
-// sameDeployment reports whether the Response Cache's driver writes to
-// the deployment holding limit keys: one driver, or two redis connections
-// to one URL.
+// sourceOf returns the URL source of ref in secrets, zero without ref.
+func sourceOf(ref *secret.Ref, secrets secret.Store) urlSource {
+	if ref == nil {
+		return urlSource{}
+	}
+	return urlSource{ref: *ref, secrets: secrets}
+}
+
+// sameDeployment reports whether the Response Cache's connection writes to
+// the deployment holding limit keys: one connection, or two redis
+// connections to one URL. m.mu is held.
 func sameDeployment(main, cache *entry) bool {
 	if main == cache {
 		return true
@@ -467,10 +606,13 @@ func (m *Manager) countLocked(h *Handle, d int) {
 	}
 }
 
-// entryLocked returns cfg's open entry with a new reference, or opens one
-// for the snapshot acquired as seq, whose zone map (cfg.Zones) the new
-// driver opens with.
-func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config, seq uint64) (*entry, error) {
+// entryLocked returns cfg's open connection with a new reference, or opens
+// one for the snapshot acquired as seq, whose zone map (cfg.Zones) the new
+// driver opens with. A connection whose URL came from a secret (src)
+// watches it: the watch is registered before the URL's latest value is
+// read, so a rotation since SpecOf read it opens the connection on the
+// rotated value, and none is lost before the watch.
+func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config, src urlSource, seq uint64) (*entry, error) {
 	k := keyOf(cfg)
 	if e := m.entries[k]; e != nil && e.Hold() {
 		return e, nil
@@ -479,23 +621,129 @@ func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config, seq ui
 	if open == nil {
 		return nil, fmt.Errorf("%w %s", ErrNoOpener, driverName(cfg.Driver))
 	}
+	e := &entry{m: m}
+	if cfg.Driver != statestore.DriverMemory && src.set() {
+		e.url = src
+		e.stopWatch = src.secrets.Watch(src.ref, func(v secret.Value) error { return m.rotate(e, v) })
+		if u, ok := urlOf(src.secrets, src.ref); ok && u != cfg.URL {
+			cfg.URL = u
+			k = keyOf(cfg)
+			if x := m.entries[k]; x != nil && x.Hold() {
+				e.retired = true
+				e.stopWatch()
+				return x, nil
+			}
+		}
+	}
 	d, err := open(ctx, cfg, m.deps)
+	if err == nil && d == nil {
+		err = fmt.Errorf("manager: the %s opener returned no driver", driverName(cfg.Driver))
+	} else if err != nil {
+		err = &OpenError{Role: cfg.Role, Driver: cfg.Driver, Err: err}
+	}
 	if err != nil {
-		return nil, &OpenError{Role: cfg.Role, Driver: cfg.Driver, Err: err}
+		e.retired = true
+		if e.stopWatch != nil {
+			e.stopWatch()
+		}
+		return nil, err
 	}
-	if d == nil {
-		return nil, fmt.Errorf("manager: the %s opener returned no driver", driverName(cfg.Driver))
-	}
-	m.seq++
-	e := &entry{m: m, key: k, id: roleName(cfg.Role) + "-" + strconv.FormatUint(m.seq, 10), driver: d}
+	_, e.labels = d.(statestore.ZoneSetter)
+	e.enq = &enqueuer{e: e}
+	e.key, e.cfg, e.zones = k, cfg, cfg.Zones
 	e.zoneSeq.Store(seq)
-	e.bind = m.queue.Bind(e)
 	e.refs.Store(1)
+	e.gen.Store(m.newGenLocked(cfg, d))
 	m.entries[k] = e
-	m.live++
-	m.log.InfoContext(ctx, "state store driver opened", slog.String("store", e.id), slog.String("driver", driverName(cfg.Driver)),
+	m.conns[e] = struct{}{}
+	m.log.InfoContext(ctx, "state store driver opened", slog.String("store", e.gen.Load().id), slog.String("driver", driverName(cfg.Driver)),
 		slog.String("topology", topologyName(cfg.Topology)), slog.String("config_source", sourceName(cfg.Source)))
 	return e, nil
+}
+
+// newGenLocked returns the generation of d, opened for cfg, holding the
+// entry's reference.
+func (m *Manager) newGenLocked(cfg statestore.Config, d statestore.Driver) *generation {
+	m.seq++
+	g := &generation{m: m, id: roleName(cfg.Role) + "-" + strconv.FormatUint(m.seq, 10), url: cfg.URL, driver: d}
+	g.bind = m.queue.Bind(g)
+	g.refs.Store(1)
+	m.gens[g] = struct{}{}
+	m.live++
+	return g
+}
+
+// rotate is the watch of a connection's URL secret: a rotated value v
+// that differs from the URL in use opens a new driver for the connection
+// at once, off the request path, as a changed URL does at a Hot Reload
+// (docs/architecture/11-scalability-and-distributed-state.md "State client
+// and RZ-STS error codes"). Calls move to the new driver, which dials,
+// authenticates and loads its scripts under the reconnect pacing, and
+// later writes queue for it; the old driver closes once the writes queued
+// for it are written or dropped and its calls in progress end. The
+// connection moves to the new URL's key, so a later Revision resolving the
+// rotated value shares it. A value the opener refuses keeps the old
+// driver, and the error, which never carries the URL, is the watcher's
+// rotation failure.
+func (m *Manager) rotate(e *entry, v secret.Value) error {
+	b := v.Reveal()
+	u := string(bytes.Trim(b, " \t\r\n"))
+	clear(b)
+	m.mu.Lock()
+	if m.closed || e.retired || e.gen.Load() == nil {
+		m.mu.Unlock()
+		return nil
+	}
+	old := e.gen.Load()
+	if u == old.url {
+		m.mu.Unlock()
+		return nil
+	}
+	if u == "" {
+		m.mu.Unlock()
+		return ErrEmptyURL
+	}
+	open := m.openerOf(e.cfg.Driver)
+	if open == nil {
+		m.mu.Unlock()
+		return fmt.Errorf("%w %s", ErrNoOpener, driverName(e.cfg.Driver))
+	}
+	// The watch has no caller context; the opener reads values only.
+	ctx := context.Background()
+	e.zoneMu.Lock()
+	cfg := e.cfg
+	cfg.URL, cfg.Zones = u, e.zones
+	d, err := open(ctx, cfg, m.deps)
+	if err == nil && d == nil {
+		err = fmt.Errorf("manager: the %s opener returned no driver", driverName(cfg.Driver))
+	} else if err != nil {
+		err = &OpenError{Role: cfg.Role, Driver: cfg.Driver, Err: err}
+	}
+	if err != nil {
+		// The resolver logs the refusal, counts it in
+		// ruralz_config_secret_rotation_failures_total and raises
+		// secret_rotation_failed until a value opens.
+		e.zoneMu.Unlock()
+		m.mu.Unlock()
+		return err
+	}
+	g := m.newGenLocked(cfg, d)
+	e.gen.Store(g)
+	e.zoneMu.Unlock()
+	e.cfg.URL = u
+	if m.entries[e.key] == e {
+		delete(m.entries, e.key)
+	}
+	e.key.url = u
+	if m.entries[e.key] == nil {
+		m.entries[e.key] = e
+	}
+	m.mu.Unlock()
+	m.log.InfoContext(ctx, "state store url rotated: a new driver serves the connection", slog.String("store", g.id),
+		slog.String("replaces", old.id), slog.String("driver", driverName(cfg.Driver)), slog.String("topology", topologyName(cfg.Topology)))
+	old.Release()
+	m.refresh()
+	return nil
 }
 
 // openerOf returns the opener of driver d, or nil.
@@ -510,43 +758,63 @@ func (m *Manager) openerOf(d statestore.DriverKind) statestore.Opener {
 	}
 }
 
-// retire removes e, whose last reference is gone, and closes its driver
-// on a goroutine the Manager owns.
-func (m *Manager) retire(ctx context.Context, e *entry) {
+// retire removes e, whose last handle is gone, stops its watch and drops
+// its hold on its generation.
+func (m *Manager) retire(e *entry) {
 	m.mu.Lock()
-	if m.entries[e.key] == e {
-		delete(m.entries, e.key)
-	}
-	if e.closing {
+	if e.retired {
 		m.mu.Unlock()
 		return
 	}
-	e.closing = true
-	m.closeLocked(ctx, e)
+	e.retired = true
+	if m.entries[e.key] == e {
+		delete(m.entries, e.key)
+	}
+	delete(m.conns, e)
+	stop := e.stopWatch
+	e.stopWatch = nil
+	g := e.gen.Load()
 	m.mu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	g.Release()
 	m.refresh()
 }
 
-// closeLocked starts closing e's driver; Close cuts every close short
-// when its context ends.
-func (m *Manager) closeLocked(parent context.Context, e *entry) {
+// closeGen starts closing g's driver, whose last reference is gone.
+func (m *Manager) closeGen(g *generation) {
+	m.mu.Lock()
+	if g.closing {
+		m.mu.Unlock()
+		return
+	}
+	g.closing = true
+	m.closeLocked(context.Background(), g)
+	m.mu.Unlock()
+}
+
+// closeLocked starts closing g's driver on a goroutine the Manager owns;
+// Close cuts every close short when its context ends.
+func (m *Manager) closeLocked(parent context.Context, g *generation) {
 	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	id := m.nextCancel
 	m.nextCancel++
 	m.cancels[id] = cancel
 	go func() {
-		err := e.driver.Close(ctx)
+		err := g.driver.Close(ctx)
 		if err != nil {
-			m.log.WarnContext(ctx, "state store driver close failed", slog.String("store", e.id), slog.String(catalog.KeyError, err.Error()))
+			m.log.WarnContext(ctx, "state store driver close failed", slog.String("store", g.id), slog.String(catalog.KeyError, err.Error()))
 		} else {
-			m.log.InfoContext(ctx, "state store driver closed", slog.String("store", e.id))
+			m.log.InfoContext(ctx, "state store driver closed", slog.String("store", g.id))
 		}
 		cancel()
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		delete(m.cancels, id)
+		delete(m.gens, g)
 		if err != nil && m.shut {
-			m.closeErrs = append(m.closeErrs, fmt.Errorf("manager: close %s: %w", e.id, err))
+			m.closeErrs = append(m.closeErrs, fmt.Errorf("manager: close %s: %w", g.id, err))
 		}
 		m.live--
 		if m.shut && m.live == 0 {
@@ -573,11 +841,12 @@ func (m *Manager) cancelCloses() {
 }
 
 // Close flushes the post-commit queue (up to 5 s, or until ctx ends),
-// stops the status poll, closes every driver, held handles' drivers
-// included, and clears the State Store degraded reasons. When ctx ends
-// first, driver closes are cut short and Close returns ctx's error with
-// the close errors. Acquire then fails with ErrClosed; Release still
-// works. Later calls wait for the first and return nil.
+// stops the status poll and the URL watches, closes every driver, held
+// handles' drivers and rotated-out ones included, and clears the State
+// Store degraded reasons. When ctx ends first, driver closes are cut
+// short and Close returns ctx's error with the close errors. Acquire then
+// fails with ErrClosed; Release still works. Later calls wait for the
+// first and return nil.
 func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Lock()
 	if m.closed {
@@ -602,17 +871,29 @@ func (m *Manager) Close(ctx context.Context) error {
 
 	m.mu.Lock()
 	m.shut = true
-	for k, e := range m.entries {
-		delete(m.entries, k)
-		if !e.closing {
-			e.closing = true
-			m.closeLocked(ctx, e)
+	var stops []func()
+	for e := range m.conns {
+		e.retired = true
+		if e.stopWatch != nil {
+			stops = append(stops, e.stopWatch)
+			e.stopWatch = nil
+		}
+	}
+	clear(m.conns)
+	clear(m.entries)
+	for g := range m.gens {
+		if !g.closing {
+			g.closing = true
+			m.closeLocked(ctx, g)
 		}
 	}
 	if m.live == 0 {
 		m.drainLocked()
 	}
 	m.mu.Unlock()
+	for _, stop := range stops {
+		stop()
+	}
 
 	select {
 	case <-m.drained:
@@ -626,7 +907,7 @@ func (m *Manager) Close(ctx context.Context) error {
 	m.mu.Unlock()
 
 	m.statusMu.Lock()
-	m.apply(view{})
+	m.apply(status{})
 	m.statusMu.Unlock()
 	return errors.Join(errs...)
 }
@@ -647,9 +928,9 @@ func (m *Manager) watch(ctx context.Context) {
 	}
 }
 
-// refresh recomputes the State Store status from the live handles and
-// drivers and applies the changes; it does nothing once Close began
-// closing drivers.
+// refresh recomputes the State Store status from the live handles and the
+// drivers serving the live connections and applies the changes; it does
+// nothing once Close began closing drivers.
 func (m *Manager) refresh() {
 	m.statusMu.Lock()
 	defer m.statusMu.Unlock()
@@ -658,10 +939,10 @@ func (m *Manager) refresh() {
 		m.mu.Unlock()
 		return
 	}
-	v := view{fallback: m.fallback > 0, shared: m.shared > 0}
+	v := status{fallback: m.fallback > 0, shared: m.shared > 0}
 	list := m.scratch[:0]
-	for _, e := range m.entries {
-		list = append(list, probe{driver: e.driver, limits: e.limits > 0, caches: e.caches > 0})
+	for e := range m.conns {
+		list = append(list, probe{driver: e.gen.Load().driver, limits: e.limits > 0, caches: e.caches > 0})
 	}
 	m.mu.Unlock()
 	for _, p := range list {
@@ -682,8 +963,8 @@ func (m *Manager) refresh() {
 }
 
 // apply sets every reason and the hop count that changed since the last
-// view, and logs the startup warnings when their condition begins.
-func (m *Manager) apply(v view) {
+// status, and logs the startup warnings when their condition begins.
+func (m *Manager) apply(v status) {
 	last := m.last
 	m.last = v
 	if v.fallback && !last.fallback {
@@ -740,7 +1021,7 @@ func topologyName(t statestore.Topology) string {
 	}
 }
 
-// roleName names a role in logs and entry ids.
+// roleName names a role in logs and generation ids.
 func roleName(r statestore.Role) string {
 	switch r {
 	case statestore.RoleMain:

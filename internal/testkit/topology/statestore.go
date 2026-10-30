@@ -8,11 +8,13 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"slices"
 	"sync"
 
+	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/respproxy"
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
@@ -36,7 +38,10 @@ type StateStoreOptions struct {
 	Config []string
 	// RESPProxy puts a counting RESP proxy (respproxy) in front of each
 	// Node instead of a plain fault proxy. The proxy parses the commands,
-	// so the State Store then runs without TLS.
+	// so the State Store then runs without TLS. On a process cluster kind
+	// each primary also announces a counting proxy of its own, shared by
+	// every Node (Proxies), so the commands a cluster's slot map and
+	// redirects send to the servers directly cross one too.
 	RESPProxy bool
 }
 
@@ -51,6 +56,9 @@ type StateStore struct {
 
 	mu    sync.Mutex
 	links []*storeLink
+	// announced holds the counting proxy each process cluster primary
+	// announces with StateStoreOptions.RESPProxy, by primary.
+	announced map[int]*respproxy.Proxy
 }
 
 // storeLink is one Node's proxies in front of a State Store.
@@ -81,6 +89,7 @@ func (t *Topology) StartStateStore(name string, o StateStoreOptions) *StateStore
 	if dup || name == "" {
 		t.t.Fatalf("topology: State Store name %q is empty or taken", name)
 	}
+	s := &StateStore{t: t, name: name, opts: o}
 	var ro redisserver.Options
 	if o.Kind.Flavor() == redisserver.FlavorProcess {
 		ro.TLS = !t.cfg.Transport.CleartextStateStore && !o.RESPProxy
@@ -89,12 +98,15 @@ func (t *Topology) StartStateStore(name string, o StateStoreOptions) *StateStore
 		}
 		ro.Replica = o.Replica
 		ro.Config = o.Config
+		if o.RESPProxy && o.Kind.Topology() == statestore.TopologyCluster {
+			ro.Announce = s.announce
+		}
 	}
 	dep := redisserver.Start(t.t, o.Kind, ro)
 	// redisserver stops its servers in cleanups of its own; the teardown
 	// must run before them to scan the keyspace.
 	t.armTeardown()
-	s := &StateStore{t: t, name: name, opts: o, dep: dep}
+	s.dep = dep
 	if f := dep.CAFile(); f != "" {
 		pem, err := os.ReadFile(f) //nolint:gosec // G304: the CA file redisserver wrote
 		if err != nil {
@@ -117,6 +129,43 @@ func (t *Topology) stateStore(name string) (*StateStore, bool) {
 	defer t.mu.Unlock()
 	s, ok := t.stores[name]
 	return s, ok
+}
+
+// announce is the redisserver.Options.Announce of a process cluster with
+// StateStoreOptions.RESPProxy: it starts the counting proxy primary node
+// announces, forwarding to addr, in place of an earlier start attempt's.
+func (s *StateStore) announce(node int, addr string) string {
+	p, err := respproxy.Start(s.t.ctx, respproxy.Config{Fault: faultproxy.Config{Upstream: addr}})
+	if err != nil {
+		s.t.t.Errorf("topology: State Store %s: the proxy primary %d announces: %v", s.name, node, err)
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.announced == nil {
+		s.announced = map[int]*respproxy.Proxy{}
+	}
+	if old := s.announced[node]; old != nil {
+		_ = old.Close()
+	}
+	s.announced[node] = p
+	return p.Addr()
+}
+
+// Proxies returns the counting proxies the primaries of a process cluster
+// announce with StateStoreOptions.RESPProxy, in primary order; none for
+// any other State Store. Every command any Node sends the cluster crosses
+// one of them.
+func (s *StateStore) Proxies() []*respproxy.Proxy {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*respproxy.Proxy, 0, len(s.announced))
+	for i := range len(s.announced) {
+		if p := s.announced[i]; p != nil {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Name returns the State Store's name.
@@ -228,13 +277,18 @@ func (l *storeLink) close() {
 	}
 }
 
-// closeLinks closes every Node's proxies.
+// closeLinks closes every Node's proxies and the proxies a cluster's
+// primaries announce.
 func (s *StateStore) closeLinks() {
 	s.mu.Lock()
 	links := slices.Clone(s.links)
+	announced := slices.Collect(maps.Values(s.announced))
 	s.mu.Unlock()
 	for _, l := range links {
 		l.close()
+	}
+	for _, p := range announced {
+		_ = p.Close()
 	}
 }
 
