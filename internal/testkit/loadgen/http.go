@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptrace"
+	"net/netip"
 	"net/url"
 	"sync"
 
@@ -98,16 +99,47 @@ type HTTPConfig struct {
 	StreamsPerConn int
 	// DisableKeepAlives opens a connection per HTTP/1.1 request.
 	DisableKeepAlives bool
-	// Dial, when set, dials connections instead of a net.Dialer.
+	// Dial, when set, dials connections instead of a net.Dialer; it
+	// excludes SourceAddrs.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// SourceAddrs, when set, are the local addresses connections dial
+	// from, so a scenario that needs per-client source.ip sends from
+	// distinct clients (Testing "Load generator and L4 balancer", HTTP):
+	// request seq leaves from SourceAddrs[seq % len(SourceAddrs)], on its
+	// own share of Connections, and Response.Conn.Local names it. They
+	// must be distinct loopback addresses, at most Connections of them.
+	// On Linux every 127.0.0.0/8 address is local (LoopbackAddrs); other
+	// systems answer only 127.0.0.1 unless the others are aliased onto
+	// the loopback interface, and a dial from a missing one fails.
+	SourceAddrs []netip.Addr
+}
+
+// MaxLoopbackAddrs is how many source addresses LoopbackAddrs gives:
+// 127.0.0.1 to 127.0.0.254.
+const MaxLoopbackAddrs = 254
+
+// LoopbackAddrs returns the n IPv4 loopback addresses 127.0.0.1 to
+// 127.0.0.n for HTTPConfig.SourceAddrs; n is 1 to MaxLoopbackAddrs.
+func LoopbackAddrs(n int) ([]netip.Addr, error) {
+	if n < 1 || n > MaxLoopbackAddrs {
+		return nil, fmt.Errorf("loadgen: %d loopback addresses, want 1 to %d", n, MaxLoopbackAddrs)
+	}
+	out := make([]netip.Addr, n)
+	for i := range out {
+		out[i] = netip.AddrFrom4([4]byte{127, 0, 0, byte(i + 1)})
+	}
+	return out, nil
 }
 
 // HTTPTarget sends HTTP requests. It never follows redirects and never
 // asks for compression, so each response is the one the server sent.
-// Requests spread over HTTP/2 connections by sequence number.
+// Requests spread over HTTP/2 connections by sequence number; with
+// SourceAddrs they first spread over the source addresses.
 type HTTPTarget struct {
-	cfg   HTTPConfig
-	lanes []*lane
+	cfg HTTPConfig
+	// groups holds one group of lanes per source address, or one group
+	// dialing from the system's choice.
+	groups [][]*lane
 }
 
 // lane is one connection pool: every HTTP/1.1 connection, or one HTTP/2
@@ -158,22 +190,75 @@ func NewHTTP(c HTTPConfig) (*HTTPTarget, error) {
 	if c.StreamsPerConn == 0 && c.Protocol != HTTP1 {
 		c.StreamsPerConn = DefaultHTTP2Streams
 	}
-	t := &HTTPTarget{cfg: c}
-	if c.Protocol == HTTP1 {
-		t.lanes = []*lane{t.newLane(c.Connections, 0)}
-		return t, nil
+	sources, err := checkSources(c)
+	if err != nil {
+		return nil, err
 	}
-	for range c.Connections {
-		t.lanes = append(t.lanes, t.newLane(1, c.StreamsPerConn))
+	c.SourceAddrs = sources
+	t := &HTTPTarget{cfg: c}
+	// Each source address (or the one implicit source) gets an even share
+	// of the connections, the first ones one more.
+	groups := max(len(sources), 1)
+	for g := range groups {
+		var src netip.Addr
+		if len(sources) > 0 {
+			src = sources[g]
+		}
+		share := c.Connections / groups
+		if g < c.Connections%groups {
+			share++
+		}
+		if c.Protocol == HTTP1 {
+			t.groups = append(t.groups, []*lane{t.newLane(src, share, 0)})
+			continue
+		}
+		var lanes []*lane
+		for range share {
+			lanes = append(lanes, t.newLane(src, 1, c.StreamsPerConn))
+		}
+		t.groups = append(t.groups, lanes)
 	}
 	return t, nil
 }
 
-func (t *HTTPTarget) newLane(conns, streams int) *lane {
+// checkSources validates c.SourceAddrs and returns them unmapped.
+func checkSources(c HTTPConfig) ([]netip.Addr, error) {
+	if len(c.SourceAddrs) == 0 {
+		return nil, nil
+	}
+	if c.Dial != nil {
+		return nil, errors.New("loadgen: SourceAddrs and Dial are exclusive")
+	}
+	if len(c.SourceAddrs) > c.Connections {
+		return nil, fmt.Errorf("loadgen: %d source addresses for %d connections", len(c.SourceAddrs), c.Connections)
+	}
+	out := make([]netip.Addr, len(c.SourceAddrs))
+	seen := make(map[netip.Addr]bool, len(c.SourceAddrs))
+	for i, a := range c.SourceAddrs {
+		a = a.Unmap()
+		switch {
+		case !a.IsValid() || !a.IsLoopback():
+			return nil, fmt.Errorf("loadgen: source address %v is not a loopback address", c.SourceAddrs[i])
+		case seen[a]:
+			return nil, fmt.Errorf("loadgen: source address %v repeats", a)
+		}
+		seen[a] = true
+		out[i] = a
+	}
+	return out, nil
+}
+
+// newLane returns a pool of conns connections (HTTP/1.1) or one HTTP/2
+// connection of streams streams, dialing from src when it is valid.
+func (t *HTTPTarget) newLane(src netip.Addr, conns, streams int) *lane {
 	c := t.cfg
 	dial := c.Dial
 	if dial == nil {
-		dial = (&net.Dialer{}).DialContext
+		d := &net.Dialer{}
+		if src.IsValid() {
+			d.LocalAddr = &net.TCPAddr{IP: src.AsSlice()}
+		}
+		dial = d.DialContext
 	}
 	var protocols http.Protocols
 	switch c.Protocol {
@@ -209,10 +294,20 @@ func (t *HTTPTarget) newLane(conns, streams int) *lane {
 
 // Close closes the target's idle connections.
 func (t *HTTPTarget) Close() error {
-	for _, l := range t.lanes {
-		l.tr.CloseIdleConnections()
+	for _, g := range t.groups {
+		for _, l := range g {
+			l.tr.CloseIdleConnections()
+		}
 	}
 	return nil
+}
+
+// lane returns the lane of request seq: the group of source address
+// seq % groups, then its lanes in turn.
+func (t *HTTPTarget) lane(seq uint64) *lane {
+	n := uint64(len(t.groups))
+	g := t.groups[seq%n]
+	return g[(seq/n)%uint64(len(g))]
 }
 
 // connCapture records the connection a request got.
@@ -239,7 +334,7 @@ func (c *connCapture) get() ConnInfo {
 
 // Do sends request r and reads the whole response body.
 func (t *HTTPTarget) Do(ctx context.Context, r Request) Response {
-	l := t.lanes[r.Seq%uint64(len(t.lanes))]
+	l := t.lane(r.Seq)
 	var resp Response
 	if t.cfg.Keys != nil {
 		resp.Key = t.cfg.Keys.Key(r.Seq)

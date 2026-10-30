@@ -375,12 +375,12 @@ func TestNewHTTPRejects(t *testing.T) {
 		}
 	}
 	tg, err := NewHTTP(HTTPConfig{URL: "http://127.0.0.1/", Protocol: H2C})
-	if err != nil || len(tg.lanes) != DefaultHTTP2Connections || cap(tg.lanes[0].sem) != DefaultHTTP2Streams {
-		t.Errorf("h2c defaults: %d lanes of %d streams, err %v; want PBB S3's 64 of 64", len(tg.lanes), cap(tg.lanes[0].sem), err)
+	if err != nil || len(tg.groups) != 1 || len(tg.groups[0]) != DefaultHTTP2Connections || cap(tg.groups[0][0].sem) != DefaultHTTP2Streams {
+		t.Errorf("h2c defaults: %d lanes of %d streams, err %v; want PBB S3's 64 of 64", len(tg.groups[0]), cap(tg.groups[0][0].sem), err)
 	}
 	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/"})
-	if err != nil || tg.lanes[0].tr.MaxConnsPerHost != DefaultHTTP1Connections {
-		t.Errorf("HTTP/1.1 default connections %d, err %v; want PBB S1's 256", tg.lanes[0].tr.MaxConnsPerHost, err)
+	if err != nil || len(tg.groups) != 1 || tg.groups[0][0].tr.MaxConnsPerHost != DefaultHTTP1Connections {
+		t.Errorf("HTTP/1.1 default connections %d, err %v; want PBB S1's 256", tg.groups[0][0].tr.MaxConnsPerHost, err)
 	}
 }
 

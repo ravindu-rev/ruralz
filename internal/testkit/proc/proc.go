@@ -68,6 +68,12 @@ type Spec struct {
 	RingBytes int
 	// Stdin is the process's standard input; default none.
 	Stdin io.Reader
+	// ExtraFiles are open files the process inherits after standard error,
+	// entry i as file descriptor 3+i, such as the clock command socket of
+	// a controllable-clock Node (internal/clock.CommandFD). Unix only, as
+	// in os/exec. The caller keeps its copies and closes them once Start
+	// returns.
+	ExtraFiles []*os.File
 }
 
 // Usage is one resource sample.
@@ -156,6 +162,7 @@ func Start(ctx context.Context, s Spec) (*Process, error) {
 	if s.Stdin != nil {
 		cmd.Stdin = s.Stdin
 	}
+	cmd.ExtraFiles = s.ExtraFiles
 	cmd.Stdout = p.stdout
 	cmd.Stderr = p.stderr
 	cmd.SysProcAttr = sysProcAttr()

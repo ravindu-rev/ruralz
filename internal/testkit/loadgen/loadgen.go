@@ -26,6 +26,9 @@
 // HTTP targets speak HTTP/1.1, h2c or HTTP/2 over TLS, rotate keys and
 // bearer tokens, and report the connection each request used, so a test
 // can attribute a failure to the Node behind the test kit's L4 balancer.
+// With SourceAddrs they send from distinct loopback source addresses
+// (127.0.0.x on Linux, LoopbackAddrs), request by request, when a scenario
+// needs per-client source.ip behind a balancer speaking PROXY protocol v2.
 //
 // Goroutines: Start runs one scheduler and at most MaxInFlight workers,
 // all owned by the Generator; Wait returns once every one has ended.

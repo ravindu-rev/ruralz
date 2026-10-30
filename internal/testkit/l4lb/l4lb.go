@@ -11,6 +11,12 @@
 //     bytes unchanged in both directions, half-closes included, so TLS,
 //     ALPN and client certificates pass through to the Node; a reset on
 //     one side resets the other.
+//   - With ProxyProtocol, each backend connection starts with a PROXY
+//     protocol v2 header carrying the client's address and the address it
+//     reached the balancer at, for balanced listeners with proxyProtocol:
+//     true, so each request's source.ip is its client's (Security and
+//     identity "Client address"); without it every request's source.ip is
+//     the balancer's loopback address.
 //   - Each backend's /readyz on its admin port is probed every
 //     ProbeInterval, and only healthy backends take new connections.
 //     UnhealthyThreshold failed probes in a row mark a backend unhealthy,
@@ -191,6 +197,13 @@ type Config struct {
 	// Redispatch retries a failed backend dial on another healthy backend;
 	// otherwise the client connection is reset.
 	Redispatch bool
+	// ProxyProtocol sends a PROXY protocol v2 header (command PROXY, TCP4
+	// or TCP6) as the first bytes of each backend connection, with the
+	// client's address as the source and the balancer address it
+	// connected to as the destination; the balanced listeners must set
+	// proxyProtocol: true. A header that cannot be written counts as a
+	// failed dial.
+	ProxyProtocol bool
 	// DialTimeout bounds a backend dial; default DefaultDialTimeout.
 	DialTimeout time.Duration
 	// Dial, when set, dials backends instead of a net.Dialer.
@@ -925,6 +938,9 @@ func (c *conn) connect(ctx context.Context) net.Conn {
 		be := c.be
 		b.mu.Unlock()
 		up, err := b.dialBackend(ctx, be.Addr)
+		if err == nil && b.cfg.ProxyProtocol {
+			err = sendProxyHeader(up, c.client)
+		}
 		b.mu.Lock()
 		if err == nil {
 			be.routed++

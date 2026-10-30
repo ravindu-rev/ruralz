@@ -286,6 +286,9 @@ func TestDialFailures(t *testing.T) {
 					errs++
 				}
 				got = append(got, cl.be)
+				if cl.c == nil {
+					continue // reset before the dial completed: no address to look up
+				}
 				if name, ok := lb.BackendOf(cl.c.LocalAddr().String()); !ok || name != cl.be {
 					t.Errorf("BackendOf = %q, %v; want %q", name, ok, cl.be)
 				}

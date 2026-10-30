@@ -56,6 +56,13 @@ func TestHelperProcess(t *testing.T) {
 	case "env":
 		_, _ = os.Stdout.WriteString(strings.Join(os.Environ(), "\n") + "\n")
 		os.Exit(0)
+	case "extra":
+		// Write to the first extra file, descriptor 3.
+		if _, err := os.NewFile(3, "extra").WriteString("from descriptor 3\n"); err != nil {
+			_, _ = os.Stderr.WriteString(err.Error())
+			os.Exit(2)
+		}
+		os.Exit(0)
 	case "chatty":
 		// One write per line, as a logging Node does.
 		n, _ := strconv.Atoi(os.Getenv("CHATTY_LINES"))
@@ -178,6 +185,34 @@ func TestStdin(t *testing.T) {
 	}
 	if out, _ := p.Output(); string(out) != "from stdin\n" {
 		t.Fatalf("stdout = %q", out)
+	}
+}
+
+// ExtraFiles reach the child from descriptor 3, as a controllable-clock
+// Node's command socket does.
+func TestExtraFiles(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("os/exec passes extra files on Unix only")
+	}
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = r.Close() }()
+	s := helper("extra")
+	s.ExtraFiles = []*os.File{w}
+	p, err := Start(ctx(t), s)
+	_ = w.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
+		_, errb := p.Output()
+		t.Fatalf("Wait = %d, %v; stderr %q", code, err, errb)
+	}
+	got, err := io.ReadAll(r)
+	if err != nil || string(got) != "from descriptor 3\n" {
+		t.Fatalf("read from the extra file = %q, %v", got, err)
 	}
 }
 

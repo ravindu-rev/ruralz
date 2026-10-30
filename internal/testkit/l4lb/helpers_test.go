@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -189,16 +190,22 @@ func tick(t *testing.T, b *Balancer, fk *clocktest.Fake, names ...string) {
 
 // client is a connection through the balancer.
 type client struct {
-	c  *net.TCPConn
+	c  *net.TCPConn // nil when the reset ended the dial
 	r  *bufio.Reader
 	be string // the greeting: the backend's name
 }
 
 // dial connects through b and reads the backend's greeting; err is the
-// read error when the balancer reset the connection.
+// error when the balancer reset the connection. The balancer accepts a
+// connection before resetting it, so the reset ends the read, or the dial
+// itself when it arrives before the dial sees its handshake complete:
+// then the client has no connection.
 func dial(t *testing.T, b *Balancer) (*client, error) {
 	t.Helper()
 	nc, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", b.Addr())
+	if errors.Is(err, syscall.ECONNRESET) {
+		return &client{}, err
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

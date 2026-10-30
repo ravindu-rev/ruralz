@@ -8,19 +8,31 @@
 // Upgrade refusal and rollback tests are built with go build -overlay,
 // replacing single source files.
 //
+// BuildOptions.TestClock builds ruralzd as the controllable-clock test
+// build the correctness suites drive
+// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+// scope"): the release flags plus the build tag TestClockTag, which picks
+// the commanded process clock in internal/clock and changes nothing else.
+// It is never released: release tooling refuses every binary built with a
+// tag. ruralz is never built with it. Set.TestClock reports which kind of
+// ruralzd a Set holds, read from the binary's build information for a
+// prebuilt one, so a suite run against a release build in
+// RURALZ_TEST_BIN_DIR skips the cases that need the controllable clock.
+//
 // Nothing is cached in package state: TestMain builds a Set and passes it
 // down.
 //
 //	func TestMain(m *testing.M) {
 //		dir, _ := os.MkdirTemp("", "ruralz-bin-")
 //		root, _ := binaries.RepoRoot(".")
-//		bins, err := binaries.Build(context.Background(), root, dir, binaries.BuildOptions{})
+//		bins, err := binaries.Build(context.Background(), root, dir, binaries.BuildOptions{TestClock: true})
 //		...
 //	}
 package binaries
 
 import (
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -53,10 +65,19 @@ const (
 	Ruralz  = "ruralz"
 )
 
+// TestClockTag is the build tag of the controllable-clock ruralzd build;
+// it sits only on the pair of internal/clock files that picks the process
+// clock.
+const TestClockTag = "ruralz_testclock"
+
 // Set holds absolute paths of the built binaries; a binary not built is "".
 type Set struct {
 	Ruralzd string
 	Ruralz  string
+	// TestClock reports that Ruralzd is the controllable-clock build: it
+	// follows the process harness's clock commands on file descriptor 3
+	// and exits 2 when started without them.
+	TestClock bool
 }
 
 // BuildOptions selects a build.
@@ -78,10 +99,17 @@ type BuildOptions struct {
 	GoCmd string
 	// Env is appended to the build environment.
 	Env []string
+	// TestClock builds ruralzd as the controllable-clock test build, with
+	// the build tag TestClockTag; ruralz is built without it. With
+	// RURALZ_TEST_BIN_DIR set, the prebuilt binaries are used whatever
+	// their kind, and Set.TestClock reports it.
+	TestClock bool
 }
 
 // variant reports whether o asks for anything a prebuilt release binary
-// cannot provide.
+// cannot provide. TestClock is not one: RURALZ_TEST_BIN_DIR names the
+// build under test, and Set.TestClock says whether it is the
+// controllable-clock build.
 func (o BuildOptions) variant() bool {
 	return len(o.Overlay) > 0 || o.Version != "" || o.Commit != "" || o.Flavor != "" ||
 		(o.GOOS != "" && o.GOOS != runtime.GOOS) || (o.GOARCH != "" && o.GOARCH != runtime.GOARCH)
@@ -96,7 +124,8 @@ func LDFlags(version, commit, flavor string) string {
 }
 
 // Build compiles the commands under repoRoot/cmd into dir with
-// CGO_ENABLED=0, -trimpath and LDFlags. When RURALZ_TEST_BIN_DIR is set
+// CGO_ENABLED=0, -trimpath and LDFlags, and ruralzd also with the tag
+// TestClockTag when o.TestClock is set. When RURALZ_TEST_BIN_DIR is set
 // and o asks for no variant (no Overlay, no build metadata, host
 // platform), the prebuilt binaries there are returned instead.
 func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, error) {
@@ -130,34 +159,64 @@ func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, erro
 		return Set{}, fmt.Errorf("binaries: %w", err)
 	}
 	goos, goarch := orDefault(o.GOOS, runtime.GOOS), orDefault(o.GOARCH, runtime.GOARCH)
-	args := []string{"build", "-trimpath", "-ldflags", LDFlags(version, commit, flavor), "-o", out + string(filepath.Separator)}
+	base := []string{"build", "-trimpath", "-ldflags", LDFlags(version, commit, flavor), "-o", out + string(filepath.Separator)}
 	if len(o.Overlay) > 0 {
 		path, err := writeOverlay(root, o.Overlay)
 		if err != nil {
 			return Set{}, err
 		}
 		defer func() { _ = os.Remove(path) }()
-		args = append(args, "-overlay", path)
-	}
-	for _, c := range cmds {
-		args = append(args, "./cmd/"+c)
+		base = append(base, "-overlay", path)
 	}
 	goCmd, err := goCommand(o.GoCmd)
 	if err != nil {
 		return Set{}, err
 	}
-	cmd := exec.CommandContext(ctx, goCmd, args...) //nolint:gosec // G204: the go command with arguments built above
-	cmd.Dir = root
-	cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
-	cmd.Env = append(cmd.Env, o.Env...)
-	if outb, err := cmd.CombinedOutput(); err != nil {
-		return Set{}, fmt.Errorf("binaries: go %s: %w\n%s", strings.Join(args, " "), err, outb)
+	// Build tags apply to a whole go build, so the controllable-clock
+	// ruralzd gets its own.
+	var tagged, plain []string
+	for _, c := range cmds {
+		if o.TestClock && c == Ruralzd {
+			tagged = append(tagged, c)
+		} else {
+			plain = append(plain, c)
+		}
 	}
-	return collect(out, goos, cmds)
+	for _, g := range []struct {
+		tags string
+		cmds []string
+	}{{TestClockTag, tagged}, {"", plain}} {
+		if len(g.cmds) == 0 {
+			continue
+		}
+		args := slices.Clone(base)
+		if g.tags != "" {
+			args = append(args, "-tags", g.tags)
+		}
+		for _, c := range g.cmds {
+			args = append(args, "./cmd/"+c)
+		}
+		cmd := exec.CommandContext(ctx, goCmd, args...) //nolint:gosec // G204: the go command with arguments built above
+		cmd.Dir = root
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
+		cmd.Env = append(cmd.Env, o.Env...)
+		if outb, err := cmd.CombinedOutput(); err != nil {
+			return Set{}, fmt.Errorf("binaries: go %s: %w\n%s", strings.Join(args, " "), err, outb)
+		}
+	}
+	set, err := collect(out, goos, cmds)
+	if err != nil {
+		return Set{}, err
+	}
+	set.TestClock = len(tagged) > 0
+	return set, nil
 }
 
 // FromDir returns the binaries named cmds in dir (with ".exe" when the
 // files carry it), failing when one is missing or not a regular file.
+// Set.TestClock reports whether the ruralzd there was built with
+// TestClockTag; a file without Go build information, such as a stand-in
+// script, counts as a build without it.
 func FromDir(dir string, cmds ...string) (Set, error) {
 	if len(cmds) == 0 {
 		cmds = []string{Ruralzd, Ruralz}
@@ -170,7 +229,35 @@ func FromDir(dir string, cmds ...string) (Set, error) {
 	if _, err := os.Stat(filepath.Join(abs, cmds[0]+".exe")); err == nil { //nolint:gosec // G703: a directory the calling test supplies
 		goos = "windows"
 	}
-	return collect(abs, goos, cmds)
+	s, err := collect(abs, goos, cmds)
+	if err != nil {
+		return Set{}, err
+	}
+	if s.Ruralzd != "" {
+		s.TestClock, _ = HasTestClock(s.Ruralzd)
+	}
+	return s, nil
+}
+
+// HasTestClock reports whether the Go binary at path was built with the
+// tag TestClockTag, read from its build information. It fails for a file
+// that is not a Go binary.
+func HasTestClock(path string) (bool, error) {
+	info, err := buildinfo.ReadFile(path)
+	if err != nil {
+		return false, fmt.Errorf("binaries: %w", err)
+	}
+	for _, s := range info.Settings {
+		if s.Key != "-tags" {
+			continue
+		}
+		for tag := range strings.SplitSeq(s.Value, ",") {
+			if tag == TestClockTag {
+				return true, nil
+			}
+		}
+	}
+	return false, nil
 }
 
 func collect(dir, goos string, cmds []string) (Set, error) {
