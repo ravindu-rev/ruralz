@@ -68,12 +68,14 @@ type AuthMTLSConfig struct {
 }
 
 // CertificateSubject names a certificate by exactly one of subject or
-// uriSan.
+// uriSan, a non-empty string.
 // +ruralz:exactlyOneOf=subject,uriSan
 type CertificateSubject struct {
-	// Subject is the certificate subject distinguished name.
+	// Subject is the certificate subject distinguished name; it is not empty.
+	// +ruralz:minLength=1
 	Subject string `json:"subject,omitempty"`
-	// URISAN is a URI subject alternative name, such as a SPIFFE ID.
+	// URISAN is a URI subject alternative name, such as a SPIFFE ID; it is not empty.
+	// +ruralz:minLength=1
 	URISAN string `json:"uriSan,omitempty"`
 }
 

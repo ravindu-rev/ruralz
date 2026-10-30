@@ -51,8 +51,10 @@
 //
 // Build rejects a config with no issuers, or an issuer that is empty,
 // named twice or without audiences, with RZ-CFG-005, and a jwksUrl that is
-// not https with RZ-CFG-037; Check, the offline hub.PolicyCheck every
-// binary runs, reports every such finding from the same rule set. Build
+// not https with RZ-CFG-037: the first finding of package check, whose
+// Check, the offline hub.PolicyCheck every binary runs, reports every such
+// finding from the same rule set. The check lives in its own package so
+// that the binaries that link it never link jwx. Build
 // prefetches the issuers that have no usable keys, waiting at most until
 // the compile's prefetch round ends, and activates whatever the fetches
 // returned. ruralz_auth_jwks_age_seconds reports the age of the Policy's

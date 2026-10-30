@@ -1,9 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-package jwt
+package check
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -11,6 +12,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
+)
+
+const (
+	issA   = "https://idp.example"
+	audA   = "shop-api"
+	policy = "jwt-default"
+	okURL  = "https://idp.example/jwks"
 )
 
 // TestCheckJWKSURL checks the offline rule every binary runs: an
@@ -80,11 +88,11 @@ func checkText(cfg *v1alpha1.AuthJWTConfig) []string {
 }
 
 // TestCheckEmptyIssuer: an issuer that is the empty string, which the
-// schema admits, is RZ-CFG-005 offline, as Build refuses it at
+// schema admits, is RZ-CFG-005 offline, as the Factory refuses it at
 // activation, so validation reports what a Node would.
 func TestCheckEmptyIssuer(t *testing.T) {
 	got := checkText(&v1alpha1.AuthJWTConfig{Issuers: []v1alpha1.JWTIssuer{
-		{Issuer: "", JWKSURL: "https://idp.example/jwks", Audiences: []string{audA}},
+		{Issuer: "", JWKSURL: okURL, Audiences: []string{audA}},
 	}})
 	want := []string{`policies/jwt.yaml:1:1 error RZ-CFG-005 Policy/jwt-default spec.config.issuers[issuer=""].issuer: config.issuers has an empty issuer`}
 	if len(got) != 1 || got[0] != want[0] {
@@ -92,16 +100,16 @@ func TestCheckEmptyIssuer(t *testing.T) {
 	}
 }
 
-// TestCheckReportsEveryBuildRule: Check reports every rule Build refuses,
+// TestCheckReportsEveryRule: Check reports every rule the Factory refuses,
 // all of them in one run: no issuers, an issuer named twice, an issuer
 // without audiences and a jwksUrl that is not https.
-func TestCheckReportsEveryBuildRule(t *testing.T) {
+func TestCheckReportsEveryRule(t *testing.T) {
 	if got := checkText(&v1alpha1.AuthJWTConfig{}); len(got) != 1 ||
 		got[0] != `policies/jwt.yaml:1:1 error RZ-CFG-005 Policy/jwt-default spec.config.issuers: config.issuers is empty` {
 		t.Errorf("no issuers: Check = %q", got)
 	}
 	got := checkText(&v1alpha1.AuthJWTConfig{Issuers: []v1alpha1.JWTIssuer{
-		{Issuer: issA, JWKSURL: "https://idp.example/jwks"},
+		{Issuer: issA, JWKSURL: okURL},
 		{Issuer: issA, JWKSURL: "http://idp.example/jwks", Audiences: []string{audA}},
 	}})
 	want := []string{
@@ -119,30 +127,54 @@ func TestCheckReportsEveryBuildRule(t *testing.T) {
 	}
 }
 
-// TestBuildRefusesFirstFinding: Build's error is the first finding Check
-// reports, with its code, for every config, so offline validation and
-// activation never disagree.
-func TestBuildRefusesFirstFinding(t *testing.T) {
-	const ok = "https://idp.example/jwks"
-	for _, cfg := range []*v1alpha1.AuthJWTConfig{
-		{},
-		{Issuers: []v1alpha1.JWTIssuer{{Issuer: "", JWKSURL: ok, Audiences: []string{audA}}}},
-		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}, {Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}}},
-		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok}}},
-		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: "ftp://x", Audiences: []string{audA}}}},
-		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}}},
-	} {
-		err := validate(cfg)
-		fs := findings(cfg)
-		switch {
-		case len(fs) == 0 && err != nil:
-			t.Errorf("%+v: Build refuses %v, Check reports nothing", cfg, err)
-		case len(fs) > 0 && err == nil:
-			t.Errorf("%+v: Check reports %v, Build accepts", cfg, fs)
-		case len(fs) > 0:
-			if code, _ := errcode.CodeOf(err); code != fs[0].code || !strings.HasSuffix(err.Error(), fs[0].msg) {
-				t.Errorf("%+v: Build refuses %v, Check's first finding is %s %s", cfg, err, fs[0].code, fs[0].msg)
+// TestFindingsJWKSURL covers the jwksUrl rule (TB-10) on every form it
+// refuses, and the forms it accepts: an upper-case scheme reads as https.
+func TestFindingsJWKSURL(t *testing.T) {
+	tests := []struct {
+		name, url, msg string
+	}{
+		{"https", okURL, ""},
+		{"upper-case scheme", "HTTPS://idp.example/jwks", ""},
+		{"port and query", "https://idp.example:8443/jwks?v=1", ""},
+		{"http", "http://idp.example/jwks", "jwksUrl is not an https URL"},
+		{"no scheme", "idp.example/jwks", "jwksUrl is not an https URL"},
+		{"opaque", "https:idp.example", "jwksUrl is not an https URL"},
+		{"no host", "https:///jwks", "jwksUrl has no host"},
+		{"port only", "https://:443/jwks", "jwksUrl has no host"},
+		{"not a URL", "https://[::1", "jwksUrl is not a URL"},
+		{"empty", "", "jwksUrl is not an https URL"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fs := Findings(&v1alpha1.AuthJWTConfig{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: tt.url, Audiences: []string{audA}}}})
+			switch {
+			case tt.msg == "" && len(fs) != 0:
+				t.Errorf("Findings(%q) = %+v, want none", tt.url, fs)
+			case tt.msg != "" && (len(fs) != 1 || fs[0].Code != CodeHTTPS || fs[0].Message != tt.msg):
+				t.Errorf("Findings(%q) = %+v, want one %s %q", tt.url, fs, CodeHTTPS, tt.msg)
 			}
-		}
+		})
+	}
+}
+
+// TestFindingErr: the error the Factory refuses a config with carries the
+// finding's code and names the rule; a jwksUrl error names the issuer and
+// wraps the cause, so errors.Is reaches it.
+func TestFindingErr(t *testing.T) {
+	fs := Findings(&v1alpha1.AuthJWTConfig{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: "http://x", Audiences: []string{audA}}}})
+	if len(fs) != 1 {
+		t.Fatalf("Findings = %+v, want one", fs)
+	}
+	err := fs[0].Err()
+	if code, _ := errcode.CodeOf(err); code != CodeHTTPS || !errors.Is(err, fs[0].Cause) ||
+		!strings.Contains(err.Error(), `issuer "https://idp.example"`) {
+		t.Errorf("Err() = %v (code %q)", err, code)
+	}
+	empty := Findings(&v1alpha1.AuthJWTConfig{})[0].Err()
+	if code, _ := errcode.CodeOf(empty); code != CodeSchema || !strings.HasSuffix(empty.Error(), "auth.jwt: config.issuers is empty") {
+		t.Errorf("Err() = %v (code %q)", empty, code)
+	}
+	if fs := Findings(nil); fs != nil {
+		t.Errorf("Findings(nil) = %+v, want nil", fs)
 	}
 }

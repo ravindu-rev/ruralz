@@ -12,9 +12,9 @@
 // entries do (internal/clientaddr): a CIDR is masked, an IPv4-mapped IPv6
 // prefix of at least 96 bits becomes its IPv4 prefix, a zone is refused,
 // and the client address is unmapped before the lookup, so an
-// IPv4-mapped IPv6 address matches as IPv4. A malformed entry is
-// RZ-CFG-005, at Build and in Check, the offline check every binary runs;
-// both lists empty is RZ-CFG-005 too.
+// IPv4-mapped IPv6 address matches as IPv4. A malformed entry, and both
+// lists empty (absent or written as empty lists), are RZ-CFG-005 at Build
+// and in Check, the offline check every binary runs.
 //
 // # Decision
 //

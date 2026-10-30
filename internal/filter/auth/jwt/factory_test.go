@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth"
+	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/check"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/jwks"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/secret"
@@ -203,6 +205,34 @@ func TestBuildRejectsConfig(t *testing.T) {
 	cfg.Issuers[0].JWKSURL = "HTTPS" + cfg.Issuers[0].JWKSURL[len("https"):]
 	f := n.build(t, buildEnv(cfg))
 	_ = f.Close()
+}
+
+// TestBuildRefusesFirstFinding: Build's config error is the first finding
+// of package check, with its code, for every config, so offline
+// validation and activation never disagree.
+func TestBuildRefusesFirstFinding(t *testing.T) {
+	const ok = "https://idp.example/jwks"
+	for _, cfg := range []*v1alpha1.AuthJWTConfig{
+		{},
+		{Issuers: []v1alpha1.JWTIssuer{{Issuer: "", JWKSURL: ok, Audiences: []string{audA}}}},
+		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}, {Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}}},
+		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok}}},
+		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: "ftp://x", Audiences: []string{audA}}}},
+		{Issuers: []v1alpha1.JWTIssuer{{Issuer: issA, JWKSURL: ok, Audiences: []string{audA}}}},
+	} {
+		err := validate(cfg)
+		fs := check.Findings(cfg)
+		switch {
+		case len(fs) == 0 && err != nil:
+			t.Errorf("%+v: Build refuses %v, the check reports nothing", cfg, err)
+		case len(fs) > 0 && err == nil:
+			t.Errorf("%+v: the check reports %v, Build accepts", cfg, fs)
+		case len(fs) > 0:
+			if code, _ := errcode.CodeOf(err); code != fs[0].Code || !strings.HasSuffix(err.Error(), fs[0].Message) {
+				t.Errorf("%+v: Build refuses %v, the check's first finding is %s %s", cfg, err, fs[0].Code, fs[0].Message)
+			}
+		}
+	}
 }
 
 // TestBuildCanceled checks that a compile whose context ended gets its

@@ -1203,14 +1203,16 @@
           ]
         }
       ],
-      "description": "CertificateSubject names a certificate by exactly one of subject or uriSan.",
+      "description": "CertificateSubject names a certificate by exactly one of subject or uriSan, a non-empty string.",
       "properties": {
         "subject": {
-          "description": "Subject is the certificate subject distinguished name.",
+          "description": "Subject is the certificate subject distinguished name; it is not empty.",
+          "minLength": 1,
           "type": "string"
         },
         "uriSan": {
-          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID.",
+          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID; it is not empty.",
+          "minLength": 1,
           "type": "string"
         }
       },

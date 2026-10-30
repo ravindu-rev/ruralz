@@ -79,9 +79,18 @@ func cryptoExceptions() map[string]string {
 	}
 }
 
-// raftModules must never be linked into ruralzd.
+// raftModules must never be linked into ruralzd (P2, ADR-0006).
 func raftModules() []string {
 	return []string{"github.com/hashicorp/raft"}
+}
+
+// jwxModules must never be linked into ruralz: the offline Policy checks
+// every binary links through checks.Table() import no module cmd/ruralz
+// does not link, and the auth.jwt Filter, whose check lives in a package
+// of its own for that reason, links jwx
+// (docs/engineering/01-tech-stack-and-libraries.md, "Dependency graph").
+func jwxModules() []string {
+	return []string{"github.com/lestrrat-go/jwx"}
 }
 
 // advisoryFloors are minimum versions forced by security advisories.

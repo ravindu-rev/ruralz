@@ -645,8 +645,9 @@ type Consumptive interface {
 type Closer interface{ Close() error }
 
 // Component is a Node-wide part of a Policy type that outlives snapshots:
-// the JWKS manager, the upstream token registry, the auth.basic throttle,
-// the rate-limit key table, the Response Cache revalidation workers.
+// the JWKS manager, the auth.basic throttle, the rate-limit key table, the
+// quota denial cache, the Response Cache revalidation workers, the
+// upstream token registry.
 // internal/filter/builtin constructs each once per process and hands it to
 // the Factories that use it; the ruralzd supervisor runs every Component
 // on one goroutine it owns before the first activation and cancels it at

@@ -55,6 +55,44 @@ func TestCheckReportsMalformedEntries(t *testing.T) {
 	}
 }
 
+// TestCheckReportsEmptyLists: config.allow and config.deny both empty,
+// absent or written as empty lists, which the schema's "one of allow or
+// deny" admits, is RZ-CFG-005 at spec.config, exactly the configs Build
+// refuses; one non-empty list passes both.
+func TestCheckReportsEmptyLists(t *testing.T) {
+	tests := []struct {
+		name  string
+		cfg   *v1alpha1.AuthzIPConfig
+		empty bool
+	}{
+		{"both absent", &v1alpha1.AuthzIPConfig{}, true},
+		{"both written empty", &v1alpha1.AuthzIPConfig{Allow: []string{}, Deny: []string{}}, true},
+		{"allow written empty", &v1alpha1.AuthzIPConfig{Allow: []string{}}, true},
+		{"deny beside an empty allow", &v1alpha1.AuthzIPConfig{Allow: []string{}, Deny: []string{"192.0.2.0/24"}}, false},
+		{"allow only", &v1alpha1.AuthzIPConfig{Allow: []string{"10.0.0.0/8"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got []diag.Diagnostic
+			Check(policy(tt.cfg), nil, func(d diag.Diagnostic) { got = append(got, d) })
+			_, err := (Factory{}).Build(t.Context(), filter.BuildEnv{Config: tt.cfg})
+			if !tt.empty {
+				if len(got) != 0 || err != nil {
+					t.Fatalf("Check = %+v, Build error %v, want neither", got, err)
+				}
+				return
+			}
+			if len(got) != 1 || got[0].Code != CodeConfig || got[0].Path.String() != "spec.config" ||
+				got[0].Message != "config.allow and config.deny are both empty" {
+				t.Fatalf("Check = %+v, want one RZ-CFG-005 at spec.config", got)
+			}
+			if err == nil {
+				t.Error("Build accepts the config Check refuses")
+			}
+		})
+	}
+}
+
 // buildEnvFor returns a BuildEnv whose config holds only the entry at p.
 func buildEnvFor(p diag.Path) filter.BuildEnv {
 	entry, _ := p[len(p)-1].Item.(string)

@@ -160,10 +160,11 @@ func analyze(t target, pkgs []goPackage, read dirReader) (analysis, error) {
 				m.ReplacePath, m.ReplaceVersion = mod.Replace.Path, mod.Replace.Version
 			}
 			modules[mod.Path] = m
-			if t.binary == "ruralzd" && slices.ContainsFunc(raftModules(), func(r string) bool {
-				return mod.Path == r || strings.HasPrefix(mod.Path, r+"-") || strings.HasPrefix(mod.Path, r+"/")
-			}) {
+			if t.binary == "ruralzd" && denied(mod.Path, raftModules()) {
 				add(mod.Path, "ruralzd never links Raft (P2, ADR-0006)")
+			}
+			if t.binary == "ruralz" && denied(mod.Path, jwxModules()) {
+				add(mod.Path, "ruralz never links jwx: the offline Policy checks it links import no module the CLI does not link (Dependency graph)")
 			}
 			if floor, ok := advisoryFloors()[mod.Path]; ok && compareSemver(mod.Version, floor) < 0 {
 				out = append(out, fmt.Sprintf("%s: %s %s is below the advisory floor %s", where, mod.Path, mod.Version, floor))
@@ -294,6 +295,15 @@ func checkCrypto(importPath, modulePath string) string {
 		return "cryptography outside Go crypto/... needs a G3 exception row"
 	}
 	return ""
+}
+
+// denied reports whether module path is one of roots, a later major
+// version or a path below one ("<root>/v4"), or a sibling module named
+// after one ("<root>-boltdb/v2").
+func denied(path string, roots []string) bool {
+	return slices.ContainsFunc(roots, func(r string) bool {
+		return path == r || strings.HasPrefix(path, r+"-") || strings.HasPrefix(path, r+"/")
+	})
 }
 
 // under reports whether p is root or a path below it.

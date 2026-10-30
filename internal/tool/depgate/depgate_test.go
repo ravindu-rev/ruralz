@@ -222,6 +222,74 @@ func TestAnalyze(t *testing.T) {
 	}
 }
 
+// TestAnalyzeJWXDenylist: ruralz never links jwx, at any major version,
+// since the offline Policy checks it links import no module the CLI does
+// not link (Dependency graph); ruralzd and ruralz-control link it freely,
+// and the modules jwx links are not jwx.
+func TestAnalyzeJWXDenylist(t *testing.T) {
+	read := fakeFS(map[string][]legalText{
+		"github.com/lestrrat-go/jwx/v4": lic(mitText),
+		"github.com/lestrrat-go/jwx":    lic(mitText),
+		"github.com/lestrrat-go/dsig":   lic(mitText),
+	})
+	jwx := []goPackage{
+		pkg("github.com/lestrrat-go/jwx/v4/jws", mod("github.com/lestrrat-go/jwx/v4", "v4.5.0")),
+		pkg("github.com/lestrrat-go/jwx/v4/jwk", mod("github.com/lestrrat-go/jwx/v4", "v4.5.0")),
+	}
+	old := []goPackage{pkg("github.com/lestrrat-go/jwx/jws", mod("github.com/lestrrat-go/jwx", "v1.2.29"))}
+	dsig := []goPackage{pkg("github.com/lestrrat-go/dsig", mod("github.com/lestrrat-go/dsig", "v1.4.0"))}
+	for _, tt := range []struct {
+		name   string
+		target target
+		pkgs   []goPackage
+		want   string
+	}{
+		{"ruralz links jwx v4", target{"ruralz", "windows", "amd64"}, jwx, "ruralz windows/amd64: github.com/lestrrat-go/jwx/v4: ruralz never links jwx"},
+		{"ruralz links jwx v1", target{"ruralz", "linux", "arm64"}, old, "ruralz linux/arm64: github.com/lestrrat-go/jwx: ruralz never links jwx"},
+		{"ruralz links dsig alone", target{"ruralz", "linux", "amd64"}, dsig, ""},
+		{"ruralzd", target{"ruralzd", "linux", "amd64"}, jwx, ""},
+		{"ruralz-control", target{"ruralz-control", "darwin", "arm64"}, jwx, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := analyze(tt.target, tt.pkgs, read)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.want == "" {
+				if len(got.findings) != 0 {
+					t.Errorf("findings = %q, want none", got.findings)
+				}
+				return
+			}
+			if len(got.findings) != 1 || !strings.HasPrefix(got.findings[0], tt.want) {
+				t.Errorf("findings = %q, want one starting %q", got.findings, tt.want)
+			}
+		})
+	}
+}
+
+// TestDenied covers the module match of the denylists: a root, a later
+// major version or a path below it, and a sibling module named after it,
+// never a module that only shares a prefix.
+func TestDenied(t *testing.T) {
+	roots := []string{"github.com/hashicorp/raft", "github.com/lestrrat-go/jwx"}
+	cases := map[string]bool{
+		"github.com/hashicorp/raft":           true,
+		"github.com/hashicorp/raft-boltdb/v2": true,
+		"github.com/lestrrat-go/jwx/v4":       true,
+		"github.com/lestrrat-go/jwx":          true,
+		"github.com/lestrrat-go/jwxtra":       false,
+		"github.com/lestrrat-go/dsig":         false,
+		"github.com/hashicorp/rafty":          false,
+		"github.com/hashicorp/go-hclog":       false,
+	}
+	for path, want := range cases {
+		if got := denied(path, roots); got != want {
+			t.Errorf("denied(%q) = %v, want %v", path, got, want)
+		}
+	}
+}
+
 // TestAnalyzeNestedLicense: a linked package inside a directory with its
 // own license text is governed by that text, which G2 checks and the
 // notices include; packages without one fall back to the module root.

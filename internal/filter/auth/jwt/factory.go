@@ -6,23 +6,23 @@ package jwt
 import (
 	"context"
 	"errors"
-	"net/url"
 	"slices"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth"
+	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/check"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/jwks"
 	"github.com/ravindu-rev/ruralz/internal/identity"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Codes Build and Check return.
+// Codes Build returns, the codes of package check.
 const (
 	// CodeHTTPS: an issuers[].jwksUrl that is not an https URL.
-	CodeHTTPS = "RZ-CFG-037"
+	CodeHTTPS = check.CodeHTTPS
 	// codeSchema: a config that is not a valid AuthJWTConfig.
-	codeSchema = "RZ-CFG-005"
+	codeSchema = check.CodeSchema
 )
 
 // ErrNoManager reports a Factory built without a JWKS manager.
@@ -137,26 +137,11 @@ func newFilter(env filter.BuildEnv, cfg *v1alpha1.AuthJWTConfig, ix *identity.In
 
 // validate checks what the schema leaves to the Factory: at least one
 // issuer, each with a non-empty issuer named once, at least one audience
-// and an https jwksUrl. It refuses the first of the findings Check
-// reports offline, so both apply one rule set.
+// and an https jwksUrl. It refuses the first of the findings package
+// check reports offline, so both apply one rule set.
 func validate(cfg *v1alpha1.AuthJWTConfig) error {
-	if fs := findings(cfg); len(fs) > 0 {
-		return fs[0].err()
-	}
-	return nil
-}
-
-// checkJWKSURL returns an error unless s is an absolute https URL with a
-// host (TB-10).
-func checkJWKSURL(s string) error {
-	u, err := url.Parse(s)
-	switch {
-	case err != nil:
-		return errors.New("jwksUrl is not a URL")
-	case u.Scheme != "https" || u.Opaque != "":
-		return errors.New("jwksUrl is not an https URL")
-	case u.Hostname() == "":
-		return errors.New("jwksUrl has no host")
+	if fs := check.Findings(cfg); len(fs) > 0 {
+		return fs[0].Err()
 	}
 	return nil
 }
