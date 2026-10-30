@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"net/netip"
 	"net/url"
-	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/clientaddr"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/httpfield"
+	"github.com/ravindu-rev/ruralz/internal/routematch"
 )
 
 // headerUserAgent is the User-Agent field name.
@@ -80,20 +80,7 @@ func (f forwarding) rewrite(h http.Header, x filter.Exchange) {
 	f.trusted.Rewrite(h, x.Source().Peer.Addr(), x.Scheme(), x.Host())
 }
 
-// setPath sets the URL path so the request line carries p unchanged: p is
-// the escaped form (RawPath) and its decoding the Path. An empty path is
-// "/".
-func setPath(u *url.URL, p string) {
-	if p == "" {
-		p = "/"
-	}
-	if strings.IndexByte(p, '%') < 0 {
-		u.Path, u.RawPath = p, p
-		return
-	}
-	if dec, err := url.PathUnescape(p); err == nil {
-		u.Path, u.RawPath = dec, p
-		return
-	}
-	u.Path, u.RawPath = p, ""
-}
+// setPath sets the URL path so the request line carries p unchanged
+// (routematch.SetRequestPath): p is the escaped form (RawPath) and its
+// decoding the Path. An empty path is "/".
+func setPath(u *url.URL, p string) { routematch.SetRequestPath(u, p) }

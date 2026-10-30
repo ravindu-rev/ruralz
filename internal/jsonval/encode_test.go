@@ -27,7 +27,7 @@ func mustDecode(t testing.TB, s string) any {
 	return v
 }
 
-func TestAppendTransformForm(t *testing.T) {
+func TestAppendSortedForm(t *testing.T) {
 	cases := []struct {
 		name, input, want string
 	}{

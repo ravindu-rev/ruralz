@@ -37,6 +37,11 @@ type PlaceID string
 // and PlaceHeadersResponseValue does the same for config.response
 // (HeaderResponseSet): set[] and add[] share one definition per side, so the
 // set[] spelling of the ID names both.
+//
+// PlaceTransformRequestValue and PlaceTransformResponseValue take a result
+// per entry target: string for targets header, query and path, any value
+// for target body. The place states the union, dyn, and each occurrence's
+// site names its target's result (Site.Result).
 const (
 	PlaceRouteMatchWhen         PlaceID = "Route.spec.match.when"
 	PlacePolicyWhen             PlaceID = "Policy.spec.when"
@@ -160,9 +165,9 @@ func Places() []Place {
 		{PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		{PlaceCacheKey, ResultString, base, RuleCacheBypass, "M1"},
 		{PlaceTransformRequestBody, ResultDyn, base | VarUpstream, RuleFailureMode, "M1"},
-		{PlaceTransformRequestValue, ResultString, base | VarUpstream, RuleFailureMode, "M1"},
+		{PlaceTransformRequestValue, ResultDyn, base | VarUpstream, RuleFailureMode, "M1"},
 		{PlaceTransformResponseBody, ResultDyn, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
-		{PlaceTransformResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
+		{PlaceTransformResponseValue, ResultDyn, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		{PlaceHashKey, ResultString, base, RuleRandomEndpoint, "M1"},
 		{PlaceRetryOn, ResultBool, VarRequest | VarResponse | VarError | VarAttempt | VarUpstream, RuleNoRetry, "M1"},
 		{PlaceFailureWhen, ResultBool, VarRequest | VarResponse | VarError | VarUpstream, RuleCountFailure, "M1"},
@@ -206,6 +211,31 @@ type Site struct {
 	Mode v1alpha1.CompositionMode
 	// EarlierSteps are the names of earlier steps in list order.
 	EarlierSteps []string
+	// Result narrows the place's result type at this occurrence; zero
+	// keeps the place's. Only a dyn place narrows: a transform set[]
+	// valueExpression is ResultString for targets header, query and path
+	// and ResultDyn for target body
+	// (docs/architecture/02-configuration-model.md "Allowed places"). Any
+	// other narrowing is an error of the caller, which the compiler
+	// reports.
+	Result Result
+}
+
+// TransformValueResult returns the result type a transform set[]
+// valueExpression takes by its entry's target, which its site names
+// (Site.Result): ResultDyn for target body, ResultString for header, query
+// and path, and 0, the place's own, for any other target
+// (docs/architecture/02-configuration-model.md "Allowed places").
+func TransformValueResult(target string) Result {
+	switch target {
+	case string(v1alpha1.TransformRequestTargetBody):
+		return ResultDyn
+	case string(v1alpha1.TransformRequestTargetHeader), string(v1alpha1.TransformRequestTargetQuery),
+		string(v1alpha1.TransformRequestTargetPath):
+		return ResultString
+	default:
+		return 0
+	}
 }
 
 // Issue is one compile finding: RZ-CFG-014 or RZ-CFG-015.
@@ -294,14 +324,18 @@ type InputCaps struct {
 	RequestHeaderBytes int64
 	// AddedHeaderBytes is the most bytes, four per field line for its
 	// separators, the client-leg Policies of any one Route of the snapshot
-	// can add to the client request's headers and query before an
+	// can add to the client request's headers, query and path before an
 	// expression reads them, which RequestHeaderBytes does not cover: the
-	// sum of header.AddedRequestBytes over its headers Policies, plus, for
-	// each transform.request Policy, every set entry with target header or
-	// query at its name and httpfield.MaxComputedValueBytes (or
+	// sum of header.AddedRequestBytes over its headers Policies, plus the
+	// AddedRequestBytes of each transform.request Policy
+	// (internal/filter/transform/request): every set entry with target
+	// header or query at its name and httpfield.MaxComputedValueBytes (or
 	// httpfield.MaxQueryValueBytes) plus 4 bytes, the headers Policy caps
-	// the transform step takes. A negative value leaves the request's
-	// fields unbounded, for a snapshot with an edit no bound covers.
+	// the transform step takes, an entry with target path at the 8 KiB a
+	// rewritten path may hold plus 4 bytes, and for a config that may
+	// rewrite the body the Content-Type and Content-Length lines a new body
+	// takes. A negative value leaves the request's fields unbounded, for a
+	// snapshot with an edit no bound covers.
 	AddedHeaderBytes int64
 	// ClaimsBytes bounds auth.claims: every string, map and list of a
 	// verified token's payload, in bytes or entries. auth.jwt decodes a
@@ -394,6 +428,11 @@ type Compiler interface {
 	// ReferencesRequestBody reports whether an authz.cel rule selects
 	// request.body, which moves it to onRequestBody.
 	ReferencesRequestBody(src string) (bool, error)
+	// References returns what src reads checked at site, without planning
+	// a program, such as whether a transform's CEL field reads the body,
+	// which makes the Policy a gate; an error when src does not check
+	// there.
+	References(site Site, src string) (Refs, error)
 	// NewBuilder starts a snapshot's program set under the snapshot's
 	// input caps, which decide whether each program needs cost tracking;
 	// prev may be nil, and the zero InputCaps counts every input as
@@ -447,6 +486,19 @@ type Value interface {
 type Tree interface {
 	Value
 	Tree() any
+}
+
+// NestedJSON is implemented by a Value that writes itself as a JSON value
+// nested in a document, as a transform set[] entry with target body writes
+// its result (docs/architecture/03-data-plane.md "Transform Policies"):
+// where AppendBody writes a top-level string as its UTF-8 bytes and bytes
+// raw, AppendJSON writes a string as a JSON string and bytes as a base64
+// JSON string, and every other value as AppendBody does. The Values a
+// Program's EvalValue returns implement it; a value without a JSON form
+// is an error, as for AppendBody.
+type NestedJSON interface {
+	Value
+	AppendJSON(dst []byte) ([]byte, error)
 }
 
 // ErrTooLarge is returned by DecodeJSON past its budget.

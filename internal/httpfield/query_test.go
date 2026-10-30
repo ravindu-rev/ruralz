@@ -38,9 +38,9 @@ func TestQueryEdits(t *testing.T) {
 		want string
 	}{
 		{"set replaces the first and drops later ones", "a=1&b=2&a=3", []op{{name: "a", value: "9"}}, "a=9&b=2"},
-		{"set appends an absent key escaped", "a=1&b=2&a=3", []op{{name: "c", value: "x y"}}, "a=1&b=2&a=3&c=x+y"},
+		{"set appends an absent key escaped", "a=1&b=2&a=3", []op{{name: "c", value: "x y"}}, "a=1&b=2&a=3&c=x%20y"},
 		{"del drops every occurrence", "a=1&b=2&a=3", []op{{del: true, name: "a"}}, "b=2"},
-		{"key a+b equals a b", "a+b=1&c=2", []op{{name: "a b", value: "3"}}, "a+b=3&c=2"},
+		{"key a+b equals a b and set writes the name", "a+b=1&c=2", []op{{name: "a b", value: "3"}}, "a%20b=3&c=2"},
 		{"key a%20b equals a b", "a%20b=1", []op{{del: true, name: "a b"}}, ""},
 		{"key a%2Bb equals a+b", "a%2Bb=1&a+b=2", []op{{del: true, name: "a+b"}}, "a+b=2"},
 		{"untouched escape stays %7e", "x=%7e&y=1", []op{{name: "y", value: "2"}}, "x=%7e&y=2"},
@@ -52,13 +52,17 @@ func TestQueryEdits(t *testing.T) {
 		{"bare key deleted", "k&x=1", []op{{del: true, name: "k"}}, "x=1"},
 		{"=v has the empty key and matches no name", "=v&a=1", []op{{del: true, name: "v"}, {name: "a", value: ""}}, "=v&a="},
 		{"empty segments kept", "a=1&&b=2", []op{{name: "b", value: "3"}}, "a=1&&b=3"},
-		{"invalid escape compares raw", "%zz=1&%41=2", []op{{del: true, name: "%zz"}, {name: "A", value: "3"}}, "%41=3"},
+		{"invalid escape compares raw", "%zz=1&%41=2", []op{{del: true, name: "%zz"}, {name: "A", value: "3"}}, "A=3"},
 		{"new key and value escaped", "", []op{{name: "a&b=c", value: "1&2=3%"}}, "a%26b%3Dc=1%262%3D3%25"},
 		{"value decodes to the set value", "a=1", []op{{name: "a", value: "x+y/z"}}, "a=x%2By%2Fz"},
 		{"case-sensitive keys", "A=1", []op{{name: "a", value: "2"}}, "A=1&a=2"},
 		{"del then set appends", "a=1&b=2", []op{{del: true, name: "a"}, {name: "a", value: "3"}}, "b=2&a=3"},
 		{"truncated escape compares raw", "a%4=1", []op{{del: true, name: "a%4"}}, ""},
 		{"escape hex digits in either case", "%7e=1&%7E=2&%7a=3", []op{{del: true, name: "~"}}, "%7a=3"},
+		{"space written as %20, never +", "", []op{{name: "q", value: "a b+c"}}, "q=a%20b%2Bc"},
+		{"unreserved bytes written as they are", "", []op{{name: "A-z_0.9~", value: "-._~"}}, "A-z_0.9~=-._~"},
+		{"reserved and non-ASCII bytes encoded with uppercase hex", "", []op{{name: "k", value: "/?#[]@!$&'()*,;=\xc3\xa9"}}, "k=%2F%3F%23%5B%5D%40%21%24%26%27%28%29%2A%2C%3B%3D%C3%A9"},
+		{"set replaces at the first place", "b=1&a=2&c=3&a=4", []op{{name: "a", value: "x"}}, "b=1&a=x&c=3"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

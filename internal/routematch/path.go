@@ -321,6 +321,26 @@ func RequestPath(u *url.URL) string {
 	return u.EscapedPath()
 }
 
+// SetRequestPath sets the path of u, an outgoing request's URL, so its
+// request line carries p, a normalized path, unchanged: p is the escaped
+// form (u.RawPath) and its decoding u.Path, so percent-encodings such as
+// %2F are kept; a p that does not decode is sent as u.Path alone. An empty
+// p is "/". RequestPath(u) then returns p.
+func SetRequestPath(u *url.URL, p string) {
+	if p == "" {
+		p = "/"
+	}
+	if strings.IndexByte(p, '%') < 0 {
+		u.Path, u.RawPath = p, p
+		return
+	}
+	if dec, err := url.PathUnescape(p); err == nil {
+		u.Path, u.RawPath = dec, p
+		return
+	}
+	u.Path, u.RawPath = p, ""
+}
+
 // NextSegment returns the path segment that starts at byte i of path, just
 // after a "/", and the index where the following segment starts. The
 // segments of a path are those of strings.Split(path[1:], "/"), so "/" has

@@ -31,8 +31,10 @@ type Message struct {
 	// DecodedValue is returned by Decoded.
 	DecodedValue expr.Value
 	Query        string
-	Code         int
-	Gen          bool
+	// PathV is the forwarded path of a request message (Path, SetPath).
+	PathV string
+	Code  int
+	Gen   bool
 	// Budget, when non-nil, is charged by SetBody.
 	Budget *Budget
 }
@@ -69,6 +71,8 @@ func (m *Message) SetBody(_ context.Context, b []byte) error {
 	h.Del("Content-Encoding")
 	h.Del("Content-Digest")
 	h.Del("Repr-Digest")
+	h.Del("Digest")
+	h.Del("Content-Md5")
 	return nil
 }
 
@@ -80,6 +84,12 @@ func (m *Message) RawQuery() string { return m.Query }
 
 // SetRawQuery implements filter.Message.
 func (m *Message) SetRawQuery(q string) { m.Query = q }
+
+// Path implements filter.Message: PathV.
+func (m *Message) Path() string { return m.PathV }
+
+// SetPath implements filter.Message: it sets PathV.
+func (m *Message) SetPath(p string) { m.PathV = p }
 
 // Status implements filter.Message.
 func (m *Message) Status() int { return m.Code }

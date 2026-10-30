@@ -295,6 +295,17 @@ type Message interface {
 	RawQuery() string
 	// SetRawQuery replaces the raw query of a request message.
 	SetRawQuery(q string)
+	// Path returns the path a request message is forwarded with: the one
+	// normalized path, or the one a transform.request set[] entry with
+	// target path rewrote it to; "" for a response.
+	Path() string
+	// SetPath replaces the forwarded path of a request message
+	// (transform.request target path), which CEL request.path reads from
+	// then on; Exchange.Path keeps the client's path. A response ignores
+	// it. p is a normalized path the caller has checked against the
+	// request hardening (docs/architecture/03-data-plane.md "Transform
+	// Policies").
+	SetPath(p string)
 	// Status returns the status of a response message; 0 for requests.
 	Status() int
 	// Generated reports a Node- or Filter-generated response.

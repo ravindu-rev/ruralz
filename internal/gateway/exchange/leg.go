@@ -20,6 +20,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/body"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/phase"
+	"github.com/ravindu-rev/ruralz/internal/routematch"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -270,7 +271,10 @@ func (h *legHandle) Leg(upstream, step string) snapshot.RequestState {
 func (h *legHandle) Release() { h.end(true) }
 
 // copyRequestView sets the leg's request view from the client's, with the
-// attempt's outgoing headers and query when it has a request.
+// attempt's outgoing headers, query and path when it has a request: in
+// onUpstreamRequest CEL request describes the attempt's outgoing request,
+// such as a composition step's own path (docs/architecture/03-data-plane.md
+// "Transform Policies").
 func (l *leg) copyRequestView() {
 	pr := &l.parent.req
 	l.req = expr.Request{
@@ -282,8 +286,11 @@ func (l *leg) copyRequestView() {
 		if a.Request.Header != nil {
 			l.req.Header = a.Request.Header
 		}
-		if a.Request.URL != nil {
-			l.req.SetRawQuery(a.Request.URL.RawQuery)
+		if u := a.Request.URL; u != nil {
+			l.req.SetRawQuery(u.RawQuery)
+			if u.Path != "" || u.RawPath != "" {
+				l.req.Path = routematch.RequestPath(u)
+			}
 		}
 	}
 }
@@ -357,6 +364,15 @@ func (l *leg) reset() {
 // activation returns the leg's CEL activation of the current Phase:
 // request.body is the leg's current body in onUpstreamRequest, and
 // response.body the gated response in onUpstreamResponseBody.
+//
+// In onUpstreamResponseBody the response body is gated and decoded for
+// CEL only when it is gated already, because a Filter read it, as a
+// Policy that needs the body does before it evaluates an expression, or
+// when the current Policy's spec.when reads response.body before any
+// Filter did. A Policy without a body need, such as a transform.response
+// that edits only headers, so runs while the body streams on
+// (docs/architecture/02-configuration-model.md "Body buffering and
+// limits").
 func (l *leg) activation() *expr.Vars {
 	switch l.ph {
 	case phase.OnUpstreamRequest:
@@ -364,13 +380,21 @@ func (l *leg) activation() *expr.Vars {
 			l.req.Body = d.cel()
 		}
 	case phase.OnUpstreamResponseBody:
-		// The gate is read here with no request context when CEL needs the
-		// body before any Filter read it (a spec.when); the Upstream
-		// response body is bound to the leg's own context.
-		l.respV.Body = l.responseDecoded(context.Background()).cel()
+		if l.rb != nil || l.rbErr != nil || l.whenReadsResponseBody() {
+			// The gate is read here with no request context when spec.when
+			// needs the body before any Filter read it; the Upstream
+			// response body is bound to the leg's own context.
+			l.respV.Body = l.responseDecoded(context.Background()).cel()
+		}
 	default:
 	}
 	return &l.vars
+}
+
+// whenReadsResponseBody reports whether the current Policy's spec.when
+// selects response.body.
+func (l *leg) whenReadsResponseBody() bool {
+	return l.cur != nil && l.cur.When != nil && l.cur.When.Refs().ResponseBody
 }
 
 // requestBody returns this attempt's request body: the rewritten one, or

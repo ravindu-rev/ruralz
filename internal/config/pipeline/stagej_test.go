@@ -324,3 +324,52 @@ func TestStageJUnmappedField(t *testing.T) {
 		t.Errorf("Run = %v, want ErrPlace", err)
 	}
 }
+
+// TestStageJTransformValueResult covers the per-target result of a
+// transform set[] valueExpression: string for targets header, query and
+// path, so an int there is refused, and dyn for body, which takes any
+// value; hub.Validated.CEL carries each entry's result.
+func TestStageJTransformValueResult(t *testing.T) {
+	p := newPipeline(t, Options{})
+	res := run(t, p, bundle(map[string]string{
+		"ruralz.yaml": gatewayDoc,
+		"u.yaml":      upstreamDoc("orders"),
+		"p.yaml": docs(
+			policyDoc("treq", "transform.request", "  config:\n    set:\n"+
+				"      - {target: header, name: x-a, valueExpression: request.method}\n"+
+				"      - {target: query, name: n, valueExpression: '1'}\n"+
+				"      - {target: path, valueExpression: request.path}\n"+
+				"      - {target: body, name: n, valueExpression: '1'}\n"),
+			policyDoc("tres", "transform.response", "  config:\n    set:\n"+
+				"      - {target: header, name: x-s, valueExpression: response.status}\n"+
+				"      - {target: body, name: s, valueExpression: response.status}\n"),
+		),
+		"r.yaml": routeDoc("a", "orders", "  policies:\n    - name: treq\n    - name: tres\n"),
+	}), Request{})
+	got := withCode(res.Diagnostics, "RZ-CFG-014")
+	if len(got) != 2 || len(res.Diagnostics) != 2 {
+		t.Fatalf("diagnostics %q; want the query and response header values refused", texts(res.Diagnostics))
+	}
+	for i, path := range []string{"spec.config.set[1].valueExpression", "spec.config.set[0].valueExpression"} {
+		if got[i].Path.String() != path {
+			t.Errorf("finding %d at %s, want %s: %q", i, got[i].Path, path, texts(got))
+		}
+	}
+	ok := run(t, p, bundle(map[string]string{
+		"ruralz.yaml": gatewayDoc,
+		"u.yaml":      upstreamDoc("orders"),
+		"p.yaml": policyDoc("treq", "transform.request", "  config:\n    set:\n"+
+			"      - {target: header, name: x-a, valueExpression: request.method}\n"+
+			"      - {target: body, name: n, valueExpression: '1'}\n"),
+		"r.yaml": routeDoc("a", "orders", "  policies:\n    - name: treq\n"),
+	}), Request{})
+	wantClean(t, "valid", ok.Diagnostics)
+	if ok.Validated == nil || len(ok.Validated.CEL) != 2 {
+		t.Fatalf("CEL uses %+v", ok.Validated)
+	}
+	for i, want := range []expr.Result{expr.ResultString, expr.ResultDyn} {
+		if got := ok.Validated.CEL[i].Site.Result; got != want {
+			t.Errorf("CEL use %d result = %v, want %v", i, got, want)
+		}
+	}
+}

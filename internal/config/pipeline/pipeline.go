@@ -14,6 +14,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/canonical"
 	"github.com/ravindu-rev/ruralz/internal/config/convert"
 	"github.com/ravindu-rev/ruralz/internal/config/defaults"
+	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/config/loader"
 	"github.com/ravindu-rev/ruralz/internal/config/precedence"
@@ -218,20 +219,25 @@ func (p *Pipeline) Resolver() *precedence.Resolver { return p.resolver }
 // themselves (canonical.Decoder.ReadDump) before FromResources.
 func (p *Pipeline) Decoder() *canonical.Decoder { return p.decoder }
 
-// PolicySite returns the site of the field at place of the Policy r (a
-// Policy hub.Resource) attached at scope, where it runs in phases
+// PolicySite returns the site of the field at place and path (key-aware,
+// under the resource, as hub.CELUse.Path) of the Policy r (a Policy
+// hub.Resource) attached at scope, where it runs in phases
 // (hub.Entry.Phases), exactly as stage J compiles it: the snapshot
 // compiler passes the same sites to expr.Builder.Compile, through
 // filter.BuildEnv.Site. For Policy.spec.when the site holds the first
 // Phase there, which declares response when it is a response Phase, and
 // whether the Policy gates the request body there, which lets the
-// condition read request.body (configuration model, "Variables"). r must
-// hold a *v1alpha1.Policy; for anything else the site is the bare place.
-func (p *Pipeline) PolicySite(r *hub.Resource, place expr.PlaceID, scope phase.Scope, phases phase.Set) expr.Site {
+// condition read request.body (configuration model, "Variables"). For a
+// transform set[] valueExpression it holds the result the entry's target
+// takes (expr.TransformValueResult); a nil path names no entry and keeps
+// the place's result, which a transform Filter narrows itself by the
+// entry it compiles. r must hold a *v1alpha1.Policy; for anything else the
+// site is the bare place.
+func (p *Pipeline) PolicySite(r *hub.Resource, place expr.PlaceID, path diag.Path, scope phase.Scope, phases phase.Set) expr.Site {
 	pol, ok := hub.Object[v1alpha1.Policy](r)
 	if !ok || pol == nil {
 		return expr.Site{Place: place}
 	}
-	s := sites{cel: p.cel}
-	return s.policySite(r, pol, place, scope, phases)
+	s := sites{cel: p.cel, reg: p.reg}
+	return s.policySite(r, pol, place, path, scope, phases)
 }

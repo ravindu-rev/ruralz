@@ -22,7 +22,9 @@ const (
 	// whatever their order in the tree.
 	OrderBytes Order = iota
 	// OrderInsertion writes *Object members in their order; map[string]any
-	// members, which have none, fall back to OrderBytes.
+	// members, which have none, fall back to OrderBytes. With
+	// NumbersVerbatim it is the transform form, which body operations
+	// write (package documentation, "Encoding").
 	OrderInsertion
 	// OrderUTF16 writes members by ascending UTF-16 code units of their
 	// names, the RFC 8785 order.
@@ -44,8 +46,9 @@ const (
 	NumbersCanonical
 )
 
-// EncodeOptions configures an Encoder. The zero value is the transform
-// form.
+// EncodeOptions configures an Encoder. The zero value is the sorted
+// compact form Append writes: members in ascending byte order, numbers
+// verbatim, no output limit.
 type EncodeOptions struct {
 	// Order is the object member order.
 	Order Order
@@ -84,7 +87,8 @@ type Encoder struct {
 	limit   int
 }
 
-// Append appends v in the transform form (OrderBytes, NumbersVerbatim).
+// Append appends v in the sorted compact form (OrderBytes,
+// NumbersVerbatim).
 func Append(dst []byte, v any) ([]byte, error) {
 	var e Encoder
 	return e.Append(dst, v)
@@ -358,6 +362,56 @@ const hexDigits = "0123456789abcdef"
 // Invalid UTF-8 in s is ErrInvalidUTF8.
 func AppendString(dst []byte, s string) ([]byte, error) {
 	return appendString(dst, s, math.MaxInt)
+}
+
+// AppendStringBytes is AppendString for a string held in a byte slice: it
+// appends the same bytes AppendString(dst, string(s)) does, without
+// converting s, so a caller decoding into reused scratch allocates nothing.
+func AppendStringBytes(dst, s []byte) ([]byte, error) {
+	dst = append(dst, '"')
+	start := 0
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c >= utf8.RuneSelf {
+			r, size := utf8.DecodeRune(s[i:])
+			if r == utf8.RuneError && size == 1 {
+				return dst, ErrInvalidUTF8
+			}
+			i += size
+			continue
+		}
+		if c >= 0x20 && c != '"' && c != '\\' {
+			i++
+			continue
+		}
+		dst = append(dst, s[start:i]...)
+		dst = appendEscape(dst, c)
+		i++
+		start = i
+	}
+	dst = append(dst, s[start:]...)
+	return append(dst, '"'), nil
+}
+
+// appendEscape appends the escape of an ASCII byte AppendString escapes:
+// '"', '\\' or a control character below U+0020.
+func appendEscape(dst []byte, c byte) []byte {
+	switch c {
+	case '"', '\\':
+		return append(dst, '\\', c)
+	case '\b':
+		return append(dst, '\\', 'b')
+	case '\t':
+		return append(dst, '\\', 't')
+	case '\n':
+		return append(dst, '\\', 'n')
+	case '\f':
+		return append(dst, '\\', 'f')
+	case '\r':
+		return append(dst, '\\', 'r')
+	default:
+		return append(dst, '\\', 'u', '0', '0', hexDigits[c>>4], hexDigits[c&0xF])
+	}
 }
 
 // appendString is AppendString with an output limit: it fails with

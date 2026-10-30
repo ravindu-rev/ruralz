@@ -499,10 +499,97 @@
     },
     "ArrayOp": {
       "additionalProperties": false,
-      "description": "ArrayOp is one JSON array operation.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "move"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "move"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "to"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "append"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "append"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "to"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "delete"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        }
+      ],
+      "description": "ArrayOp is one JSON array operation: move and append need from and to, and delete needs from and takes no to.",
       "properties": {
         "from": {
-          "description": "From is the source path.",
+          "description": "From is the body dot path of the values the operation takes; a * segment matches every element of an array.",
           "type": "string"
         },
         "op": {
@@ -517,7 +604,7 @@
           "description": "Op is move, append or delete."
         },
         "to": {
-          "description": "To is the destination path.",
+          "description": "To is the body dot path the operation writes, without a * segment.",
           "type": "string"
         }
       },
@@ -3882,7 +3969,7 @@
     },
     "Replace": {
       "additionalProperties": false,
-      "description": "Replace rewrites a string value. A pattern over 1 KiB or not valid RE2 is RZ-CFG-005.",
+      "description": "Replace rewrites matches in the strings at a body path, or in the raw body. A pattern over 1 KiB, or one that is not valid RE2 unless literal is true, is RZ-CFG-005.",
       "properties": {
         "literal": {
           "anyOf": [
@@ -3893,19 +3980,19 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "Literal treats pattern as literal text."
+          "description": "Literal treats pattern and replacement as plain text; absent means false."
         },
         "path": {
-          "description": "Path selects the string value; without it the raw body is rewritten.",
+          "description": "Path is the body dot path of the strings to rewrite; without it the raw body is rewritten.",
           "type": "string"
         },
         "pattern": {
-          "description": "Pattern is an RE2 pattern, or a literal when literal is true.",
+          "description": "Pattern is an RE2 pattern, or plain text when literal is true.",
           "maxLength": 1024,
           "type": "string"
         },
         "replacement": {
-          "description": "Replacement is the replacement text.",
+          "description": "Replacement replaces each match: $1 or $name refers to a group of an RE2 pattern (write ${1} as $${1}, which environment substitution requires), and with literal it is plain text.",
           "type": "string"
         }
       },
@@ -4484,10 +4571,10 @@
     },
     "TransformRequestConfig": {
       "additionalProperties": false,
-      "description": "TransformRequestConfig is the config of a transform.request Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "description": "TransformRequestConfig is the config of a transform.request Policy. It applies body, then arrayOps, set, remove and replace, each list in order, and every CEL field reads the request as it reached the Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
       "properties": {
         "arrayOps": {
-          "description": "ArrayOps edit JSON arrays.",
+          "description": "ArrayOps move, append or delete JSON values at body paths.",
           "items": {
             "$ref": "#/$defs/ArrayOp"
           },
@@ -4497,7 +4584,7 @@
           }
         },
         "body": {
-          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "description": "Body computes the forwarded request body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",
@@ -4514,11 +4601,11 @@
         },
         "contentType": {
           "default": "application/json",
-          "description": "ContentType is the content type of a computed body.",
+          "description": "ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.",
           "type": "string"
         },
         "remove": {
-          "description": "Remove removes headers, query parameters or body fields.",
+          "description": "Remove drops headers, every occurrence of a query parameter, or body paths.",
           "items": {
             "$ref": "#/$defs/TransformRequestRemove"
           },
@@ -4528,7 +4615,7 @@
           }
         },
         "replace": {
-          "description": "Replace rewrites string values with RE2 patterns.",
+          "description": "Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.",
           "items": {
             "$ref": "#/$defs/Replace"
           },
@@ -4538,7 +4625,7 @@
           }
         },
         "set": {
-          "description": "Set sets headers, query parameters or body fields.",
+          "description": "Set sets headers or query parameters to a computed string, rewrites the forwarded path, or writes computed JSON values at body paths, creating missing objects.",
           "items": {
             "$ref": "#/$defs/TransformRequestSet"
           },
@@ -4552,10 +4639,10 @@
     },
     "TransformRequestRemove": {
       "additionalProperties": false,
-      "description": "TransformRequestRemove removes one request value.",
+      "description": "TransformRequestRemove removes one request value: a header, every occurrence of a query parameter, or a body path. Target path is RZ-CFG-005.",
       "properties": {
         "name": {
-          "description": "Name is the header, parameter or body path.",
+          "description": "Name is the header name, the query parameter name or the body dot path.",
           "type": "string"
         },
         "target": {
@@ -4578,10 +4665,63 @@
     },
     "TransformRequestSet": {
       "additionalProperties": false,
-      "description": "TransformRequestSet sets one request value.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "header"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "query"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "body"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        }
+      ],
+      "description": "TransformRequestSet sets one request value: a header, a query parameter, a body field, or the forwarded path. At most one entry has target path, and it takes no name.",
       "properties": {
         "name": {
-          "description": "Name is the header, parameter or body path.",
+          "description": "Name is the header name, the query parameter name or the body dot path; target path takes none.",
           "type": "string"
         },
         "target": {
@@ -4593,13 +4733,14 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "Target is header, query or body."
+          "description": "Target is header, query, body or path."
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value: a string for targets header, query and path, and any value for target body, written there as JSON.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
-            "result": "string",
+            "result": "dyn",
             "variables": [
               "request",
               "source",
@@ -4614,26 +4755,26 @@
       },
       "required": [
         "target",
-        "name",
         "valueExpression"
       ],
       "type": "object"
     },
     "TransformRequestTarget": {
-      "description": "TransformRequestTarget is where a transform.request operation applies.",
+      "description": "TransformRequestTarget is what a transform.request set or remove entry edits.",
       "enum": [
         "header",
         "query",
-        "body"
+        "body",
+        "path"
       ],
       "type": "string"
     },
     "TransformResponseConfig": {
       "additionalProperties": false,
-      "description": "TransformResponseConfig is the config of a transform.response Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "description": "TransformResponseConfig is the config of a transform.response Policy. It applies body, then arrayOps, set, remove and replace, each list in order, and every CEL field reads the response as it reached the Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
       "properties": {
         "arrayOps": {
-          "description": "ArrayOps edit JSON arrays.",
+          "description": "ArrayOps move, append or delete JSON values at body paths.",
           "items": {
             "$ref": "#/$defs/ArrayOp"
           },
@@ -4643,7 +4784,7 @@
           }
         },
         "body": {
-          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "description": "Body computes the response body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",
@@ -4661,11 +4802,11 @@
         },
         "contentType": {
           "default": "application/json",
-          "description": "ContentType is the content type of a computed body.",
+          "description": "ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.",
           "type": "string"
         },
         "remove": {
-          "description": "Remove removes headers or body fields.",
+          "description": "Remove drops headers or body paths.",
           "items": {
             "$ref": "#/$defs/TransformResponseRemove"
           },
@@ -4675,7 +4816,7 @@
           }
         },
         "replace": {
-          "description": "Replace rewrites string values with RE2 patterns.",
+          "description": "Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.",
           "items": {
             "$ref": "#/$defs/Replace"
           },
@@ -4685,7 +4826,7 @@
           }
         },
         "set": {
-          "description": "Set sets headers or body fields.",
+          "description": "Set sets headers to a computed string, or writes computed JSON values at body paths, creating missing objects.",
           "items": {
             "$ref": "#/$defs/TransformResponseSet"
           },
@@ -4699,10 +4840,10 @@
     },
     "TransformResponseRemove": {
       "additionalProperties": false,
-      "description": "TransformResponseRemove removes one response value.",
+      "description": "TransformResponseRemove removes one response value: a header or a body path.",
       "properties": {
         "name": {
-          "description": "Name is the header or body path.",
+          "description": "Name is the header name or the body dot path.",
           "type": "string"
         },
         "target": {
@@ -4725,10 +4866,10 @@
     },
     "TransformResponseSet": {
       "additionalProperties": false,
-      "description": "TransformResponseSet sets one response value.",
+      "description": "TransformResponseSet sets one response value: a header or a body field.",
       "properties": {
         "name": {
-          "description": "Name is the header or body path.",
+          "description": "Name is the header name or the body dot path.",
           "type": "string"
         },
         "target": {
@@ -4743,10 +4884,11 @@
           "description": "Target is header or body."
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value: a string for target header, and any value for target body, written there as JSON.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
-            "result": "string",
+            "result": "dyn",
             "variables": [
               "request",
               "source",
@@ -4768,7 +4910,7 @@
       "type": "object"
     },
     "TransformResponseTarget": {
-      "description": "TransformResponseTarget is where a transform.response operation applies.",
+      "description": "TransformResponseTarget is what a transform.response set or remove entry edits.",
       "enum": [
         "header",
         "body"

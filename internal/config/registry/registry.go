@@ -21,7 +21,10 @@
 // hub, the CEL module or a Filter, so every binary links it. Phase
 // selection for authz.cel asks a BodyOracle the caller passes, which the
 // CEL compiler (expr.Compiler) implements; without one it fails with
-// ErrNoBodyOracle.
+// ErrNoBodyOracle. TransformBody tells the snapshot compiler which
+// transform attachments gate the body they act on and which run while it
+// streams on, asking CELRefs, which the CEL compiler also implements,
+// whether a CEL field reads the body.
 //
 // A Registry is immutable after New and safe for concurrent use; build
 // one per process and pass it explicitly.

@@ -90,6 +90,7 @@ func TestPolicyStateKeepsValue(t *testing.T) {
 func TestMessageSetBody(t *testing.T) {
 	m := &Message{Hdr: http.Header{
 		"Content-Encoding": {"gzip"}, "Content-Digest": {"sha-256=:x:"}, "Repr-Digest": {"sha-256=:y:"},
+		"Digest": {"SHA-256=x"}, "Content-Md5": {"y"},
 		"Content-Length": {"999"}, "Content-Type": {"application/json"},
 	}, Raw: []byte("old"), DecodedValue: fakeValue{}}
 	if err := m.SetBody(t.Context(), []byte(`{"a":1}`)); err != nil {
@@ -99,7 +100,7 @@ func TestMessageSetBody(t *testing.T) {
 	if h.Get("Content-Length") != "7" {
 		t.Errorf("Content-Length = %q, want 7", h.Get("Content-Length"))
 	}
-	for _, k := range []string{"Content-Encoding", "Content-Digest", "Repr-Digest"} {
+	for _, k := range []string{"Content-Encoding", "Content-Digest", "Repr-Digest", "Digest", "Content-Md5"} {
 		if _, ok := h[k]; ok {
 			t.Errorf("SetBody kept %s", k)
 		}
@@ -147,6 +148,11 @@ func TestMessageViews(t *testing.T) {
 	m.SetRawQuery("b=2")
 	if m.RawQuery() != "b=2" || m.Status() != 502 || !m.Generated() {
 		t.Fatalf("message = %+v", m)
+	}
+	m.PathV = "/in"
+	m.SetPath("/out")
+	if m.Path() != "/out" {
+		t.Fatalf("Path after SetPath = %q, want /out", m.Path())
 	}
 	var empty Message
 	if b, err := empty.Body(t.Context()); err != nil || b != nil {

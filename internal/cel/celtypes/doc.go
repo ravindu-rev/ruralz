@@ -41,8 +41,9 @@
 // decoded JSON tree (map[string]any, []any, string, json.Number, bool, nil)
 // without copying it: objects iterate in ascending key order, integer
 // literals within int64 read as CEL int and every other number as double.
-// [FromVal] wraps a dyn result. AppendBody writes the transform body form
-// and Native the equivalent tree.
+// [FromVal] wraps a dyn result. AppendBody writes the transform body form,
+// AppendJSON the form of a value nested in a document (a string quoted,
+// bytes as base64) and Native the equivalent tree.
 //
 // # Errors
 //

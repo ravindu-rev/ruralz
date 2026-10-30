@@ -35,9 +35,9 @@ func TestPlacesTable(t *testing.T) {
 		PlaceHeadersResponseValue:   {PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		PlaceCacheKey:               {PlaceCacheKey, ResultString, base, RuleCacheBypass, "M1"},
 		PlaceTransformRequestBody:   {PlaceTransformRequestBody, ResultDyn, base | VarUpstream, RuleFailureMode, "M1"},
-		PlaceTransformRequestValue:  {PlaceTransformRequestValue, ResultString, base | VarUpstream, RuleFailureMode, "M1"},
+		PlaceTransformRequestValue:  {PlaceTransformRequestValue, ResultDyn, base | VarUpstream, RuleFailureMode, "M1"},
 		PlaceTransformResponseBody:  {PlaceTransformResponseBody, ResultDyn, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
-		PlaceTransformResponseValue: {PlaceTransformResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
+		PlaceTransformResponseValue: {PlaceTransformResponseValue, ResultDyn, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		PlaceHashKey:                {PlaceHashKey, ResultString, base, RuleRandomEndpoint, "M1"},
 		PlaceRetryOn:                {PlaceRetryOn, ResultBool, VarRequest | VarResponse | VarError | VarAttempt | VarUpstream, RuleNoRetry, "M1"},
 		PlaceFailureWhen:            {PlaceFailureWhen, ResultBool, VarRequest | VarResponse | VarError | VarUpstream, RuleCountFailure, "M1"},
@@ -392,5 +392,18 @@ func TestConsumerCapsAdd(t *testing.T) {
 	c.Add(&Consumer{Name: "c"})
 	if c != want {
 		t.Errorf("a smaller Consumer narrowed the caps to %+v", c)
+	}
+}
+
+// TestTransformValueResult checks the result a transform set[]
+// valueExpression takes by its entry's target: dyn for body, string for
+// header, query and path, the place's own for any other target.
+func TestTransformValueResult(t *testing.T) {
+	for target, want := range map[string]Result{
+		"body": ResultDyn, "header": ResultString, "query": ResultString, "path": ResultString, "": 0, "bogus": 0,
+	} {
+		if got := TransformValueResult(target); got != want {
+			t.Errorf("TransformValueResult(%q) = %d, want %d", target, got, want)
+		}
 	}
 }

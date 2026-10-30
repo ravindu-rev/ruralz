@@ -75,10 +75,13 @@
 // PolicySite) and cost-checked by the injected compiler. A Policy field is
 // compiled once per attachment of a Policy some Route's effective chain
 // runs, with the scope, the first Phase it runs in there and whether it
-// gates the request body there; a Policy no chain runs is compiled at
-// every scope its type allows, with the first Phase it would run in there,
-// and a finding is reported only when every one of those sites raises it.
-// Composition fields carry the mode and the earlier steps.
+// gates the request body there (for transform.request, whether its config
+// needs the body, registry.Registry.TransformBody); a Policy no chain runs
+// is compiled at every scope its type allows, with the first Phase it
+// would run in there, and a finding is reported only when every one of
+// those sites raises it. A transform set[] valueExpression takes the
+// result of its entry's target: string for header, query and path, dyn
+// for body. Composition fields carry the mode and the earlier steps.
 // hub.Validated.CEL lists every expression that can run, with its site,
 // for the snapshot compiler.
 //

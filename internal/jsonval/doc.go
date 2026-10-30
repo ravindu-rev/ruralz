@@ -36,10 +36,20 @@
 // form: members in UTF-16 code unit order and every number as an ECMAScript
 // double ([AppendFloat], [AppendCanonicalNumber]).
 //
+// The transform form keeps member order instead: an [Encoder] with
+// [OrderInsertion] writes the members of an *[Object] in their order (input
+// order, then insertion order) and those of a map[string]any, which has
+// none, in ascending byte order, and a [Compactor] rewrites a JSON text
+// compactly with its members in input order, its strings minimally escaped
+// ([AppendString], [AppendStringBytes]) and its numbers verbatim, without
+// building a tree (docs/architecture/03-data-plane.md "Transform Policies":
+// body operations keep each object's member order and each number's text,
+// a new member going to the end of its object).
+//
 // # Concurrency
 //
 // Package functions are safe for concurrent use. A [Scanner], [Decoder],
-// [Encoder] or [Locator] is owned by one goroutine at a time. A tree may be
+// [Encoder], [Compactor] or [Locator] is owned by one goroutine at a time. A tree may be
 // read by any number of goroutines while none changes it, since reading an
 // *[Object] never writes (a decoded body is shared by every reader);
 // changing a tree needs exclusive access.

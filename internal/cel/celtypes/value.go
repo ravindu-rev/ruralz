@@ -35,8 +35,11 @@ type Value struct {
 	isNative bool
 }
 
-// Compile-time check that *Value implements expr.Value.
-var _ expr.Value = (*Value)(nil)
+// Compile-time checks that *Value implements expr.Value and expr.NestedJSON.
+var (
+	_ expr.Value      = (*Value)(nil)
+	_ expr.NestedJSON = (*Value)(nil)
+)
 
 // FromNative returns the Value of a decoded JSON tree: map[string]any,
 // []any, string, json.Number, bool or nil (a nil map or slice is null). The
@@ -136,6 +139,20 @@ func (x *Value) AppendBody(dst []byte) ([]byte, error) {
 	default:
 		return appendJSON(dst, v, 0)
 	}
+}
+
+// AppendJSON appends the value as a JSON value nested in a document
+// (expr.NestedJSON): a string as a JSON string, bytes as their standard
+// base64 form in a JSON string, and anything else as AppendBody writes it,
+// with the same errors; an error value returns its error.
+func (x *Value) AppendJSON(dst []byte) ([]byte, error) {
+	if x != nil && x.isNative {
+		return appendNative(dst, x.native, 0)
+	}
+	if err := x.Err(); err != nil {
+		return dst, err
+	}
+	return appendJSON(dst, x.Val(), 0)
 }
 
 // Native returns a new tree equal to the value, for code that edits

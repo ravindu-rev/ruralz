@@ -40,8 +40,17 @@
 //     reads zone data on every evaluation;
 //   - reads steps outside a sequential composition, or names a step that is
 //     not an earlier step of the composition;
-//   - has a result type the place cannot take: a bool place takes bool or
-//     dyn, a string place string or dyn, a dyn place anything.
+//   - has a result type the site cannot take: a bool site takes bool or
+//     dyn, a string site string or dyn, a dyn site anything. A site's
+//     result is its place's, or the narrower one it names
+//     (expr.Site.Result): a transform set[] valueExpression is a string
+//     site for targets header, query and path and a dyn site for target
+//     body. Programs of two sites that differ only in their result are
+//     kept apart, so each keeps its own check.
+//
+// References reports what a source reads at a site without planning a
+// program, for decisions taken before Filters are built, such as whether
+// a transform's CEL field reads the body it acts on.
 //
 // # Cost
 //

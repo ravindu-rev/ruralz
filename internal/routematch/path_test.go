@@ -358,3 +358,24 @@ func TestRequestPathTargetForms(t *testing.T) {
 		t.Errorf("absolute-form without a path = %q, %v; want /", got, err)
 	}
 }
+
+// TestSetRequestPath covers the outgoing path of a rewritten request: the
+// request line carries the normalized path unchanged, %2F included, the
+// URL's decoded Path follows it, and an empty path is "/".
+func TestSetRequestPath(t *testing.T) {
+	tests := []struct {
+		in, path, raw, line string
+	}{
+		{"/v2/orders", "/v2/orders", "/v2/orders", "/v2/orders"},
+		{"/a%2Fb/c", "/a/b/c", "/a%2Fb/c", "/a%2Fb/c"},
+		{"/caf%C3%A9", "/café", "/caf%C3%A9", "/caf%C3%A9"},
+		{"", "/", "/", "/"},
+	}
+	for _, tc := range tests {
+		u := &url.URL{Scheme: "http", Host: "upstream", Path: "/old", RawPath: "/old"}
+		SetRequestPath(u, tc.in)
+		if u.Path != tc.path || u.RawPath != tc.raw || RequestPath(u) != tc.line || u.EscapedPath() != tc.line {
+			t.Errorf("SetRequestPath(%q): Path %q, RawPath %q, escaped %q; want %q, %q, %q", tc.in, u.Path, u.RawPath, u.EscapedPath(), tc.path, tc.raw, tc.line)
+		}
+	}
+}

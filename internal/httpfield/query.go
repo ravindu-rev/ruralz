@@ -67,10 +67,14 @@ func (q *Query) Get(name string) (string, bool) {
 	return "", false
 }
 
-// Set gives name the value: the first pair whose key equals name keeps its
-// place and its raw key and gets url.QueryEscape(value); later pairs with
-// that key are dropped. Without such a pair, "name=value" (both escaped with
-// url.QueryEscape) is appended. Other segments are untouched.
+// Set gives name the value: the first pair whose key equals name is
+// replaced, in its place, by one pair "name=value", and later pairs with
+// that key are dropped; without such a pair, "name=value" is appended.
+// Name and value are written percent-encoded per RFC 3986: every byte
+// outside the unreserved set (ALPHA, DIGIT, "-", ".", "_", "~") becomes
+// %XX with uppercase hex digits, a space %20, so the pair decodes back to
+// name and value whatever their bytes. Other segments are untouched
+// (docs/architecture/03-data-plane.md "Transform Policies").
 func (q *Query) Set(name, value string) {
 	out := q.segs[:0]
 	found := false
@@ -80,15 +84,52 @@ func (q *Query) Set(name, value string) {
 				continue
 			}
 			found = true
-			s = key + "=" + url.QueryEscape(value)
+			s = encodePair(name, value)
 		}
 		out = append(out, s)
 	}
 	clear(q.segs[len(out):])
 	if !found {
-		out = append(out, url.QueryEscape(name)+"="+url.QueryEscape(value))
+		out = append(out, encodePair(name, value))
 	}
 	q.segs = out
+}
+
+// encodePair returns "name=value" with both percent-encoded per RFC 3986
+// (AppendQueryEscape).
+func encodePair(name, value string) string {
+	b := make([]byte, 0, len(name)+len(value)+1)
+	b = AppendQueryEscape(b, name)
+	b = append(b, '=')
+	return string(AppendQueryEscape(b, value))
+}
+
+// AppendQueryEscape appends s to dst percent-encoded per RFC 3986 section
+// 2.1: every byte outside the unreserved set (ALPHA, DIGIT, "-", ".", "_",
+// "~") becomes "%" and two uppercase hex digits, so a space is %20, never
+// "+". The result is one query name or value.
+func AppendQueryEscape(dst []byte, s string) []byte {
+	const upperHex = "0123456789ABCDEF"
+	for i := range len(s) {
+		c := s[i]
+		if isUnreserved(c) {
+			dst = append(dst, c)
+			continue
+		}
+		dst = append(dst, '%', upperHex[c>>4], upperHex[c&0x0F])
+	}
+	return dst
+}
+
+// isUnreserved reports an RFC 3986 unreserved byte: ALPHA, DIGIT, "-",
+// ".", "_" or "~".
+func isUnreserved(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	default:
+		return c == '-' || c == '.' || c == '_' || c == '~'
+	}
 }
 
 // Del removes every pair whose key equals name. Other segments are

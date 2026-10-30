@@ -80,6 +80,25 @@
 // request body's decoded view is shared with the legs, which read it
 // concurrently, so it is built once under a lock.
 //
+// A Policy without a body need runs while the body streams on: the client
+// bodies are gated only as the Route's BodyNeeds say, and in
+// onUpstreamResponseBody a leg's response is gated for CEL only once a
+// Filter read it, or for a Policy whose spec.when reads response.body, so a
+// transform.response that edits only headers leaves it streaming
+// (docs/architecture/02-configuration-model.md "Body buffering and
+// limits").
+//
+// # Paths
+//
+// The client request message holds the forwarded path, CEL request.path:
+// the normalized path until a transform.request set[] entry with target
+// path rewrites it (filter.Message.SetPath), after which every plain
+// upstreams leg sends it and later Policies and composition
+// pathExpressions read it; Exchange.Path, the Router's match, the access
+// record and /tap keep the client's path. A leg's request.path is its
+// attempt's outgoing path, a composition step's own included, and a
+// rewrite at Upstream scope changes only that attempt's URL.
+//
 // # Records
 //
 // RecordShortCircuit and RecordFailure feed the access record

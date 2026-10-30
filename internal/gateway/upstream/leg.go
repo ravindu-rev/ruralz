@@ -223,8 +223,16 @@ func (ls *legState) init(u *Upstream, o *snapshot.Outbound, t Target) {
 		ls.path, ls.query = t.Path, t.RawQuery
 		return
 	}
+	// The client request message holds the forwarded path and query, as
+	// the request Phases left them: a transform.request set[] entry with
+	// target path at Gateway or Route scope rewrites the path every plain
+	// upstreams leg sends, while Exchange.Path keeps the client's
+	// (docs/architecture/03-data-plane.md "Transform Policies").
 	ls.path = o.X.Path()
 	if msg := o.X.Message(); msg != nil {
+		if p := msg.Path(); p != "" {
+			ls.path = p
+		}
 		ls.query = msg.RawQuery()
 	} else if ls.base != nil && ls.base.Request != nil {
 		ls.query = ls.base.Request.RawQuery()

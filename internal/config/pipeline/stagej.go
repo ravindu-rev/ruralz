@@ -123,9 +123,11 @@ type siteGroup struct {
 	refs      []attachment
 }
 
-// site returns the group's site of the Policy field at place.
-func (g siteGroup) site(place expr.PlaceID, t v1alpha1.PolicyType) expr.Site {
-	s := expr.Site{Place: place, Scope: g.scope, PolicyType: t}
+// site returns the group's site of the Policy field at place whose result
+// is result: the result a transform set[] valueExpression takes by its
+// entry's target (entryResult), else 0 for the place's own.
+func (g siteGroup) site(place expr.PlaceID, t v1alpha1.PolicyType, result expr.Result) expr.Site {
+	s := expr.Site{Place: place, Scope: g.scope, PolicyType: t, Result: result}
 	if place == expr.PlacePolicyWhen {
 		s.FirstPhase, s.GatesBody = g.first, g.gatesBody
 	}
@@ -160,7 +162,7 @@ type celResult struct {
 // Policy type the registry does not list).
 func (p *Pipeline) compileCEL(ctx context.Context, b *hub.Bundle, chains map[string]*hub.Chain, files *tree.FileTable, text func(tree.FileID) ([]byte, bool)) ([]hub.CELUse, []diag.List, error) {
 	j := &celStage{p: p, b: b, files: files, text: text, attached: attachmentsOf(b, chains)}
-	j.sites = sites{cel: p.cel, cache: &j.cache}
+	j.sites = sites{cel: p.cel, reg: p.reg, cache: &j.cache}
 	rs := b.Resources()
 	out := make([]celResult, len(rs))
 	if err := p.parallel(ctx, len(rs), func(w *worker, i int) { out[i] = j.resource(w, rs[i]) }); err != nil {
@@ -316,8 +318,9 @@ func (j *celStage) perAttachment(w *worker, out *celResult, f field, groups []si
 	}
 	var all []found
 	index := map[issueKey]int{}
+	result := entryResult(f.r, place, f.path)
 	for _, g := range groups {
-		site := g.site(place, t)
+		site := g.site(place, t, result)
 		for _, is := range j.check(w, site, f.node.Text) {
 			k := keyOf(is)
 			if at, ok := index[k]; ok {
@@ -347,8 +350,9 @@ func (j *celStage) perAttachment(w *worker, out *celResult, f field, groups []si
 // it is not listed in hub.Validated.CEL.
 func (j *celStage) everyScope(w *worker, out *celResult, f field, groups []siteGroup, place expr.PlaceID, t v1alpha1.PolicyType) {
 	var common []expr.Issue
+	result := entryResult(f.r, place, f.path)
 	for i, g := range groups {
-		iss := j.check(w, g.site(place, t), f.node.Text)
+		iss := j.check(w, g.site(place, t, result), f.node.Text)
 		if i == 0 {
 			seen := map[issueKey]bool{}
 			for _, is := range iss {

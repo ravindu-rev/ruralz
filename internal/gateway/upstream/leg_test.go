@@ -119,6 +119,35 @@ func TestLegAddsNoUserAgent(t *testing.T) {
 	}
 }
 
+// TestLegForwardsRewrittenPath checks that a plain upstreams leg sends the
+// forwarded path of the client request message, as a transform.request
+// set[] entry with target path at Gateway or Route scope left it, kept
+// encoded, while the exchange's own Path is the client's; a composition
+// step's Target path still wins.
+func TestLegForwardsRewrittenPath(t *testing.T) {
+	srv := newServer(t, status(http.StatusOK, ""))
+	f := newFixture(t)
+	s := f.compile(nil, Config{Upstream: newUpstream("orders", srv.addr)})
+	x := exchange(http.MethodGet, "/v1/orders/42")
+	x.Msg = &filtertest.Message{PathV: "/internal/orders/a%2Fb", Query: "q=1"}
+	r, err := f.upstream(s, "orders").Leg(t.Context(), outbound(x, nil), Target{})
+	if err != nil {
+		t.Fatalf("Leg: %v", err)
+	}
+	readAll(t, r)
+	if got := srv.last().RequestURI; got != "/internal/orders/a%2Fb?q=1" {
+		t.Errorf("request target = %q, want the rewritten path /internal/orders/a%%2Fb?q=1", got)
+	}
+	r, err = f.upstream(s, "orders").Leg(t.Context(), outbound(x, nil), Target{Step: "s", Path: "/step"})
+	if err != nil {
+		t.Fatalf("Leg: %v", err)
+	}
+	readAll(t, r)
+	if got := srv.last().RequestURI; got != "/step" {
+		t.Errorf("step request target = %q, want the step's /step", got)
+	}
+}
+
 // TestLegForwardsBody checks that a gated request body is sent with its
 // length.
 func TestLegForwardsBody(t *testing.T) {

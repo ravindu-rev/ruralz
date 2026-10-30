@@ -6,6 +6,8 @@ package pipeline
 import (
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -138,8 +140,10 @@ func TestRouteSite(t *testing.T) {
 }
 
 // TestPolicySite covers the site the snapshot compiler compiles a Policy
-// field at: the scope and type, and for Policy.spec.when the first Phase
-// there and whether the Policy gates the request body there; a resource
+// field at: the scope and type; for Policy.spec.when the first Phase there
+// and whether the Policy gates the request body there, which for
+// transform.request is the registry's body rule; for a transform set[]
+// valueExpression the result its entry's target takes; and a resource
 // that is not a Policy gets the bare place.
 func TestPolicySite(t *testing.T) {
 	p := newPipeline(t, Options{})
@@ -149,33 +153,114 @@ func TestPolicySite(t *testing.T) {
 	body := &v1alpha1.TransformRequestConfig{Body: "request.body"}
 	headerOnly := &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{{Target: v1alpha1.TransformRequestTargetHeader, Name: "x", ValueExpression: `"y"`}}}
 	readsBody := &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{{Target: v1alpha1.TransformRequestTargetHeader, Name: "x", ValueExpression: "string(request.body.id)"}}}
+	removesBody := &v1alpha1.TransformRequestConfig{Remove: []v1alpha1.TransformRequestRemove{{Target: v1alpha1.TransformRequestTargetBody, Name: "secret"}}}
+	badValue := &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{{Target: v1alpha1.TransformRequestTargetHeader, Name: "x", ValueExpression: "request.body +"}}}
+	targets := &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{
+		{Target: v1alpha1.TransformRequestTargetHeader, Name: "x", ValueExpression: `"h"`},
+		{Target: v1alpha1.TransformRequestTargetQuery, Name: "q", ValueExpression: `"q"`},
+		{Target: v1alpha1.TransformRequestTargetPath, ValueExpression: `"/p"`},
+		{Target: v1alpha1.TransformRequestTargetBody, Name: "b", ValueExpression: "1"},
+	}}
+	response := &v1alpha1.TransformResponseConfig{Set: []v1alpha1.TransformResponseSet{
+		{Target: v1alpha1.TransformResponseTargetHeader, Name: "x", ValueExpression: `"h"`},
+		{Target: v1alpha1.TransformResponseTargetBody, Name: "b", ValueExpression: "response.body"},
+	}}
+	value := func(i int) diag.Path {
+		return diag.Path{diag.Field("spec"), diag.Field("config"), diag.Field("set"), diag.Index(i), diag.Field("valueExpression")}
+	}
 	tests := []struct {
 		name   string
 		r      *hub.Resource
 		place  expr.PlaceID
+		path   diag.Path
 		scope  phase.Scope
 		phases phase.Set
 		want   expr.Site
 	}{
-		{"when in a body Phase", policy(v1alpha1.PolicyTypeValidationJSONSchema, nil), expr.PlacePolicyWhen, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+		{"when in a body Phase", policy(v1alpha1.PolicyTypeValidationJSONSchema, nil), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
 			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeValidationJSONSchema, FirstPhase: phase.OnRequestBody, GatesBody: true}},
-		{"when in a response Phase", policy(v1alpha1.PolicyTypeHeaders, nil), expr.PlacePolicyWhen, phase.ScopeGateway, phase.Of(phase.OnResponse),
+		{"when in a response Phase", policy(v1alpha1.PolicyTypeHeaders, nil), expr.PlacePolicyWhen, nil, phase.ScopeGateway, phase.Of(phase.OnResponse),
 			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeHeaders, FirstPhase: phase.OnResponse}},
-		{"transform.request with a body", policy(v1alpha1.PolicyTypeTransformRequest, body), expr.PlacePolicyWhen, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+		{"transform.request with a body", policy(v1alpha1.PolicyTypeTransformRequest, body), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
 			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnUpstreamRequest, GatesBody: true}},
-		{"transform.request without a body need", policy(v1alpha1.PolicyTypeTransformRequest, headerOnly), expr.PlacePolicyWhen, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody}},
-		{"transform.request value reading the body", policy(v1alpha1.PolicyTypeTransformRequest, readsBody), expr.PlacePolicyWhen, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+		{"transform.request removing a body member", policy(v1alpha1.PolicyTypeTransformRequest, removesBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
 			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true}},
-		{"config field", policy(v1alpha1.PolicyTypeRateLimit, nil), expr.PlaceRateLimitKey, phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+		{"transform.request without a body need", policy(v1alpha1.PolicyTypeTransformRequest, headerOnly), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody}},
+		{"transform.request value reading the body", policy(v1alpha1.PolicyTypeTransformRequest, readsBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true}},
+		{"transform.request value that does not compile", policy(v1alpha1.PolicyTypeTransformRequest, badValue), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody}},
+		{"transform.response when", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnResponse),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformResponse, FirstPhase: phase.OnResponse}},
+		{"header value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(0), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
+		{"query value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(1), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
+		{"path value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(2), phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
+		{"body value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(3), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultDyn}},
+		{"value past the entries", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(4), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest}},
+		{"value without a path", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest}},
+		{"response header value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(0), phase.ScopeGateway, phase.Of(phase.OnResponse),
+			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultString}},
+		{"response body value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(1), phase.ScopeUpstream, phase.Of(phase.OnUpstreamResponseBody),
+			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultDyn}},
+		{"config field", policy(v1alpha1.PolicyTypeRateLimit, nil), expr.PlaceRateLimitKey, nil, phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
 			expr.Site{Place: expr.PlaceRateLimitKey, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeRateLimit}},
-		{"not a Policy", &hub.Resource{ID: hub.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Object: &v1alpha1.Route{}}, expr.PlaceRouteMatchWhen, phase.ScopeRoute, 0,
+		{"not a Policy", &hub.Resource{ID: hub.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Object: &v1alpha1.Route{}}, expr.PlaceRouteMatchWhen, nil, phase.ScopeRoute, 0,
 			expr.Site{Place: expr.PlaceRouteMatchWhen}},
 	}
 	for _, tc := range tests {
-		if got := p.PolicySite(tc.r, tc.place, tc.scope, tc.phases); siteKey(got) != siteKey(tc.want) {
+		if got := p.PolicySite(tc.r, tc.place, tc.path, tc.scope, tc.phases); siteKey(got) != siteKey(tc.want) {
 			t.Errorf("%s: PolicySite = %+v, want %+v", tc.name, got, tc.want)
 		}
+	}
+}
+
+// countingCEL counts the References calls that reach the compiler.
+type countingCEL struct {
+	expr.Compiler
+	n atomic.Int64
+}
+
+// References counts the call and asks the compiler.
+func (c *countingCEL) References(site expr.Site, src string) (expr.Refs, error) {
+	c.n.Add(1)
+	return c.Compiler.References(site, src)
+}
+
+// TestSitesReferencesCache covers the References answers one run keeps:
+// a site and source reaches the compiler once, an error included, and a
+// sites without a cache asks every time.
+func TestSitesReferencesCache(t *testing.T) {
+	p := newPipeline(t, Options{})
+	c := &countingCEL{Compiler: p.cel}
+	site := expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}
+	s := sites{cel: c, reg: p.reg, cache: &sync.Map{}}
+	for range 3 {
+		refs, err := s.References(site, "string(request.body.id)")
+		if err != nil || !refs.RequestBody {
+			t.Fatalf("References = %+v, %v; want a request body read", refs, err)
+		}
+		if _, err := s.References(site, "request.body +"); err == nil {
+			t.Fatal("References of a broken source: no error")
+		}
+	}
+	if got := c.n.Load(); got != 2 {
+		t.Errorf("compiler References calls = %d, want 2", got)
+	}
+	bare := sites{cel: c, reg: p.reg}
+	for range 2 {
+		if _, err := bare.References(site, `"x"`); err != nil {
+			t.Fatalf("References: %v", err)
+		}
+	}
+	if got := c.n.Load(); got != 4 {
+		t.Errorf("compiler References calls without a cache = %d, want 4", got)
 	}
 }
 
@@ -189,6 +274,9 @@ func TestSiteKeyDistinguishesSites(t *testing.T) {
 		{Place: expr.PlacePolicyWhen, PolicyType: v1alpha1.PolicyTypeHeaders},
 		{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnResponse},
 		{Place: expr.PlacePolicyWhen, GatesBody: true},
+		{Place: expr.PlaceTransformRequestValue},
+		{Place: expr.PlaceTransformRequestValue, Result: expr.ResultString},
+		{Place: expr.PlaceTransformRequestValue, Result: expr.ResultDyn},
 		{Place: expr.PlaceStepWhen, Mode: v1alpha1.CompositionModeSequential},
 		{Place: expr.PlaceStepWhen, Mode: v1alpha1.CompositionModeSequential, EarlierSteps: []string{"a", "b"}},
 		{Place: expr.PlaceStepWhen, Mode: v1alpha1.CompositionModeSequential, EarlierSteps: []string{"ab"}},

@@ -286,7 +286,8 @@ type HeaderResponseSet struct {
 	ValueExpression string `json:"valueExpression,omitempty"`
 }
 
-// TransformRequestTarget is where a transform.request operation applies.
+// TransformRequestTarget is what a transform.request set or remove entry
+// edits.
 type TransformRequestTarget string
 
 // Request transform targets.
@@ -295,18 +296,22 @@ const (
 	TransformRequestTargetHeader TransformRequestTarget = "header"
 	// TransformRequestTargetQuery is a query parameter.
 	TransformRequestTargetQuery TransformRequestTarget = "query"
-	// TransformRequestTargetBody is a JSON body field.
+	// TransformRequestTargetBody is a field of the JSON body.
 	TransformRequestTargetBody TransformRequestTarget = "body"
+	// TransformRequestTargetPath is the forwarded request path, which only
+	// a set entry without a name rewrites.
+	TransformRequestTargetPath TransformRequestTarget = "path"
 )
 
-// TransformResponseTarget is where a transform.response operation applies.
+// TransformResponseTarget is what a transform.response set or remove entry
+// edits.
 type TransformResponseTarget string
 
 // Response transform targets.
 const (
 	// TransformResponseTargetHeader is a response header.
 	TransformResponseTargetHeader TransformResponseTarget = "header"
-	// TransformResponseTargetBody is a JSON body field.
+	// TransformResponseTargetBody is a field of the JSON body.
 	TransformResponseTargetBody TransformResponseTarget = "body"
 )
 
@@ -315,134 +320,155 @@ type ArrayOpKind string
 
 // Array operations.
 const (
-	// ArrayOpMove moves an element.
+	// ArrayOpMove takes the value at from, or the array of a * path's
+	// matches, out of the body and writes it at to.
 	ArrayOpMove ArrayOpKind = "move"
-	// ArrayOpAppend appends an element.
+	// ArrayOpAppend adds the value or matches at from to the end of the
+	// array at to, keeping from.
 	ArrayOpAppend ArrayOpKind = "append"
-	// ArrayOpDelete deletes an element.
+	// ArrayOpDelete removes the elements from names from their array.
 	ArrayOpDelete ArrayOpKind = "delete"
 )
 
-// TransformRequestConfig is the config of a transform.request Policy. More
-// than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.
+// TransformRequestConfig is the config of a transform.request Policy. It
+// applies body, then arrayOps, set, remove and replace, each list in order,
+// and every CEL field reads the request as it reached the Policy. More than
+// 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.
 // +ruralz:policyType=transform.request
 type TransformRequestConfig struct {
-	// Body computes the new body; a map or list is written as JSON, a string as its bytes.
+	// Body computes the forwarded request body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.
 	// +ruralz:cel=request,source,route,consumer,auth,now,upstream:dyn
 	Body string `json:"body,omitempty"`
-	// ContentType is the content type of a computed body.
+	// ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.
 	// +ruralz:default=application/json
 	ContentType *string `json:"contentType,omitempty"`
-	// Set sets headers, query parameters or body fields.
+	// Set sets headers or query parameters to a computed string, rewrites the forwarded path, or writes computed JSON values at body paths, creating missing objects.
 	// +ruralz:list=atomic
 	Set []TransformRequestSet `json:"set,omitempty"`
-	// Remove removes headers, query parameters or body fields.
+	// Remove drops headers, every occurrence of a query parameter, or body paths.
 	// +ruralz:list=atomic
 	Remove []TransformRequestRemove `json:"remove,omitempty"`
-	// ArrayOps edit JSON arrays.
+	// ArrayOps move, append or delete JSON values at body paths.
 	// +ruralz:list=atomic
 	ArrayOps []ArrayOp `json:"arrayOps,omitempty"`
-	// Replace rewrites string values with RE2 patterns.
+	// Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.
 	// +ruralz:list=atomic
 	Replace []Replace `json:"replace,omitempty"`
 }
 
-// TransformRequestSet sets one request value.
+// TransformRequestSet sets one request value: a header, a query parameter,
+// a body field, or the forwarded path. At most one entry has target path,
+// and it takes no name.
+// +ruralz:requiredIf=name,target=header
+// +ruralz:requiredIf=name,target=query
+// +ruralz:requiredIf=name,target=body
 type TransformRequestSet struct {
-	// Target is header, query or body.
+	// Target is header, query, body or path.
 	// +ruralz:required
 	Target TransformRequestTarget `json:"target"`
-	// Name is the header, parameter or body path.
+	// Name is the header name, the query parameter name or the body dot path; target path takes none.
+	Name string `json:"name,omitempty"`
+	// ValueExpression computes the value: a string for targets header, query and path, and any value for target body, written there as JSON.
 	// +ruralz:required
-	Name string `json:"name"`
-	// ValueExpression computes the value.
-	// +ruralz:required
-	// +ruralz:cel=request,source,route,consumer,auth,now,upstream:string
+	// +ruralz:minLength=1
+	// +ruralz:cel=request,source,route,consumer,auth,now,upstream:dyn
 	ValueExpression string `json:"valueExpression"`
 }
 
-// TransformRequestRemove removes one request value.
+// TransformRequestRemove removes one request value: a header, every
+// occurrence of a query parameter, or a body path. Target path is
+// RZ-CFG-005.
 type TransformRequestRemove struct {
 	// Target is header, query or body.
 	// +ruralz:required
 	Target TransformRequestTarget `json:"target"`
-	// Name is the header, parameter or body path.
+	// Name is the header name, the query parameter name or the body dot path.
 	// +ruralz:required
 	Name string `json:"name"`
 }
 
-// TransformResponseConfig is the config of a transform.response Policy.
-// More than 32 entries across set, remove, arrayOps and replace is
-// RZ-CFG-005.
+// TransformResponseConfig is the config of a transform.response Policy. It
+// applies body, then arrayOps, set, remove and replace, each list in order,
+// and every CEL field reads the response as it reached the Policy. More
+// than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.
 // +ruralz:policyType=transform.response
 type TransformResponseConfig struct {
-	// Body computes the new body; a map or list is written as JSON, a string as its bytes.
+	// Body computes the response body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.
 	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:dyn
 	Body string `json:"body,omitempty"`
-	// ContentType is the content type of a computed body.
+	// ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.
 	// +ruralz:default=application/json
 	ContentType *string `json:"contentType,omitempty"`
-	// Set sets headers or body fields.
+	// Set sets headers to a computed string, or writes computed JSON values at body paths, creating missing objects.
 	// +ruralz:list=atomic
 	Set []TransformResponseSet `json:"set,omitempty"`
-	// Remove removes headers or body fields.
+	// Remove drops headers or body paths.
 	// +ruralz:list=atomic
 	Remove []TransformResponseRemove `json:"remove,omitempty"`
-	// ArrayOps edit JSON arrays.
+	// ArrayOps move, append or delete JSON values at body paths.
 	// +ruralz:list=atomic
 	ArrayOps []ArrayOp `json:"arrayOps,omitempty"`
-	// Replace rewrites string values with RE2 patterns.
+	// Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.
 	// +ruralz:list=atomic
 	Replace []Replace `json:"replace,omitempty"`
 }
 
-// TransformResponseSet sets one response value.
+// TransformResponseSet sets one response value: a header or a body field.
 type TransformResponseSet struct {
 	// Target is header or body.
 	// +ruralz:required
 	Target TransformResponseTarget `json:"target"`
-	// Name is the header or body path.
+	// Name is the header name or the body dot path.
 	// +ruralz:required
 	Name string `json:"name"`
-	// ValueExpression computes the value.
+	// ValueExpression computes the value: a string for target header, and any value for target body, written there as JSON.
 	// +ruralz:required
-	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:string
+	// +ruralz:minLength=1
+	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:dyn
 	ValueExpression string `json:"valueExpression"`
 }
 
-// TransformResponseRemove removes one response value.
+// TransformResponseRemove removes one response value: a header or a body
+// path.
 type TransformResponseRemove struct {
 	// Target is header or body.
 	// +ruralz:required
 	Target TransformResponseTarget `json:"target"`
-	// Name is the header or body path.
+	// Name is the header name or the body dot path.
 	// +ruralz:required
 	Name string `json:"name"`
 }
 
-// ArrayOp is one JSON array operation.
+// ArrayOp is one JSON array operation: move and append need from and to,
+// and delete needs from and takes no to.
+// +ruralz:requiredIf=from,op=move
+// +ruralz:requiredIf=to,op=move
+// +ruralz:requiredIf=from,op=append
+// +ruralz:requiredIf=to,op=append
+// +ruralz:requiredIf=from,op=delete
 type ArrayOp struct {
 	// Op is move, append or delete.
 	// +ruralz:required
 	Op ArrayOpKind `json:"op"`
-	// From is the source path.
+	// From is the body dot path of the values the operation takes; a * segment matches every element of an array.
 	From string `json:"from,omitempty"`
-	// To is the destination path.
+	// To is the body dot path the operation writes, without a * segment.
 	To string `json:"to,omitempty"`
 }
 
-// Replace rewrites a string value. A pattern over 1 KiB or not valid RE2 is
-// RZ-CFG-005.
+// Replace rewrites matches in the strings at a body path, or in the raw
+// body. A pattern over 1 KiB, or one that is not valid RE2 unless literal is
+// true, is RZ-CFG-005.
 type Replace struct {
-	// Path selects the string value; without it the raw body is rewritten.
+	// Path is the body dot path of the strings to rewrite; without it the raw body is rewritten.
 	Path string `json:"path,omitempty"`
-	// Pattern is an RE2 pattern, or a literal when literal is true.
+	// Pattern is an RE2 pattern, or plain text when literal is true.
 	// +ruralz:required
 	// +ruralz:maxLength=1024
 	Pattern string `json:"pattern"`
-	// Replacement is the replacement text.
+	// Replacement replaces each match: $1 or $name refers to a group of an RE2 pattern (write ${1} as $${1}, which environment substitution requires), and with literal it is plain text.
 	Replacement string `json:"replacement,omitempty"`
-	// Literal treats pattern as literal text.
+	// Literal treats pattern and replacement as plain text; absent means false.
 	Literal *bool `json:"literal,omitempty"`
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/expr"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/phase"
+	"github.com/ravindu-rev/ruralz/internal/routematch"
 )
 
 // The four filter.Message views (filter.Message documents the methods).
@@ -80,6 +81,18 @@ func (m *requestMessage) RawQuery() string { return m.req.RawQuery() }
 // request.query and the Forwarder read.
 func (m *requestMessage) SetRawQuery(q string) { m.req.SetRawQuery(q) }
 
+// Path returns the path the client request is forwarded with, CEL
+// request.path: the normalized path, or the one a transform.request
+// rewrote it to.
+func (m *requestMessage) Path() string { return m.req.Path }
+
+// SetPath rewrites the forwarded path, which every plain upstreams leg
+// sends and CEL request.path, composition pathExpressions included, reads
+// from then on; Exchange.Path, the Router's match, the access record and
+// /tap keep the client's path (docs/architecture/03-data-plane.md
+// "Transform Policies").
+func (m *requestMessage) SetPath(p string) { m.req.Path = p }
+
 // Status returns 0: a request has none.
 func (*requestMessage) Status() int { return 0 }
 
@@ -140,6 +153,12 @@ func (*responseMessage) RawQuery() string { return "" }
 
 // SetRawQuery does nothing on a response.
 func (*responseMessage) SetRawQuery(string) {}
+
+// Path returns "": a response has none.
+func (*responseMessage) Path() string { return "" }
+
+// SetPath does nothing on a response.
+func (*responseMessage) SetPath(string) {}
 
 // Status returns the client response status.
 func (m *responseMessage) Status() int { return m.resp.status }
@@ -234,6 +253,30 @@ func (m *legRequestMessage) SetRawQuery(q string) {
 	l.req.SetRawQuery(q)
 }
 
+// Path returns the outgoing request's path, CEL request.path on the leg.
+func (m *legRequestMessage) Path() string {
+	l := (*legHandle)(m).leg()
+	if l == nil {
+		return ""
+	}
+	return l.req.Path
+}
+
+// SetPath rewrites this attempt's outgoing path and CEL request.path on
+// the leg; the next attempt starts from the client's forwarded path again
+// (docs/architecture/03-data-plane.md "Transform Policies": at Upstream
+// scope the rewrite changes only its attempt's path).
+func (m *legRequestMessage) SetPath(p string) {
+	l := (*legHandle)(m).leg()
+	if l == nil {
+		return
+	}
+	if a := l.attempt; a != nil && a.Request != nil && a.Request.URL != nil {
+		routematch.SetRequestPath(a.Request.URL, p)
+	}
+	l.req.Path = p
+}
+
 // Status returns 0: a request has none.
 func (*legRequestMessage) Status() int { return 0 }
 
@@ -305,6 +348,12 @@ func (*legResponseMessage) RawQuery() string { return "" }
 
 // SetRawQuery does nothing on a response.
 func (*legResponseMessage) SetRawQuery(string) {}
+
+// Path returns "": a response has none.
+func (*legResponseMessage) Path() string { return "" }
+
+// SetPath does nothing on a response.
+func (*legResponseMessage) SetPath(string) {}
 
 // Status returns the response status; 0 without a response.
 func (m *legResponseMessage) Status() int {

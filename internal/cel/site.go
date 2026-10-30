@@ -18,6 +18,13 @@ import (
 type siteEnv struct {
 	// place is the site's place.
 	place expr.Place
+	// result is the result type the site requires: the place's, or the
+	// narrower one the site names (expr.Site.Result).
+	result expr.Result
+	// badResult is set when the site names a result its place cannot
+	// narrow to: a result on a place that is not dyn, other than the
+	// place's own.
+	badResult bool
 	// vars are the declared variables.
 	vars expr.Var
 	// reqBody and respBody report whether request.body and response.body
@@ -42,7 +49,16 @@ func resolve(site expr.Site) (siteEnv, bool) {
 	if !ok {
 		return siteEnv{}, false
 	}
-	se := siteEnv{place: p, vars: p.Vars, clientRequest: clientRequest(site)}
+	se := siteEnv{place: p, result: p.Result, vars: p.Vars, clientRequest: clientRequest(site)}
+	switch r := site.Result; {
+	case r == 0, r == p.Result:
+	case p.Result == expr.ResultDyn && (r == expr.ResultBool || r == expr.ResultString):
+		// A dyn place narrows per occurrence, as a transform set[]
+		// valueExpression does by its entry's target.
+		se.result = r
+	default:
+		se.badResult = true
+	}
 	switch p.ID {
 	case expr.PlacePolicyWhen:
 		// response exists only when the Policy's first Phase at this
@@ -104,7 +120,7 @@ func clientRequest(site expr.Site) bool {
 // keys accept the same sources and compile them to the same program.
 func (se siteEnv) key() siteKey {
 	k := siteKey{
-		place: se.place.ID, vars: se.vars, reqBody: se.reqBody, respBody: se.respBody,
+		place: se.place.ID, result: se.result, vars: se.vars, reqBody: se.reqBody, respBody: se.respBody,
 		clientRequest: se.clientRequest,
 	}
 	if se.composition {
@@ -116,7 +132,11 @@ func (se siteEnv) key() siteKey {
 // siteKey identifies an environment, the site checks that apply in it and
 // the request the input caps can bound.
 type siteKey struct {
-	place             expr.PlaceID
+	place expr.PlaceID
+	// result keeps a program checked at a narrower result apart from one
+	// checked at the place's own, so a source accepted at a dyn occurrence
+	// is never reused at a string one without its result check.
+	result            expr.Result
 	vars              expr.Var
 	reqBody, respBody bool
 	clientRequest     bool

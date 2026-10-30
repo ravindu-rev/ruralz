@@ -98,6 +98,26 @@ func (c *Compiler) ReferencesRequestBody(src string) (bool, error) {
 	return cc.an.refs.RequestBody, nil
 }
 
+// References returns what src reads when checked at site, without
+// planning a program: the variables, whether it selects request.body or
+// response.body, and the steps it names (expr.Refs). It serves decisions
+// taken before Filters are built, such as whether a transform's CEL field
+// reads the body it acts on, which makes the Policy a gate
+// (docs/architecture/03-data-plane.md "Transform Policies"). A source that
+// does not parse or type-check at site is an error; the site's other
+// findings, such as its result type, are Check's.
+func (c *Compiler) References(site expr.Site, src string) (expr.Refs, error) {
+	se, ok := resolve(site)
+	if !ok {
+		return expr.Refs{}, fmt.Errorf("cel: %s is not a CEL place", site.Place)
+	}
+	cc, iss := c.checked(se, src)
+	if cc == nil {
+		return expr.Refs{}, errors.New(firstMessage(iss))
+	}
+	return cc.an.refs, nil
+}
+
 // NewBuilder starts a snapshot's program set under the snapshot's input
 // caps, which decide each program's cost tracking (cappedEstimator). prev,
 // the active snapshot's set, lends its programs to identical sites,
@@ -225,12 +245,16 @@ func (c *Compiler) compile(site expr.Site, src string) (*compiled, []expr.Issue)
 			Message: "CEL " + string(site.Place) + ": not a CEL place",
 		}}
 	}
+	if se.badResult {
+		return nil, []expr.Issue{wholeIssue(codeInvalid, se,
+			"the site's result type does not narrow the place's "+resultTypeName(se.place.Result)+" result", "")}
+	}
 	cc, iss := c.checked(se, src)
 	if cc == nil {
 		return nil, iss
 	}
 	iss = findingIssues(se, src, cc.ast.NativeRep(), cc.an.findings)
-	if msg, hint, bad := resultMismatch(se.place.Result, cc.ast.OutputType()); bad {
+	if msg, hint, bad := resultMismatch(se.result, cc.ast.OutputType()); bad {
 		iss = append(iss, wholeIssue(codeInvalid, se, msg, hint))
 	}
 	nominal := nominalEstimator{containers: cc.an.containers}
@@ -294,6 +318,20 @@ func resultMismatch(want expr.Result, got *types.Type) (msg, hint string, bad bo
 	case expr.ResultDyn:
 	}
 	return "", "", false
+}
+
+// resultTypeName spells a result type as x-ruralz-cel does.
+func resultTypeName(r expr.Result) string {
+	switch r {
+	case expr.ResultBool:
+		return "bool"
+	case expr.ResultString:
+		return "string"
+	case expr.ResultDyn:
+		return "dyn"
+	default:
+		return "unknown"
+	}
 }
 
 // firstMessage returns the message of the first Issue.

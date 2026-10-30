@@ -46,8 +46,10 @@
 //
 // [Query] edits a raw query string without reordering or re-encoding the
 // pairs it does not touch: keys compare after percent-decoding and "+" to
-// space, "&" separates pairs and ";" is data. url.Values is not used
-// because its Encode reorders.
+// space, "&" separates pairs and ";" is data, and the pairs it writes are
+// percent-encoded per RFC 3986 ([AppendQueryEscape]: every byte outside
+// the unreserved set, a space as %20). url.Values is not used because its
+// Encode reorders.
 //
 // The package imports nothing outside the standard library.
 package httpfield
