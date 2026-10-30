@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
+	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -35,8 +36,9 @@ func TestReadOtherKindIsAnErrorReply(t *testing.T) {
 }
 
 // TestLookupReadsTheStoredVariant checks the lookup's decoding of a
-// stored variant: the generation, the Vary names, the variant's
-// generation and its entry, which a MAC key seals and opens.
+// stored variant: the generation token, the Vary names, the entry, which
+// a MAC key seals and opens, and its resident time, the shard's TIME
+// minus the store time less the write's receipt delay.
 func TestLookupReadsTheStoredVariant(t *testing.T) {
 	mac := []byte("0123456789abcdef0123456789abcdef")
 	f := newFixture(t, fixtureOptions{mac: mac})
@@ -44,26 +46,100 @@ func TestLookupReadsTheStoredVariant(t *testing.T) {
 	d := statestore.DigestOf("k")
 	k := statestore.CacheKey{URI: d, Partition: statestore.DigestOf("p")}
 	v := statestore.DigestOf("v")
-	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: d})
+	tok := statestore.Token{0xab, 0xcd}
+	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: d, Bump: tok})
 	first := lookupCall(k, v)
 	f.read(first)
-	gen := first.Lookup.Generation
+	if !first.Lookup.HasToken || first.Lookup.Token != tok || first.Lookup.Partition {
+		t.Fatalf("lookup after the bump: %+v", first.Lookup)
+	}
 	w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Cache: statestore.CacheStore{
-		Key: k, Names: "accept", Variant: v, Generation: gen, TTL: time.Hour, Entry: []byte("body"), Token: 7,
+		Key: k, Names: "accept", Variant: v, Generation: tok, TTL: time.Hour, Entry: []byte("body"), Token: 7,
+		Received: f.clk.Now().Add(-1200 * time.Millisecond),
 	}}
 	f.write(w)
 	if w.Err != nil || !w.Applied {
 		t.Fatalf("store: Err %v Applied %v", w.Err, w.Applied)
 	}
+	f.clk.Advance(300 * time.Millisecond)
 	l := lookupCall(k, v)
 	l.Lookup.Entry = make([]byte, 0, 64)
 	f.read(l)
 	got := l.Lookup
-	if !got.Found || string(got.Entry) != "body" || got.Names != "accept" || got.Generation != gen || got.EntryGen != gen {
-		t.Fatalf("lookup %+v", got)
+	if !got.Found || string(got.Entry) != "body" || !got.Partition || got.Names != "accept" || got.Token != tok || got.Resident != 1500*time.Millisecond {
+		t.Fatalf("lookup %+v, want 1.5 s resident", got)
 	}
 	if f.srv.count("EVAL") != 0 {
 		t.Fatal("the driver sent EVAL")
+	}
+}
+
+// TestLookupRefusesAGarbledToken checks that a generation key holding
+// anything but a token, which no Node writes, is an unparsable reply
+// (RZ-STS-002), never a miss that a create would race.
+func TestLookupRefusesAGarbledToken(t *testing.T) {
+	f := newFixture(t, fixtureOptions{})
+	f.ready()
+	d := statestore.DigestOf("k")
+	k := statestore.CacheKey{URI: d, Partition: d}
+	f.srv.mu.Lock()
+	f.srv.set(string(keys.AppendCacheGeneration(nil, d)), "1790380800000123", 0)
+	f.srv.mu.Unlock()
+	l := lookupCall(k, d)
+	f.read(l)
+	if l.Err != statestore.ErrFailed || l.Done {
+		t.Fatalf("garbled token: Done %v Err %v, want RZ-STS-002", l.Done, l.Err)
+	}
+}
+
+// TestStoreGenerationSteps checks the generation step of a store and of
+// the lease writes against the library: a store whose lookup found no key
+// creates it (SET NX) and loses to a key that appeared; a store, refresh
+// or end-stale under another token than the key's writes nothing; the
+// bump sets the token the Node passes.
+func TestStoreGenerationSteps(t *testing.T) {
+	f := newFixture(t, fixtureOptions{})
+	f.ready()
+	d := statestore.DigestOf("k")
+	k := statestore.CacheKey{URI: d, Partition: statestore.DigestOf("p")}
+	v := statestore.DigestOf("v")
+	store := func(tok statestore.Token, create bool, lease uint64) *statestore.Write {
+		w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Cache: statestore.CacheStore{
+			Key: k, Names: "n", Variant: v, TTL: time.Hour, Entry: []byte("e"), Token: lease, Generation: tok, Create: create,
+		}}
+		f.write(w)
+		if w.Err != nil {
+			t.Fatalf("store: %v", w.Err)
+		}
+		return w
+	}
+	one, two := statestore.Token{1}, statestore.Token{2}
+	if !store(one, true, 1).Applied {
+		t.Fatal("create on a missing key not applied")
+	}
+	f.clk.Advance(1100 * time.Millisecond)
+	if store(two, true, 2).Applied {
+		t.Fatal("create on an existing key applied")
+	}
+	if store(two, false, 3).Applied {
+		t.Fatal("store under another token applied")
+	}
+	if !store(one, false, 4).Applied {
+		t.Fatal("store under the key's token not applied")
+	}
+	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: d, Bump: two})
+	f.clk.Advance(1100 * time.Millisecond)
+	take := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Lease: statestore.CacheLease{Key: k, Mode: statestore.LeaseTake, Token: 9}}
+	refresh := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Lease: statestore.CacheLease{Key: k, Variant: v, Mode: statestore.LeaseRefresh, Token: 9, Generation: one, Entry: []byte("x"), TTL: time.Hour}}
+	end := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Lease: statestore.CacheLease{Key: k, Variant: v, Mode: statestore.LeaseEndStale, Token: 9, Generation: one}}
+	f.write(take, refresh, end)
+	if !take.Applied || refresh.Applied || end.Applied || refresh.Err != nil || end.Err != nil {
+		t.Fatalf("after the bump: take %+v refresh %+v end %+v; want the take only", *take, *refresh, *end)
+	}
+	l := lookupCall(k, v)
+	f.read(l)
+	if !l.Lookup.Found || string(l.Lookup.Entry) != "e" || l.Lookup.Token != two {
+		t.Fatalf("lookup %+v: the old entry's lease writes changed it", l.Lookup)
 	}
 }
 

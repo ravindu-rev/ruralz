@@ -98,7 +98,12 @@ func TestMalformedRepliesAreSTS002(t *testing.T) {
 			f.read(l)
 			return l.Err
 		}},
-		{"variant generation not an integer", &fault{cmd: "HMGET", raw: array(bulk("n"), bulk("x"), bulk("e"))}, func(f *fixture) *statestore.Error {
+		{"variant store time not an integer", &fault{cmd: "HMGET", raw: array(bulk("n"), bulk("x"), bulk("e"))}, func(f *fixture) *statestore.Error {
+			l := lookupCall(k, d)
+			f.read(l)
+			return l.Err
+		}},
+		{"TIME reply not two integers", &fault{cmd: "TIME", raw: array(bulk("1790000000"))}, func(f *fixture) *statestore.Error {
 			l := lookupCall(k, d)
 			f.read(l)
 			return l.Err

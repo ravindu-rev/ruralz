@@ -5,6 +5,7 @@ package redis
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/redis/rueidis"
@@ -15,15 +16,17 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// lookupFields are the partition fields one lookup reads.
+// lookupFields are the partition fields one lookup reads: n, t:<V>, e:<V>.
 const lookupFields = 3
 
-// Read runs Response Cache lookups as one pipelined batch: per lookup a
-// GET of the URI's generation key and an HMGET of the partition's names,
-// the variant's generation and its MAC-verified entry. Every other kind is
-// an error reply. A lookup whose shard's breaker is open is skipped
-// (RZ-STS-003); the round trip's timeout is the smallest of the batch,
-// clamped by the per-request deadline.
+// Read runs Response Cache lookups as one pipelined batch of read-only
+// commands: per lookup a GET of the URI's generation key (unless
+// SkipToken), an HMGET of the partition's names, the variant's store time
+// and its MAC-verified entry, and TIME on the partition's shard, from
+// which the variant's resident time follows. Every other kind is an error
+// reply. A lookup whose shard's breaker is open is skipped (RZ-STS-003);
+// the round trip's timeout is the smallest of the batch, clamped by the
+// per-request deadline.
 func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
 	if len(calls) == 0 {
 		return
@@ -64,12 +67,14 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 			continue
 		}
 		gs, ps := d.lookupShards(&c.Lookup)
-		if gs.brk.State() == breaker.Open || ps.brk.State() == breaker.Open {
+		if (!c.Lookup.SkipToken && gs.brk.State() == breaker.Open) || ps.brk.State() == breaker.Open {
 			c.Err = statestore.ErrBreakerOpen
 			d.count(stripe, c.Kind.Label(), statestore.ResultSkipped)
 			continue
 		}
-		shs = addShard(shs, gs)
+		if !c.Lookup.SkipToken {
+			shs = addShard(shs, gs)
+		}
 		shs = addShard(shs, ps)
 	}
 	// noTrip counts the calls of another kind as one failed pipeline, as
@@ -91,7 +96,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 		noTrip()
 		return
 	}
-	sent := d.encodeLookups(tr, calls, stripe)
+	sent, reads := d.encodeLookups(tr, calls, stripe)
 	tr.cancelUnused()
 	if sent == 0 {
 		d.gate.Release()
@@ -116,7 +121,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 				c.Err, c.Elapsed = statestore.ErrTimeout, elapsed
 			}
 		}
-		d.finishRead(stripe, statestore.ResultTimeout, elapsed, sent)
+		d.finishRead(stripe, statestore.ResultTimeout, elapsed, reads)
 		return
 	}
 	if !d.parseLookups(ctx, tr, calls, elapsed) {
@@ -124,14 +129,16 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	}
 	tr.settle(true)
 	d.putTrip(tr)
-	d.finishRead(stripe, res, elapsed, sent)
+	d.finishRead(stripe, res, elapsed, reads)
 }
 
-// finishRead records one attempted lookup round trip of sent lookups.
-func (d *Driver) finishRead(stripe emit.Stripe, res statestore.Result, elapsed time.Duration, sent int) {
+// finishRead records one attempted lookup round trip of reads key reads
+// (ruralz_state_ops_total{kind="cache_get"}: each HMGET and each GET of a
+// generation key).
+func (d *Driver) finishRead(stripe emit.Stripe, res statestore.Result, elapsed time.Duration, reads int) {
 	d.count(stripe, emit.StateOpPipeline, res)
 	d.observe(stripe, emit.StateOpPipeline, elapsed)
-	d.countOps(stripe, emit.StateOpCacheGet, uint64(2*sent)) //nolint:gosec // G115: a small non-negative count
+	d.countOps(stripe, emit.StateOpCacheGet, uint64(reads)) //nolint:gosec // G115: a small non-negative count
 }
 
 // lookupShards returns the shards of a lookup's generation key and
@@ -160,39 +167,57 @@ func (tr *trip) ticketOf(sh *shard) int {
 	return -1
 }
 
-// encodeLookups writes the GET and HMGET of every lookup whose shards
-// admitted the trip, skips the others with RZ-STS-003, and returns how
-// many it wrote.
-func (d *Driver) encodeLookups(tr *trip, calls []*statestore.Call, stripe emit.Stripe) int {
+// encodeLookups writes the commands of every lookup whose shards admitted
+// the trip (lookupCommands of them: the GET unless SkipToken, the HMGET
+// and the TIME routed to the partition's shard), skips the others with
+// RZ-STS-003, and returns how many lookups it wrote and their key reads.
+func (d *Driver) encodeLookups(tr *trip, calls []*statestore.Call, stripe emit.Stripe) (sent, reads int) {
 	var kb [keys.CachePartitionLen]byte
 	var fb [keys.FieldLen]byte
-	sent := 0
 	for _, c := range calls {
 		if c.Err != nil {
 			continue
 		}
 		l := &c.Lookup
 		gs, ps := d.lookupShards(l)
-		gi, pi := tr.ticketOf(gs), tr.ticketOf(ps)
-		if tr.tickets[gi].refused || tr.tickets[pi].refused {
+		gi, pi := -1, tr.ticketOf(ps)
+		if !l.SkipToken {
+			gi = tr.ticketOf(gs)
+		}
+		if (gi >= 0 && tr.tickets[gi].refused) || tr.tickets[pi].refused {
 			c.Err = statestore.ErrBreakerOpen
 			d.count(stripe, c.Kind.Label(), statestore.ResultSkipped)
 			continue
 		}
-		tr.cmd(gi, "GET")
-		tr.key(string(keys.AppendCacheGeneration(kb[:0], l.Key.URI)))
+		if gi >= 0 {
+			tr.cmd(gi, "GET")
+			tr.key(string(keys.AppendCacheGeneration(kb[:0], l.Key.URI)))
+			reads++
+		}
+		part := string(keys.AppendCachePartition(kb[:0], l.Key))
 		tr.cmd(pi, "HMGET")
-		tr.key(string(keys.AppendCachePartition(kb[:0], l.Key)))
+		tr.key(part)
 		tr.arg(keys.FieldNames)
-		tr.arg(string(keys.AppendField(fb[:0], keys.FieldGeneration, l.Variant)))
+		tr.arg(string(keys.AppendField(fb[:0], keys.FieldTime, l.Variant)))
 		tr.arg(string(keys.AppendField(fb[:0], keys.FieldEntry, l.Variant)))
+		tr.cmd(pi, "TIME")
+		tr.routeBy(part)
+		reads++
 		sent++
 	}
-	return sent
+	return sent, reads
 }
 
-// parseLookups fills every sent lookup from its two replies; false when
-// one failed.
+// lookupCommands returns how many commands a lookup sends.
+func lookupCommands(l *statestore.CacheLookup) int {
+	if l.SkipToken {
+		return 2
+	}
+	return 3
+}
+
+// parseLookups fills every sent lookup from its replies; false when one
+// failed.
 func (d *Driver) parseLookups(ctx context.Context, tr *trip, calls []*statestore.Call, elapsed time.Duration) bool {
 	ok := true
 	i := 0
@@ -206,57 +231,72 @@ func (d *Driver) parseLookups(ctx context.Context, tr *trip, calls []*statestore
 		} else {
 			c.Done = true
 		}
-		i += 2
+		i += lookupCommands(&c.Lookup)
 	}
 	return ok
 }
 
-// parseLookup reads lookup replies i (GET) and i+1 (HMGET). A missing
-// partition, variant or generation field is a miss; an entry failing its
-// MAC check is a miss, logged at most once per interval.
+// parseLookup reads the replies of the lookup starting at command i: the
+// GET unless SkipToken, the HMGET and the TIME. A missing generation key,
+// partition or variant is a miss; a generation key whose value is not a
+// token is unparsable (RZ-STS-002); an entry failing its MAC check is a
+// miss, logged at most once per interval.
 func (d *Driver) parseLookup(ctx context.Context, tr *trip, i int, l *statestore.CacheLookup) *statestore.Error {
-	gm, gnull, err := tr.result(i)
+	if !l.SkipToken {
+		gm, gnull, err := tr.result(i)
+		if err != nil {
+			return tr.failure(ctx, i, err)
+		}
+		l.Token, l.HasToken = statestore.Token{}, false
+		if !gnull {
+			s, err := gm.ToString()
+			tok, ok := keys.ParseToken(s)
+			if err != nil || !ok {
+				tr.fail(i)
+				return statestore.ErrFailed
+			}
+			l.Token, l.HasToken = tok, true
+		}
+		i++
+	}
+	hm, _, err := tr.result(i)
 	if err != nil {
 		return tr.failure(ctx, i, err)
 	}
-	var gen int64
-	if !gnull {
-		if gen, err = gm.AsInt64(); err != nil {
-			tr.fail(i)
-			return statestore.ErrFailed
-		}
-	}
-	hm, _, err := tr.result(i + 1)
-	if err != nil {
-		return tr.failure(ctx, i+1, err)
-	}
 	fields, err := hm.ToArray()
 	if err != nil || len(fields) != lookupFields {
-		tr.fail(i + 1)
+		tr.fail(i)
 		return statestore.ErrFailed
 	}
 	names, ok := optString(&fields[0])
 	if !ok {
-		tr.fail(i + 1)
+		tr.fail(i)
 		return statestore.ErrFailed
 	}
-	l.Generation, l.Names, l.EntryGen, l.Found, l.Entry = gen, names, 0, false, l.Entry[:0]
-	if fields[1].IsNil() || fields[2].IsNil() {
+	nowMs, terr := serverMs(tr, i+1)
+	if terr != nil {
+		return tr.failure(ctx, i+1, terr)
+	}
+	l.Partition, l.Names, l.Found, l.Entry, l.Resident = !fields[0].IsNil(), names, false, l.Entry[:0], 0
+	if fields[2].IsNil() {
 		return nil
 	}
-	entryGen, err := fields[1].AsInt64()
-	if err != nil {
-		tr.fail(i + 1)
-		return statestore.ErrFailed
+	var at int64
+	if !fields[1].IsNil() {
+		if at, err = fields[1].AsInt64(); err != nil {
+			tr.fail(i)
+			return statestore.ErrFailed
+		}
 	}
 	stored, err := fields[2].ToString()
 	if err != nil {
-		tr.fail(i + 1)
+		tr.fail(i)
 		return statestore.ErrFailed
 	}
+	resident := time.Duration(max(nowMs-at, 0)) * time.Millisecond
 	l.Entry = append(l.Entry[:0], stored...)
 	buf := l.Entry
-	l.EntryGen, l.Entry = entryGen, buf[:0]
+	l.Entry = buf[:0]
 	entry := buf
 	if d.mac != nil {
 		var kb [keys.CachePartitionLen]byte
@@ -270,8 +310,30 @@ func (d *Driver) parseLookup(ctx context.Context, tr *trip, i int, l *statestore
 			return nil
 		}
 	}
-	l.Found, l.Entry = true, entry
+	l.Found, l.Entry, l.Resident = true, entry, resident
 	return nil
+}
+
+// errBadTime reports a TIME reply that is not two integers.
+var errBadTime = errors.New("redis: malformed TIME reply")
+
+// serverMs reads reply i, a TIME, as Unix milliseconds; a malformed reply
+// is errBadTime, an error reply or connection error is returned as is.
+func serverMs(tr *trip, i int) (int64, error) {
+	m, _, err := tr.result(i)
+	if err != nil {
+		return 0, err
+	}
+	parts, err := m.ToArray()
+	if err != nil || len(parts) != 2 {
+		return 0, errBadTime
+	}
+	sec, err1 := parts[0].AsInt64()
+	usec, err2 := parts[1].AsInt64()
+	if err1 != nil || err2 != nil || sec < 0 || usec < 0 {
+		return 0, errBadTime
+	}
+	return sec*1000 + usec/1000, nil
 }
 
 // optString returns a string reply, "" for null; false for another type.

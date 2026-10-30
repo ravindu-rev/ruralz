@@ -172,16 +172,20 @@ func (r *refDriver) Read(ctx context.Context, rb *statestore.RequestBudget, call
 			continue
 		}
 		l := &c.Lookup
-		gen, _ := r.get(string(keys.AppendCacheGeneration(nil, l.Key.URI)))
-		l.Generation, _ = strconv.ParseInt(gen, 10, 64)
-		l.Names, l.EntryGen, l.Found, l.Entry = "", 0, false, nil
+		if !l.SkipToken {
+			gen, held := r.get(string(keys.AppendCacheGeneration(nil, l.Key.URI)))
+			l.Token, l.HasToken = keys.ParseToken(gen)
+			l.HasToken = l.HasToken && held
+		}
+		l.Partition, l.Names, l.Found, l.Entry, l.Resident = false, "", false, nil, 0
 		pk := keys.AppendCachePartition(nil, l.Key)
 		if h := r.getHash(string(pk)); h != nil {
-			l.Names = string(h.f[keys.FieldNames])
-			l.EntryGen, _ = strconv.ParseInt(string(h.f[string(keys.AppendField(nil, keys.FieldGeneration, l.Variant))]), 10, 64)
+			l.Partition, l.Names = true, string(h.f[keys.FieldNames])
 			field := keys.AppendField(nil, keys.FieldEntry, l.Variant)
 			if stored, ok := h.f[string(field)]; ok {
 				l.Entry, l.Found = r.mac.Open(pk, field, stored)
+				at, _ := strconv.ParseInt(string(h.f[string(keys.AppendField(nil, keys.FieldTime, l.Variant))]), 10, 64)
+				l.Resident = time.Duration(max(r.nowMs()-at, 0)) * time.Millisecond
 			}
 		}
 		c.Done = true
@@ -207,10 +211,7 @@ func (r *refDriver) Write(ctx context.Context, batch []*statestore.Write) {
 				w.Applied = true
 			}
 		case w.Kind == statestore.OpCacheInvalidate:
-			k := string(keys.AppendCacheGeneration(nil, w.Invalidate))
-			old, _ := r.get(k)
-			g, _ := strconv.ParseInt(old, 10, 64)
-			r.str[k] = refValue{strconv.FormatInt(max(r.clk.Now().UnixMicro(), g+1), 10), r.nowMs() + 26*3600*1000}
+			r.str[string(keys.AppendCacheGeneration(nil, w.Invalidate))] = refValue{string(keys.AppendToken(nil, w.Bump)), r.nowMs() + genTTLMs}
 			w.Applied = true
 		case w.Lease.Mode != 0:
 			w.Applied = r.lease(&w.Lease)
@@ -220,7 +221,28 @@ func (r *refDriver) Write(ctx context.Context, batch []*statestore.Write) {
 	}
 }
 
+// genTTLMs is the 26 h generation key TTL.
+const genTTLMs = 26 * 3600 * 1000
+
+// generation is the generation step: create the key holding tok unless
+// one exists, or check that it holds tok, renewing its TTL when renew.
+func (r *refDriver) generation(uri statestore.Digest, tok statestore.Token, create, renew bool) bool {
+	k := string(keys.AppendCacheGeneration(nil, uri))
+	v, held := r.get(k)
+	text := string(keys.AppendToken(nil, tok))
+	switch {
+	case create && held, !create && (!held || v != text):
+		return false
+	case create || renew:
+		r.str[k] = refValue{text, r.nowMs() + genTTLMs}
+	}
+	return true
+}
+
 func (r *refDriver) store(c *statestore.CacheStore) bool {
+	if !r.generation(c.Key.URI, c.Generation, c.Create, true) {
+		return false
+	}
 	pk := keys.AppendCachePartition(nil, c.Key)
 	lk := string(keys.AppendCacheLease(nil, c.Key))
 	if _, held := r.get(lk); held {
@@ -240,12 +262,11 @@ func (r *refDriver) store(c *statestore.CacheStore) bool {
 	r.hash[string(pk)] = h
 	vh := string(keys.AppendHex(nil, c.Variant))
 	h.ord = append(slices.DeleteFunc(h.ord, func(s string) bool { return s == vh }), vh)
-	h.f["g:"+vh] = []byte(strconv.FormatInt(c.Generation, 10))
-	h.f["t:"+vh] = []byte(strconv.FormatInt(r.nowMs(), 10))
+	h.f["t:"+vh] = []byte(strconv.FormatInt(r.nowMs()-r.delayMs(c.Received), 10))
 	field := keys.AppendField(nil, keys.FieldEntry, c.Variant)
 	h.f[string(field)] = r.mac.Seal(nil, pk, field, c.Entry)
 	for len(h.ord) > 8 {
-		for _, p := range []string{"g:", "t:", "e:"} {
+		for _, p := range []string{"t:", "e:"} {
 			delete(h.f, p+h.ord[0])
 		}
 		h.ord = h.ord[1:]
@@ -265,6 +286,9 @@ func (r *refDriver) lease(l *statestore.CacheLease) bool {
 		r.str[lk] = refValue{strconv.FormatUint(l.Token, 10), r.nowMs() + 5000}
 		return true
 	}
+	if !r.generation(l.Key.URI, l.Generation, false, l.Mode == statestore.LeaseRefresh) {
+		return false
+	}
 	if !held || tok != strconv.FormatUint(l.Token, 10) {
 		return false
 	}
@@ -273,25 +297,31 @@ func (r *refDriver) lease(l *statestore.CacheLease) bool {
 	if l.Mode == statestore.LeaseEndStale {
 		if h != nil {
 			h.ord = slices.DeleteFunc(h.ord, func(s string) bool { return s == vh })
-			for _, p := range []string{"g:", "t:", "e:"} {
+			for _, p := range []string{"t:", "e:"} {
 				delete(h.f, p+vh)
 			}
 		}
 		return true
 	}
-	if h == nil || h.f["g:"+vh] == nil {
+	if h == nil || h.f["e:"+vh] == nil {
 		return false
 	}
 	field := keys.AppendField(nil, keys.FieldEntry, l.Variant)
 	h.f[string(field)] = r.mac.Seal(nil, pk, field, l.Entry)
+	h.f["t:"+vh] = []byte(strconv.FormatInt(r.nowMs()-r.delayMs(l.Received), 10))
 	return true
+}
+
+// delayMs is a write's receipt delay in whole milliseconds.
+func (r *refDriver) delayMs(received time.Time) int64 {
+	return int64(statestore.ReceiptDelay(received, r.clk.Now()) / time.Millisecond)
 }
 
 func (r *refDriver) AdmitStoreBytes(statestore.CacheKey, int) bool { return true }
 func (r *refDriver) Supports(c statestore.Capability) bool         { return c == statestore.CapScripts }
 func (r *refDriver) RoundTrips() bool                              { return true }
 func (r *refDriver) Status() statestore.Status {
-	return statestore.Status{EvictionPolicy: statestore.Yes}
+	return statestore.Status{EvictionPolicy: statestore.Yes, CacheEvictionPolicy: statestore.Yes}
 }
 
 func (r *refDriver) Close(context.Context) error {

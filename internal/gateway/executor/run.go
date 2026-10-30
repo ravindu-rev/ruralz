@@ -28,7 +28,9 @@ const (
 	// onUpstreamRequest one that became the response) or a Node-generated
 	// response that is not an Upstream failure, such as 413 RZ-RT-003 or
 	// 504 RZ-RT-007. transform.response, cache and ai.semantic-cache do not
-	// run on it.
+	// run on it, unless a request Phase's short-circuit is a response the
+	// Response Cache serves (filter.Response.Cached), on which every
+	// onResponse Policy runs.
 	ResponseGenerated
 	// ResponseUpstreamError is Node-generated after the Upstream leg failed
 	// (an RZ-UP code, the breaker included). transform.response and
@@ -51,9 +53,11 @@ type Run struct {
 	chain *snapshot.Chain
 	legs  map[string]*snapshot.LegChain
 	store statestore.Store
-	// generated is set once a request Phase produced the response.
-	generated bool
-	logged    bool
+	// generated is set once a request Phase produced the response; served
+	// instead when that response is one the Response Cache serves
+	// (filter.Response.Cached), which is no generated response.
+	generated, served bool
+	logged            bool
 
 	// legMu serializes RequestState.Leg for concurrent legs.
 	legMu sync.Mutex
@@ -101,7 +105,7 @@ func (r *Run) Release() {
 	e := r.e
 	r.reset()
 	r.chain, r.legs, r.store = nil, nil, nil
-	r.generated, r.logged = false, false
+	r.generated, r.served, r.logged = false, false, false
 	r.noBudget = statestore.RequestBudget{}
 	if e != nil {
 		e.runs.Put(r)
@@ -164,9 +168,14 @@ func (r *Run) Request(ctx context.Context, ph phase.Phase) *filter.Response {
 	return nil
 }
 
-// shortCircuit marks the response generated and returns it.
+// shortCircuit marks the response generated, or served when the Response
+// Cache serves it (Cached), and returns it.
 func (r *Run) shortCircuit(resp *filter.Response) *filter.Response {
-	r.generated = true
+	if resp != nil && resp.Cached {
+		r.served = true
+	} else {
+		r.generated = true
+	}
 	return resp
 }
 
@@ -205,7 +214,12 @@ func (r *Run) authRule() *filter.Response {
 }
 
 // Response runs onResponse, in the compiled (reverse) order, on the client
-// response kind describes. A closed failure replaces an Upstream response
+// response kind describes. First, for an Upstream response or failure, a
+// Policy implementing filter.Substituter (the Response Cache) may serve a
+// stored response in its place, passed to Exchange.ReplaceResponse. A
+// response the Response Cache serves, a request Phase's Cached
+// short-circuit or such a substitute, runs every Policy, as an Upstream
+// response does. A closed failure replaces an Upstream or served response
 // with 502 (RZ-RT-012 or the Filter's code), passed to
 // Exchange.ReplaceResponse, and the remaining Policies run on that
 // generated response; a failure on a response that is already generated is
@@ -218,9 +232,15 @@ func (r *Run) Response(ctx context.Context, kind ResponseKind) *filter.Response 
 	if len(list) == 0 {
 		return nil
 	}
-	gen := kind != ResponseUpstream || r.generated
-	upstreamErr := kind == ResponseUpstreamError && !r.generated
 	var out *filter.Response
+	if !r.generated && !r.served && (kind == ResponseUpstream || kind == ResponseUpstreamError) {
+		if resp := r.substitute(ctx, list); resp != nil {
+			r.x.ReplaceResponse(resp)
+			out, r.served = resp, true
+		}
+	}
+	gen := (kind != ResponseUpstream && !r.served) || r.generated
+	upstreamErr := kind == ResponseUpstreamError && !r.generated && !r.served
 	for _, p := range list {
 		if gen && excluded(p.Type, upstreamErr) {
 			continue
@@ -235,6 +255,29 @@ func (r *Run) Response(ctx context.Context, kind ResponseKind) *filter.Response 
 		}
 	}
 	return out
+}
+
+// substitute offers the response to every onResponse Policy of list that
+// implements filter.Substituter and runs (spec.when), in onResponse
+// order, and returns the first Cached response one serves in its place;
+// nil when none does. A recovered panic, or a substitute that is not
+// Cached or has no final status, serves nothing.
+func (r *Run) substitute(ctx context.Context, list []*snapshot.Policy) *filter.Response {
+	for _, p := range list {
+		s, ok := p.Filter.(filter.Substituter)
+		if !ok {
+			continue
+		}
+		run, _ := r.admit(ctx, p, phase.OnResponse)
+		if !run {
+			continue
+		}
+		r.rs.Enter(p, phase.OnResponse, nil)
+		if resp := r.e.substitute(ctx, p, s, r.x); resp != nil && resp.Cached && validStatus(resp.Status) {
+			return resp
+		}
+	}
+	return nil
 }
 
 // excluded reports whether a Policy type never runs onResponse on a
@@ -288,5 +331,26 @@ func (r *Run) Log(ctx context.Context) {
 		}
 		r.invoke(ctx, p, phase.OnLog, true, whenErr)
 	}
+	r.invalidate(ctx, r.chain.Policies)
 	r.finishRan(ctx, r.chain.Policies, true)
+}
+
+// invalidate calls Invalidate on every client-scope Policy of ps that
+// implements filter.Invalidator, in request order, whatever spec.when
+// decided and whether or not the request reached it: the Response Cache's
+// invalidation applies after every unsafe request's leg response
+// (docs/architecture/09-traffic-management-and-resilience.md "Response
+// caching").
+func (r *Run) invalidate(ctx context.Context, ps []*snapshot.Policy) {
+	for _, p := range ps {
+		if p.Scope == phase.ScopeUpstream {
+			continue
+		}
+		inv, ok := p.Filter.(filter.Invalidator)
+		if !ok {
+			continue
+		}
+		r.rs.Enter(p, phase.OnLog, nil)
+		r.e.invalidate(ctx, p, inv, r.x)
+	}
 }

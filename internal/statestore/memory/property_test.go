@@ -304,15 +304,18 @@ func TestConcurrentMixedOps(t *testing.T) {
 				case 2:
 					d.Write(context.Background(), []*statestore.Write{{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
 						Key: ck, Names: strconv.Itoa(r.IntN(2)), Variant: v, TTL: time.Minute, Entry: make([]byte, r.IntN(300)), Token: r.Uint64(),
+						Generation: statestore.Token{byte(r.IntN(2) + 1)}, Create: r.IntN(2) == 0,
 					}}})
 				case 3:
 					modes := []statestore.LeaseMode{statestore.LeaseTake, statestore.LeaseRefresh, statestore.LeaseEndStale}
 					mode := modes[r.IntN(len(modes))]
 					d.Write(context.Background(), []*statestore.Write{{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{
 						Key: ck, Variant: v, Mode: mode, Token: r.Uint64N(2), Entry: make([]byte, r.IntN(300)), TTL: time.Minute,
+						Generation: statestore.Token{byte(r.IntN(2) + 1)},
 					}}})
 				case 4:
-					d.Write(context.Background(), []*statestore.Write{{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: dg}})
+					d.Write(context.Background(), []*statestore.Write{{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: dg,
+						Bump: statestore.Token{byte(r.IntN(2) + 1)}}})
 				case 5:
 					d.AdmitStoreBytes(ck, r.IntN(1000))
 				case 6:

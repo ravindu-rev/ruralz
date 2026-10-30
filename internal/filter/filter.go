@@ -65,6 +65,29 @@ type Response struct {
 	Code string
 	// Detail is the optional problem detail (RZ-RT-009 keyword location).
 	Detail string
+	// Cached marks a response the Response Cache serves from a stored
+	// response, which it saved as the leg delivered it: a hit, a stale,
+	// revalidated, stale-if-error or coalesced reuse, a 206 range answer
+	// or a client-validation 304. It is no generated response: onResponse
+	// runs every Policy on it, transform.response included, as on an
+	// Upstream response, and Message.Generated reports false
+	// (docs/architecture/03-data-plane.md "Short-circuit"). Code is "".
+	Cached bool
+}
+
+// Received describes the client request as it arrived, before any Policy
+// changed it: what the Response Cache keys its URI with and checks for a
+// body.
+type Received struct {
+	// Authority is the host and optional port the request named (HTTP/1.1
+	// Host, HTTP/2 :authority), as sent.
+	Authority string
+	// RawQuery is the raw query, without the "?".
+	RawQuery string
+	// ContentLength is the declared body length: 0 for no body, -1 for a
+	// body of unknown length (a Transfer-Encoding, or an HTTP/2 or HTTP/3
+	// stream without content-length that carries data).
+	ContentLength int64
 }
 
 // Result is a Filter's answer for one Phase.
@@ -324,6 +347,13 @@ type RateLimitField struct {
 type Final struct {
 	// Status is the final HTTP status; 0 when the client went away first.
 	Status int
+	// LegStatus is the status of the response the request's leg delivered,
+	// a plain upstreams leg's response or a merged composition response,
+	// as the Forwarder returned it, before any onResponse Policy changed
+	// it, also when the client went away before commit; 0 when no leg
+	// delivered one (a short-circuit, or a Node-generated failure of the
+	// leg). The Response Cache invalidates on a 2xx or 3xx here.
+	LegStatus int
 	// Code is the final RZ code, if any.
 	Code string
 	// Committed is true once response headers were sent.
@@ -361,8 +391,9 @@ type Tee interface {
 // Vars copy (upstream fields replaced), PolicyState slots and span; legs of
 // an aggregate composition run concurrently, each on its own view, so a
 // Filter never shares a view between goroutines. On a leg view
-// SetIdentity returns ErrNotAvailable, TeeResponse returns nil, Final
-// returns the zero value (a leg ends before the request does), and
+// SetIdentity returns ErrNotAvailable, TeeResponse returns nil,
+// LegResponse and Final return the zero value (a leg ends before the
+// request does), Received describes the client request, and
 // ReplaceResponse, AddRateLimitField and SetCacheResult do nothing.
 type Exchange interface {
 	// RequestID returns the 32-hex trace ID.
@@ -379,6 +410,9 @@ type Exchange interface {
 	Scheme() string
 	Host() string
 	Path() string
+	// Received returns the client request as it arrived: its authority,
+	// raw query and declared body length, which no Policy changes.
+	Received() Received
 	// Header returns the client request headers.
 	Header() http.Header
 	// Source returns the client address.
@@ -402,10 +436,21 @@ type Exchange interface {
 	// Reserve and Release charge decoded values to limits.maxBufferedBytes.
 	Reserve(n int64) error
 	Release(n int64)
-	// TeeResponse starts the cache store copy (onResponse); nil when the
-	// budget or limit refuses. The data plane counts a refusal over the
-	// limit, and a copy it stops later, in ruralz_cache_store_skipped_total
-	// on the calling Policy's handles, so the Filter counts neither.
+	// LegResponse returns the status and header of the response the
+	// request's leg delivered (Final.LegStatus), as they were before any
+	// client onResponse Policy changed them, which the exchange keeps for
+	// the Response Cache store: the header only on a Route that tees its
+	// response (it is read only), nil elsewhere. Status 0 and a nil header
+	// when no leg response was set, the response being a request Phase's
+	// generated or Cached short-circuit or a Node-generated failure of the
+	// leg, and on a leg view.
+	LegResponse() (status int, header http.Header)
+	// TeeResponse starts the cache store copy of the leg response's body
+	// as the leg delivered it (onResponse), whatever an earlier onResponse
+	// Policy wrote to the client; nil when the budget or limit refuses.
+	// The data plane counts a refusal over the limit, and a copy it stops
+	// later, in ruralz_cache_store_skipped_total on the calling Policy's
+	// handles, so the Filter counts neither.
 	TeeResponse(limit int64) Tee
 	// ReplaceResponse replaces the uncommitted response (stale-if-error).
 	ReplaceResponse(r *Response)
@@ -445,17 +490,48 @@ type Filter interface {
 }
 
 // Finisher is implemented by Filters that act once the request is over:
-// the Response Cache stores the teed body, queues an unsafe-method
-// invalidation and releases a hit's buffer reservation; Filters release
-// their PolicyState. The executor calls Finish for every Filter that
-// implements it and ran in at least one Phase of the request (not skipped
-// by spec.when), after onLog, in request order, on the request goroutine,
-// whether or not the Policy subscribes to onLog, including when the client
-// went away (x.Final() tells). Upstream-scope Filters get Finish on their
-// leg view when the leg ends. Finish must not block: State Store writes go
-// to the post-commit queue.
+// the Response Cache stores the teed body and releases a hit's buffer
+// reservation (its unsafe-method invalidation is an Invalidator's);
+// Filters release their PolicyState. The executor calls Finish for every
+// Filter that implements it and ran in at least one Phase of the request
+// (not skipped by spec.when), after onLog, in request order, on the
+// request goroutine, whether or not the Policy subscribes to onLog,
+// including when the client went away (x.Final() tells). Upstream-scope
+// Filters get Finish on their leg view when the leg ends. Finish must not
+// block: State Store writes go to the post-commit queue.
 type Finisher interface {
 	Finish(ctx context.Context, x Exchange)
+}
+
+// Invalidator is implemented by Filters that act after every request on
+// their Route, whatever spec.when decided: the Response Cache bumps the
+// URI's generation after a 2xx or 3xx to an unsafe method
+// (docs/architecture/09-traffic-management-and-resilience.md "Response
+// caching", Invalidation row), which applies even when the client left
+// before commit. The executor calls Invalidate for every client-scope
+// Policy of the Route's chain that implements it, after onLog and before
+// Finish, in request order, on the request goroutine, including a Policy
+// spec.when skipped or the request never reached; x.Final() tells the
+// leg's status. It must not block: the write goes to the post-commit
+// queue.
+type Invalidator interface {
+	Invalidate(ctx context.Context, x Exchange)
+}
+
+// Substituter is implemented by the Response Cache, which may serve a
+// stored response in place of the one the leg delivered: the stored
+// response a 304 refreshed on a request-path revalidation, or a stored
+// one under stale-if-error in place of an Upstream error or a
+// Node-generated failure of the leg. The executor calls Substitute before
+// onResponse, on every client Policy of onResponse that implements it and
+// runs (spec.when), in onResponse order, for an Upstream response or an
+// Upstream failure, never on a response a request Phase produced; the
+// first non-nil Response replaces the response (Exchange.ReplaceResponse)
+// and the rest are skipped. That Response is Cached, so onResponse then
+// runs every Policy on it, transform.response included, as on the
+// Upstream response it stands for.
+type Substituter interface {
+	Substitute(ctx context.Context, x Exchange) *Response
 }
 
 // Consumptive is implemented by admission Filters whose decision needs one
@@ -543,10 +619,13 @@ type BuildEnv struct {
 	// Secrets is the resolved secret table of the Revision.
 	Secrets secret.Store
 	// StateStore is the main store; CacheStore the Response Cache
-	// connection (the main store when none is configured).
-	StateStore statestore.Store
-	CacheStore statestore.Store
-	Enqueuer   statestore.Enqueuer
+	// connection (the main store when none is configured). Enqueuer is
+	// StateStore's post-commit queue binding, CacheEnqueuer CacheStore's,
+	// which the Response Cache's stores and invalidations go to.
+	StateStore    statestore.Store
+	CacheStore    statestore.Store
+	Enqueuer      statestore.Enqueuer
+	CacheEnqueuer statestore.Enqueuer
 	// StateStoreTimeout is the effective spec.stateStoreTimeout.
 	StateStoreTimeout time.Duration
 	Limits            Limits

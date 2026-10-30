@@ -142,7 +142,7 @@ func inspect(d *Driver, k statestoretest.Key) (statestoretest.Stored, bool) {
 		if !ok || expired(e.exp, now) {
 			return statestoretest.Stored{}, false
 		}
-		return statestoretest.Stored{Value: strconv.FormatInt(e.n, 10), TTL: ttl(e.exp)}, true
+		return statestoretest.Stored{Value: string(keys.AppendToken(nil, e.token)), TTL: ttl(e.exp)}, true
 	case statestoretest.KeyCachePartition:
 		s := d.shardOf(int(keys.PartitionSlot(k.Cache)))
 		s.mu.Lock()

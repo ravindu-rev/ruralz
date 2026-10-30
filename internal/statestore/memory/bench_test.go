@@ -153,6 +153,7 @@ func BenchmarkMemoryLookup(b *testing.B) {
 	v := statestore.DigestOf("v")
 	d.Write(context.Background(), []*statestore.Write{{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
 		Key: ck, Names: "accept-encoding", Variant: v, TTL: time.Hour, Entry: make([]byte, 16<<10), Token: 1,
+		Generation: genToken(ck.URI), Create: true,
 	}}})
 	c := lookupCall(ck, v)
 	calls := []*statestore.Call{c}

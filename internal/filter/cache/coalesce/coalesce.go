@@ -10,9 +10,9 @@
 // # Flights
 //
 // A flight is keyed like the entry it would fill, by the partition's URI
-// and partition digests, plus the generation the miss's lookup read, so a
-// miss that read a newer generation after an invalidation never reuses an
-// older fetch. The first GET miss of a key leads the flight and fetches;
+// and partition digests, plus the generation token the miss's lookup read
+// (the zero token when it found no generation key), so a miss that read a
+// newer token after an invalidation never reuses an older fetch. The first GET miss of a key leads the flight and fetches;
 // later misses of the key follow it. A HEAD miss only follows, since a HEAD
 // response has no body to give GET followers. At most MaxKeys keys (4,096,
 // target) have a flight at once; a GET miss past that fetches alone.
@@ -63,8 +63,9 @@ const (
 type Key struct {
 	// Cache is the partition: the URI and partition digests.
 	Cache statestore.CacheKey
-	// Generation is the URI's generation the miss's lookup read.
-	Generation int64
+	// Token is the URI's generation token the miss's lookup read; the zero
+	// Token when it found no generation key.
+	Token statestore.Token
 }
 
 // Role is a miss's part in its flight.

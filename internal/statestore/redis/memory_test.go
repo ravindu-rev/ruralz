@@ -75,6 +75,30 @@ func TestNoStoreBeforeFirstReading(t *testing.T) {
 	}
 }
 
+// TestCacheConnectionAdmitsEveryStore checks that the memory rules 2 and
+// 3, which keep cache stores from filling the shards of limit keys, are
+// off on a dedicated stateStore.cache connection: it admits stores before
+// any reading and above 70% of maxmemory, filling its deployment.
+func TestCacheConnectionAdmitsEveryStore(t *testing.T) {
+	f := newFixture(t, fixtureOptions{role: statestore.RoleCache, fake: fakeOptions{info: memInfo(9_000, 10_000, volatileTTL)}, setup: func(s *fakeServer) {
+		s.inject(&fault{cmd: "INFO", err: "ERR injected", times: 1})
+	}})
+	f.ready()
+	if !f.d.AdmitStoreBytes(cacheKey(), 1<<20) {
+		t.Fatal("the cache connection refused a store before its first reading")
+	}
+	f.readingOf(9_000, time.Second)
+	if !f.d.AdmitStoreBytes(cacheKey(), 1<<20) {
+		t.Fatal("the cache connection refused a store above 70% of maxmemory")
+	}
+	main := newFixture(t, fixtureOptions{fake: fakeOptions{info: memInfo(9_000, 10_000, noEviction)}})
+	main.ready()
+	main.readingOf(9_000, 0)
+	if main.d.AdmitStoreBytes(cacheKey(), 1) {
+		t.Fatal("the main connection admitted a store above 70% of maxmemory")
+	}
+}
+
 // TestFailedReadingRetriedAfterOneSecond checks that a failed reading,
 // the first included, is retried after the 1 s fast interval, not at
 // every maintenance pass.

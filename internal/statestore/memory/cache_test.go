@@ -4,17 +4,20 @@
 package memory
 
 import (
+	"context"
 	"strconv"
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 )
 
 // Tests for Response Cache storage details beyond the conformance suite
-// (variant order, partition TTLs, lease edge cases, generation reuse) and
-// for Response Cache store admission on the memory reading.
+// (variant order, partition TTLs, lease edge cases, generation tokens and
+// store times) and for Response Cache store admission on the memory
+// reading.
 
 func TestAdmitStoreBytes(t *testing.T) {
 	// Store admission, with N_c = 1 for the memory driver.
@@ -115,12 +118,15 @@ func TestPartitionTTL(t *testing.T) {
 		defer s.mu.Unlock()
 		return time.Duration(s.part[ck].exp-instantOf(f.clk.Now()).ms) * time.Millisecond
 	}
+	created := false
 	put := func(v string, d time.Duration) {
 		t.Helper()
 		f.clk.Advance(2 * time.Second)
 		w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
 			Key: ck, Names: "n", Variant: statestore.DigestOf(v), TTL: d, Entry: []byte(v), Token: 1,
+			Generation: genToken(ck.URI), Create: !created,
 		}}
+		created = true
 		f.write(w)
 		if !w.Applied {
 			t.Fatalf("store %s not applied", v)
@@ -148,7 +154,9 @@ func TestPartitionTTL(t *testing.T) {
 	}
 	// A fresh partition with a zero TTL still expires (1 ms).
 	other := statestore.CacheKey{URI: statestore.DigestOf("other")}
-	w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{Key: other, Variant: other.URI, Entry: []byte("x"), Token: 1}}
+	w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
+		Key: other, Variant: other.URI, Entry: []byte("x"), Token: 1, Generation: genToken(other.URI), Create: true,
+	}}
 	f.write(w)
 	f.clk.Advance(2 * time.Millisecond)
 	if f.lookup(other, other.URI).Lookup.Found {
@@ -163,10 +171,11 @@ func TestLeaseEdges(t *testing.T) {
 	f := newFixture(t, Options{}, nil)
 	ck := statestore.CacheKey{URI: statestore.DigestOf("u")}
 	v, gone := statestore.DigestOf("v"), statestore.DigestOf("gone")
+	gen := genToken(ck.URI)
 	lease := func(mode statestore.LeaseMode, variant statestore.Digest, token uint64, ttl time.Duration) bool {
 		t.Helper()
 		w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{
-			Key: ck, Variant: variant, Mode: mode, Token: token, Entry: []byte("fresh"), TTL: ttl,
+			Key: ck, Variant: variant, Mode: mode, Token: token, Entry: []byte("fresh"), TTL: ttl, Generation: gen,
 		}}
 		f.write(w)
 		if w.Err != nil {
@@ -177,6 +186,10 @@ func TestLeaseEdges(t *testing.T) {
 	if !lease(statestore.LeaseTake, v, 1, 0) {
 		t.Fatal("take on an empty partition")
 	}
+	if lease(statestore.LeaseEndStale, v, 1, 0) {
+		t.Fatal("end-stale without a generation key applied")
+	}
+	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: ck.URI, Bump: gen})
 	if lease(statestore.LeaseRefresh, v, 1, time.Hour) {
 		t.Fatal("refresh without a partition applied")
 	}
@@ -205,18 +218,63 @@ func TestLeaseEdges(t *testing.T) {
 	}
 }
 
-func TestGenerationNeverReused(t *testing.T) {
-	// When the stored generation is not below the server time (a clock
-	// that stepped back), the bump is stored + 1.
-	f := newFixture(t, Options{}, nil)
-	uri := statestore.DigestOf("u")
-	future := instantOf(f.clk.Now()).unixUs + 1_000_000
-	s := f.d.shardOf(int(keys.DigestSlot(uri)))
-	s.mu.Lock()
-	s.gen[uri] = countEntry{n: future, exp: instantOf(f.clk.Now()).ms + 1000}
-	s.mu.Unlock()
-	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: uri})
-	if g := f.lookup(statestore.CacheKey{URI: uri}, uri).Lookup.Generation; g != future+1 {
-		t.Fatalf("generation %d, want %d", g, future+1)
+func TestGenerationTokenEdges(t *testing.T) {
+	// A bump sets exactly the token the Node passes, whatever the key held
+	// and whatever the server clock says, so a clock that steps back can
+	// never revive an invalidated entry; the store time the variant
+	// records is the server time less the write's receipt delay, measured
+	// on the Node clock.
+	node := clocktest.New(start())
+	server := &steppedClock{Fake: node}
+	d, err := New(context.Background(), statestore.Config{Driver: statestore.DriverMemory}, statestore.Deps{Clock: node}, Options{ServerClock: server})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = d.Close(context.Background()) })
+	write := func(w *statestore.Write) *statestore.Write {
+		d.Write(context.Background(), []*statestore.Write{w})
+		return w
+	}
+	ck := statestore.CacheKey{URI: statestore.DigestOf("u")}
+	v := statestore.DigestOf("v")
+	read := func() statestore.CacheLookup {
+		c := lookupCall(ck, v)
+		d.Read(context.Background(), budget(0), []*statestore.Call{c})
+		return c.Lookup
+	}
+	old, bump := statestore.Token{1}, statestore.Token{2}
+	put := write(&statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
+		Key: ck, Names: "n", Variant: v, TTL: time.Hour, Entry: []byte("e"), Token: 1,
+		Generation: old, Create: true, Received: node.Now().Add(-1500 * time.Millisecond),
+	}})
+	if !put.Applied {
+		t.Fatal("store creating the generation key not applied")
+	}
+	if l := read(); !l.HasToken || l.Token != old || !l.Found || l.Resident != 1500*time.Millisecond {
+		t.Fatalf("after the store: %+v, want token %x and 1.5 s resident", l, old)
+	}
+	server.back = time.Minute // the server clock steps back
+	write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: ck.URI, Bump: bump})
+	if l := read(); l.Token != bump || l.Resident != 0 {
+		t.Fatalf("after the bump: token %x resident %v, want %x and 0 (never negative)", l.Token, l.Resident, bump)
+	}
+	again := put.Cache
+	again.Create, again.Received = true, time.Time{}
+	if w := write(&statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: again}); w.Applied || w.Err != nil {
+		t.Fatalf("store creating an existing generation key: Applied %v Err %v", w.Applied, w.Err)
+	}
+	again.Create = false
+	if w := write(&statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: again}); w.Applied || w.Err != nil {
+		t.Fatalf("store under the token the bump replaced: Applied %v Err %v", w.Applied, w.Err)
 	}
 }
+
+// steppedClock is a server clock that can step back by back from the
+// Node's fake clock, which never moves backwards.
+type steppedClock struct {
+	*clocktest.Fake
+	back time.Duration
+}
+
+// Now returns the Node time less back.
+func (c *steppedClock) Now() time.Time { return c.Fake.Now().Add(-c.back) }

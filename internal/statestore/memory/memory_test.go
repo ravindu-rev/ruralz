@@ -30,8 +30,9 @@ func TestOpen(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
-	// Memory reports noeviction and no degraded concern.
-	if st := d.Status(); st != (statestore.Status{EvictionPolicy: statestore.Yes}) {
+	// Memory reports noeviction, which suits limit keys and Response Cache
+	// entries alike, and no degraded concern.
+	if st := d.Status(); st != (statestore.Status{EvictionPolicy: statestore.Yes, CacheEvictionPolicy: statestore.Yes}) {
 		t.Fatalf("Status = %+v", st)
 	}
 	if d.RoundTrips() {
@@ -323,7 +324,7 @@ func TestDroppedVariantReleased(t *testing.T) {
 	}
 	f.clk.Advance(2 * time.Second)
 	take := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: ck, Variant: v, Mode: statestore.LeaseTake, Token: 2}}
-	end := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: ck, Variant: v, Mode: statestore.LeaseEndStale, Token: 2}}
+	end := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: ck, Variant: v, Mode: statestore.LeaseEndStale, Token: 2, Generation: genToken(ck.URI)}}
 	f.write(take, end)
 	if !take.Applied || !end.Applied || f.d.bytes.Load() != 0 {
 		t.Fatalf("take %v end %v bytes %d", take.Applied, end.Applied, f.d.bytes.Load())
@@ -372,7 +373,7 @@ func TestCacheByteBound(t *testing.T) {
 	// A refresh that grows past the bound is refused.
 	f.clk.Advance(2 * time.Second)
 	take := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: a, Variant: v, Mode: statestore.LeaseTake, Token: 5}}
-	grow := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: a, Variant: v, Mode: statestore.LeaseRefresh, Token: 5, Entry: bytes.Repeat([]byte{3}, 120)}}
+	grow := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Lease: statestore.CacheLease{Key: a, Variant: v, Mode: statestore.LeaseRefresh, Token: 5, Entry: bytes.Repeat([]byte{3}, 120), Generation: genToken(a.URI)}}
 	f.write(take, grow)
 	if !take.Applied || grow.Err != statestore.ErrFailed {
 		t.Fatalf("take %+v, grow %+v", *take, *grow)
@@ -714,7 +715,7 @@ func TestExpiredOnAccess(t *testing.T) {
 		t.Fatalf("expired TAT still counted: %+v", c.GCRA)
 	}
 	lk := f.lookup(ck, d)
-	if lk.Lookup.Found || lk.Lookup.Generation != 0 || lk.Lookup.Names != "" {
+	if lk.Lookup.Found || lk.Lookup.HasToken || lk.Lookup.Partition || lk.Lookup.Names != "" {
 		t.Fatalf("expired cache keys read: %+v", lk.Lookup)
 	}
 	if f.d.bytes.Load() != 0 {

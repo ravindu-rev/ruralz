@@ -34,77 +34,146 @@ func ceilMs(d time.Duration) int64 {
 // ever written without a TTL.
 func entryTTL(d time.Duration) int64 { return min(max(ceilMs(d), 1), maxPartitionTTLMs) }
 
-// Write sends one post-commit batch as one pipelined round trip: refunds,
-// cache stores, lease takes, refreshes and ends, and invalidations. A
-// write whose timeout is 0 or whose context ended is not attempted
-// (RZ-STS-004), one to a shard whose breaker is open is skipped
-// (RZ-STS-003) without a call; the per-request deadline does not apply.
-// The round trip's timeout is the smallest of the attempted writes'. It is
-// labeled with the write's op, or pipeline when several were attempted.
+// Write steps. A refund, an invalidation or a lease take is one command
+// (stepOne); a store, refresh or end-stale is two, the generation step on
+// the URI's generation key and, only when it applied, the partition step
+// on the partition's shard (statestore.CacheStore): the two keys hash to
+// different Redis Cluster slots, so one script cannot hold both. stepDone
+// marks a write with nothing left to send.
+const (
+	stepDone uint8 = iota
+	stepOne
+	stepGeneration
+	stepPartition
+)
+
+// twoStep reports a write that runs a generation step first: a store, a
+// refresh or an end-stale.
+func twoStep(w *statestore.Write) bool {
+	return w.Kind == statestore.OpCacheSet && w.Lease.Mode != statestore.LeaseTake
+}
+
+// Write sends one post-commit batch: refunds, cache stores, lease takes,
+// refreshes and ends, and invalidations, as one pipelined round trip, then
+// a second one for the partition steps of the two-step writes whose
+// generation step applied. A write whose timeout is 0 or whose context
+// ended is not attempted (RZ-STS-004), one to a shard whose breaker is
+// open is skipped (RZ-STS-003) without a call; the per-request deadline
+// does not apply. Both round trips together wait at most the smallest of
+// the attempted writes' timeouts; a partition step with no time left is
+// not attempted. Each round trip is labeled with its write's op, or
+// pipeline when it carried several commands; a write counts once in
+// ruralz_state_ops_total.
 func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
-	skip := func(w *statestore.Write, err *statestore.Error) {
-		w.Err = err
-		d.count(0, w.Kind.Label(), err.Result())
+	var sbuf [64]uint8
+	steps := sbuf[:0]
+	if len(batch) > len(sbuf) {
+		steps = make([]uint8, 0, len(batch))
 	}
-	var sbuf [8]*shard
-	shs := sbuf[:0]
 	var timeout time.Duration
 	for _, w := range batch {
 		w.Err, w.Applied = nil, false
-		if ctx.Err() != nil || w.Timeout <= 0 {
-			skip(w, statestore.ErrNotAttempted)
-			continue
+		st := stepOne
+		if twoStep(w) {
+			st = stepGeneration
 		}
-		if d.closed.Load() {
-			skip(w, statestore.ErrFailed)
-			continue
-		}
-		sh, script, ok := d.writeShard(w)
+		steps = append(steps, st)
 		switch {
-		case !ok:
-			skip(w, statestore.ErrFailed)
-			continue
-		case script && sh.noScripts.Load():
-			skip(w, statestore.ErrUnsupported)
-			continue
-		case sh.brk.State() == breaker.Open:
-			skip(w, statestore.ErrBreakerOpen)
-			continue
-		}
-		shs = addShard(shs, sh)
-		if timeout == 0 || w.Timeout < timeout {
+		case ctx.Err() != nil || w.Timeout <= 0:
+			d.skipWrite(w, statestore.ErrNotAttempted)
+		case d.closed.Load():
+			d.skipWrite(w, statestore.ErrFailed)
+		case timeout == 0 || w.Timeout < timeout:
 			timeout = w.Timeout
 		}
 	}
-	if len(shs) == 0 {
+	if timeout == 0 {
 		return
+	}
+	start := d.clk.Now()
+	if !d.writeRound(ctx, batch, steps, timeout, true) {
+		return
+	}
+	if left := timeout - d.clk.Since(start); left > 0 {
+		d.writeRound(ctx, batch, steps, left, false)
+		return
+	}
+	for i, w := range batch {
+		if steps[i] == stepPartition && w.Err == nil {
+			d.skipWrite(w, statestore.ErrNotAttempted)
+		}
+	}
+}
+
+// skipWrite fails w with err without a call.
+func (d *Driver) skipWrite(w *statestore.Write, err *statestore.Error) {
+	w.Err = err
+	d.count(0, w.Kind.Label(), err.Result())
+}
+
+// inRound reports whether a write at step st sends a command in the first
+// round trip (its only command or its generation step) or in the second
+// (its partition step).
+func inRound(st uint8, first bool) bool {
+	if first {
+		return st == stepOne || st == stepGeneration
+	}
+	return st == stepPartition
+}
+
+// writeRound sends one round trip of batch's writes that are in it (each
+// one command, inRound) and applies the replies within timeout. It reports
+// whether a generation step applied, leaving its write's partition step
+// for the second round trip.
+func (d *Driver) writeRound(ctx context.Context, batch []*statestore.Write, steps []uint8, timeout time.Duration, first bool) (pending bool) {
+	var sbuf [8]*shard
+	shs := sbuf[:0]
+	for i, w := range batch {
+		if w.Err != nil || !inRound(steps[i], first) {
+			continue
+		}
+		sh, script, ok := d.stepShard(w, steps[i])
+		switch {
+		case !ok:
+			d.skipWrite(w, statestore.ErrFailed)
+			continue
+		case script && sh.noScripts.Load():
+			d.skipWrite(w, statestore.ErrUnsupported)
+			continue
+		case sh.brk.State() == breaker.Open:
+			d.skipWrite(w, statestore.ErrBreakerOpen)
+			continue
+		}
+		shs = addShard(shs, sh)
+	}
+	if len(shs) == 0 {
+		return false
+	}
+	skipRound := func(err *statestore.Error) {
+		for i, w := range batch {
+			if w.Err == nil && inRound(steps[i], first) {
+				d.skipWrite(w, err)
+			}
+		}
 	}
 	tr := d.getTrip()
 	tr.setShards(shs)
 	if err := d.admit(tr); err != nil {
 		d.putTrip(tr)
-		for _, w := range batch {
-			if w.Err == nil {
-				skip(w, err)
-			}
-		}
-		return
+		skipRound(err)
+		return false
 	}
-	sent, label := d.encodeWrites(tr, batch, skip)
+	sent, label := d.encodeWrites(tr, batch, steps, first)
 	tr.cancelUnused()
 	if sent == 0 {
 		d.gate.Release()
 		d.putTrip(tr)
-		return
+		return false
 	}
 	if !d.launch(ctx, tr) {
 		d.putTrip(tr)
-		for _, w := range batch {
-			if w.Err == nil {
-				skip(w, statestore.ErrFailed)
-			}
-		}
-		return
+		skipRound(statestore.ErrFailed)
+		return false
 	}
 	if sent > 1 {
 		label = emit.StateOpPipeline
@@ -113,30 +182,60 @@ func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 	out, elapsed := tr.wait(ctx, timeout)
 	switch out {
 	case timedOut, canceled:
-		for _, w := range batch {
-			if w.Err == nil {
+		for i, w := range batch {
+			if w.Err == nil && inRound(steps[i], first) {
 				w.Err = statestore.ErrTimeout
-				d.countOps(0, w.Kind.Label(), 1)
+				if first {
+					d.countOps(0, w.Kind.Label(), 1)
+				}
 			}
 		}
 		res = statestore.ResultTimeout
 	case replied:
-		i := 0
-		for _, w := range batch {
-			if w.Err != nil {
+		k := 0
+		for i, w := range batch {
+			if w.Err != nil || !inRound(steps[i], first) {
 				continue
 			}
-			d.countOps(0, w.Kind.Label(), 1)
-			if err := d.parseWrite(ctx, tr, i, w); err != nil {
-				w.Err, res = err, statestore.ResultError
+			if first {
+				d.countOps(0, w.Kind.Label(), 1)
 			}
-			i++
+			applied, err := d.parseWrite(ctx, tr, k, w, steps[i])
+			k++
+			switch {
+			case err != nil:
+				w.Err, res = err, statestore.ResultError
+			case steps[i] == stepGeneration && applied:
+				steps[i], pending = stepPartition, true
+				continue
+			default:
+				w.Applied = applied
+			}
+			steps[i] = stepDone
 		}
 		tr.settle(true)
 		d.putTrip(tr)
 	}
 	d.count(0, label, res)
 	d.observe(0, label, elapsed)
+	return pending
+}
+
+// stepShard returns the shard of w's command at step st and whether a
+// script writes it: the generation key's shard for a generation step, else
+// writeShard's. ok is false for a write of an unknown kind or lease mode.
+func (d *Driver) stepShard(w *statestore.Write, st uint8) (sh *shard, script, ok bool) {
+	if st != stepGeneration {
+		return d.writeShard(w)
+	}
+	switch w.Lease.Mode {
+	case 0:
+		return d.shardOfSlot(keys.DigestSlot(w.Cache.Key.URI)), true, true
+	case statestore.LeaseRefresh, statestore.LeaseEndStale:
+		return d.shardOfSlot(keys.DigestSlot(w.Lease.Key.URI)), true, true
+	default:
+		return nil, false, false
+	}
 }
 
 // writeShard returns the shard of w's keys and whether a script writes
@@ -159,29 +258,64 @@ func (d *Driver) writeShard(w *statestore.Write) (sh *shard, script, ok bool) {
 	return d.shardOfSlot(uint16(slot)), script, true //nolint:gosec // G115: a slot below 16384
 }
 
-// encodeWrites writes the command of every write still pending whose
-// shard admitted the trip, skips the others with RZ-STS-003, and returns
-// how many it wrote and the op label of the last.
-func (d *Driver) encodeWrites(tr *trip, batch []*statestore.Write, skip func(*statestore.Write, *statestore.Error)) (sent, label int) {
+// encodeWrites writes the command of every write in the round whose shard
+// admitted the trip, skips the others with RZ-STS-003, and returns how
+// many it wrote and the op label of the last.
+func (d *Driver) encodeWrites(tr *trip, batch []*statestore.Write, steps []uint8, first bool) (sent, label int) {
 	label = -1
-	for _, w := range batch {
-		if w.Err != nil {
+	for i, w := range batch {
+		if w.Err != nil || !inRound(steps[i], first) {
 			continue
 		}
-		sh, _, _ := d.writeShard(w)
+		sh, _, _ := d.stepShard(w, steps[i])
 		k := tr.ticketOf(sh)
 		if tr.tickets[k].refused {
-			skip(w, statestore.ErrBreakerOpen)
+			d.skipWrite(w, statestore.ErrBreakerOpen)
 			continue
 		}
-		d.encodeWrite(tr, k, w)
+		if steps[i] == stepGeneration {
+			d.encodeGeneration(tr, k, w)
+		} else {
+			d.encodeWrite(tr, k, w)
+		}
 		sent++
 		label = w.Kind.Label()
 	}
 	return sent, label
 }
 
-// encodeWrite writes one write's command for ticket k.
+// encodeGeneration writes the generation step of a store (create when its
+// lookup found no generation key, else hold), a refresh (hold) or an
+// end-stale (check) for ticket k.
+func (d *Driver) encodeGeneration(tr *trip, k int, w *statestore.Write) {
+	var kb [keys.CacheGenerationLen]byte
+	var tb [keys.TokenLen]byte
+	uri, tok, mode := w.Lease.Key.URI, w.Lease.Generation, genHold
+	switch w.Lease.Mode {
+	case 0:
+		uri, tok = w.Cache.Key.URI, w.Cache.Generation
+		if w.Cache.Create {
+			mode = genCreate
+		}
+	case statestore.LeaseEndStale:
+		mode = genCheck
+	}
+	tr.cmd(k, "EVALSHA", d.sha, "1")
+	tr.key(string(keys.AppendCacheGeneration(kb[:0], uri)))
+	tr.arg(opGeneration)
+	tr.arg(mode)
+	tr.arg(string(keys.AppendToken(tb[:0], tok)))
+}
+
+// delayArg returns the receipt delay of a response that arrived at
+// received, in whole milliseconds as text: the store time t:<V> is the
+// script's TIME less it.
+func (d *Driver) delayArg(received time.Time) string {
+	return strconv.FormatInt(int64(statestore.ReceiptDelay(received, d.clk.Now())/time.Millisecond), 10)
+}
+
+// encodeWrite writes the only command, or the partition step, of a write
+// for ticket k.
 func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 	var kb, lb [keys.CachePartitionLen + len(keys.SuffixLease)]byte
 	var hb [keys.HexLen]byte
@@ -193,9 +327,11 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 		tr.key(string(keys.AppendQuota(qb[:0], r.Name, r.Window, r.WindowStart, r.Digest)))
 		tr.arg(opRefund)
 	case statestore.OpCacheInvalidate:
+		var tb [keys.TokenLen]byte
 		tr.cmd(k, "EVALSHA", d.sha, "1")
 		tr.key(string(keys.AppendCacheGeneration(kb[:0], w.Invalidate)))
 		tr.arg(opInvalidate)
+		tr.arg(string(keys.AppendToken(tb[:0], w.Bump)))
 	default: // statestore.OpCacheSet: writeShard accepts no other kind
 		l := &w.Lease
 		if l.Mode == 0 {
@@ -207,8 +343,8 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 			tr.arg(strconv.FormatUint(s.Token, 10))
 			tr.arg(s.Names)
 			tr.arg(string(keys.AppendHex(hb[:0], s.Variant)))
-			tr.arg(strconv.FormatInt(s.Generation, 10))
 			tr.arg(strconv.FormatInt(entryTTL(s.TTL), 10))
+			tr.arg(d.delayArg(s.Received))
 			tr.arg(d.seal(s.Key, s.Variant, s.Entry))
 			return
 		}
@@ -235,6 +371,7 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 			tr.arg(string(keys.AppendHex(hb[:0], l.Variant)))
 			tr.arg(d.seal(l.Key, l.Variant, l.Entry))
 			tr.arg(strconv.FormatInt(ttl, 10))
+			tr.arg(d.delayArg(l.Received))
 			return
 		}
 		tr.arg(opEndStale)
@@ -255,29 +392,27 @@ func (d *Driver) seal(k statestore.CacheKey, v statestore.Digest, entry []byte) 
 	return string(d.mac.Seal(dst, keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), entry))
 }
 
-// parseWrite reads reply i of write w: 1 or OK applied, 0 or null not
-// applied; anything else is unparsable.
-func (d *Driver) parseWrite(ctx context.Context, tr *trip, i int, w *statestore.Write) *statestore.Error {
+// parseWrite reads reply i of w's command at step st: 1 or OK applied, 0
+// or null not applied; anything else is unparsable.
+func (d *Driver) parseWrite(ctx context.Context, tr *trip, i int, w *statestore.Write, st uint8) (bool, *statestore.Error) {
 	m, null, err := tr.result(i)
 	if err != nil {
-		return tr.failure(ctx, i, err)
+		return false, tr.failure(ctx, i, err)
 	}
-	if w.Kind == statestore.OpCacheSet && w.Lease.Mode == statestore.LeaseTake {
+	if st != stepGeneration && w.Kind == statestore.OpCacheSet && w.Lease.Mode == statestore.LeaseTake {
 		if null {
-			return nil
+			return false, nil
 		}
 		if s, err := m.ToString(); err == nil && s == "OK" {
-			w.Applied = true
-			return nil
+			return true, nil
 		}
 		tr.fail(i)
-		return statestore.ErrFailed
+		return false, statestore.ErrFailed
 	}
 	n, err := m.ToInt64()
 	if null || err != nil || (n != 0 && n != 1) {
 		tr.fail(i)
-		return statestore.ErrFailed
+		return false, statestore.ErrFailed
 	}
-	w.Applied = n == 1
-	return nil
+	return n == 1, nil
 }

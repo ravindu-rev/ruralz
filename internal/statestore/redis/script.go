@@ -25,12 +25,25 @@ var script string
 const (
 	opConsume    = "c"
 	opRefund     = "r"
+	opGeneration = "n"
 	opStore      = "s"
 	opRefresh    = "f"
 	opEndStale   = "x"
 	opInvalidate = "i"
 	kindGCRA     = "g"
 	kindQuota    = "q"
+)
+
+// Modes of the generation step (opGeneration, ARGV[2]).
+const (
+	// genCreate creates the generation key holding the token unless a key
+	// exists: a store whose lookup found none.
+	genCreate = "c"
+	// genHold checks that the key holds the token and renews its 26 h TTL:
+	// a store, refresh or replacement under it.
+	genHold = "h"
+	// genCheck only checks that the key holds the token: an end-stale.
+	genCheck = "v"
 )
 
 // skewPrefix starts the error reply of a Quota call whose window neither

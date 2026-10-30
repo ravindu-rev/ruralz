@@ -488,8 +488,11 @@ func (f *Fake) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*
 		default:
 			for _, c := range calls {
 				c.Done, c.Err = true, nil
-				c.Lookup.Generation, c.Lookup.Names, c.Lookup.Found = 0, "", false
-				c.Lookup.EntryGen, c.Lookup.Entry = 0, c.Lookup.Entry[:0]
+				l := &c.Lookup
+				if !l.SkipToken {
+					l.Token, l.HasToken = statestore.Token{}, false
+				}
+				l.Partition, l.Names, l.Found, l.Entry, l.Resident = false, "", false, l.Entry[:0], 0
 			}
 		}
 	}

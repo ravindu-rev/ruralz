@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
@@ -39,6 +40,11 @@ const (
 	MaxHeld = 4096
 	// MaxQueueWait drops a job that waited longer in the queue, unrun.
 	MaxQueueWait = Deadline
+	// MaxEntry is the largest encoded entry ("Response caching", Size row:
+	// 128 KiB, its header blocks and saved request included): a worker
+	// reads at most one byte more of a replacing response's body, and a
+	// replacement past it ends the stale window.
+	MaxEntry = 128 << 10
 )
 
 // Saturation: the cache_revalidation_saturated degraded reason
@@ -133,7 +139,8 @@ type Job struct {
 	// Replayer sends the replay (filter.BuildEnv.Replayer).
 	Replayer filter.Replayer
 	// Route and Upstream name the Route the entry was stored on and the
-	// Upstream whose response it holds: the replay's target.
+	// Upstream whose response it holds: the replay's target. A composition
+	// entry has no Upstream: its replay runs the whole composition.
 	Route, Upstream string
 	// Entry is the stale entry.
 	Entry Entry
@@ -141,12 +148,24 @@ type Job struct {
 	// (filter.Exchange.RouteMetrics), whose Revalidations count the
 	// outcome in ruralz_cache_revalidations_total; nil records nothing.
 	Metrics *emit.RouteMetrics
+	// StoreSkipped are the queuing cache Policy's
+	// ruralz_cache_store_skipped_total handles, which count a replacement
+	// the size cap (size_limit) or the memory rules (memory) refuse; nil
+	// records nothing.
+	StoreSkipped *[emit.NumSkipReasons]emit.Counter
 }
 
 // valid reports whether j can run: a zero Timeout would leave every lease
 // write unattempted (RZ-STS-004).
 func (j *Job) valid() bool {
-	return j.Store != nil && j.Replayer != nil && j.Entry != nil && j.Timeout > 0 && j.Route != "" && j.Upstream != ""
+	return j.Store != nil && j.Replayer != nil && j.Entry != nil && j.Timeout > 0 && j.Route != ""
+}
+
+// skipped counts a refused replacement for reason (an emit.Skip* index).
+func (j *Job) skipped(reason int) {
+	if j.StoreSkipped != nil && j.StoreSkipped[reason] != nil {
+		j.StoreSkipped[reason].Add(0, 1)
+	}
 }
 
 // Entry is a stale entry as the cache Filter stored it. A worker calls it
@@ -162,9 +181,33 @@ type Entry interface {
 	// Authorized reports that the request that stored the entry carried
 	// Authorization (Storable).
 	Authorized() bool
+	// Token returns the generation token the entry was written under: the
+	// lease writes apply only while the URI's generation key holds it, and
+	// a refreshed or replacing entry is written under it again.
+	Token() statestore.Token
 	// Refresh returns the entry bytes of r, the stored response freshened
 	// by a 304, for statestore.LeaseRefresh.
 	Refresh(r *Refreshed) ([]byte, error)
+	// Replace returns the entry bytes of r, a full response that replaces
+	// the stored one, for statestore.LeaseRefresh: saved as the leg
+	// delivered it, over the stored entry's saved request.
+	Replace(r *Replacement) ([]byte, error)
+}
+
+// Replacement is a full response that replaces a stale entry.
+type Replacement struct {
+	// Status, Header and Body are the response; Body holds at most
+	// MaxEntry bytes.
+	Status int
+	Header http.Header
+	Body   []byte
+	// Freshness is FreshnessOf(Header, Received).
+	Freshness Freshness
+	// InitialAge is InitialAge(Header, Requested, Received).
+	InitialAge time.Duration
+	// Requested and Received are when the replay was sent and its response
+	// arrived, on the Node clock.
+	Requested, Received time.Time
 }
 
 // Refreshed is a stored response freshened by a 304.
@@ -190,10 +233,12 @@ const (
 	// refresh applied under the lease.
 	OutcomeRefreshed Outcome = iota + 1
 	// OutcomeEnded: the stale window ended under the lease, the variant
-	// deleted unstored: a full response other than a 5xx, a 304 that
-	// does not select the stored response or leaves it unstorable, with
-	// other Vary names or no TTL, a stored response without validators,
-	// or an entry that could not be read or encoded.
+	// deleted unstored: a full response other than a 5xx that the store
+	// rules refuse (an unstorable status or header, a partial composition
+	// response, other Vary names, no TTL, the size cap or the memory
+	// rules), a 304 that does not select the stored response or leaves it
+	// unstorable, with other Vary names or no TTL, or an entry that could
+	// not be read or encoded.
 	OutcomeEnded
 	// OutcomeKept: the replay got a 5xx or no response (an error, the
 	// Deadline, a missing Route or Upstream); the entry stays for
@@ -210,6 +255,9 @@ const (
 	OutcomeExpired
 	// OutcomeCanceled: the Revalidator stopped first; not run.
 	OutcomeCanceled
+	// OutcomeReplaced: a full response the store rules accept replaced the
+	// entry under the lease, as the leg delivered it.
+	OutcomeReplaced
 	// NumOutcomes sizes Stats.Outcomes; it is no Outcome.
 	NumOutcomes
 )
@@ -233,17 +281,20 @@ func (o Outcome) String() string {
 		return "expired"
 	case OutcomeCanceled:
 		return "canceled"
+	case OutcomeReplaced:
+		return "replaced"
 	default:
 		return "unknown"
 	}
 }
 
-// result returns o's ruralz_cache_revalidations_total result index: a job
-// that ran without changing the entry (lease held or failed, write
-// failed) is skipped; expired and canceled jobs never ran and have none.
+// result returns o's ruralz_cache_revalidations_total result index: a
+// refresh or a replacement is refreshed; a job that ran without changing
+// the entry (lease held or failed, write failed) is skipped; expired and
+// canceled jobs never ran and have none.
 func (o Outcome) result() (int, bool) {
 	switch o {
-	case OutcomeRefreshed:
+	case OutcomeRefreshed, OutcomeReplaced:
 		return emit.RevalidationRefreshed, true
 	case OutcomeEnded:
 		return emit.RevalidationEnded, true
@@ -370,9 +421,9 @@ func (*Revalidator) Name() string { return ComponentName }
 // tracked, the queue is full or the Revalidator has stopped (Dropped). The
 // first two count in ruralz_cache_revalidation_drops_total, as
 // partitions_full and queue_full, and in the saturation share; a stopping
-// Node's refusals do not. A job without a Store, Replayer, Entry, Route,
-// Upstream or Timeout is refused uncounted. Enqueue before Run queues the
-// job for it.
+// Node's refusals do not. A job without a Store, Replayer, Entry, Route or
+// Timeout is refused uncounted; a composition entry's job has no Upstream.
+// Enqueue before Run queues the job for it.
 func (r *Revalidator) Enqueue(j Job) bool {
 	if !j.valid() {
 		return false
@@ -404,6 +455,17 @@ func (r *Revalidator) Enqueue(j Job) bool {
 	r.win.add(now, 1, 0)
 	r.evaluate(now)
 	return true
+}
+
+// Pending reports whether a job for k is queued or running, or was
+// attempted less than Deadline ago, so Enqueue would refuse another as a
+// duplicate: the cache Filter then builds no job.
+func (r *Revalidator) Pending(k statestore.CacheKey) bool {
+	now := r.clk.Now()
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	until, ok := r.held[k]
+	return ok && (until.IsZero() || now.Before(until))
 }
 
 // refuse counts a job Enqueue refused for reason (DropPartitionsFull or
@@ -655,11 +717,11 @@ func (r *Revalidator) revalidate(ctx context.Context, j *Job, start time.Time) O
 			catalog.KeyUpstream, j.Upstream)
 		return r.end(jctx, j, deadline, token)
 	}
-	if !Conditional(req.Header, stored) {
-		// Without a validator the replay could only get a full response,
-		// which ends the stale window anyway.
-		return r.end(jctx, j, deadline, token)
-	}
+	// The stored validators replace the saved request's own preconditions
+	// and Range; an entry without validators, such as a merged aggregate
+	// response, replays unconditionally, so only a full response can
+	// renew it.
+	Conditional(req.Header, stored)
 	requested := r.clk.Now()
 	resp, err := j.Replayer.Replay(jctx, j.Route, j.Upstream, req)
 	received := r.clk.Now()
@@ -682,8 +744,64 @@ func (r *Revalidator) revalidate(ctx context.Context, j *Job, start time.Time) O
 	case resp.StatusCode >= http.StatusInternalServerError:
 		return OutcomeKept
 	default:
-		return r.end(jctx, j, deadline, token)
+		return r.replace(jctx, j, deadline, token, stored, resp, requested, received)
 	}
+}
+
+// replace applies a full response below 500: it replaces the entry under
+// the lease, as the leg delivered it, when the request-path store rules
+// accept it (a storable status and header, not a partial composition
+// response, the same Vary names, TTL left, the size cap and the memory
+// rules), and otherwise ends the stale window unstored. A body that
+// cannot be read whole is no response: the entry is kept.
+func (r *Revalidator) replace(ctx context.Context, j *Job, deadline time.Time, token uint64, stored http.Header, resp *http.Response, requested, received time.Time) Outcome {
+	h := resp.Header
+	if h == nil {
+		h = http.Header{}
+	}
+	if !StorableStatus(resp.StatusCode) || Partial(h) || !sameVary(stored, h) || !Storable(h, j.Entry.Authorized()) {
+		return r.end(ctx, j, deadline, token)
+	}
+	f := FreshnessOf(h, received)
+	age := InitialAge(h, requested, received)
+	ttl := f.TTL(age)
+	if ttl <= 0 {
+		return r.end(ctx, j, deadline, token)
+	}
+	var body []byte
+	if resp.Body != nil {
+		var err error
+		if body, err = io.ReadAll(io.LimitReader(resp.Body, MaxEntry+1)); err != nil {
+			r.log.DebugContext(ctx, "cache revalidation could not read the replacing body; entry kept",
+				catalog.KeyUpstream, j.Upstream, catalog.KeyError, err.Error())
+			return OutcomeKept
+		}
+	}
+	if len(body) > MaxEntry {
+		j.skipped(emit.SkipSizeLimit)
+		return r.end(ctx, j, deadline, token)
+	}
+	entry, err := j.Entry.Replace(&Replacement{
+		Status: resp.StatusCode, Header: h, Body: body, Freshness: f, InitialAge: age,
+		Requested: requested, Received: received,
+	})
+	switch {
+	case err != nil:
+		r.log.DebugContext(ctx, "cache revalidation could not encode the replacing entry; ending the stale window",
+			catalog.KeyUpstream, j.Upstream, catalog.KeyError, err.Error())
+		return r.end(ctx, j, deadline, token)
+	case len(entry) > MaxEntry:
+		j.skipped(emit.SkipSizeLimit)
+		return r.end(ctx, j, deadline, token)
+	case !j.Store.AdmitStoreBytes(j.Key, len(entry)):
+		j.skipped(emit.SkipMemory)
+		return r.end(ctx, j, deadline, token)
+	}
+	w := r.lease(ctx, j, deadline, statestore.CacheLease{Mode: statestore.LeaseRefresh, Token: token, Entry: entry, TTL: ttl, Received: received})
+	if w.Err != nil || !w.Applied {
+		return OutcomeWriteFailed
+	}
+	return OutcomeReplaced
 }
 
 // refresh applies a 304 with header nm: the freshened entry under the
@@ -709,7 +827,7 @@ func (r *Revalidator) refresh(ctx context.Context, j *Job, deadline time.Time, t
 			catalog.KeyUpstream, j.Upstream, catalog.KeyError, err.Error())
 		return r.end(ctx, j, deadline, token)
 	}
-	w := r.lease(ctx, j, deadline, statestore.CacheLease{Mode: statestore.LeaseRefresh, Token: token, Entry: entry, TTL: ttl})
+	w := r.lease(ctx, j, deadline, statestore.CacheLease{Mode: statestore.LeaseRefresh, Token: token, Entry: entry, TTL: ttl, Received: received})
 	if w.Err != nil || !w.Applied {
 		return OutcomeWriteFailed
 	}
@@ -727,9 +845,14 @@ func (r *Revalidator) end(ctx context.Context, j *Job, deadline time.Time, token
 
 // lease sends one lease operation on j's partition and variant, with the
 // smaller of the Policy's timeout and the time left before deadline; none
-// left leaves it unattempted (RZ-STS-004).
+// left leaves it unattempted (RZ-STS-004). A refresh, replacement or
+// end-stale names the entry's generation token, so it applies only while
+// the URI's generation key holds it.
 func (r *Revalidator) lease(ctx context.Context, j *Job, deadline time.Time, l statestore.CacheLease) *statestore.Write {
 	l.Key, l.Variant = j.Key, j.Variant
+	if l.Mode != statestore.LeaseTake {
+		l.Generation = j.Entry.Token()
+	}
 	w := &statestore.Write{
 		Kind:    statestore.OpCacheSet,
 		Timeout: max(min(j.Timeout, deadline.Sub(r.clk.Now())), 0),

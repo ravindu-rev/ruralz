@@ -7,7 +7,8 @@
 // with rzplg: reserved for Plugin state, the escaping of free-form names,
 // the hash tags that keep one partition in one Redis Cluster slot, the
 // CRC16 slot function, the Response Cache generation, partition and lease
-// keys with their hash fields, and the entry MAC.
+// keys with their hash fields and the generation token's text, and the
+// entry MAC.
 //
 // Every builder appends to dst and allocates nothing when dst has the
 // capacity; the layout is a compatibility surface (the release document's
@@ -48,9 +49,11 @@ func Reserved(key string) bool { return strings.HasPrefix(key, PrefixPlugin) }
 
 // Response Cache key suffixes and partition hash fields. A variant field
 // is its prefix followed by the lowercase hex SHA-256 of the
-// Vary-selected values (V).
+// Vary-selected values (V). A variant has no generation field: its entry
+// records the generation token it was written under, inside the MAC.
 const (
-	// SuffixGeneration ends the per-URI generation key.
+	// SuffixGeneration ends the per-URI generation key, which holds the
+	// URI's generation token (AppendToken).
 	SuffixGeneration = ":gen"
 	// SuffixLease ends the per-partition fill and revalidation lease key.
 	SuffixLease = ":lease"
@@ -58,9 +61,8 @@ const (
 	FieldNames = "n"
 	// FieldOrder holds the variant digests in store order (at most 8).
 	FieldOrder = "o"
-	// FieldGeneration prefixes a variant's generation (g:<V>).
-	FieldGeneration = "g:"
-	// FieldTime prefixes a variant's store time in server milliseconds (t:<V>).
+	// FieldTime prefixes a variant's store time in server milliseconds,
+	// less the time the write waited since its response arrived (t:<V>).
 	FieldTime = "t:"
 	// FieldEntry prefixes a variant's opaque, MAC-tagged entry (e:<V>).
 	FieldEntry = "e:"
@@ -78,6 +80,9 @@ const (
 	CacheLeaseLen = CachePartitionLen + len(SuffixLease)
 	// FieldLen is the length of a variant field name.
 	FieldLen = 2 + HexLen
+	// TokenLen is the length of a generation token as the generation key
+	// holds it: 32 lowercase hex characters.
+	TokenLen = 2 * len(statestore.Token{})
 )
 
 // upperHex is the digit set of %XX escapes; hexDigits that of digests.
@@ -276,9 +281,42 @@ func AppendCacheLease(dst []byte, k statestore.CacheKey) []byte {
 	return append(dst, SuffixLease...)
 }
 
-// AppendField appends a variant field name: prefix (FieldGeneration,
-// FieldTime or FieldEntry) followed by the hex of the variant digest.
+// AppendField appends a variant field name: prefix (FieldTime or
+// FieldEntry) followed by the hex of the variant digest.
 func AppendField(dst []byte, prefix string, variant statestore.Digest) []byte {
 	dst = append(dst, prefix...)
 	return AppendHex(dst, variant)
+}
+
+// AppendToken appends a generation token as the generation key holds it:
+// 32 lowercase hex characters.
+func AppendToken(dst []byte, t statestore.Token) []byte { return hex.AppendEncode(dst, t[:]) }
+
+// ParseToken reads a generation key's value; ok is false for anything but
+// 32 lowercase hex characters, which no Node writes.
+func ParseToken(s string) (t statestore.Token, ok bool) {
+	if len(s) != TokenLen {
+		return t, false
+	}
+	for i := 0; i < len(s); i += 2 {
+		hi, okHi := lowerHex(s[i])
+		lo, okLo := lowerHex(s[i+1])
+		if !okHi || !okLo {
+			return statestore.Token{}, false
+		}
+		t[i/2] = hi<<4 | lo
+	}
+	return t, true
+}
+
+// lowerHex decodes one lowercase hex digit.
+func lowerHex(c byte) (byte, bool) {
+	switch {
+	case c >= '0' && c <= '9':
+		return c - '0', true
+	case c >= 'a' && c <= 'f':
+		return c - 'a' + 10, true
+	default:
+		return 0, false
+	}
 }

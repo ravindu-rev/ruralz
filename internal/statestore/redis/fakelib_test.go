@@ -58,6 +58,8 @@ func (s *fakeServer) library(keys, argv []string) string {
 		return s.libConsume(keys, argv, sec, usec, nowMs)
 	case opRefund:
 		return s.libRefund(keys)
+	case opGeneration:
+		return s.libGeneration(keys, argv)
 	case opStore:
 		return s.libStore(keys, argv, nowMs)
 	case opRefresh:
@@ -65,10 +67,58 @@ func (s *fakeServer) library(keys, argv []string) string {
 	case opEndStale:
 		return s.libEndStale(keys, argv)
 	case opInvalidate:
-		return s.libInvalidate(keys, sec, usec)
+		return s.libInvalidate(keys, argv)
 	default:
 		return bad("operation")
 	}
+}
+
+// Library constants.
+const (
+	libToken         = 32
+	libGenerationTTL = 93_600_000
+)
+
+// tokenOK is the library's tokenok: 32 lowercase hex characters.
+func tokenOK(t string, present bool) bool {
+	if !present || len(t) != libToken {
+		return false
+	}
+	for i := range len(t) {
+		if c := t[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *fakeServer) libGeneration(keys, argv []string) string {
+	key, okKey := luaKey(keys, 1)
+	mode, _ := luaArg(argv, 2)
+	token, present := luaArg(argv, 3)
+	if !tokenOK(token, present) {
+		return bad("token")
+	}
+	if !okKey {
+		return errorReply(badArgs)
+	}
+	if mode == genCreate {
+		if _, held := s.get(key); held {
+			return integer(0)
+		}
+		s.set(key, token, libGenerationTTL)
+		return integer(1)
+	}
+	if mode != genHold && mode != genCheck {
+		return bad("mode")
+	}
+	if v, held := s.get(key); !held || v != token {
+		return integer(0)
+	}
+	if mode == genHold {
+		s.pexpire(key, libGenerationTTL)
+	}
+	return integer(1)
 }
 
 func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) string {
@@ -263,10 +313,10 @@ func (s *fakeServer) libStore(keys, argv []string, nowMs int64) string {
 	token, _ := luaArg(argv, 2)
 	names, _ := luaArg(argv, 3)
 	v, _ := luaArg(argv, 4)
-	gen, _ := luaArg(argv, 5)
-	ttl, okTTL := tonumber(luaArg(argv, 6))
+	ttl, okTTL := tonumber(luaArg(argv, 5))
+	delay, okDelay := tonumber(luaArg(argv, 6))
 	entry, okEntry := luaArg(argv, 7)
-	if !okTTL || ttl < 1 || !okEntry || len(v) != 64 {
+	if !okTTL || ttl < 1 || !okDelay || delay < 0 || !okEntry || len(v) != 64 {
 		return bad("store")
 	}
 	if !ok1 || !ok2 {
@@ -288,9 +338,9 @@ func (s *fakeServer) libStore(keys, argv []string, nowMs int64) string {
 	for len(order) > 8*64 {
 		old := order[:64]
 		order = order[64:]
-		s.hdel(part, "g:"+old, "t:"+old, "e:"+old)
+		s.hdel(part, "t:"+old, "e:"+old)
 	}
-	s.hset(part, keysFieldNames, names, keysFieldOrder, order, "g:"+v, gen, "t:"+v, luaInt(float64(nowMs)), "e:"+v, entry)
+	s.hset(part, keysFieldNames, names, keysFieldOrder, order, "t:"+v, luaInt(float64(nowMs)-delay), "e:"+v, entry)
 	s.pexpire(part, ttl)
 	return integer(1)
 }
@@ -301,7 +351,8 @@ func (s *fakeServer) libRefresh(keys, argv []string, nowMs int64) string {
 	v, _ := luaArg(argv, 3)
 	entry, okEntry := luaArg(argv, 4)
 	ttl, okTTL := tonumber(luaArg(argv, 5))
-	if !okTTL || ttl < 0 || !okEntry {
+	delay, okDelay := tonumber(luaArg(argv, 6))
+	if !okTTL || ttl < 0 || !okDelay || delay < 0 || !okEntry {
 		return bad("refresh")
 	}
 	if !ok1 || !ok2 {
@@ -314,7 +365,7 @@ func (s *fakeServer) libRefresh(keys, argv []string, nowMs int64) string {
 	if _, ok := s.hash(part).get("e:" + v); !ok {
 		return integer(0)
 	}
-	s.hset(part, "e:"+v, entry, "t:"+v, luaInt(float64(nowMs)))
+	s.hset(part, "e:"+v, entry, "t:"+v, luaInt(float64(nowMs)-delay))
 	if ttl > 0 {
 		s.pexpire(part, s.extend(part, ttl))
 	}
@@ -333,29 +384,23 @@ func (s *fakeServer) libEndStale(keys, argv []string) string {
 		return integer(0)
 	}
 	if _, ok := s.hash(part).get("e:" + v); ok {
-		s.hdel(part, "g:"+v, "t:"+v, "e:"+v)
+		s.hdel(part, "t:"+v, "e:"+v)
 		order, _ := s.hash(part).get(keysFieldOrder)
 		s.hset(part, keysFieldOrder, drop(order, v))
 	}
 	return integer(1)
 }
 
-func (s *fakeServer) libInvalidate(keys []string, sec, usec int64) string {
+func (s *fakeServer) libInvalidate(keys, argv []string) string {
+	token, present := luaArg(argv, 2)
+	if !tokenOK(token, present) {
+		return bad("token")
+	}
 	key, ok := luaKey(keys, 1)
 	if !ok {
 		return errorReply(badArgs)
 	}
-	g := float64(sec*1_000_000 + usec)
-	if v, held := s.get(key); held {
-		cur, ok := tonumber(v, true)
-		if !ok {
-			return bad("generation")
-		}
-		if cur+1 > g {
-			g = cur + 1
-		}
-	}
-	s.set(key, luaInt(g), 93_600_000)
+	s.set(key, token, libGenerationTTL)
 	return integer(1)
 }
 

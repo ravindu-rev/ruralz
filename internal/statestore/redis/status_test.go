@@ -52,25 +52,27 @@ func TestStatusTransport(t *testing.T) {
 	}
 }
 
-// TestStatusEvictionPolicy checks Status's eviction policy: yes for
-// noeviction, no for another policy, unknown without the field, which the
-// driver logs once.
+// TestStatusEvictionPolicy checks Status's eviction policies: for limit
+// keys yes for noeviction, no for another policy; for Response Cache
+// entries yes for noeviction or volatile-ttl, no for another policy; both
+// unknown without the field, which the driver logs once.
 func TestStatusEvictionPolicy(t *testing.T) {
 	for _, tc := range []struct {
-		policy string
-		want   statestore.Tristate
-		logs   int
+		policy      string
+		want, cache statestore.Tristate
+		logs        int
 	}{
-		{noEviction, statestore.Yes, 0},
-		{"allkeys-lru", statestore.No, 0},
-		{"", statestore.Unknown, 1},
+		{noEviction, statestore.Yes, statestore.Yes, 0},
+		{volatileTTL, statestore.No, statestore.Yes, 0},
+		{"allkeys-lru", statestore.No, statestore.No, 0},
+		{"", statestore.Unknown, statestore.Unknown, 1},
 	} {
 		t.Run(tc.policy, func(t *testing.T) {
 			f := newFixture(t, fixtureOptions{fake: fakeOptions{info: memInfo(100, 10_000, tc.policy)}})
 			f.ready()
 			f.readingOf(100, 0)
-			if got := f.d.Status().EvictionPolicy; got != tc.want {
-				t.Fatalf("eviction policy %v, want %v", got, tc.want)
+			if st := f.d.Status(); st.EvictionPolicy != tc.want || st.CacheEvictionPolicy != tc.cache {
+				t.Fatalf("eviction policy %v for limits and %v for cache entries, want %v and %v", st.EvictionPolicy, st.CacheEvictionPolicy, tc.want, tc.cache)
 			}
 			f.srv.setInfo(memInfo(101, 10_000, tc.policy))
 			f.readingOf(101, time.Second)

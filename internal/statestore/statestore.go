@@ -259,17 +259,49 @@ type Quota struct {
 // the partition value.
 type CacheKey struct{ URI, Partition Digest }
 
-// CacheLookup is the pipelined lookup: GET generation, HMGET partition.
+// Token is a Response Cache generation token
+// (docs/architecture/11-scalability-and-distributed-state.md "Response
+// Cache layout"): 128 random bits the Node draws for each creation and
+// each bump of a URI's generation key, which holds them as 32 lowercase
+// hex characters. Every entry records the token it was written under, and
+// a lookup hits only while the generation key holds it, so an entry never
+// outlives an invalidation, an eviction or an expiry of its key. A counter
+// or a time could repeat once the key is gone; 128 random bits do not. The
+// Node never draws the zero Token, which therefore means "none".
+type Token [16]byte
+
+// IsZero reports the zero Token.
+func (t Token) IsZero() bool { return t == Token{} }
+
+// CacheLookup is the pipelined lookup of one variant: a GET of the URI's
+// generation key, an HMGET of the partition's names n, the variant's store
+// time t:<V> and its entry e:<V>, and TIME on the partition's shard; read
+// only, so it never runs a script.
 type CacheLookup struct {
 	Key     CacheKey
 	Variant Digest
+	// SkipToken leaves the generation key unread: the Node's hot-entry
+	// layer holds its token, read within the last second, in Token and
+	// HasToken, which the driver keeps.
+	SkipToken bool
 
-	Generation int64
-	Names      string
-	Found      bool
-	EntryGen   int64
-	// Entry is opaque and MAC-verified; valid until the Call is reused.
+	// HasToken reports that the generation key exists and Token is the
+	// token it holds.
+	Token    Token
+	HasToken bool
+	// Partition reports that the partition exists (it holds n), and Names
+	// is n: the Vary names the partition was stored under, "" without
+	// Vary.
+	Partition bool
+	Names     string
+	// Found reports the variant's entry. Entry is opaque and MAC-verified;
+	// valid until the Call is reused.
+	Found bool
 	Entry []byte
+	// Resident is how long the variant has been stored, on the State
+	// Store's clock: the partition shard's TIME minus t:<V>, never
+	// negative, so Node clock skew never changes an age.
+	Resident time.Duration
 }
 
 // Call is one Policy's blocking operation and outcome; callers own it.
@@ -302,15 +334,36 @@ type Refund struct {
 	Digest      Digest
 }
 
-// CacheStore stores one variant under the partition's fill lease.
+// CacheStore stores one variant under the partition's fill lease, in two
+// steps, each one script: the generation step on the generation key's
+// shard, then, only when it applied, the partition step on the partition's
+// shard. The generation step checks that the URI's generation key still
+// holds Generation and refreshes its 26 h TTL, or, with Create, creates
+// the key holding Generation (SET NX) and fails when a key appeared
+// meanwhile; the partition step takes the 1 s fill lease (SET NX PX) and
+// writes only under it. The two keys hash to different Redis Cluster slots,
+// so one script cannot hold both; since an entry hits only while the
+// generation key holds the token it records, an invalidation between the
+// steps leaves the new entry unservable, never stale. Applied reports that
+// both steps applied.
 type CacheStore struct {
-	Key        CacheKey
-	Names      string
-	Variant    Digest
-	Generation int64
-	TTL        time.Duration
-	Entry      []byte
-	Token      uint64
+	Key     CacheKey
+	Names   string
+	Variant Digest
+	// Generation is the token the entry is written under: the one the
+	// store's lookup read, or, with Create, a fresh one.
+	Generation Token
+	// Create reports that the store's lookup found no generation key: the
+	// generation step creates it holding Generation.
+	Create bool
+	TTL    time.Duration
+	Entry  []byte
+	// Received is when the response arrived, on the Node clock: the
+	// partition step records t:<V> as its script's TIME minus the time the
+	// write waited since then, which the driver passes.
+	Received time.Time
+	// Token is the fill lease holder's value.
+	Token uint64
 }
 
 // LeaseMode selects a revalidation lease operation.
@@ -324,12 +377,16 @@ const (
 )
 
 // CacheLease takes, uses or ends the partition's revalidation lease.
-// Refresh and end-stale act only while the lease holds Token, and neither
-// releases the lease, which expires after its 5 s.
+// LeaseRefresh and LeaseEndStale act only while the lease holds Token and
+// the URI's generation key holds Generation, the token the entry was
+// written under, and neither releases the lease, which expires after its
+// 5 s. Like a store, each runs a generation step (a check, which a refresh
+// follows with the key's 26 h TTL) on the generation key's shard, then,
+// only when it applied, the lease step on the partition's shard.
 type CacheLease struct {
 	// Key is the partition the lease guards.
 	Key CacheKey
-	// Variant is the variant LeaseRefresh refreshes and LeaseEndStale
+	// Variant is the variant LeaseRefresh rewrites and LeaseEndStale
 	// deletes; LeaseTake ignores it.
 	Variant Digest
 	// Mode selects the operation.
@@ -337,7 +394,11 @@ type CacheLease struct {
 	// Token identifies the holder: LeaseTake stores it, and LeaseRefresh
 	// and LeaseEndStale act only while the lease still holds it.
 	Token uint64
-	// Entry is the refreshed entry bytes, LeaseRefresh only.
+	// Generation is the token the variant's entry was written under;
+	// LeaseTake ignores it.
+	Generation Token
+	// Entry is the variant's new entry, LeaseRefresh only: the stored
+	// response freshened by a 304, or a full response that replaces it.
 	Entry []byte
 	// TTL applies only to LeaseRefresh, where it extends the partition as
 	// CacheStore.TTL does (the larger of the remaining TTL and the entry
@@ -345,6 +406,10 @@ type CacheLease struct {
 	// lease is fixed at 5 s (SET NX PX 5000); LeaseEndStale ignores it
 	// too.
 	TTL time.Duration
+	// Received is when the 304 or the full response arrived, on the Node
+	// clock, LeaseRefresh only: t:<V> becomes the script's TIME minus the
+	// time the write waited since then.
+	Received time.Time
 }
 
 // Write is one post-commit write.
@@ -362,9 +427,24 @@ type Write struct {
 	Cache      CacheStore
 	Lease      CacheLease
 	Invalidate Digest // URI digest for OpCacheInvalidate
+	// Bump is the fresh token OpCacheInvalidate sets the URI's generation
+	// key to (SET with the 26 h TTL), so no entry written under an earlier
+	// token hits again.
+	Bump Token
 
 	Err     *Error
 	Applied bool
+}
+
+// ReceiptDelay returns how long a write has waited since its response
+// arrived at received, on the Node clock now: the delay a store, refresh
+// or replacement passes so its script records t:<V> as its TIME minus it.
+// A zero received, or a clock that went back, is no delay.
+func ReceiptDelay(received, now time.Time) time.Duration {
+	if received.IsZero() {
+		return 0
+	}
+	return max(now.Sub(received), 0)
 }
 
 // WriteClass is a post-commit queue class.
@@ -428,9 +508,18 @@ type Status struct {
 	// arrived; no reason is raised and the driver logs one WARN. The
 	// precedence is No, then Unknown, then Yes. The memory driver reports
 	// Yes.
-	EvictionPolicy  Tristate
-	Cleartext       bool
-	Unauthenticated bool
+	EvictionPolicy Tristate
+	// CacheEvictionPolicy reports a maxmemory-policy a Response Cache
+	// connection tolerates, noeviction or volatile-ttl
+	// (docs/architecture/09-traffic-management-and-resilience.md "Response
+	// caching"): Yes when every shard's latest reading reports one of them,
+	// No when any shard reports another policy, and Unknown otherwise, with
+	// EvictionPolicy's precedence; state_store_eviction_policy is raised
+	// while a cache Policy uses a store reporting No. The memory driver
+	// reports Yes.
+	CacheEvictionPolicy Tristate
+	Cleartext           bool
+	Unauthenticated     bool
 }
 
 // Tristate is yes, no or unknown.

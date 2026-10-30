@@ -14,13 +14,23 @@
 --      Quota unit in the window the server's TIME picks from the Node's
 --      two candidates
 --   r  returns one Quota unit, never below 0 and never creating a key
---   s  stores a Response Cache variant under the 1 s fill lease
---   f  refreshes a variant after a 304, under the revalidation lease
+--   n  the generation step of a Response Cache store, refresh or
+--      end-stale, on the URI's generation key: c creates it holding the
+--      Node's token unless a key exists (SET NX), h checks that it holds
+--      the token and renews its 26 h TTL, v only checks; a store or lease
+--      write runs its partition step only after this step applied, since
+--      the two keys hash to different cluster slots
+--   s  stores a Response Cache variant under the 1 s fill lease, its
+--      store time the server time less the write's receipt delay
+--   f  rewrites a variant with an entry a 304 freshened or a full
+--      response replaced, under the revalidation lease, its store time
+--      the server time less the write's receipt delay
 --   x  ends a variant's stale window, under the revalidation lease
---   i  bumps a URI's generation to the server time in microseconds
+--   i  bumps a URI's generation key to the Node's token
 --
 -- Numbers cross as text: TATs with %.17g, which reads back exactly,
 -- integers with %.0f, so no server's number conversion rounds them.
+-- Generation tokens are 32 lowercase hex characters.
 
 local op = ARGV[1]
 local clock = redis.call('TIME')
@@ -29,10 +39,13 @@ local usec = tonumber(clock[2])
 local now_ms = sec * 1000 + math.floor(usec / 1000)
 
 -- A variant digest is 64 hex characters; a partition keeps 8 variants and
--- lives at most 25 h.
+-- lives at most 25 h; a generation key holds a 32-character token for
+-- 26 h after its creation, a bump or a store under it.
 local DIGEST = 64
 local MAX_ORDER = 8 * DIGEST
 local MAX_PARTITION_TTL = 90000000
+local TOKEN = 32
+local GENERATION_TTL = '93600000'
 
 local function int(n)
   return string.format('%.0f', n)
@@ -40,6 +53,11 @@ end
 
 local function bad(what)
   return redis.error_reply('ERR ruralz_v1 bad ' .. what)
+end
+
+-- tokenok reports a generation token: 32 lowercase hex characters.
+local function tokenok(t)
+  return t ~= nil and string.len(t) == TOKEN and not string.find(t, '[^0-9a-f]')
 end
 
 -- drop returns the variant order without variant v.
@@ -193,14 +211,38 @@ if op == 'r' then
   return 1
 end
 
+if op == 'n' then
+  local mode = ARGV[2]
+  local token = ARGV[3]
+  if not tokenok(token) then
+    return bad('token')
+  end
+  if mode == 'c' then
+    if redis.call('SET', KEYS[1], token, 'NX', 'PX', GENERATION_TTL) then
+      return 1
+    end
+    return 0
+  end
+  if mode ~= 'h' and mode ~= 'v' then
+    return bad('mode')
+  end
+  if redis.call('GET', KEYS[1]) ~= token then
+    return 0
+  end
+  if mode == 'h' then
+    redis.call('PEXPIRE', KEYS[1], GENERATION_TTL)
+  end
+  return 1
+end
+
 if op == 's' then
   local token = ARGV[2]
   local names = ARGV[3]
   local v = ARGV[4]
-  local gen = ARGV[5]
-  local ttl = tonumber(ARGV[6])
+  local ttl = tonumber(ARGV[5])
+  local delay = tonumber(ARGV[6])
   local entry = ARGV[7]
-  if not ttl or ttl < 1 or not entry or string.len(v) ~= DIGEST then
+  if not ttl or ttl < 1 or not delay or delay < 0 or not entry or string.len(v) ~= DIGEST then
     return bad('store')
   end
   if redis.call('EXISTS', KEYS[2]) == 1 then
@@ -219,9 +261,9 @@ if op == 's' then
   while string.len(order) > MAX_ORDER do
     local old = string.sub(order, 1, DIGEST)
     order = string.sub(order, DIGEST + 1)
-    redis.call('HDEL', KEYS[1], 'g:' .. old, 't:' .. old, 'e:' .. old)
+    redis.call('HDEL', KEYS[1], 't:' .. old, 'e:' .. old)
   end
-  redis.call('HSET', KEYS[1], 'n', names, 'o', order, 'g:' .. v, gen, 't:' .. v, int(now_ms), 'e:' .. v, entry)
+  redis.call('HSET', KEYS[1], 'n', names, 'o', order, 't:' .. v, int(now_ms - delay), 'e:' .. v, entry)
   redis.call('PEXPIRE', KEYS[1], int(ttl))
   return 1
 end
@@ -230,7 +272,8 @@ if op == 'f' then
   local v = ARGV[3]
   local entry = ARGV[4]
   local ttl = tonumber(ARGV[5])
-  if not ttl or ttl < 0 or not entry then
+  local delay = tonumber(ARGV[6])
+  if not ttl or ttl < 0 or not delay or delay < 0 or not entry then
     return bad('refresh')
   end
   if redis.call('GET', KEYS[2]) ~= ARGV[2] then
@@ -239,7 +282,7 @@ if op == 'f' then
   if redis.call('HEXISTS', KEYS[1], 'e:' .. v) == 0 then
     return 0
   end
-  redis.call('HSET', KEYS[1], 'e:' .. v, entry, 't:' .. v, int(now_ms))
+  redis.call('HSET', KEYS[1], 'e:' .. v, entry, 't:' .. v, int(now_ms - delay))
   if ttl > 0 then
     redis.call('PEXPIRE', KEYS[1], int(extend(KEYS[1], ttl)))
   end
@@ -252,25 +295,18 @@ if op == 'x' then
     return 0
   end
   if redis.call('HEXISTS', KEYS[1], 'e:' .. v) == 1 then
-    redis.call('HDEL', KEYS[1], 'g:' .. v, 't:' .. v, 'e:' .. v)
+    redis.call('HDEL', KEYS[1], 't:' .. v, 'e:' .. v)
     redis.call('HSET', KEYS[1], 'o', drop(redis.call('HGET', KEYS[1], 'o') or '', v))
   end
   return 1
 end
 
 if op == 'i' then
-  local g = sec * 1000000 + usec
-  local v = redis.call('GET', KEYS[1])
-  if v then
-    local cur = tonumber(v)
-    if not cur then
-      return bad('generation')
-    end
-    if cur + 1 > g then
-      g = cur + 1
-    end
+  local token = ARGV[2]
+  if not tokenok(token) then
+    return bad('token')
   end
-  redis.call('SET', KEYS[1], int(g), 'PX', '93600000')
+  redis.call('SET', KEYS[1], token, 'PX', GENERATION_TTL)
   return 1
 end
 

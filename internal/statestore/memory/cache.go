@@ -15,8 +15,20 @@ import (
 const (
 	fillLeaseMs       = 1000       // store fill lease, 1 s
 	revalidateLeaseMs = 5000       // revalidation lease, 5 s
-	generationTTLMs   = 93_600_000 // generation keys, 26 h after the last bump
+	generationTTLMs   = 93_600_000 // generation keys, 26 h after a creation, bump or store
 	maxPartitionTTLMs = 90_000_000 // partitions, at most 25 h
+)
+
+// Generation step modes, as the library's n script takes them.
+const (
+	// genCreate creates the key holding the token (SET NX) and fails when
+	// a key exists.
+	genCreate uint8 = iota + 1
+	// genHold checks that the key holds the token and refreshes its 26 h
+	// TTL: a store, refresh or replacement under the token.
+	genHold
+	// genCheck only checks that the key holds the token: an end-stale.
+	genCheck
 )
 
 // ceilMs returns d in milliseconds, rounded up.
@@ -27,6 +39,13 @@ func ceilMs(d time.Duration) int64 {
 // entryTTL is a store's TTL in milliseconds within [1 ms, 25 h]: no key
 // is ever written without a TTL.
 func entryTTL(d time.Duration) int64 { return min(max(ceilMs(d), 1), maxPartitionTTLMs) }
+
+// delayMs returns the receipt delay of a write whose response arrived at
+// received on the Node clock, in whole milliseconds: the store time t:<V>
+// is the server time less it.
+func (d *Driver) delayMs(received time.Time) int64 {
+	return int64(statestore.ReceiptDelay(received, d.node.Now()) / time.Millisecond)
+}
 
 // reserveBytes takes n cache entry bytes from the 64 MiB bound; false
 // means the store is full (a noeviction refusal, RZ-STS-002).
@@ -70,38 +89,42 @@ func (d *Driver) sealEntry(k statestore.CacheKey, v statestore.Digest, entry []b
 	return d.mac.Seal(dst, keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), entry)
 }
 
-// lookup is the pipelined lookup: GET rz:rc:{U}:gen and HMGET
-// rz:rc:{U:P} n g:<V> e:<V>. The entry is copied into c.Entry's storage
-// and checked against its MAC; a missing or wrong tag is a miss, never
-// an error.
+// lookup is the pipelined lookup: GET rz:rc:{U}:gen (unless SkipToken),
+// HMGET rz:rc:{U:P} n t:<V> e:<V> and TIME on the partition's shard, the
+// injected server clock. The entry is copied into c.Entry's storage and
+// checked against its MAC; a missing or wrong tag is a miss, never an
+// error.
 func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now instant) {
 	k := c.Key
-	gs := d.shardOf(int(keys.DigestSlot(k.URI)))
-	var gen int64
-	gs.mu.Lock()
-	if e, held := gs.gen[k.URI]; held && !expired(e.exp, now.ms) {
-		gen = e.n
+	if !c.SkipToken {
+		c.Token, c.HasToken = statestore.Token{}, false
+		gs := d.shardOf(int(keys.DigestSlot(k.URI)))
+		gs.mu.Lock()
+		if e, held := gs.gen[k.URI]; held && !expired(e.exp, now.ms) {
+			c.Token, c.HasToken = e.token, true
+		}
+		gs.mu.Unlock()
 	}
-	gs.mu.Unlock()
 
 	ps := d.shardOf(int(keys.PartitionSlot(k)))
 	buf := c.Entry[:0]
-	names, found, entryGen := "", false, int64(0)
+	names, part, found, stored := "", false, false, int64(0)
 	ps.mu.Lock()
 	if p := d.livePartition(ps, k, now.ms); p != nil {
-		names = p.names
+		names, part = p.names, true
 		if i := p.find(c.Variant); i >= 0 {
 			v := &p.variants[i]
-			entryGen, found = v.gen, true
+			stored, found = v.t, true
 			buf = append(buf, v.entry...)
 		}
 	}
 	ps.mu.Unlock()
 
-	c.Generation, c.Names, c.EntryGen, c.Found, c.Entry = gen, names, entryGen, false, buf[:0]
+	c.Partition, c.Names, c.Found, c.Entry, c.Resident = part, names, false, buf[:0], 0
 	if !found {
 		return
 	}
+	c.Resident = time.Duration(max(now.ms-stored, 0)) * time.Millisecond
 	entry := buf
 	if d.mac != nil {
 		var ok bool
@@ -123,15 +146,60 @@ func (d *Driver) openEntry(k statestore.CacheKey, v statestore.Digest, stored []
 	return d.mac.Open(keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), stored)
 }
 
-// store runs sub-operation s: take the 1 s fill lease or write nothing;
-// drop the partition when its names differ; write names, the variant's
-// generation, store time and entry; keep at most 8 variants in store
-// order, dropping the oldest; extend the partition's TTL to the larger of
-// its remaining TTL and the entry TTL, capped at 25 h. applied is false
-// when the lease was held; ok is false for a full store.
+// generation runs the generation step (the library's n script) on uri's
+// generation key: genCreate creates it holding token unless a key exists,
+// genHold applies while it holds token and refreshes its 26 h TTL, and
+// genCheck applies while it holds token. applied is false when the key
+// does not qualify; ok is false for a full shard.
+func (d *Driver) generation(uri statestore.Digest, token statestore.Token, mode uint8, now instant) (applied, ok bool) {
+	s := d.shardOf(int(keys.DigestSlot(uri)))
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	e, held := s.gen[uri]
+	live := held && !expired(e.exp, now.ms)
+	switch mode {
+	case genCreate:
+		if live {
+			return false, true
+		}
+		if !d.room(s, 1, now.ms) {
+			return false, false
+		}
+	case genHold, genCheck:
+		if !live || e.token != token {
+			return false, true
+		}
+		if mode == genCheck {
+			return true, true
+		}
+	default:
+		return false, false
+	}
+	s.gen[uri] = genEntry{token: token, exp: now.ms + generationTTLMs}
+	s.track(now.ms + generationTTLMs)
+	return true, true
+}
+
+// store runs a store's two steps. The generation step creates the URI's
+// generation key holding w.Generation (w.Create) or checks that it still
+// holds it, refreshing its 26 h TTL; only then the partition step takes
+// the 1 s fill lease or writes nothing, drops the partition when its names
+// differ, writes names, the variant's store time (the server time less the
+// write's receipt delay) and entry, keeps at most 8 variants in store
+// order, dropping the oldest, and extends the partition's TTL to the
+// larger of its remaining TTL and the entry TTL, capped at 25 h. applied is
+// false when a step did not apply; ok is false for a full store.
 func (d *Driver) store(w *statestore.CacheStore, now instant) (applied, ok bool) {
+	mode := genHold
+	if w.Create {
+		mode = genCreate
+	}
+	if applied, ok := d.generation(w.Key.URI, w.Generation, mode, now); !applied || !ok {
+		return false, ok
+	}
 	k := w.Key
 	stored := d.sealEntry(k, w.Variant, w.Entry)
+	at := now.ms - d.delayMs(w.Received)
 	s := d.shardOf(int(keys.PartitionSlot(k)))
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -184,7 +252,7 @@ func (d *Driver) store(w *statestore.CacheStore, now instant) (applied, ok bool)
 	if i := p.find(w.Variant); i >= 0 {
 		p.remove(i)
 	}
-	p.variants = append(p.variants, variant{v: w.Variant, gen: w.Generation, t: now.ms, entry: stored})
+	p.variants = append(p.variants, variant{v: w.Variant, t: at, entry: stored})
 	p.bytes += int64(len(stored))
 	for len(p.variants) > maxVariants {
 		p.remove(0)
@@ -201,10 +269,13 @@ func holds(s *shard, k statestore.CacheKey, token uint64, nowMs int64) bool {
 }
 
 // lease runs a revalidation lease operation: take the 5 s lease (SET NX
-// PX 5000; w.TTL does not change it, as the script takes none), refresh
-// a variant's entry after a 304 (script f, which extends the partition
-// by w.TTL like a store), or end the stale window by deleting the
-// variant (script x); refresh and end-stale act only while the lease
+// PX 5000; w.TTL does not change it, as the take sends none), rewrite a
+// variant's entry with a freshened or replacing one (script f, which
+// extends the partition by w.TTL like a store and records the store time
+// less the receipt delay), or end the stale window by deleting the variant
+// (script x). Refresh and end-stale first run the generation step, which
+// applies only while the URI's generation key holds w.Generation (a
+// refresh also renews its 26 h TTL), and then act only while the lease
 // holds the caller's token. ok is false for an unknown mode or a full
 // store.
 func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool) {
@@ -224,7 +295,11 @@ func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool)
 		s.track(now.ms + revalidateLeaseMs)
 		return true, true
 	case statestore.LeaseRefresh:
+		if applied, ok := d.generation(k.URI, w.Generation, genHold, now); !applied || !ok {
+			return false, ok
+		}
 		stored := d.sealEntry(k, w.Variant, w.Entry)
+		at := now.ms - d.delayMs(w.Received)
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if !holds(s, k, w.Token, now.ms) {
@@ -243,7 +318,7 @@ func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool)
 		if !d.reserveBytes(delta) {
 			return false, false
 		}
-		v.entry, v.t = stored, now.ms
+		v.entry, v.t = stored, at
 		p.bytes += delta
 		if w.TTL > 0 {
 			p.exp = now.ms + min(max(p.exp-now.ms, entryTTL(w.TTL)), maxPartitionTTLMs)
@@ -251,6 +326,9 @@ func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool)
 		}
 		return true, true
 	case statestore.LeaseEndStale:
+		if applied, ok := d.generation(k.URI, w.Generation, genCheck, now); !applied || !ok {
+			return false, ok
+		}
 		s.mu.Lock()
 		defer s.mu.Unlock()
 		if !holds(s, k, w.Token, now.ms) {
@@ -267,26 +345,19 @@ func (d *Driver) lease(w *statestore.CacheLease, now instant) (applied, ok bool)
 	}
 }
 
-// invalidate runs sub-operation i: the URI's generation becomes the
-// server time in microseconds since the Unix epoch, or the stored value
-// plus one when that is not greater, so a generation is never reused;
-// the key expires 26 h after the bump. Generation bumps bypass the
-// memory rules of AdmitStoreBytes.
-func (d *Driver) invalidate(uri statestore.Digest, now instant) (applied, ok bool) {
+// invalidate runs sub-operation i: the URI's generation key takes the
+// fresh token the Node passes, for 26 h, so no entry written under an
+// earlier token hits again. Generation bumps bypass the memory rules of
+// AdmitStoreBytes.
+func (d *Driver) invalidate(uri statestore.Digest, token statestore.Token, now instant) (applied, ok bool) {
 	s := d.shardOf(int(keys.DigestSlot(uri)))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, held := s.gen[uri]
-	live := held && !expired(e.exp, now.ms)
-	var cur int64
-	if live {
-		cur = e.n
-	}
-	g := max(now.unixUs, cur+1)
-	if !live && !d.room(s, 1, now.ms) {
+	if live := held && !expired(e.exp, now.ms); !live && !d.room(s, 1, now.ms) {
 		return false, false
 	}
-	s.gen[uri] = countEntry{n: g, exp: now.ms + generationTTLMs}
+	s.gen[uri] = genEntry{token: token, exp: now.ms + generationTTLMs}
 	s.track(now.ms + generationTTLMs)
 	return true, true
 }

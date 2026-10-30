@@ -47,6 +47,13 @@ func (v *view) Host() string { return v.req.Host }
 // Path implements filter.Exchange: the one normalized path.
 func (v *view) Path() string { return v.path }
 
+// Received implements filter.Exchange: the client request as it arrived.
+func (v *view) Received() filter.Received { return (*Request)(v).received() }
+
+// LegResponse implements filter.Exchange: the leg response kept for the
+// Response Cache store.
+func (v *view) LegResponse() (int, http.Header) { return v.legStatus, v.legHdr }
+
 // Header implements filter.Exchange: the client request's live header map.
 func (v *view) Header() http.Header { return v.hdr }
 
@@ -116,6 +123,7 @@ func (v *view) Annotate(key string, val slog.Value) {
 // RejectedAfter for the calling Policy.
 func (v *view) Final() filter.Final {
 	f := v.final
+	f.LegStatus = v.legStatus
 	f.RejectedAfter = (*Request)(v).rejectedAfter(v.cur)
 	return f
 }

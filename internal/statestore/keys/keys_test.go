@@ -53,9 +53,9 @@ func goldenKeys() [][2]string {
 		{"cache-generation", s(AppendCacheGeneration(nil, u))},
 		{"cache-partition", s(AppendCachePartition(nil, ck))},
 		{"cache-lease", s(AppendCacheLease(nil, ck))},
+		{"cache-token", s(AppendToken(nil, statestore.Token{0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32}))},
 		{"field-names", FieldNames},
 		{"field-order", FieldOrder},
-		{"field-generation", s(AppendField(nil, FieldGeneration, v))},
 		{"field-time", s(AppendField(nil, FieldTime, v))},
 		{"field-entry", s(AppendField(nil, FieldEntry, v))},
 		{"digest-empty", s(AppendHex(nil, statestore.DigestOf("")))},
@@ -133,6 +133,33 @@ func TestKeyLayoutShapes(t *testing.T) {
 	}
 	if n := len(AppendField(nil, FieldEntry, ck.URI)); n != FieldLen {
 		t.Errorf("field length %d, want FieldLen %d", n, FieldLen)
+	}
+}
+
+func TestGenerationToken(t *testing.T) {
+	// A generation key holds its 128-bit token as 32 lowercase hex
+	// characters, the value ParseToken reads back; anything else is not
+	// a token any Node writes.
+	tok := statestore.Token{0x00, 0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef, 0xfe, 0xdc, 0xba, 0x98, 0x76, 0x54, 0x32}
+	text := string(AppendToken(nil, tok))
+	if text != "000123456789abcdeffedcba98765432" || len(text) != TokenLen {
+		t.Fatalf("AppendToken = %q, want 32 lowercase hex characters", text)
+	}
+	if got, ok := ParseToken(text); !ok || got != tok {
+		t.Fatalf("ParseToken(%q) = %x, %v; want %x", text, got, ok, tok)
+	}
+	for _, bad := range []string{
+		"", "000123456789abcdeffedcba9876543", "000123456789abcdeffedcba987654321",
+		"000123456789ABCDEFFEDCBA98765432", "000123456789abcdeffedcba9876543g", "1790380800000123",
+		" 000123456789abcdeffedcba9876543",
+	} {
+		if _, ok := ParseToken(bad); ok {
+			t.Errorf("ParseToken(%q) accepted a value no Node writes", bad)
+		}
+	}
+	var buf [TokenLen]byte
+	if n := testing.AllocsPerRun(100, func() { _ = AppendToken(buf[:0], tok) }); n != 0 {
+		t.Errorf("AppendToken allocates %v times with room", n)
 	}
 }
 

@@ -45,44 +45,58 @@ func tripsOf(p *respproxy.Proxy, seq uint64, name string) (n int, trips map[uint
 }
 
 // TestLookupIsOnePipelinedRoundTrip checks pack 8.7 rule 3 for the
-// Response Cache: a lookup's GET and HMGET, and the lookups of one Read,
-// share one pipelined round trip.
+// Response Cache: a lookup's GET, HMGET and TIME, and the lookups of one
+// Read, share one pipelined round trip of read-only commands; a lookup
+// whose token the hot-entry layer holds sends no GET.
 func TestLookupIsOnePipelinedRoundTrip(t *testing.T) {
 	f, p := proxied(t)
 	seq := p.Snapshot().Seq
 	d := statestore.DigestOf("k")
 	a := lookupCall(statestore.CacheKey{URI: d, Partition: d}, d)
 	b := lookupCall(statestore.CacheKey{URI: statestore.DigestOf("u2"), Partition: d}, d)
-	f.read(a, b)
-	if a.Err != nil || b.Err != nil || a.Batch != 0 || b.Trip != statestore.TripPipeline {
-		t.Fatalf("lookups: %+v %+v", a, b)
+	hot := lookupCall(statestore.CacheKey{URI: statestore.DigestOf("u3"), Partition: d}, d)
+	hot.Lookup.SkipToken, hot.Lookup.HasToken, hot.Lookup.Token = true, true, statestore.Token{7}
+	f.read(a, b, hot)
+	if a.Err != nil || b.Err != nil || hot.Err != nil || a.Batch != 0 || b.Trip != statestore.TripPipeline {
+		t.Fatalf("lookups: %+v %+v %+v", a, b, hot)
+	}
+	if !hot.Lookup.HasToken || hot.Lookup.Token != (statestore.Token{7}) {
+		t.Fatalf("skip-token lookup lost its held token: %+v", hot.Lookup)
 	}
 	gets, gt := tripsOf(p, seq, "GET")
 	hmgets, ht := tripsOf(p, seq, "HMGET")
-	if gets != 2 || hmgets != 2 || len(gt) != 1 || len(ht) != 1 {
-		t.Fatalf("%d GET in %d round trips and %d HMGET in %d, want 2 each in one", gets, len(gt), hmgets, len(ht))
+	times, tt := tripsOf(p, seq, "TIME")
+	if gets != 2 || hmgets != 3 || times != 3 || len(gt) != 1 || len(ht) != 1 || len(tt) != 1 {
+		t.Fatalf("%d GET, %d HMGET and %d TIME in %d, %d and %d round trips; want 2, 3 and 3 in one", gets, hmgets, times, len(gt), len(ht), len(tt))
 	}
 	for trip := range gt {
-		if !ht[trip] {
-			t.Fatal("GET and HMGET went in different round trips")
+		if !ht[trip] || !tt[trip] {
+			t.Fatal("a lookup's commands went in different round trips")
 		}
 	}
-	if f.m.call(emit.StateOpPipeline, statestore.ResultOK) != 1 || f.m.ops[emit.StateOpCacheGet].n.Load() != 4 {
-		t.Fatal("the lookups are not counted as one pipeline of 4 operations")
+	if n, _ := tripsOf(p, seq, "EVALSHA"); n != 0 {
+		t.Fatal("a lookup ran a script")
+	}
+	if f.m.call(emit.StateOpPipeline, statestore.ResultOK) != 1 || f.m.ops[emit.StateOpCacheGet].n.Load() != 5 {
+		t.Fatalf("the lookups are not counted as one pipeline of 5 key reads: %d", f.m.ops[emit.StateOpCacheGet].n.Load())
 	}
 }
 
-// TestWriteBatchIsOneRoundTrip checks that one post-commit batch is one
-// pipelined round trip, labeled pipeline.
-func TestWriteBatchIsOneRoundTrip(t *testing.T) {
+// TestWriteBatchRoundTrips checks that one post-commit batch is one
+// pipelined round trip, labeled pipeline, plus a second one for the
+// partition steps of the stores whose generation step applied
+// (statestore.CacheStore): the generation key and the partition hash to
+// different cluster slots.
+func TestWriteBatchRoundTrips(t *testing.T) {
 	f, p := proxied(t)
 	seq := p.Snapshot().Seq
 	d := statestore.DigestOf("k")
 	ws := []*statestore.Write{
-		{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: d},
+		{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: statestore.DigestOf("other"), Bump: statestore.Token{1}},
 		{Kind: statestore.OpRefund, Timeout: callTO, Refund: statestore.Refund{Name: "q", Window: time.Hour, WindowStart: start(), Digest: d}},
 		{Kind: statestore.OpCacheSet, Timeout: callTO, Cache: statestore.CacheStore{
 			Key: statestore.CacheKey{URI: d, Partition: d}, Names: "n", Variant: d, TTL: time.Hour, Entry: []byte("e"), Token: 1,
+			Generation: statestore.Token{2}, Create: true,
 		}},
 	}
 	f.write(ws...)
@@ -91,12 +105,30 @@ func TestWriteBatchIsOneRoundTrip(t *testing.T) {
 			t.Fatalf("write %d: Err %v", i, w.Err)
 		}
 	}
-	n, trips := tripsOf(p, seq, "EVALSHA")
-	if n != 3 || len(trips) != 1 {
-		t.Fatalf("%d EVALSHA in %d round trips, want 3 in one", n, len(trips))
+	if !ws[2].Applied {
+		t.Fatal("store not applied")
 	}
-	if f.m.call(emit.StateOpPipeline, statestore.ResultOK) != 1 || f.m.ops[emit.StateOpRefund].n.Load() != 1 {
-		t.Fatal("the batch is not counted as one pipeline")
+	n, trips := tripsOf(p, seq, "EVALSHA")
+	if n != 4 || len(trips) != 2 {
+		t.Fatalf("%d EVALSHA in %d round trips, want 4 in two", n, len(trips))
+	}
+	if f.m.call(emit.StateOpPipeline, statestore.ResultOK) != 1 || f.m.call(emit.StateOpCacheSet, statestore.ResultOK) != 1 ||
+		f.m.ops[emit.StateOpRefund].n.Load() != 1 || f.m.ops[emit.StateOpCacheSet].n.Load() != 1 {
+		t.Fatal("the batch is not counted as one pipeline and one cache_set round trip of one store")
+	}
+	// A store whose generation step does not apply sends no partition
+	// step: one round trip.
+	seq = p.Snapshot().Seq
+	lost := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: callTO, Cache: statestore.CacheStore{
+		Key: statestore.CacheKey{URI: d, Partition: d}, Names: "n", Variant: d, TTL: time.Hour, Entry: []byte("e"), Token: 2,
+		Generation: statestore.Token{3}, Create: true,
+	}}
+	f.write(lost)
+	if lost.Err != nil || lost.Applied {
+		t.Fatalf("losing create: Err %v Applied %v", lost.Err, lost.Applied)
+	}
+	if n, trips := tripsOf(p, seq, "EVALSHA"); n != 1 || len(trips) != 1 {
+		t.Fatalf("%d EVALSHA in %d round trips for a losing create, want 1 in one", n, len(trips))
 	}
 }
 

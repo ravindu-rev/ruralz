@@ -18,11 +18,10 @@ const epoch2026 = 1767225600
 
 // instant is one reading of the server clock in the units the scripts
 // use: GCRA microseconds since the 2026 epoch, Unix milliseconds for
-// Quota windows and key expiry, Unix microseconds for generations.
+// Quota windows, key expiry and Response Cache store times.
 type instant struct {
-	us     float64
-	ms     int64
-	unixUs int64
+	us float64
+	ms int64
 }
 
 // instantOf reads t as Redis TIME would report it (seconds and
@@ -30,9 +29,8 @@ type instant struct {
 func instantOf(t time.Time) instant {
 	sec, usec := t.Unix(), int64(t.Nanosecond()/1000)
 	return instant{
-		us:     float64((sec-epoch2026)*1_000_000 + usec),
-		ms:     sec*1000 + usec/1000,
-		unixUs: sec*1_000_000 + usec,
+		us: float64((sec-epoch2026)*1_000_000 + usec),
+		ms: sec*1000 + usec/1000,
 	}
 }
 
@@ -63,10 +61,16 @@ type tatEntry struct {
 	exp int64
 }
 
-// countEntry is a stored integer: a Quota count or a generation.
+// countEntry is a stored integer: a Quota count.
 type countEntry struct {
 	n   int64
 	exp int64
+}
+
+// genEntry is a URI's generation key: the token it holds.
+type genEntry struct {
+	token statestore.Token
+	exp   int64
 }
 
 // leaseEntry is a partition's fill or revalidation lease.
@@ -78,11 +82,10 @@ type leaseEntry struct {
 // maxVariants is the most variants a partition keeps.
 const maxVariants = 8
 
-// variant is one stored variant: the fields g:<V>, t:<V> and e:<V>.
+// variant is one stored variant: the fields t:<V> and e:<V>.
 type variant struct {
 	v     statestore.Digest
-	gen   int64
-	t     int64  // store time, server ms
+	t     int64  // store time, server ms, less the write's receipt delay
 	entry []byte // stored form: entry, then its MAC tag when keyed
 }
 
@@ -121,7 +124,7 @@ type shard struct {
 	mu    sync.Mutex
 	rl    map[rlKey]tatEntry
 	qt    map[qtKey]countEntry
-	gen   map[statestore.Digest]countEntry
+	gen   map[statestore.Digest]genEntry
 	part  map[statestore.CacheKey]*partition
 	lease map[statestore.CacheKey]leaseEntry
 	// next is a lower bound of every held key's expiry (Unix ms),
@@ -135,7 +138,7 @@ type shard struct {
 func (s *shard) init() {
 	s.rl = map[rlKey]tatEntry{}
 	s.qt = map[qtKey]countEntry{}
-	s.gen = map[statestore.Digest]countEntry{}
+	s.gen = map[statestore.Digest]genEntry{}
 	s.part = map[statestore.CacheKey]*partition{}
 	s.lease = map[statestore.CacheKey]leaseEntry{}
 	s.next = math.MaxInt64

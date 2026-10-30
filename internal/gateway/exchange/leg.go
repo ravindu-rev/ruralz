@@ -686,6 +686,14 @@ func (v *legView) Path() string {
 	return ""
 }
 
+// Received implements filter.Exchange: the client request as it arrived.
+func (v *legView) Received() filter.Received {
+	if x := v.parent(); x != nil {
+		return x.received()
+	}
+	return filter.Received{}
+}
+
 // Header implements filter.Exchange: the client request headers, read-only
 // on a leg (the outgoing request's are Message().Header()).
 func (v *legView) Header() http.Header {
@@ -778,6 +786,10 @@ func (v *legView) Release(n int64) {
 		l.acct.Release(n)
 	}
 }
+
+// LegResponse implements filter.Exchange: nothing on a leg, which ends
+// before the request's leg response is known.
+func (*legView) LegResponse() (int, http.Header) { return 0, nil }
 
 // TeeResponse implements filter.Exchange: nil on a leg.
 func (*legView) TeeResponse(int64) filter.Tee { return nil }

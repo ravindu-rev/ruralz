@@ -6,13 +6,18 @@ package revalidate
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
 // Lease modes, shortened.
@@ -101,10 +106,15 @@ func TestRefreshOn304(t *testing.T) {
 		t.Errorf("initial age %v, want the 1 s response delay", r.InitialAge)
 	}
 
+	// The refresh names the entry's generation token and the 304's
+	// receipt, from which the store time's receipt delay is measured.
 	const body = "refreshed max-age=120, stale-while-revalidate=30"
 	want := []recorded{
 		{mode: take, token: 1, timeout: policyTimeout, applied: true},
-		{mode: refresh, token: 1, ttl: sec(149), timeout: policyTimeout, entry: body, applied: true},
+		{
+			mode: refresh, token: 1, generation: fixtureToken(), ttl: sec(149), timeout: policyTimeout,
+			received: start.Add(time.Second), entry: body, applied: true,
+		},
 	}
 	if got := h.store.recordedWrites(); !slices.Equal(got, want) {
 		t.Errorf("lease writes %+v, want %+v", got, want)
@@ -193,31 +203,254 @@ func runOther(t *testing.T, rv *Revalidator) {
 	})
 }
 
-// TestEndStaleOnFullResponse checks that any full response other than a
-// 5xx ends the stale window unstored, as the replay skipped the Route's
-// response Phases, and that the body is closed.
-func TestEndStaleOnFullResponse(t *testing.T) {
-	for _, status := range []int{http.StatusOK, http.StatusMovedPermanently, http.StatusNotFound, http.StatusTooManyRequests} {
+// TestReplaceOnFullResponse checks that a full response below 500 that
+// the request-path store rules accept replaces the entry under the lease,
+// as the leg delivered it: its status, header and body, freshness and age
+// go to Entry.Replace, the write names the entry's generation token, the
+// replay's receipt and the new TTL, and the body is closed.
+func TestReplaceOnFullResponse(t *testing.T) {
+	for _, status := range []int{http.StatusOK, http.StatusMovedPermanently, http.StatusNotFound} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
 			h := newHarness(t)
 			k := testKey(1)
 			h.seed(k)
 			var b *body
+			var requested, received time.Time
+			hdr := http.Header{"Etag": {`"v2"`}, "Cache-Control": {"max-age=60, stale-while-revalidate=30"}}
 			h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
-				var r *http.Response
-				r, b = respond(status, http.Header{"Etag": {`"v2"`}, "Cache-Control": {"max-age=60"}})
-				return r, nil
+				requested = h.clk.Now()
+				h.clk.Advance(2 * time.Second) // the replay's round trip
+				received = h.clk.Now()
+				rh := hdr.Clone()
+				rh["Date"] = []string{date(received)}
+				b = &body{Reader: strings.NewReader("new content")}
+				return &http.Response{StatusCode: status, Header: rh, Body: b}, nil
 			})
 			h.run()
-			h.enqueue(k, entry(staleHeader()))
+			e := entry(staleHeader())
+			h.enqueue(k, e)
+			if o := h.next(); o != OutcomeReplaced {
+				t.Fatalf("outcome %v, want replaced", o)
+			}
+			r := e.lastReplace()
+			wantFresh := Freshness{Lifetime: sec(60), Explicit: true, StaleWhileRevalidate: sec(30)}
+			switch {
+			case r == nil:
+				t.Fatal("Replace was not called")
+			case r.Status != status || string(r.Body) != "new content" || r.Header.Get("Etag") != `"v2"`:
+				t.Errorf("replacement %d %v %q", r.Status, r.Header, r.Body)
+			case r.Freshness != wantFresh:
+				t.Errorf("replacement freshness %+v, want %+v", r.Freshness, wantFresh)
+			case !r.Requested.Equal(requested) || !r.Received.Equal(received) || r.InitialAge != 2*time.Second:
+				t.Errorf("requested %v, received %v, initial age %v; want %v, %v and the 2 s delay",
+					r.Requested, r.Received, r.InitialAge, requested, received)
+			}
+			replaced := "replaced " + strconv.Itoa(status) + " new content"
+			want := []recorded{
+				{mode: take, token: 1, timeout: policyTimeout, applied: true},
+				{
+					mode: refresh, token: 1, generation: fixtureToken(), ttl: sec(88), timeout: policyTimeout,
+					received: received, entry: replaced, applied: true,
+				},
+			}
+			if got := h.store.recordedWrites(); !slices.Equal(got, want) {
+				t.Errorf("lease writes %+v, want %+v", got, want)
+			}
+			wantEntry(h, k, replaced)
+			if n := b.closed.Load(); n != 1 {
+				t.Errorf("body closed %d times, want 1", n)
+			}
+			if n := h.store.admitted.Load(); n != int64(len(replaced)) {
+				t.Errorf("memory rules saw %d bytes, want the %d of the entry", n, len(replaced))
+			}
+		})
+	}
+}
+
+// TestEndStaleOnRefusedFullResponse checks that a full response below 500
+// the request-path store rules refuse ends the stale window unstored: an
+// unstorable status or header, a partial composition response, other Vary
+// names, no TTL left, an entry that cannot be encoded, the size cap or
+// the memory rules, the last two counting in
+// ruralz_cache_store_skipped_total.
+func TestEndStaleOnRefusedFullResponse(t *testing.T) {
+	storable := http.Header{"Cache-Control": {"max-age=60"}}
+	tests := []struct {
+		name   string
+		status int
+		hdr    http.Header
+		body   string
+		setup  func(h *harness, e *testEntry)
+		skip   int // emit.Skip* reason counted, or -1
+	}{
+		{name: "partial content", status: http.StatusPartialContent, hdr: storable, skip: -1},
+		{name: "no explicit freshness", status: http.StatusOK, hdr: http.Header{"Etag": {`"v2"`}}, skip: -1},
+		{name: "no-store", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"no-store, max-age=60"}}, skip: -1},
+		{name: "Set-Cookie", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"max-age=60"}, "Set-Cookie": {"a=1"}}, skip: -1},
+		{name: "partial composition response", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"max-age=60"}, "Ruralz-Partial": {"true"}}, skip: -1},
+		{
+			name: "Authorization without permission", status: http.StatusOK, hdr: storable, skip: -1,
+			setup: func(_ *harness, e *testEntry) { e.authorized = true },
+		},
+		{
+			name: "Vary names change", status: http.StatusOK, skip: -1,
+			hdr:   http.Header{"Cache-Control": {"max-age=60"}, "Vary": {"Accept-Language"}},
+			setup: func(_ *harness, e *testEntry) { e.header["Vary"] = []string{"Accept-Encoding"} },
+		},
+		{name: "no TTL left", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"max-age=0"}}, skip: -1},
+		{
+			name: "entry encoding fails", status: http.StatusOK, hdr: storable, skip: -1,
+			setup: func(_ *harness, e *testEntry) { e.replaceErr = errors.New("bad header") },
+		},
+		{name: "body past the size cap", status: http.StatusOK, hdr: storable, body: strings.Repeat("x", MaxEntry+1), skip: emit.SkipSizeLimit},
+		{
+			name: "entry past the size cap", status: http.StatusOK, hdr: storable, skip: emit.SkipSizeLimit,
+			setup: func(_ *harness, e *testEntry) { e.replaceLen = MaxEntry + 1 },
+		},
+		{
+			name: "memory rules", status: http.StatusOK, hdr: storable, skip: emit.SkipMemory,
+			setup: func(h *harness, _ *testEntry) { h.store.refuseBytes.Store(true) },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			k := testKey(1)
+			h.seed(k)
+			e := entry(staleHeader())
+			if tt.setup != nil {
+				tt.setup(h, e)
+			}
+			h.replyFull(tt.status, tt.hdr, tt.body)
+			var skipped [emit.NumSkipReasons]emit.Counter
+			cs := make([]*counter, emit.NumSkipReasons)
+			for i := range skipped {
+				cs[i] = &counter{}
+				skipped[i] = cs[i]
+			}
+			j := h.job(k, e)
+			j.StoreSkipped = &skipped
+			h.run()
+			if !h.rv.Enqueue(j) {
+				t.Fatal("Enqueue refused the job")
+			}
 			if o := h.next(); o != OutcomeEnded {
 				t.Fatalf("outcome %v, want ended", o)
 			}
 			wantModes(t, h.store, take, endW)
 			wantEntry(h, k, "")
-			if n := b.closed.Load(); n != 1 {
-				t.Errorf("body closed %d times, want 1", n)
+			for i, c := range cs {
+				want := uint64(0)
+				if i == tt.skip {
+					want = 1
+				}
+				if n := c.n.Load(); n != want {
+					t.Errorf("store skips for reason %d = %d, want %d", i, n, want)
+				}
 			}
+		})
+	}
+}
+
+// TestUnreadableReplacementKeepsEntry checks that a replacing body that
+// fails mid-read is no response: the entry stays for stale-if-error.
+func TestUnreadableReplacementKeepsEntry(t *testing.T) {
+	h := newHarness(t)
+	k := testKey(1)
+	h.seed(k)
+	h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK, Header: http.Header{"Cache-Control": {"max-age=60"}},
+			Body: io.NopCloser(io.MultiReader(strings.NewReader("par"), iotest.ErrReader(errors.New("connection reset")))),
+		}, nil
+	})
+	h.run()
+	h.enqueue(k, entry(staleHeader()))
+	if o := h.next(); o != OutcomeKept {
+		t.Fatalf("outcome %v, want kept", o)
+	}
+	wantModes(t, h.store, take)
+	wantEntry(h, k, "stale")
+}
+
+// TestUnconditionalReplay checks that an entry without validators, such
+// as a merged aggregate response, replays unconditionally, without the
+// saved request's own preconditions or Range, and that a full response
+// then renews it.
+func TestUnconditionalReplay(t *testing.T) {
+	h := newHarness(t)
+	k := testKey(1)
+	h.seed(k)
+	e := entry(http.Header{"Cache-Control": {"max-age=60, stale-while-revalidate=30"}})
+	e.reqHeader = http.Header{"Accept": {"*/*"}, "If-None-Match": {`"client"`}, "Range": {"bytes=0-9"}}
+	h.replyFull(http.StatusOK, http.Header{"Cache-Control": {"max-age=60"}}, "merged")
+	h.run()
+	h.enqueue(k, e)
+	if o := h.next(); o != OutcomeReplaced {
+		t.Fatalf("outcome %v, want replaced", o)
+	}
+	calls := h.rp.replays()
+	if want := (http.Header{"Accept": {"*/*"}}); len(calls) != 1 || !equalHeader(calls[0].header, want) {
+		t.Errorf("replays %+v, want one with header %v", calls, want)
+	}
+	wantEntry(h, k, "replaced 200 merged")
+}
+
+// TestCompositionJob checks that a composition entry's job, which names no
+// Upstream, is accepted and replays the whole Route.
+func TestCompositionJob(t *testing.T) {
+	h := newHarness(t)
+	k := testKey(1)
+	h.seed(k)
+	h.reply304(http.Header{"Etag": {`"v1"`}})
+	j := h.job(k, entry(staleHeader()))
+	j.Upstream = ""
+	h.run()
+	if !h.rv.Enqueue(j) {
+		t.Fatal("Enqueue refused a composition job")
+	}
+	if o := h.next(); o != OutcomeRefreshed {
+		t.Fatalf("outcome %v, want refreshed", o)
+	}
+	if calls := h.rp.replays(); len(calls) != 1 || calls[0].route != testRoute || calls[0].upstream != "" {
+		t.Errorf("replays %+v, want one of Route %s without an Upstream", calls, testRoute)
+	}
+}
+
+// TestLeaseWritesNeedTheEntryToken checks that the refresh, replacement
+// and end-stale writes apply only while the URI's generation key holds
+// the token the entry was written under: after an invalidation bumps it
+// during the replay, none of them applies.
+func TestLeaseWritesNeedTheEntryToken(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		hdr    http.Header
+		mode   statestore.LeaseMode
+	}{
+		{name: "refresh", status: http.StatusNotModified, hdr: http.Header{"Etag": {`"v1"`}}, mode: refresh},
+		{name: "replacement", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"max-age=60"}}, mode: refresh},
+		{name: "end-stale", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"no-store"}}, mode: endW},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHarness(t)
+			k := testKey(1)
+			h.seed(k)
+			h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
+				h.bump(k)
+				return &http.Response{StatusCode: tt.status, Header: tt.hdr.Clone(), Body: http.NoBody}, nil
+			})
+			h.run()
+			h.enqueue(k, entry(staleHeader()))
+			if o := h.next(); o != OutcomeWriteFailed {
+				t.Fatalf("outcome %v, want write_failed", o)
+			}
+			w := h.store.recordedWrites()
+			if len(w) != 2 || w[1].mode != tt.mode || w[1].generation != fixtureToken() || w[1].applied {
+				t.Errorf("lease writes %+v, want an unapplied %v naming the entry's token", w, tt.mode)
+			}
+			wantEntry(h, k, "stale")
 		})
 	}
 }
@@ -320,16 +553,14 @@ func TestEndStaleOn304(t *testing.T) {
 	}
 }
 
-// TestEndStaleWithoutReplay checks that a stored response without any
-// validator, or a saved request the entry cannot give, ends the stale
-// window under the lease without a replay.
+// TestEndStaleWithoutReplay checks that a saved request the entry cannot
+// give ends the stale window under the lease without a replay.
 func TestEndStaleWithoutReplay(t *testing.T) {
 	tests := []struct {
 		name string
 		e    *testEntry
 	}{
-		{name: "no validator", e: entry(http.Header{"Cache-Control": {"max-age=60, stale-while-revalidate=30"}})},
-		{name: "unreadable saved request", e: &testEntry{header: staleHeader(), reqErr: errors.New("corrupt entry")}},
+		{name: "unreadable saved request", e: &testEntry{header: staleHeader(), token: fixtureToken(), reqErr: errors.New("corrupt entry")}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -390,17 +621,23 @@ func TestLeaseFailureSkipsReplay(t *testing.T) {
 	wantEntry(h, k, "stale")
 }
 
-// TestWriteFailed checks the refresh and end-stale writes that do not
-// apply: a lease that no longer holds the job's token, or a failed call.
+// TestWriteFailed checks the refresh, replacement and end-stale writes
+// that do not apply: a lease that no longer holds the job's token, or a
+// failed call.
 func TestWriteFailed(t *testing.T) {
 	tests := []struct {
 		name   string
 		status int
+		hdr    http.Header
 		mode   statestore.LeaseMode
 		answer func(w *statestore.Write)
 	}{
 		{name: "lease lost before the refresh", status: http.StatusNotModified, mode: refresh, answer: func(w *statestore.Write) { w.Applied = false }},
 		{name: "refresh write fails", status: http.StatusNotModified, mode: refresh, answer: func(w *statestore.Write) { w.Err = statestore.ErrFailed }},
+		{
+			name: "lease lost before the replacement", status: http.StatusOK, hdr: http.Header{"Cache-Control": {"max-age=60"}},
+			mode: refresh, answer: func(w *statestore.Write) { w.Applied = false },
+		},
 		{name: "end-stale write times out", status: http.StatusOK, mode: endW, answer: func(w *statestore.Write) { w.Err = statestore.ErrTimeout }},
 	}
 	for _, tt := range tests {
@@ -415,8 +652,12 @@ func TestWriteFailed(t *testing.T) {
 				tt.answer(w)
 				return true
 			})
+			hdr := http.Header{"Etag": {`"v1"`}}
+			for k, vs := range tt.hdr {
+				hdr[k] = vs
+			}
 			h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
-				r, _ := respond(tt.status, http.Header{"Etag": {`"v1"`}})
+				r, _ := respond(tt.status, hdr.Clone())
 				return r, nil
 			})
 			h.run()
@@ -566,6 +807,32 @@ func TestEnqueueDeduplicates(t *testing.T) {
 	h.next()
 	if s := h.rv.Stats(); s.Queued != 2 || s.Duplicate != 3 {
 		t.Errorf("Stats() = %+v, want 2 queued and 3 duplicates", s)
+	}
+}
+
+// TestPending checks Pending: true while a job for the partition is
+// queued or running and for Deadline after its lease attempt, exactly
+// when Enqueue would refuse another as a duplicate.
+func TestPending(t *testing.T) {
+	h := newHarness(t)
+	k := testKey(1)
+	if h.rv.Pending(k) {
+		t.Fatal("an unknown partition is pending")
+	}
+	h.takeLease(k)
+	h.enqueue(k, entry(staleHeader()))
+	if !h.rv.Pending(k) || h.rv.Pending(testKey(2)) {
+		t.Fatal("Pending does not follow the queued partition")
+	}
+	h.run()
+	h.next()
+	h.clk.Advance(Deadline - time.Nanosecond)
+	if !h.rv.Pending(k) {
+		t.Error("the partition is not pending during its hold")
+	}
+	h.clk.Advance(time.Nanosecond)
+	if h.rv.Pending(k) {
+		t.Error("the partition is pending after its hold")
 	}
 }
 
@@ -726,6 +993,7 @@ func waitRunning(t *testing.T, rv *Revalidator) {
 
 // TestEnqueueRejectsInvalid checks that a job missing what it needs is
 // refused uncounted; a zero Timeout would leave every write unattempted.
+// A job without an Upstream is a composition entry's (TestCompositionJob).
 func TestEnqueueRejectsInvalid(t *testing.T) {
 	h := newHarness(t)
 	tests := map[string]func(j *Job){
@@ -734,7 +1002,6 @@ func TestEnqueueRejectsInvalid(t *testing.T) {
 		"no entry":    func(j *Job) { j.Entry = nil },
 		"no timeout":  func(j *Job) { j.Timeout = 0 },
 		"no route":    func(j *Job) { j.Route = "" },
-		"no upstream": func(j *Job) { j.Upstream = "" },
 	}
 	for name, mutate := range tests {
 		j := h.job(testKey(1), entry(staleHeader()))
@@ -766,7 +1033,7 @@ func TestStrings(t *testing.T) {
 	names := map[Outcome]string{
 		OutcomeRefreshed: "refreshed", OutcomeEnded: "ended", OutcomeKept: "kept", OutcomeLeaseHeld: "lease_held",
 		OutcomeLeaseFailed: "lease_failed", OutcomeWriteFailed: "write_failed", OutcomeExpired: "expired",
-		OutcomeCanceled: "canceled", 0: "unknown", NumOutcomes: "unknown",
+		OutcomeCanceled: "canceled", OutcomeReplaced: "replaced", 0: "unknown", NumOutcomes: "unknown",
 	}
 	for o, want := range names {
 		if got := o.String(); got != want {

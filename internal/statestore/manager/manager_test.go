@@ -488,6 +488,65 @@ func TestEvictionReasonNeedsLimitPolicies(t *testing.T) {
 	})
 }
 
+// TestEvictionReasonForCachePolicies checks that
+// state_store_eviction_policy is raised while a cache Policy uses a
+// connection whose policy is neither noeviction nor volatile-ttl: the
+// dedicated stateStore.cache connection, or the main one it shares, and
+// cleared when that snapshot is released; volatile-ttl, which only evicts
+// the keys nearest expiry, raises nothing there.
+func TestEvictionReasonForCachePolicies(t *testing.T) {
+	r := catalog.ReasonStateStoreEvictionPolicy
+	cacheRole := func(cache statestore.Tristate) *opener {
+		return &opener{setup: func(d *driver) {
+			d.status.EvictionPolicy = statestore.Yes
+			d.status.CacheEvictionPolicy = statestore.Yes
+			if d.cfg.Role == statestore.RoleCache {
+				d.status.EvictionPolicy = statestore.No // volatile-ttl or worse for limit keys
+				d.status.CacheEvictionPolicy = cache
+			}
+		}}
+	}
+	t.Run("dedicated connection evicting any key", func(t *testing.T) {
+		f := newFixture(t, cacheRole(statestore.No).openers())
+		spec := redisSpec("redis://127.0.0.1:6379")
+		spec.Cache, spec.Limits = cacheConfig("redis://127.0.0.1:6380"), true
+		f.acquire(t, spec)
+		if f.status.on(r) {
+			t.Fatal("raised although no cache Policy uses the cache connection")
+		}
+		spec.Caches = true
+		hs := f.acquire(t, spec)
+		if !f.status.on(r) {
+			t.Fatal("not raised while a cache Policy uses a cache connection that evicts any key")
+		}
+		hs.Release()
+		if f.status.on(r) {
+			t.Error("still raised after the cache Policy's snapshot was released")
+		}
+	})
+	t.Run("dedicated connection on volatile-ttl", func(t *testing.T) {
+		f := newFixture(t, cacheRole(statestore.Yes).openers())
+		spec := redisSpec("redis://127.0.0.1:6379")
+		spec.Cache, spec.Limits, spec.Caches = cacheConfig("redis://127.0.0.1:6380"), true, true
+		f.acquire(t, spec)
+		if f.status.on(r) {
+			t.Error("raised for a volatile-ttl cache connection")
+		}
+	})
+	t.Run("shared main connection", func(t *testing.T) {
+		o := &opener{setup: func(d *driver) {
+			d.status.EvictionPolicy, d.status.CacheEvictionPolicy = statestore.No, statestore.No
+		}}
+		f := newFixture(t, o.openers())
+		spec := redisSpec("redis://127.0.0.1:6379")
+		spec.Caches = true
+		f.acquire(t, spec)
+		if !f.status.on(r) {
+			t.Error("not raised while a cache Policy uses a main connection that evicts any key")
+		}
+	})
+}
+
 // TestCleartextHopsAndCredentials checks that the state_store hop count
 // is the number of live drivers reporting cleartext, and that
 // state_store_unauthenticated follows the drivers' Status.

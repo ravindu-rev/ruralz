@@ -36,6 +36,12 @@ const (
 // testVariant is the variant every fixture entry is stored under.
 func testVariant() statestore.Digest { return statestore.DigestOf("accept-encoding=gzip") }
 
+// fixtureToken is the generation token every fixture entry is written
+// under.
+func fixtureToken() statestore.Token {
+	return statestore.Token{0x5e, 0xed, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14}
+}
+
 // testKey returns the partition key number n.
 func testKey(n int) statestore.CacheKey {
 	return statestore.CacheKey{URI: statestore.DigestOf("uri-" + strconv.Itoa(n)), Partition: statestore.DigestOf("anonymous")}
@@ -63,22 +69,36 @@ func (s *seqSource) Uint64() uint64 {
 
 // recorded is one lease write as the store saw it.
 type recorded struct {
-	mode    statestore.LeaseMode
-	token   uint64
-	ttl     time.Duration
-	timeout time.Duration
-	entry   string
-	err     *statestore.Error
-	applied bool
+	mode       statestore.LeaseMode
+	token      uint64
+	generation statestore.Token
+	ttl        time.Duration
+	timeout    time.Duration
+	received   time.Time
+	entry      string
+	err        *statestore.Error
+	applied    bool
 }
 
 // testStore passes writes to the memory driver, recording each lease
 // write; intercept, when set, may answer a write instead (returning true).
+// refuseBytes makes AdmitStoreBytes refuse, as the memory rules do.
 type testStore struct {
 	statestore.Store
-	mu        sync.Mutex
-	writes    []recorded
-	intercept func(w *statestore.Write) bool
+	mu          sync.Mutex
+	writes      []recorded
+	intercept   func(w *statestore.Write) bool
+	refuseBytes atomic.Bool
+	admitted    atomic.Int64
+}
+
+// AdmitStoreBytes implements statestore.Store.
+func (s *testStore) AdmitStoreBytes(k statestore.CacheKey, n int) bool {
+	if s.refuseBytes.Load() {
+		return false
+	}
+	s.admitted.Add(int64(n))
+	return s.Store.AdmitStoreBytes(k, n)
 }
 
 // Write implements statestore.Store.
@@ -99,8 +119,8 @@ func (s *testStore) Write(ctx context.Context, batch []*statestore.Write) {
 	defer s.mu.Unlock()
 	for _, w := range batch {
 		s.writes = append(s.writes, recorded{
-			mode: w.Lease.Mode, token: w.Lease.Token, ttl: w.Lease.TTL, timeout: w.Timeout,
-			entry: string(w.Lease.Entry), err: w.Err, applied: w.Applied,
+			mode: w.Lease.Mode, token: w.Lease.Token, generation: w.Lease.Generation, ttl: w.Lease.TTL,
+			timeout: w.Timeout, received: w.Lease.Received, entry: string(w.Lease.Entry), err: w.Err, applied: w.Applied,
 		})
 	}
 }
@@ -133,11 +153,41 @@ type testEntry struct {
 	reqHeader  http.Header
 	header     http.Header
 	authorized bool
+	token      statestore.Token
 	reqErr     error
 	refreshErr error
+	replaceErr error
+	// replaceLen, when positive, is the length of the bytes Replace
+	// returns.
+	replaceLen int
 
 	mu        sync.Mutex
 	refreshed *Refreshed
+	replaced  *Replacement
+}
+
+// Token implements Entry.
+func (e *testEntry) Token() statestore.Token { return e.token }
+
+// Replace implements Entry: the bytes name the replacing status and body.
+func (e *testEntry) Replace(r *Replacement) ([]byte, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.replaced = r
+	if e.replaceErr != nil {
+		return nil, e.replaceErr
+	}
+	if e.replaceLen > 0 {
+		return make([]byte, e.replaceLen), nil
+	}
+	return []byte("replaced " + strconv.Itoa(r.Status) + " " + string(r.Body)), nil
+}
+
+// lastReplace returns the last Replace argument.
+func (e *testEntry) lastReplace() *Replacement {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.replaced
 }
 
 // Request implements Entry.
@@ -332,12 +382,14 @@ func (h *harness) awaitReplay() {
 	}
 }
 
-// seed stores the entry "stale" under k's partition for testVariant, then
-// moves the clock past the store's 1 s fill lease.
+// seed stores the entry "stale" under k's partition for testVariant,
+// creating the URI's generation key with fixtureToken, then moves the
+// clock past the store's 1 s fill lease.
 func (h *harness) seed(k statestore.CacheKey) {
 	h.t.Helper()
 	w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
-		Key: k, Variant: testVariant(), Generation: 1, TTL: time.Hour, Entry: []byte("stale"), Token: 1 << 40,
+		Key: k, Variant: testVariant(), Generation: fixtureToken(), Create: true, TTL: time.Hour,
+		Entry: []byte("stale"), Received: h.clk.Now(), Token: 1 << 40,
 	}}
 	h.mem.Write(context.Background(), []*statestore.Write{w})
 	if w.Err != nil || !w.Applied {
@@ -388,9 +440,28 @@ func staleHeader() http.Header {
 	}
 }
 
-// entry returns a fixture entry with stored header hdr.
+// entry returns a fixture entry with stored header hdr, written under
+// fixtureToken.
 func entry(hdr http.Header) *testEntry {
-	return &testEntry{reqHeader: http.Header{"Accept": {"application/json"}}, header: hdr}
+	return &testEntry{reqHeader: http.Header{"Accept": {"application/json"}}, header: hdr, token: fixtureToken()}
+}
+
+// bump moves k's URI to a new generation token, as an invalidation does.
+func (h *harness) bump(k statestore.CacheKey) {
+	h.t.Helper()
+	w := &statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: k.URI,
+		Bump: statestore.Token{0xb0, 0x0b}}
+	h.mem.Write(context.Background(), []*statestore.Write{w})
+	if w.Err != nil || !w.Applied {
+		h.t.Fatalf("bumping %v: err %v, applied %v", k, w.Err, w.Applied)
+	}
+}
+
+// replyFull answers every replay with status, header hdr and body b.
+func (h *harness) replyFull(status int, hdr http.Header, b string) {
+	h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: status, Header: hdr.Clone(), Body: &body{Reader: strings.NewReader(b)}}, nil
+	})
 }
 
 // job returns a Job for k over e on h's store and replayer.

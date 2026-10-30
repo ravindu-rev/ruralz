@@ -302,6 +302,28 @@ func (e *Executor) finish(ctx context.Context, p *snapshot.Policy, f filter.Fini
 	f.Finish(ctx, x)
 }
 
+// invalidate calls Invalidator.Invalidate, recovering a panic.
+func (e *Executor) invalidate(ctx context.Context, p *snapshot.Policy, i filter.Invalidator, x filter.Exchange) {
+	defer func() {
+		if v := recover(); v != nil {
+			e.logPanic(ctx, p, phase.OnLog, v)
+		}
+	}()
+	i.Invalidate(ctx, x)
+}
+
+// substitute calls Substituter.Substitute, recovering a panic as no
+// substitute.
+func (e *Executor) substitute(ctx context.Context, p *snapshot.Policy, s filter.Substituter, x filter.Exchange) (resp *filter.Response) {
+	defer func() {
+		if v := recover(); v != nil {
+			e.logPanic(ctx, p, phase.OnResponse, v)
+			resp = nil
+		}
+	}()
+	return s.Substitute(ctx, x)
+}
+
 // evalWhen evaluates spec.when on p's first encounter in ph, recovering a
 // panic as a runtime error; the log names ph, the Phase p is first reached
 // in, which is not p.FirstPhase when an earlier Phase never ran.

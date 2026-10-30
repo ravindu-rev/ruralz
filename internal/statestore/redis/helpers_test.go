@@ -151,6 +151,7 @@ type fixture struct {
 // fixtureOptions adjust a fixture.
 type fixtureOptions struct {
 	url      string // default: the fake server's
+	role     statestore.Role
 	topology statestore.Topology
 	limits   statestore.Limits
 	mac      []byte
@@ -235,7 +236,7 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 		o.opts.Rand = lowRand
 	}
 	d, err := New(t.Context(), statestore.Config{
-		Driver: statestore.DriverRedis, Topology: o.topology, URL: url, DefaultTimeout: o.timeout, TLS: o.tls,
+		Role: o.role, Driver: statestore.DriverRedis, Topology: o.topology, URL: url, DefaultTimeout: o.timeout, TLS: o.tls,
 	}, statestore.Deps{
 		Clock: f.clk, Metrics: f.m.handles(), Logger: slog.New(f.logs), Limits: lim, MACKey: o.mac, InFlight: f.gate,
 	}, o.opts)

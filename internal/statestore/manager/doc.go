@@ -51,7 +51,9 @@
 // state_store_memory_fallback while a snapshot uses the memory fallback,
 // state_store_breaker_open while a driver reports a breaker that is not
 // closed, state_store_eviction_policy while a store a ratelimit or quota
-// Policy uses reports another maxmemory-policy than noeviction, and
+// Policy uses reports another maxmemory-policy than noeviction or a store
+// a cache Policy uses, the dedicated cache connection or the shared main
+// one, reports neither noeviction nor volatile-ttl, and
 // state_store_unauthenticated. Drivers report through Status and leave
 // these to the Manager. It logs a warning when the memory fallback starts,
 // since memory multiplies every Rate Limit and Quota by the Node count,

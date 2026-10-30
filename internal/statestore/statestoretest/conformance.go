@@ -67,7 +67,8 @@ const (
 	KeyRateLimit KeyKind = iota + 1
 	// KeyQuota is a Quota counter: Value is the decimal count.
 	KeyQuota
-	// KeyCacheGeneration is a generation: Value is the decimal generation.
+	// KeyCacheGeneration is a generation key: Value is its token, 32
+	// lowercase hex characters.
 	KeyCacheGeneration
 	// KeyCachePartition is a partition hash: Value is its names field.
 	KeyCachePartition
@@ -384,9 +385,9 @@ func (s *suite) leaseOp(what string, l statestore.CacheLease) bool {
 	return w.Applied
 }
 
-func (s *suite) invalidate(what string, uri statestore.Digest) {
+func (s *suite) invalidate(what string, uri statestore.Digest, bump statestore.Token) {
 	s.t.Helper()
-	w := &statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTimeout, Invalidate: uri}
+	w := &statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTimeout, Invalidate: uri, Bump: bump}
 	s.write(w)
 	if w.Err != nil || !w.Applied {
 		s.t.Fatalf("%s: invalidation Err %v Applied %v", what, w.Err, w.Applied)
@@ -958,7 +959,31 @@ func (s *suite) fix(tag string) cacheFixture {
 	}
 }
 
-// cacheCases cover Response Cache storage and the entry MAC.
+// token returns the case's generation token named name: never zero.
+func (s *suite) token(name string) statestore.Token {
+	var t statestore.Token
+	d := s.digest("token/" + name)
+	copy(t[:], d[:])
+	t[0] |= 1
+	return t
+}
+
+// put stores body as variant v of f's partition the way the cache Filter
+// does: under the generation token a lookup reads, or, when the URI has
+// no generation key, creating it with s.token(f's URI); it returns
+// whether the store applied and the token it wrote under.
+func (s *suite) put(what string, f cacheFixture, names string, v statestore.Digest, lease uint64) (bool, statestore.Token) {
+	s.t.Helper()
+	l := s.lookup(what+": lookup", f.k, v)
+	cs := statestore.CacheStore{Key: f.k, Names: names, Variant: v, TTL: f.ttl, Entry: f.body, Token: lease, Generation: l.Token}
+	if !l.HasToken {
+		cs.Create, cs.Generation = true, s.token("gen")
+	}
+	return s.store(what, cs), cs.Generation
+}
+
+// cacheCases cover Response Cache storage, generation tokens and the entry
+// MAC.
 func cacheCases() []conformanceCase {
 	// fillLease outlasts the 1 s fill lease; revalidation is the 5 s
 	// revalidation lease.
@@ -969,8 +994,73 @@ func cacheCases() []conformanceCase {
 		{name: "cache/miss", run: func(s *suite) {
 			f := s.fix("")
 			l := s.lookup("miss", f.k, f.v)
-			if l.Found || l.Generation != 0 || l.Names != "" || l.EntryGen != 0 {
+			if l.Found || l.HasToken || !l.Token.IsZero() || l.Partition || l.Names != "" || l.Resident != 0 {
 				s.t.Fatalf("empty partition: %+v", *l)
+			}
+		}},
+		{name: "cache/store-creates-generation", run: func(s *suite) {
+			// The first store of a URI creates its generation key holding
+			// the token the Node passes, and the lookup reads it back.
+			f := s.fix("")
+			tok := s.token("first")
+			if !s.store("create", statestore.CacheStore{Key: f.k, Names: "accept", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1, Generation: tok, Create: true}) {
+				s.t.Fatal("store creating the generation key not applied")
+			}
+			l := s.lookup("hit", f.k, f.v)
+			if !l.HasToken || l.Token != tok || !l.Found || !bytes.Equal(l.Entry, f.body) || !l.Partition || l.Names != "accept" {
+				s.t.Fatalf("lookup after the store: %+v, want token %x", *l, tok)
+			}
+		}},
+		{name: "cache/create-loses-to-existing-key", run: func(s *suite) {
+			// A store whose lookup found no generation key writes nothing
+			// when one appeared meanwhile, such as an invalidation's: a
+			// store racing an invalidation never hits.
+			f := s.fix("")
+			bump := s.token("bump")
+			s.invalidate("bump", f.k.URI, bump)
+			if s.store("create", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1, Generation: s.token("late"), Create: true}) {
+				s.t.Fatal("store creating an existing generation key applied")
+			}
+			l := s.lookup("after", f.k, f.v)
+			if l.Token != bump || l.Found || l.Partition {
+				s.t.Fatalf("losing create wrote something: %+v", *l)
+			}
+			if !s.store("under the key's token", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 2, Generation: bump}) {
+				s.t.Fatal("store under the token the key holds not applied")
+			}
+		}},
+		{name: "cache/store-needs-current-token", run: func(s *suite) {
+			// A store writes only while the generation key still holds the
+			// token its lookup read: after a bump it writes nothing, not
+			// even the fill lease, so a store under the new token goes on.
+			f := s.fix("")
+			_, old := s.put("first", f, "n", f.v, 1)
+			bump := s.token("bump")
+			s.invalidate("bump", f.k.URI, bump)
+			s.advance(fillLease)
+			v2 := s.digest("v2")
+			if s.store("stale token", statestore.CacheStore{Key: f.k, Names: "n", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 2, Generation: old}) {
+				s.t.Fatal("store under a replaced token applied")
+			}
+			if s.lookup("unwritten", f.k, v2).Found {
+				s.t.Fatal("store under a replaced token wrote its variant")
+			}
+			if !s.store("current token", statestore.CacheStore{Key: f.k, Names: "n", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 3, Generation: bump}) {
+				s.t.Fatal("store under the current token blocked by the refused one")
+			}
+		}},
+		{name: "cache/invalidation-sets-token", run: func(s *suite) {
+			// A bump sets the generation key to exactly the token the Node
+			// passes, replacing any other, whether or not the key existed.
+			f := s.fix("")
+			first, second := s.token("one"), s.token("two")
+			s.invalidate("on a missing key", f.k.URI, first)
+			if l := s.lookup("first", f.k, f.v); !l.HasToken || l.Token != first {
+				s.t.Fatalf("token %x, want %x", l.Token, first)
+			}
+			s.invalidate("on the key", f.k.URI, second)
+			if l := s.lookup("second", f.k, f.v); l.Token != second {
+				s.t.Fatalf("token %x, want %x", l.Token, second)
 			}
 		}},
 		{name: "cache/store-needs-lease", run: func(s *suite) {
@@ -979,15 +1069,16 @@ func cacheCases() []conformanceCase {
 			s.timed(func(try int) (func(), bool) {
 				f := s.fix(tryTag(try))
 				start := s.serverNow()
-				if !s.store("first", statestore.CacheStore{Key: f.k, Names: "accept", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1}) {
+				ok, tok := s.put("first", f, "accept", f.v, 1)
+				if !ok {
 					s.t.Fatal("first store not applied")
 				}
 				l := s.lookup("hit", f.k, f.v)
-				if !l.Found || !bytes.Equal(l.Entry, f.body) || l.Names != "accept" || l.EntryGen != l.Generation {
+				if !l.Found || !bytes.Equal(l.Entry, f.body) || l.Names != "accept" || l.Token != tok {
 					s.t.Fatalf("lookup after store: %+v", *l)
 				}
 				v2 := s.digest("v2" + tryTag(try))
-				second := s.store("second", statestore.CacheStore{Key: f.k, Names: "accept", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 2})
+				second := s.store("second", statestore.CacheStore{Key: f.k, Names: "accept", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 2, Generation: tok})
 				found := s.lookup("second variant", f.k, v2).Found
 				held := s.serverNow().Before(start.Add(time.Second))
 				return func() {
@@ -998,7 +1089,7 @@ func cacheCases() []conformanceCase {
 						s.t.Fatal("unapplied store wrote its variant")
 					}
 					s.advance(fillLease)
-					if !s.store("after lease", statestore.CacheStore{Key: f.k, Names: "accept", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 3}) {
+					if !s.store("after lease", statestore.CacheStore{Key: f.k, Names: "accept", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 3, Generation: tok}) {
 						s.t.Fatal("store after the fill lease not applied")
 					}
 				}, held
@@ -1007,10 +1098,10 @@ func cacheCases() []conformanceCase {
 		{name: "cache/names-reset", run: func(s *suite) {
 			// A store under other Vary names drops the partition first.
 			f := s.fix("")
-			s.store("names a", statestore.CacheStore{Key: f.k, Names: "a", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1})
+			s.put("names a", f, "a", f.v, 1)
 			s.advance(fillLease)
 			v2 := s.digest("v2")
-			if !s.store("names b", statestore.CacheStore{Key: f.k, Names: "b", Variant: v2, TTL: f.ttl, Entry: f.body, Token: 2}) {
+			if ok, _ := s.put("names b", f, "b", v2, 2); !ok {
 				s.t.Fatal("store under new names not applied")
 			}
 			if l := s.lookup("old variant", f.k, f.v); l.Found || l.Names != "b" {
@@ -1026,7 +1117,7 @@ func cacheCases() []conformanceCase {
 			vs := make([]statestore.Digest, 9)
 			for i := range vs {
 				vs[i] = s.digest("v" + strconv.Itoa(i))
-				if !s.store("variant", statestore.CacheStore{Key: f.k, Names: "n", Variant: vs[i], TTL: f.ttl, Entry: f.body, Token: uint64(i + 1)}) {
+				if ok, _ := s.put("variant", f, "n", vs[i], uint64(i+1)); !ok {
 					s.t.Fatalf("store %d not applied", i+1)
 				}
 				s.advance(fillLease)
@@ -1040,46 +1131,53 @@ func cacheCases() []conformanceCase {
 				}
 			}
 		}},
-		{name: "cache/generation", run: func(s *suite) {
-			// A hit needs the variant's generation to equal the current
-			// one; an invalidation outdates every stored variant.
+		{name: "cache/store-time-less-receipt-delay", skip: needExact, run: func(s *suite) {
+			// A store records t:<V> as its TIME minus the time the write
+			// waited since the response arrived (on the Node clock), and a
+			// refresh does the same; the resident time a lookup reports is
+			// the shard's TIME minus t:<V>.
 			f := s.fix("")
-			l := s.lookup("before", f.k, f.v)
-			s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, Generation: l.Generation, TTL: f.ttl, Entry: f.body, Token: 1})
-			if l := s.lookup("hit", f.k, f.v); !l.Found || l.EntryGen != l.Generation {
-				s.t.Fatalf("stored variant not current: %+v", *l)
+			tok := s.token("gen")
+			if !s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1,
+				Generation: tok, Create: true, Received: s.now().Add(-2 * time.Second)}) {
+				s.t.Fatal("store not applied")
 			}
-			s.invalidate("bump", f.k.URI)
-			l = s.lookup("after bump", f.k, f.v)
-			if !l.Found || l.Generation == 0 || l.EntryGen == l.Generation {
-				s.t.Fatalf("after invalidation: %+v", *l)
+			if l := s.lookup("stored", f.k, f.v); l.Resident != 2*time.Second {
+				s.t.Fatalf("resident %v after a 2 s receipt delay, want 2s", l.Resident)
 			}
-			s.advance(fillLease)
-			s.store("restore", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, Generation: l.Generation, TTL: f.ttl, Entry: f.body, Token: 2})
-			if l2 := s.lookup("current again", f.k, f.v); l2.EntryGen != l2.Generation || l2.Generation != l.Generation {
-				s.t.Fatalf("restored variant: %+v", *l2)
+			s.advance(3 * time.Second)
+			if l := s.lookup("later", f.k, f.v); l.Resident != 5*time.Second {
+				s.t.Fatalf("resident %v 3 s later, want 5s", l.Resident)
+			}
+			if !s.leaseOp("take", statestore.CacheLease{Key: f.k, Mode: statestore.LeaseTake, Token: 7}) {
+				s.t.Fatal("lease not taken")
+			}
+			if !s.leaseOp("refresh", statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 7,
+				Generation: tok, Entry: f.body, TTL: f.ttl, Received: s.now().Add(-1500 * time.Millisecond)}) {
+				s.t.Fatal("refresh not applied")
+			}
+			if l := s.lookup("refreshed", f.k, f.v); l.Resident != 1500*time.Millisecond {
+				s.t.Fatalf("resident %v after a refresh with a 1.5 s receipt delay, want 1.5s", l.Resident)
 			}
 		}},
-		{name: "cache/generation-monotonic", run: func(s *suite) {
-			// Two bumps in one microsecond still increase: never reused.
+		{name: "cache/skip-token", run: func(s *suite) {
+			// A lookup with SkipToken keeps the token the Node's hot-entry
+			// layer holds and still reads the partition.
 			f := s.fix("")
-			s.invalidate("first", f.k.URI)
-			g1 := s.lookup("first", f.k, f.v).Generation
-			s.invalidate("second", f.k.URI)
-			g2 := s.lookup("second", f.k, f.v).Generation
-			if g2 <= g1 || (s.h.Exact && g2 != g1+1) {
-				s.t.Fatalf("generations %d then %d", g1, g2)
-			}
-			if s.h.Exact {
-				if want := s.now().UnixMicro(); g1 != want {
-					s.t.Fatalf("generation %d, want the server time %d µs", g1, want)
-				}
+			_, tok := s.put("store", f, "n", f.v, 1)
+			held := s.token("held")
+			c := lookupCall(f.k, f.v)
+			c.Lookup.SkipToken, c.Lookup.Token, c.Lookup.HasToken = true, held, true
+			s.read(c)
+			s.answered("lookup", c)
+			if l := &c.Lookup; l.Token != held || !l.HasToken || !l.Found || !bytes.Equal(l.Entry, f.body) {
+				s.t.Fatalf("skip-token lookup: %+v, want the held token %x (the key holds %x)", *l, held, tok)
 			}
 		}},
 		{name: "cache/revalidation-lease", run: func(s *suite) {
 			// The revalidation lease lasts 5 s (SET NX PX 5000); a second
 			// taker fails. CacheLease.TTL does not change it: the take
-			// script has no TTL argument.
+			// sends no TTL.
 			s.timed(func(try int) (func(), bool) {
 				f := s.fix(tryTag(try))
 				take := func(token uint64) bool {
@@ -1108,25 +1206,30 @@ func cacheCases() []conformanceCase {
 			})
 		}},
 		{name: "cache/refresh-and-end-stale", run: func(s *suite) {
-			// Refresh (304) and end-stale act only with the lease token,
-			// all within the 5 s revalidation lease.
+			// Refresh (304 or replacement) and end-stale act only with the
+			// lease token and while the generation key holds the entry's
+			// token, all within the 5 s revalidation lease.
 			s.timed(func(try int) (func(), bool) {
 				f := s.fix(tryTag(try))
-				s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1})
+				_, tok := s.put("store", f, "n", f.v, 1)
 				s.advance(fillLease)
 				start := s.serverNow()
 				taken := s.leaseOp("take", statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseTake, Token: 7})
 				fresh := []byte("refreshed-" + s.nonce + tryTag(try))
-				refresh := statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 8, Entry: fresh, TTL: f.ttl}
-				wrongRefresh := s.leaseOp("refresh, wrong token", refresh)
+				refresh := statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 8, Generation: tok, Entry: fresh, TTL: f.ttl}
+				wrongRefresh := s.leaseOp("refresh, wrong lease token", refresh)
+				refresh.Token, refresh.Generation = 7, s.token("other")
+				wrongGen := s.leaseOp("refresh, wrong generation token", refresh)
 				unrefreshed := s.lookup("unrefreshed", f.k, f.v)
-				refresh.Token = 7
+				refresh.Generation = tok
 				refreshed := s.leaseOp("refresh", refresh)
 				afterRefresh := s.lookup("refreshed", f.k, f.v)
-				end := statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseEndStale, Token: 8}
-				wrongEnd := s.leaseOp("end, wrong token", end)
+				end := statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseEndStale, Token: 8, Generation: tok}
+				wrongEnd := s.leaseOp("end, wrong lease token", end)
+				end.Token, end.Generation = 7, s.token("other")
+				wrongEndGen := s.leaseOp("end, wrong generation token", end)
 				stillStored := s.lookup("still stored", f.k, f.v).Found
-				end.Token = 7
+				end.Generation = tok
 				ended := s.leaseOp("end", end)
 				endedFound := s.lookup("ended", f.k, f.v).Found
 				held := s.serverNow().Before(start.Add(revalidation))
@@ -1134,26 +1237,26 @@ func cacheCases() []conformanceCase {
 					if !taken {
 						s.t.Fatal("revalidation lease not taken")
 					}
-					if wrongRefresh {
-						s.t.Fatal("refresh without the lease token applied")
+					if wrongRefresh || wrongGen {
+						s.t.Fatalf("refresh applied without the lease token (%v) or the generation token (%v)", wrongRefresh, wrongGen)
 					}
 					if !bytes.Equal(unrefreshed.Entry, f.body) {
-						s.t.Fatal("wrong-token refresh changed the entry")
+						s.t.Fatal("refused refresh changed the entry")
 					}
 					if !refreshed {
-						s.t.Fatal("refresh with the lease token not applied")
+						s.t.Fatal("refresh with the lease and generation tokens not applied")
 					}
 					if !afterRefresh.Found || !bytes.Equal(afterRefresh.Entry, fresh) {
 						s.t.Fatalf("refreshed entry %q, want %q", afterRefresh.Entry, fresh)
 					}
-					if wrongEnd {
-						s.t.Fatal("end-stale without the lease token applied")
+					if wrongEnd || wrongEndGen {
+						s.t.Fatalf("end-stale applied without the lease token (%v) or the generation token (%v)", wrongEnd, wrongEndGen)
 					}
 					if !stillStored {
-						s.t.Fatal("wrong-token end-stale deleted the variant")
+						s.t.Fatal("refused end-stale deleted the variant")
 					}
 					if !ended {
-						s.t.Fatal("end-stale with the lease token not applied")
+						s.t.Fatal("end-stale with the lease and generation tokens not applied")
 					}
 					if endedFound {
 						s.t.Fatal("end-stale kept the variant")
@@ -1161,17 +1264,53 @@ func cacheCases() []conformanceCase {
 				}, held
 			})
 		}},
+		{name: "cache/lease-writes-after-bump", run: func(s *suite) {
+			// After an invalidation a revalidation of the old entry
+			// changes nothing: its refresh and end-stale name a token the
+			// generation key no longer holds, so a variant stored under the
+			// new token survives them.
+			s.timed(func(try int) (func(), bool) {
+				f := s.fix(tryTag(try))
+				_, old := s.put("store", f, "n", f.v, 1)
+				bump := s.token("bump")
+				s.invalidate("bump", f.k.URI, bump)
+				s.advance(fillLease)
+				fresh := []byte("new-" + s.nonce + tryTag(try))
+				if !s.store("store under the new token", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: fresh, Token: 2, Generation: bump}) {
+					s.t.Fatal("store under the new token not applied")
+				}
+				s.advance(fillLease)
+				start := s.serverNow()
+				taken := s.leaseOp("take", statestore.CacheLease{Key: f.k, Mode: statestore.LeaseTake, Token: 9})
+				refreshed := s.leaseOp("refresh of the old entry", statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 9, Generation: old, Entry: f.body, TTL: f.ttl})
+				ended := s.leaseOp("end of the old entry", statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseEndStale, Token: 9, Generation: old})
+				l := s.lookup("after", f.k, f.v)
+				held := s.serverNow().Before(start.Add(revalidation))
+				return func() {
+					if !taken || refreshed || ended {
+						s.t.Fatalf("take %v, refresh %v, end %v; want the take only", taken, refreshed, ended)
+					}
+					if !l.Found || !bytes.Equal(l.Entry, fresh) {
+						s.t.Fatalf("variant %q after the old entry's lease writes, want %q", l.Entry, fresh)
+					}
+				}, held
+			})
+		}},
 		{name: "cache/ttls", skip: needInspect, run: func(s *suite) {
-			// Partition: the entry TTL (at most 25 h); generation 26 h;
+			// Partition: the entry TTL (at most 25 h); generation 26 h
+			// from its creation, a bump and every store under its token;
 			// fill lease 1 s; revalidation lease 5 s. Each lease is read
 			// before it ends.
 			var f cacheFixture
+			var tok statestore.Token
 			s.timed(func(try int) (func(), bool) {
 				f = s.fix(tryTag(try))
+				f.ttl = 30 * time.Hour
 				ref := s.serverNow()
-				s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: 30 * time.Hour, Entry: f.body, Token: 1})
+				_, tok = s.put("store", f, "n", f.v, 1)
 				part, partOK := s.inspect(Key{Kind: KeyCachePartition, Cache: f.k})
 				lease, leaseOK := s.inspect(Key{Kind: KeyCacheLease, Cache: f.k})
+				gen, genOK := s.inspect(Key{Kind: KeyCacheGeneration, Cache: f.k})
 				held := s.serverNow().Before(ref.Add(time.Second))
 				return func() {
 					if !partOK || part.Value != "n" {
@@ -1182,13 +1321,29 @@ func cacheCases() []conformanceCase {
 						s.t.Fatalf("fill lease %+v, %v", lease, leaseOK)
 					}
 					s.ttlNear("fill lease", lease.TTL, time.Second, ref)
+					if !genOK || gen.Value != tokenText(tok) {
+						s.t.Fatalf("generation key %+v, %v; want the token %s", gen, genOK, tokenText(tok))
+					}
+					s.ttlNear("generation created by a store", gen.TTL, 26*time.Hour, ref)
 				}, held
 			})
+			if s.h.Exact {
+				// A later store under the token renews the 26 h.
+				s.advance(time.Hour)
+				ref := s.serverNow()
+				f2 := f
+				if ok, _ := s.put("store renewing the generation", f2, "n", s.digest("v-renew"), 2); !ok {
+					s.t.Fatal("second store not applied")
+				}
+				gen, _ := s.inspect(Key{Kind: KeyCacheGeneration, Cache: f.k})
+				s.ttlNear("generation renewed by a store", gen.TTL, 26*time.Hour, ref)
+			}
 			ref := s.serverNow()
-			s.invalidate("bump", f.k.URI)
+			bump := s.token("bump")
+			s.invalidate("bump", f.k.URI, bump)
 			gen, ok := s.inspect(Key{Kind: KeyCacheGeneration, Cache: f.k})
-			if !ok {
-				s.t.Fatal("generation key missing")
+			if !ok || gen.Value != tokenText(bump) {
+				s.t.Fatalf("generation key after the bump %+v, %v; want %s", gen, ok, tokenText(bump))
 			}
 			s.ttlNear("generation", gen.TTL, 26*time.Hour, ref)
 			s.advance(fillLease)
@@ -1220,7 +1375,7 @@ func cacheCases() []conformanceCase {
 			f := s.fix("")
 			put := func(token uint64) {
 				s.advance(fillLease)
-				if !s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: token}) {
+				if ok, _ := s.put("store", f, "n", f.v, token); !ok {
 					s.t.Fatal("store not applied")
 				}
 				if l := s.lookup("intact", f.k, f.v); !l.Found || !bytes.Equal(l.Entry, f.body) {
@@ -1245,7 +1400,7 @@ func cacheCases() []conformanceCase {
 		{name: "cache/no-mac-key", run: func(s *suite) {
 			// Without a key entries are stored and read untagged.
 			f := s.fix("")
-			s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1})
+			s.put("store", f, "n", f.v, 1)
 			if l := s.lookup("untagged", f.k, f.v); !l.Found || !bytes.Equal(l.Entry, f.body) {
 				s.t.Fatalf("untagged entry: %+v", *l)
 			}
@@ -1264,3 +1419,7 @@ func cacheCases() []conformanceCase {
 		}},
 	}
 }
+
+// tokenText is a generation key's value for t: 32 lowercase hex
+// characters.
+func tokenText(t statestore.Token) string { return hex.EncodeToString(t[:]) }

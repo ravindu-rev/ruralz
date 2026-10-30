@@ -53,6 +53,9 @@ type spec struct {
 	start, tok, keys, args int
 	// ticket indexes the trip's tickets.
 	ticket int
+	// route, when set, is a key the command is routed by without sending
+	// it: TIME on a partition's shard.
+	route string
 }
 
 // trip is one round trip: its commands, the shard ticket of each command,
@@ -101,6 +104,7 @@ func (d *Driver) putTrip(tr *trip) {
 	tr.node = ""
 	clear(tr.words)
 	tr.words = tr.words[:0]
+	clear(tr.specs) // drops route keys
 	tr.specs = tr.specs[:0]
 	clear(tr.cmds)
 	tr.cmds = tr.cmds[:0]
@@ -149,6 +153,12 @@ func (tr *trip) key(k string) {
 func (tr *trip) arg(a string) {
 	tr.words = append(tr.words, a)
 	tr.specs[len(tr.specs)-1].args++
+}
+
+// routeBy routes the last command, which names no key, to key's slot, so
+// a cluster client sends it to the shard holding key.
+func (tr *trip) routeBy(key string) {
+	tr.specs[len(tr.specs)-1].route = key
 }
 
 // fail marks the ticket of command i failed.
@@ -238,7 +248,11 @@ func (tr *trip) send(ctx context.Context, c rueidis.Client) {
 	b := c.B()
 	for _, sp := range tr.specs {
 		w := tr.words[sp.start : sp.start+sp.tok+sp.keys+sp.args]
-		tr.cmds = append(tr.cmds, b.Arbitrary(w[:sp.tok]...).Keys(w[sp.tok:sp.tok+sp.keys]...).Args(w[sp.tok+sp.keys:]...).Build())
+		cmd := b.Arbitrary(w[:sp.tok]...).Keys(w[sp.tok : sp.tok+sp.keys]...).Args(w[sp.tok+sp.keys:]...).Build()
+		if sp.route != "" {
+			cmd = cmd.SetSlot(sp.route)
+		}
+		tr.cmds = append(tr.cmds, cmd)
 	}
 	if len(tr.cmds) == 1 {
 		tr.one[0] = c.Do(ctx, tr.cmds[0])

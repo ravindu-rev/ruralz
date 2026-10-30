@@ -89,10 +89,11 @@ func (hs Handles) Release() {
 type Handle struct {
 	m *Manager
 	e *entry
-	// fallback, limits and shared record what this snapshot's
-	// Revision uses (degraded reasons and warnings).
-	fallback, limits, shared bool
-	released                 atomic.Bool
+	// fallback, limits, caches and shared record what this snapshot's
+	// Revision uses (degraded reasons and warnings): limits a ratelimit or
+	// quota Policy on this driver, caches a cache Policy on it.
+	fallback, limits, caches, shared bool
+	released                         atomic.Bool
 }
 
 // Store returns the driver.
@@ -165,10 +166,10 @@ type entry struct {
 	bind   *postcommit.Binding
 	refs   atomic.Int64
 	// limits counts live handles whose Revision has a ratelimit or quota
-	// Policy on this driver; closing is set once its close starts. Both
-	// are guarded by m.mu.
-	limits  int
-	closing bool
+	// Policy on this driver, caches those with a cache Policy on it;
+	// closing is set once its close starts. All are guarded by m.mu.
+	limits, caches int
+	closing        bool
 }
 
 // Write implements postcommit.Target.
@@ -209,8 +210,8 @@ type view struct {
 
 // probe is one live driver read by refresh.
 type probe struct {
-	driver statestore.Driver
-	limits bool
+	driver         statestore.Driver
+	limits, caches bool
 }
 
 // Manager owns the Node's State Store drivers and post-commit queue. It is
@@ -315,13 +316,15 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 		m: m, e: me,
 		fallback: mainCfg.Source == statestore.SourceFallback,
 		limits:   spec.Limits,
+		caches:   spec.Caches && ce == me,
 		shared:   spec.Limits && spec.Caches && sameDeployment(me, ce),
 	}
 	hs := Handles{Main: main, Cache: main}
-	if ce != me {
-		hs.Cache = &Handle{m: m, e: ce}
-	}
 	m.countLocked(main, 1)
+	if ce != me {
+		hs.Cache = &Handle{m: m, e: ce, caches: spec.Caches}
+		m.countLocked(hs.Cache, 1)
+	}
 	m.mu.Unlock()
 	m.refresh()
 	return hs, nil
@@ -348,6 +351,9 @@ func (m *Manager) countLocked(h *Handle, d int) {
 	}
 	if h.limits {
 		h.e.limits += d
+	}
+	if h.caches {
+		h.e.caches += d
 	}
 }
 
@@ -542,13 +548,16 @@ func (m *Manager) refresh() {
 	v := view{fallback: m.fallback > 0, shared: m.shared > 0}
 	list := m.scratch[:0]
 	for _, e := range m.entries {
-		list = append(list, probe{driver: e.driver, limits: e.limits > 0})
+		list = append(list, probe{driver: e.driver, limits: e.limits > 0, caches: e.caches > 0})
 	}
 	m.mu.Unlock()
 	for _, p := range list {
 		st := p.driver.Status()
 		v.breaker = v.breaker || st.BreakerNotClosed
-		v.eviction = v.eviction || (p.limits && st.EvictionPolicy == statestore.No)
+		// Limit keys need noeviction; a connection a cache Policy uses
+		// takes noeviction or volatile-ttl ("Response caching").
+		v.eviction = v.eviction || (p.limits && st.EvictionPolicy == statestore.No) ||
+			(p.caches && st.CacheEvictionPolicy == statestore.No)
 		v.unauth = v.unauth || st.Unauthenticated
 		if st.Cleartext {
 			v.hops++

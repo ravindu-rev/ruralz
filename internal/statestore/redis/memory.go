@@ -29,8 +29,14 @@ const (
 	countlessNodes = 1000
 )
 
-// noEviction is the only maxmemory-policy limit keys tolerate.
-const noEviction = "noeviction"
+// Eviction policies: noeviction is the only maxmemory-policy limit keys
+// tolerate; a Response Cache connection also tolerates volatile-ttl,
+// which evicts the keys nearest expiry first, as an evicted generation key
+// only turns its URI's entries into misses.
+const (
+	noEviction  = "noeviction"
+	volatileTTL = "volatile-ttl"
+)
 
 // memory is one shard's latest INFO memory reading and the store bytes it
 // still admits before the next.
@@ -151,13 +157,36 @@ func (m *memory) eviction() statestore.Tristate {
 	}
 }
 
+// cacheEviction returns the reading's eviction policy as a Response Cache
+// connection judges it: Yes for noeviction or volatile-ttl, Unknown before
+// the first reading or without the field.
+func (m *memory) cacheEviction() statestore.Tristate {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	switch {
+	case !m.read || m.policy == "":
+		return statestore.Unknown
+	case m.policy == noEviction, m.policy == volatileTTL:
+		return statestore.Yes
+	default:
+		return statestore.No
+	}
+}
+
 // AdmitStoreBytes applies the Response Cache memory rules to the shard of
 // key's partition: no store before its first reading, above 70% of
 // maxmemory, while it grows too fast, or beyond the bytes the reading
-// admits; a shard reporting maxmemory 0 admits none.
+// admits; a shard reporting maxmemory 0 admits none. Those rules (2 and 3
+// of "Response caching") keep cache stores from filling the shards of
+// limit keys, so a dedicated stateStore.cache connection (RoleCache)
+// admits every store, filling its deployment up to maxmemory, where a
+// noeviction server refuses writes and a volatile-ttl one evicts.
 func (d *Driver) AdmitStoreBytes(key statestore.CacheKey, n int) bool {
 	if d.closed.Load() {
 		return false
+	}
+	if d.cfg.Role == statestore.RoleCache {
+		return true
 	}
 	return d.shardOfSlot(keys.PartitionSlot(key)).mem.admit(n)
 }

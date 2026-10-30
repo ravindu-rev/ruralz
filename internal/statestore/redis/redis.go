@@ -256,39 +256,57 @@ func (d *Driver) Close(ctx context.Context) error {
 }
 
 // Status reports the breakers of the shards that serve calls, their
-// latest eviction policies, a redis:// URL as cleartext and a loopback URL
-// without credentials as unauthenticated.
+// latest eviction policies, as limit keys and as Response Cache entries
+// judge them, a redis:// URL as cleartext and a loopback URL without
+// credentials as unauthenticated.
 func (d *Driver) Status() statestore.Status {
 	st := statestore.Status{
 		Cleartext:       !d.ep.tls,
 		Unauthenticated: d.ep.unauthenticated,
-		EvictionPolicy:  statestore.Yes,
 	}
 	var buf [16]*shard
-	unknown, no := false, false
+	var limits, caches evictionVerdict
 	for _, sh := range d.active(buf[:0]) {
 		if sh.brk.State() != breaker.Closed {
 			st.BreakerNotClosed = true
 		}
 		if sh == d.unmapped {
-			unknown = true
+			limits.add(statestore.Unknown)
+			caches.add(statestore.Unknown)
 			continue
 		}
-		switch sh.mem.eviction() {
-		case statestore.No:
-			no = true
-		case statestore.Unknown:
-			unknown = true
-		case statestore.Yes:
-		}
+		limits.add(sh.mem.eviction())
+		caches.add(sh.mem.cacheEviction())
 	}
-	switch {
-	case no:
-		st.EvictionPolicy = statestore.No
-	case unknown:
-		st.EvictionPolicy = statestore.Unknown
-	}
+	st.EvictionPolicy, st.CacheEvictionPolicy = limits.result(), caches.result()
 	return st
+}
+
+// evictionVerdict folds shard eviction readings: any No wins, then any
+// Unknown, else Yes.
+type evictionVerdict struct{ no, unknown bool }
+
+// add folds one shard's reading.
+func (v *evictionVerdict) add(t statestore.Tristate) {
+	switch t {
+	case statestore.No:
+		v.no = true
+	case statestore.Unknown:
+		v.unknown = true
+	case statestore.Yes:
+	}
+}
+
+// result returns the folded verdict.
+func (v *evictionVerdict) result() statestore.Tristate {
+	switch {
+	case v.no:
+		return statestore.No
+	case v.unknown:
+		return statestore.Unknown
+	default:
+		return statestore.Yes
+	}
 }
 
 // Supports reports the script command set unless a shard that serves

@@ -26,6 +26,9 @@ func TestRevalidationResults(t *testing.T) {
 		want  int
 	}{
 		{"refreshed", func(h *harness, _ statestore.CacheKey) { h.reply304(http.Header{"Etag": {`"v1"`}}) }, emit.RevalidationRefreshed},
+		{"replaced", func(h *harness, _ statestore.CacheKey) {
+			h.replyFull(http.StatusOK, http.Header{"Cache-Control": {"max-age=60"}}, "new")
+		}, emit.RevalidationRefreshed},
 		{"ended", func(h *harness, _ statestore.CacheKey) { h.replyStatus(http.StatusOK) }, emit.RevalidationEnded},
 		{"kept", func(h *harness, _ statestore.CacheKey) { h.replyStatus(http.StatusServiceUnavailable) }, emit.RevalidationKept},
 		{"lease held", func(h *harness, k statestore.CacheKey) { h.takeLease(k) }, emit.RevalidationSkipped},

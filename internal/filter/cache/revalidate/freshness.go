@@ -293,6 +293,27 @@ func Storable(h http.Header, authorized bool) bool {
 	}
 }
 
+// StorableStatus reports a status the "Storable" rule lets the cache
+// store: a final status (RFC 9111 section 3; RFC 9110 section 15 bounds
+// status codes at 599) other than 206, whose part is never stored, and
+// 304, which only refreshes a stored response.
+func StorableStatus(status int) bool {
+	return status >= http.StatusOK && status <= 599 &&
+		status != http.StatusPartialContent && status != http.StatusNotModified
+}
+
+// Partial reports a partial composition response, one carrying
+// ruralz-partial: true (docs/architecture/03-data-plane.md "Merge
+// rules"), which is never stored.
+func Partial(h http.Header) bool {
+	for _, v := range h["Ruralz-Partial"] {
+		if strings.EqualFold(httpfield.TrimOWS(v), "true") {
+			return true
+		}
+	}
+	return false
+}
+
 // varyAll reports a Vary member "*".
 func varyAll(h http.Header) bool {
 	for _, v := range h["Vary"] {

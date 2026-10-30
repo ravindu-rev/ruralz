@@ -117,6 +117,18 @@ type Request struct {
 	resp     response
 	respBody body.Request
 	respDec  decoded
+	// The leg response kept for the Response Cache store
+	// (filter.Exchange.LegResponse, TeeResponse): its status, a copy of its
+	// header on a Route that tees, and, once an onResponse Policy replaced
+	// a gated body, a copy of the body the leg delivered, charged to acct.
+	// legLost is set when that body can no longer be copied (a streamed
+	// body replaced whole, or a refused reservation, legLostBudget).
+	legStatus     int
+	legHdr        http.Header
+	legBody       []byte
+	legKept       bool
+	legLost       bool
+	legLostBudget bool
 	// genHdr are two header maps a generated response's fields are copied
 	// into, alternately, so a replacement can be built from the current
 	// one; genIdx is the one in use.
@@ -244,10 +256,26 @@ func (x *Request) Timer() *emit.GatewayTimer { return &x.timer }
 
 // SetFinal records the request outcome Exchange.Final returns in onLog and
 // Finish (status, code, committed; RejectedAfter is computed per calling
-// Policy) and the request duration, CEL duration.
+// Policy, LegStatus is the status SetResponse recorded) and the request
+// duration, CEL duration.
 func (x *Request) SetFinal(f filter.Final, d time.Duration) {
 	x.final = filter.Final{Status: f.Status, Code: f.Code, Committed: f.Committed}
 	x.vars.Duration = d
+}
+
+// received returns the client request as it arrived (filter.Received):
+// the Host it named, its raw query before any Policy rewrote it, and its
+// declared body length.
+func (x *Request) received() filter.Received {
+	r := x.hreq
+	if r == nil {
+		return filter.Received{}
+	}
+	out := filter.Received{Authority: r.Host, ContentLength: r.ContentLength}
+	if r.URL != nil {
+		out.RawQuery = r.URL.RawQuery
+	}
+	return out
 }
 
 // Exchange implements snapshot.RequestState: the client Filter view.
@@ -453,4 +481,11 @@ func (x *Request) reset() {
 	x.cur, x.ph, x.span, x.ident = nil, 0, nil, nil
 	x.gated = false
 	x.resp, x.respDec, x.final, x.cache = response{}, decoded{}, filter.Final{}, ""
+	// A kept leg body's array stays with the pooled Request only up to
+	// body.PoolMax, as the budget's pools keep no larger buffer.
+	if cap(x.legBody) > body.PoolMax {
+		x.legBody = nil
+	}
+	x.legStatus, x.legHdr, x.legBody = 0, nil, x.legBody[:0]
+	x.legKept, x.legLost, x.legLostBudget = false, false, false
 }

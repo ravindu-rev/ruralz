@@ -191,7 +191,8 @@ func CacheResults() []string {
 
 // CacheRevalidationResults returns the result values of
 // ruralz_cache_revalidations_total in label order: a 304 refreshed the
-// entry, the stale window ended, a 5xx or no response kept the entry, or
+// entry or a full response replaced it, the stale window ended, a 5xx or
+// no response kept the entry, or
 // the job changed nothing (another Node held the lease, a lease call
 // failed, or the lease no longer held the job's token).
 func CacheRevalidationResults() []string { return []string{"refreshed", "ended", "kept", "skipped"} }

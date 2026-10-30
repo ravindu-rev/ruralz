@@ -184,9 +184,9 @@ func (d *Driver) Close(ctx context.Context) error {
 }
 
 // Status reports a noeviction store without breakers, TLS or credentials
-// concerns.
+// concerns; noeviction suits Response Cache entries too.
 func (d *Driver) Status() statestore.Status {
-	return statestore.Status{EvictionPolicy: statestore.Yes}
+	return statestore.Status{EvictionPolicy: statestore.Yes, CacheEvictionPolicy: statestore.Yes}
 }
 
 // Supports reports the script command set; M1 has no vector search.
@@ -339,9 +339,10 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 	return n
 }
 
-// Read runs Response Cache lookups as one pipelined batch: per lookup
-// the generation and the partition's names, variant generation and
-// MAC-verified entry. Every other kind is an error reply.
+// Read runs Response Cache lookups as one pipelined batch: per lookup the
+// generation token (unless SkipToken), the partition's names, and the
+// variant's MAC-verified entry with its resident time on the server clock.
+// Every other kind is an error reply.
 func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
 	if len(calls) == 0 {
 		return
@@ -372,9 +373,19 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 		}
 		d.lookup(ctx, &c.Lookup, now)
 		c.Done = true
-		d.countOps(stripe, emit.StateOpCacheGet, 2)
+		d.countOps(stripe, emit.StateOpCacheGet, lookupReads(&c.Lookup))
 	}
 	d.count(stripe, emit.StateOpPipeline, res)
+}
+
+// lookupReads returns the key reads of one lookup in
+// ruralz_state_ops_total{kind="cache_get"}: the partition's HMGET, and the
+// generation key's GET unless the hot-entry layer holds its token.
+func lookupReads(l *statestore.CacheLookup) uint64 {
+	if l.SkipToken {
+		return 1
+	}
+	return 2
 }
 
 // Write applies one post-commit batch: refunds, cache stores, leases
@@ -406,7 +417,7 @@ func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 				w.Applied, ok = d.store(&w.Cache, now)
 			}
 		case statestore.OpCacheInvalidate:
-			w.Applied, ok = d.invalidate(w.Invalidate, now)
+			w.Applied, ok = d.invalidate(w.Invalidate, w.Bump, now)
 		default:
 			ok = false
 		}

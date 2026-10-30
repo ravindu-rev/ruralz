@@ -171,12 +171,28 @@ func (f *fixture) consume(calls ...*statestore.Call) {
 
 func (f *fixture) write(ws ...*statestore.Write) { f.d.Write(context.Background(), ws) }
 
+// store writes one variant as the cache Filter does: under the generation
+// token a lookup reads, or, without a generation key, creating it with
+// genToken(k.URI).
 func (f *fixture) store(k statestore.CacheKey, names string, v statestore.Digest, entry []byte, token uint64) *statestore.Write {
+	l := f.lookup(k, v).Lookup
 	w := &statestore.Write{Kind: statestore.OpCacheSet, Timeout: time.Second, Cache: statestore.CacheStore{
 		Key: k, Names: names, Variant: v, TTL: time.Hour, Entry: entry, Token: token,
+		Generation: l.Token, Create: !l.HasToken,
 	}}
+	if !l.HasToken {
+		w.Cache.Generation = genToken(k.URI)
+	}
 	f.write(w)
 	return w
+}
+
+// genToken returns a test generation token derived from a URI digest.
+func genToken(uri statestore.Digest) statestore.Token {
+	var t statestore.Token
+	copy(t[:], uri[:])
+	t[0] |= 1 // never the zero token
+	return t
 }
 
 func (f *fixture) lookup(k statestore.CacheKey, v statestore.Digest) *statestore.Call {

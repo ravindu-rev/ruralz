@@ -24,6 +24,9 @@ type response struct {
 	status    int
 	header    http.Header
 	generated bool
+	// cached is a response the Response Cache serves (filter.Response
+	// Cached): no generated response, its literal body the stored one.
+	cached bool
 	// code and detail are a generated error response's RZ code and problem
 	// detail; literal is a generated response's literal body.
 	code, detail string
@@ -44,6 +47,10 @@ type Reply struct {
 	Header http.Header
 	// Generated is set for a Filter- or Node-generated response.
 	Generated bool
+	// Cached is set for a response the Response Cache served from a stored
+	// response (filter.Response.Cached): neither generated nor passed
+	// through from an Upstream.
+	Cached bool
 	// Code and Detail are a generated error response's RZ code and problem
 	// detail: without a Body, the handler writes the problem document.
 	Code, Detail string
@@ -60,7 +67,11 @@ type Reply struct {
 
 // SetResponse makes u the client response onResponse runs on: an Upstream
 // response, or the response a leg Filter generated (u.Generated). The
-// last leg's Upstream and Endpoint become CEL upstream.
+// last leg's Upstream and Endpoint become CEL upstream. An Upstream
+// response is the leg response Final.LegStatus reports; on a Route that
+// tees its response (BodyNeeds.ResponseTee) its header is also copied
+// before any onResponse Policy edits it, for the Response Cache store
+// (filter.Exchange.LegResponse).
 func (x *Request) SetResponse(u *snapshot.UpstreamResponse) {
 	if u == nil {
 		return
@@ -70,6 +81,7 @@ func (x *Request) SetResponse(u *snapshot.UpstreamResponse) {
 	if u.Upstream != "" {
 		x.vars.Upstream = &x.up
 	}
+	x.legStatus, x.legHdr, x.legKept, x.legLost, x.legLostBudget = 0, nil, false, false, false
 	if u.Generated != nil {
 		x.setGenerated(u.Generated)
 		x.resp.stream = u.Body
@@ -80,6 +92,13 @@ func (x *Request) SetResponse(u *snapshot.UpstreamResponse) {
 	if h == nil {
 		h = x.nextHeader()
 	}
+	x.legStatus = u.Status
+	if x.route != nil && x.route.Body.ResponseTee {
+		x.legHdr = h.Clone()
+		if x.legHdr == nil {
+			x.legHdr = http.Header{}
+		}
+	}
 	x.resp = response{set: true, status: u.Status, header: h, stream: u.Body}
 	x.respV = expr.Response{Status: u.Status, Header: h}
 	x.vars.Response = &x.respV
@@ -87,7 +106,9 @@ func (x *Request) SetResponse(u *snapshot.UpstreamResponse) {
 
 // SetGenerated makes r, a Filter's short-circuit or a Node-generated
 // response, the client response onResponse runs on; r.Header's fields are
-// copied, so onResponse edits never reach r.
+// copied, so onResponse edits never reach r. A Cached r, which the
+// Response Cache serves, is no generated response: its literal body is
+// the body Policies read and rewrite, and CEL response.body decodes it.
 func (x *Request) SetGenerated(r *filter.Response) {
 	if r == nil {
 		return
@@ -107,8 +128,11 @@ func (x *Request) setGenerated(r *filter.Response) {
 	stream := x.resp.stream
 	x.clearResponse()
 	x.resp = response{
-		set: true, status: r.Status, header: h, generated: true,
+		set: true, status: r.Status, header: h, generated: !r.Cached, cached: r.Cached,
 		code: r.Code, detail: r.Detail, literal: r.Body, stream: stream,
+	}
+	if r.Cached {
+		x.resp.code, x.resp.detail = "", ""
 	}
 	x.respV = expr.Response{Status: r.Status, Header: h}
 	x.vars.Response = &x.respV
@@ -146,7 +170,7 @@ func (x *Request) clearResponse() {
 func (x *Request) GateResponse(ctx context.Context) error {
 	r := &x.resp
 	switch {
-	case !r.set || r.generated || r.gated:
+	case !r.set || r.generated || r.cached || r.gated:
 		return nil
 	case r.gateErr != nil:
 		return r.gateErr
@@ -172,7 +196,7 @@ func (x *Request) responseBody(ctx context.Context) ([]byte, error) {
 	case r.gated:
 		b, _ := x.respBody.Gated()
 		return b, nil
-	case r.generated:
+	case r.generated, r.cached:
 		return r.literal, nil
 	case x.route == nil || !x.route.Body.ResponseGate:
 		return nil, filter.ErrNotAvailable
@@ -187,11 +211,16 @@ func (x *Request) responseBody(ctx context.Context) ([]byte, error) {
 // setResponseBody replaces the client response body with b in onResponse
 // (filter.Message.SetBody). A body that was not gated is replaced whole:
 // the response body is first bound, empty, to the budget b is reserved
-// from (an empty body reads nothing, so ctx is never used).
+// from (an empty body reads nothing, so ctx is never used). The Response
+// Cache stores the body the leg delivered, so on a Route that tees, the
+// first replacement of a gated leg body keeps a copy of it, and a streamed
+// one replaced whole is lost to the store; a tee still copying the old
+// stream stops, while one already filled with the leg body stays.
 func (x *Request) setResponseBody(ctx context.Context, b []byte) error {
 	if !x.resp.set {
 		return filter.ErrNotAvailable
 	}
+	x.keepLegBody()
 	if !x.resp.gated {
 		_ = x.respBody.Prepare(ctx, nil, 0, false, 0, x.pool.budget, x.stripe)
 	}
@@ -201,8 +230,40 @@ func (x *Request) setResponseBody(ctx context.Context, b []byte) error {
 	x.resp.gated, x.resp.gateErr, x.resp.literal = true, nil, nil
 	setBodyFields(x.resp.header, len(b))
 	x.invalidateResponseView()
-	x.dropTees()
+	x.dropCopyingTees()
 	return nil
+}
+
+// keepLegBody copies the leg's body before an onResponse Policy first
+// replaces it, on a Route that tees an Upstream response: a gated body is
+// copied, charged to the request's account (legLostBudget when refused),
+// and a streamed one is lost, as the handler will never write it.
+func (x *Request) keepLegBody() {
+	r := &x.resp
+	if x.legKept || x.legLost || r.generated || r.cached || x.legStatus == 0 || x.route == nil || !x.route.Body.ResponseTee {
+		return
+	}
+	if !r.gated {
+		x.legLost = true
+		return
+	}
+	b, _ := x.respBody.Gated()
+	if err := x.acct.Reserve(int64(len(b))); err != nil {
+		x.legLost, x.legLostBudget = true, true
+		return
+	}
+	x.legBody = append(x.legBody[:0], b...)
+	x.legKept = true
+}
+
+// dropCopyingTees stops the tees still copying the response stream, whose
+// body was replaced; a tee already filled with the leg's body is kept.
+func (x *Request) dropCopyingTees() {
+	for _, t := range x.tees {
+		if _, complete := t.Result(); !complete {
+			t.Release()
+		}
+	}
 }
 
 // ensureResponseView builds the client response body's decoded view and
@@ -256,7 +317,7 @@ func (x *Request) replaceResponse(r *filter.Response) {
 func (x *Request) Reply() Reply {
 	r := &x.resp
 	out := Reply{
-		Status: r.status, Header: r.header, Generated: r.generated,
+		Status: r.status, Header: r.header, Generated: r.generated, Cached: r.cached,
 		Code: r.code, Detail: r.detail, Stream: r.stream,
 	}
 	switch {
@@ -269,44 +330,66 @@ func (x *Request) Reply() Reply {
 	return out
 }
 
-// teeResponse starts the Response Cache store copy for the calling Policy
-// in onResponse (filter.Exchange.TeeResponse). A response whose known
-// length is over limit, or a negative limit, gets no tee and counts
+// teeResponse starts the Response Cache store copy of the leg response's
+// body for the calling Policy in onResponse (filter.Exchange.TeeResponse):
+// the body as the leg delivered it, whatever an earlier onResponse Policy
+// wrote to the client. A gated leg body, or the copy keepLegBody kept of
+// one a Policy replaced, fills the tee at once; a streamed one is copied
+// as the handler writes it (Tees). A body whose known length is over
+// limit, or a negative limit, gets no tee and counts
 // ruralz_cache_store_skipped_total{reason="size_limit"} on the Policy's
-// handles; without a budget there is no tee either. The handler feeds the
-// tees (Tees) while it writes the body.
+// handles, and one lost to a refused reservation counts buffer_budget;
+// a generated or Cached response, a leg body lost to a replacement, and a
+// Node without a budget get no tee.
 func (x *Request) teeResponse(limit int64) filter.Tee {
-	if x.ph != phase.OnResponse || !x.resp.set || x.pool.budget == nil {
+	r := &x.resp
+	if x.ph != phase.OnResponse || !r.set || r.generated || r.cached || x.pool.budget == nil {
 		return nil
 	}
 	var skippedBy *[emit.NumSkipReasons]emit.Counter
 	if p := x.cur; p != nil && p.Metrics != nil {
 		skippedBy = &p.Metrics.StoreSkipped
 	}
-	if n := x.responseLength(); limit < 0 || n > limit {
-		if skippedBy != nil && skippedBy[emit.SkipSizeLimit] != nil {
-			skippedBy[emit.SkipSizeLimit].Add(x.stripe, 1)
+	skip := func(reason int) filter.Tee {
+		if skippedBy != nil && skippedBy[reason] != nil {
+			skippedBy[reason].Add(x.stripe, 1)
 		}
 		return nil
 	}
+	if x.legLost {
+		if x.legLostBudget {
+			return skip(emit.SkipBufferBudget)
+		}
+		return nil
+	}
+	body, whole := x.legBody, x.legKept
+	if !whole && r.gated {
+		body, whole = x.gatedLegBody(), true
+	}
+	n := int64(len(body))
+	if !whole {
+		n = declaredLength(r.header)
+		if x.legHdr != nil {
+			n = declaredLength(x.legHdr)
+		}
+	}
+	if limit < 0 || n > limit {
+		return skip(emit.SkipSizeLimit)
+	}
 	t := x.pool.budget.NewTee(limit, skippedBy, x.stripe)
 	x.tees = append(x.tees, t)
+	if whole {
+		_, _ = t.Write(body)
+		t.Complete()
+	}
 	return t
 }
 
-// responseLength returns the client response body's known length, -1 when
-// unknown.
-func (x *Request) responseLength() int64 {
-	r := &x.resp
-	switch {
-	case r.gated:
-		b, _ := x.respBody.Gated()
-		return int64(len(b))
-	case r.generated:
-		return int64(len(r.literal))
-	default:
-		return declaredLength(r.header)
-	}
+// gatedLegBody returns the gated client response body, which is the
+// leg's own while no Policy replaced it.
+func (x *Request) gatedLegBody() []byte {
+	b, _ := x.respBody.Gated()
+	return b
 }
 
 // dropTees stops every started tee: the response it copies was replaced,

@@ -21,9 +21,10 @@ const waitLimit = 10 * time.Second
 // names is the Vary names of the published fixture response.
 const names = "accept-encoding"
 
-// key returns the flight key of URI n at generation gen.
-func key(n string, gen int64) Key {
-	return Key{Cache: statestore.CacheKey{URI: statestore.DigestOf(n), Partition: statestore.DigestOf("anonymous")}, Generation: gen}
+// key returns the flight key of URI n under the generation token whose
+// first byte is gen (0: the URI had no generation key).
+func key(n string, gen byte) Key {
+	return Key{Cache: statestore.CacheKey{URI: statestore.DigestOf(n), Partition: statestore.DigestOf("anonymous")}, Token: statestore.Token{gen}}
 }
 
 // digest returns the variant digest of selected values v.
@@ -114,14 +115,17 @@ func TestFollowNeverLeads(t *testing.T) {
 }
 
 // TestGenerationSeparatesFlights checks that a miss that read another
-// generation never joins an older fetch.
+// generation token, or none, never joins an older fetch.
 func TestGenerationSeparatesFlights(t *testing.T) {
 	tab, _ := newTable(Options{})
 	if r := tab.Lead(key("/v1/catalog", 1)).Role(); r != Leader {
 		t.Fatalf("Lead = %v, want leader", r)
 	}
 	if r := tab.Lead(key("/v1/catalog", 2)).Role(); r != Leader {
-		t.Errorf("Lead at a newer generation = %v, want leader", r)
+		t.Errorf("Lead under a newer token = %v, want leader", r)
+	}
+	if r := tab.Lead(key("/v1/catalog", 0)).Role(); r != Leader {
+		t.Errorf("Lead without a generation key = %v, want leader", r)
 	}
 	if r := tab.Lead(key("/v1/other", 1)).Role(); r != Leader {
 		t.Errorf("Lead of another URI = %v, want leader", r)

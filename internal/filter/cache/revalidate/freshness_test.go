@@ -348,3 +348,35 @@ func TestStorable(t *testing.T) {
 		}
 	}
 }
+
+// TestStorableStatus checks the status part of the "Storable" rule: every
+// final status but 206 and 304.
+func TestStorableStatus(t *testing.T) {
+	for status, want := range map[int]bool{
+		100: false, 199: false, 200: true, 203: true, 204: true, 206: false, 301: true, 304: false,
+		404: true, 410: true, 500: true, 599: true, 600: false, 0: false,
+	} {
+		if got := StorableStatus(status); got != want {
+			t.Errorf("StorableStatus(%d) = %v, want %v", status, got, want)
+		}
+	}
+}
+
+// TestPartial checks the partial composition response mark,
+// ruralz-partial: true, compared without regard to case or whitespace.
+func TestPartial(t *testing.T) {
+	tests := []struct {
+		h    http.Header
+		want bool
+	}{
+		{http.Header{"Ruralz-Partial": {"true"}}, true},
+		{http.Header{"Ruralz-Partial": {" TRUE "}}, true},
+		{http.Header{"Ruralz-Partial": {"false"}}, false},
+		{http.Header{}, false},
+	}
+	for _, tt := range tests {
+		if got := Partial(tt.h); got != tt.want {
+			t.Errorf("Partial(%v) = %v, want %v", tt.h, got, tt.want)
+		}
+	}
+}

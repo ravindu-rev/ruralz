@@ -140,6 +140,7 @@ type Exchange struct {
 	SchemeV       string
 	HostV         string
 	PathV         string
+	ReceivedV     filter.Received
 	Hdr           http.Header
 	SourceV       filter.Source
 	TLSV          *filter.ConnTLS
@@ -150,7 +151,12 @@ type Exchange struct {
 	Budget        Budget
 	StateDeadline *statestore.RequestBudget
 	TeeV          *Tee
-	FinalV        filter.Final
+	// TeeLimit records the limit of the last TeeResponse call.
+	TeeLimit int64
+	// LegStatusV and LegHeaderV are what LegResponse returns.
+	LegStatusV int
+	LegHeaderV http.Header
+	FinalV     filter.Final
 	// State is the PolicyState slot; StripeV and RouteMetricsV are returned
 	// as is (RouteMetrics falls back to an empty value).
 	State         any
@@ -189,6 +195,9 @@ func (x *Exchange) Host() string { return x.HostV }
 
 // Path implements filter.Exchange.
 func (x *Exchange) Path() string { return x.PathV }
+
+// Received implements filter.Exchange.
+func (x *Exchange) Received() filter.Received { return x.ReceivedV }
 
 // Header implements filter.Exchange.
 func (x *Exchange) Header() http.Header {
@@ -239,8 +248,13 @@ func (x *Exchange) Reserve(n int64) error { return x.Budget.Reserve(n) }
 // Release implements filter.Exchange.
 func (x *Exchange) Release(n int64) { x.Budget.Release(n) }
 
-// TeeResponse implements filter.Exchange; it returns TeeV as is.
-func (x *Exchange) TeeResponse(int64) filter.Tee {
+// LegResponse implements filter.Exchange.
+func (x *Exchange) LegResponse() (int, http.Header) { return x.LegStatusV, x.LegHeaderV }
+
+// TeeResponse implements filter.Exchange; it records limit in TeeLimit and
+// returns TeeV as is.
+func (x *Exchange) TeeResponse(limit int64) filter.Tee {
+	x.TeeLimit = limit
 	if x.TeeV == nil {
 		return nil
 	}
