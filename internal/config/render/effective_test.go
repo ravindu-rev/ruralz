@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"maps"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -16,6 +14,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/config/precedence"
 	"github.com/ravindu-rev/ruralz/internal/config/subst"
+	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // effective returns the --effective output of route in format f.
@@ -32,30 +31,37 @@ func effective(t *testing.T, r *run, route string, f Format) []byte {
 	return buf.Bytes()
 }
 
-// TestEffectiveGolden pins the --effective table and its JSON form for
-// every Route of the example Bundle rendered for prod.
+// TestEffectiveGolden checks the --effective table and its JSON form for
+// every Route of the example Bundle, rendered without an Environment and
+// for each of its Environments, against the golden corpus's
+// effective/<render>/<route>.txt and .json, which hold the tables of
+// every Route and of no other. The tests of internal/config/precedence
+// hold stage I's rows to the same tables, so render --effective prints
+// the bytes stage I pins and cannot drift from the resolver.
 func TestEffectiveGolden(t *testing.T) {
-	r := shop(t, "prod")
-	for _, route := range []string{"cart-grpc", "orders-summary", "support-chat"} {
-		golden(t, filepath.Join("testdata", "golden", "effective-"+route+".txt"), effective(t, r, route, FormatText))
-		golden(t, filepath.Join("testdata", "golden", "effective-"+route+".json"), effective(t, r, route, FormatJSON))
-	}
-}
-
-// TestEffectiveMatchesPrecedence checks that render --effective prints
-// the bytes stage I pins for its rows (internal/config/precedence golden
-// files), so the table cannot drift from the resolver.
-func TestEffectiveMatchesPrecedence(t *testing.T) {
-	r := shop(t, "")
-	for _, route := range []string{"cart-grpc", "orders-summary", "support-chat"} {
-		for f, ext := range map[Format]string{FormatText: ".txt", FormatJSON: ".json"} {
-			want, err := os.ReadFile(filepath.Join("..", "precedence", "testdata", "golden", route+ext)) //nolint:gosec // G304: a golden file of internal/config/precedence.
-			if err != nil {
-				t.Fatal(err)
+	l := shopLevel(t)
+	for _, env := range shopRenders(t) {
+		r := shop(t, env)
+		dir := "effective/" + renderName(env) + "/"
+		var pinned []string
+		for _, f := range l.Files {
+			if route, ok := strings.CutPrefix(f.Name, dir); ok && strings.HasSuffix(route, ".txt") {
+				pinned = append(pinned, strings.TrimSuffix(route, ".txt"))
 			}
-			if got := effective(t, r, route, f); !bytes.Equal(got, want) {
-				t.Errorf("%s %s:\n--- render\n%s--- precedence\n%s", route, f, got, want)
+		}
+		var routes []string
+		for _, res := range r.validated.Bundle.Resources() {
+			if res.Kind == v1alpha1.KindRoute {
+				routes = append(routes, res.Name)
 			}
+		}
+		slices.Sort(routes)
+		if len(routes) == 0 || !slices.Equal(pinned, routes) {
+			t.Fatalf("%s: the corpus pins the effective tables of %q, the render has the Routes %q", renderName(env), pinned, routes)
+		}
+		for _, route := range routes {
+			sameAsCorpus(t, dir+route+".txt", effective(t, r, route, FormatText))
+			sameAsCorpus(t, dir+route+".json", effective(t, r, route, FormatJSON))
 		}
 	}
 }

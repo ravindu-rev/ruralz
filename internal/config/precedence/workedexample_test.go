@@ -4,8 +4,9 @@
 package precedence
 
 import (
-	"path/filepath"
+	"encoding/json"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
@@ -13,16 +14,14 @@ import (
 )
 
 // The example Bundle of docs/architecture/02-configuration-model.md
-// ("Complete annotated example Bundle"), verbatim under
-// testdata/shop-bundle.
-
-const shopBundle = "testdata/shop-bundle"
+// ("Complete annotated example Bundle") is read from its golden corpus
+// entry (shopLayer), as are the effective tables it is checked against.
 
 // TestWorkedExample checks that the orders-summary rows equal the
 // configuration model's "Worked example" table in Phase, Leg, Policy and
 // From.
 func TestWorkedExample(t *testing.T) {
-	b, files := loadBundle(t, shopBundle)
+	b, files := loadShop(t)
 	chains, ds := stageI(t, b, files, 1)
 	if len(ds) > 0 {
 		t.Fatalf("example Bundle: unexpected diagnostics:\n%s", diagText(t, ds))
@@ -55,7 +54,7 @@ func TestWorkedExample(t *testing.T) {
 // token-budget-partner in onRequestBody, onChunk and onLog; cart-grpc
 // excludes cors-default and runs headers-security in onResponse only.
 func TestShopBundleChains(t *testing.T) {
-	b, files := loadBundle(t, shopBundle)
+	b, files := loadShop(t)
 	chains, _ := stageI(t, b, files, 4)
 	if len(chains) != 3 {
 		t.Fatalf("chains = %d, want 3", len(chains))
@@ -111,15 +110,81 @@ func TestShopBundleChains(t *testing.T) {
 	}
 }
 
-// TestShopBundleGolden pins the text and JSON effective tables of every
-// example Route, reason templates included.
+// TestShopBundleGolden checks the text and JSON effective tables of every
+// example Route, reason templates included, against those the golden
+// corpus pins for the entry's render without --env (effective/-/), which
+// reads the base files alone: the corpus holds the tables of every Route
+// and of no other.
 func TestShopBundleGolden(t *testing.T) {
-	b, files := loadBundle(t, shopBundle)
-	chains, _ := stageI(t, b, files, 2)
-	for _, route := range []string{"cart-grpc", "orders-summary", "support-chat"} {
+	b, files := loadShop(t)
+	chains, ds := stageI(t, b, files, 2)
+	if len(ds) > 0 {
+		t.Fatalf("example Bundle: unexpected diagnostics:\n%s", diagText(t, ds))
+	}
+	l := shopLevel(t)
+	const dir = "effective/-/"
+	var pinned []string
+	for _, f := range l.Files {
+		if route, ok := strings.CutPrefix(f.Name, dir); ok && strings.HasSuffix(route, ".txt") {
+			pinned = append(pinned, strings.TrimSuffix(route, ".txt"))
+		}
+	}
+	var routes []string
+	for route := range chains {
+		routes = append(routes, route)
+	}
+	slices.Sort(routes)
+	if !slices.Equal(pinned, routes) {
+		t.Fatalf("the corpus pins the effective tables of %q, the example Bundle has the Routes %q", pinned, routes)
+	}
+	for _, route := range routes {
 		rows := mustNew(t, nil, Options{}).Rows(chains[route], b)
-		golden(t, filepath.Join("testdata", "golden", route+".txt"), table(t, rows))
-		golden(t, filepath.Join("testdata", "golden", route+".json"), rowsJSON(t, rows))
+		for ext, got := range map[string]string{".txt": table(t, rows), ".json": rowsJSON(t, rows)} {
+			want, ok := l.File(dir + route + ext)
+			if !ok {
+				t.Fatalf("%s/%s%s%s is missing", shopEntry, dir, route, ext)
+			}
+			if got != string(want) {
+				t.Errorf("%s%s%s differs from the golden corpus\n--- got\n%s--- want\n%s", dir, route, ext, got, want)
+			}
+		}
+	}
+}
+
+// TestShopBaseFiles holds the files shopLayer names the example Bundle's
+// base to what the pipeline reads: they hold the resources of the
+// Revision of the corpus entry's render without --env, which reads the
+// base files alone, so no file a render leaves out is loaded and none it
+// reads is missing.
+func TestShopBaseFiles(t *testing.T) {
+	content, ok := shopLevel(t).Canonical["-"]
+	if !ok {
+		t.Fatalf("%s has no canonical form of the render without --env", shopEntry)
+	}
+	var doc struct {
+		Resources []struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, r := range doc.Resources {
+		want = append(want, r.Kind+"/"+r.Metadata.Name)
+	}
+	slices.Sort(want)
+	b, _ := loadShop(t)
+	var got []string
+	for _, r := range b.Resources() {
+		got = append(got, r.String())
+	}
+	slices.Sort(got)
+	if len(want) == 0 || !slices.Equal(got, want) {
+		t.Errorf("the base files hold\n%q\nthe render without --env holds\n%q", got, want)
 	}
 }
 

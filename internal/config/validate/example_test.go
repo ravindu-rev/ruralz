@@ -6,27 +6,19 @@ package validate
 import (
 	"bytes"
 	"encoding/json"
-	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 )
 
 // TestDiagnosticsExample reproduces the RZ-CFG-009 example of the
-// Configuration model "Diagnostics and source map": the example Bundle
-// with Upstream "inventory" misspelled in routes/orders-summary.yaml gives
-// that exact text line, and the same code, location, resource, key-aware
-// path, message and hint in the JSON form.
+// Configuration model "Diagnostics and source map": the example Bundle of
+// the golden corpus with Upstream "inventory" misspelled in
+// routes/orders-summary.yaml gives that exact text line, and the same
+// code, location, resource, key-aware path, message and hint in the JSON
+// form.
 func TestDiagnosticsExample(t *testing.T) {
-	files := readDirs(t, "testdata/shop-bundle")
-	src := files["routes-orders-summary.yaml"]
-	delete(files, "routes-orders-summary.yaml")
-	typo := strings.Replace(src, "upstream: inventory", "upstream: inventroy", 1)
-	if typo == src {
-		t.Fatal("the example route lost its inventory step")
-	}
-	files["routes/orders-summary.yaml"] = typo
-	b, table := loadFiles(t, files)
+	b, table := loadShop(t, shopEdit{"routes/orders-summary.yaml", "upstream: inventory", "upstream: inventroy"})
 	_, ds := stageH(t, newValidator(t, nil), b, table, 2)
 	const want = `routes/orders-summary.yaml:23:19 error RZ-CFG-009 Route/orders-summary spec.composition.steps[name=stock].upstream: Upstream "inventroy" not found (did you mean "inventory"?)` + "\n"
 	if got := diagText(t, ds); got != want {

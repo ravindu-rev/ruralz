@@ -60,13 +60,15 @@ func TestBaseIsClean(t *testing.T) {
 	golden(t, "testdata/base.secrets.txt", secretsText(res.Secrets))
 }
 
-// TestExampleBundle: the example Bundle of the Configuration model (its
-// golden corpus entry) passes stage H, and its secret uses carry the
-// kinds and destinations of "Secret-to-destination binding": the
-// clientSecret to its tokenUrl origin, the State Store URL to the State
-// Store, everything else local.
+// TestExampleBundle: the example Bundle of the Configuration model, read
+// from its golden corpus entry (loadShop), passes stage H, and its secret
+// uses carry the kinds and destinations of "Secret-to-destination
+// binding": the clientSecret to its tokenUrl origin, the State Store URL
+// to the State Store, everything else local. The secret uses are this
+// package's own form, which no pipeline output holds, so their golden file
+// stays here.
 func TestExampleBundle(t *testing.T) {
-	b, files := loadDirs(t, "testdata/shop-bundle")
+	b, files := loadShop(t)
 	for _, workers := range []int{1, 4} {
 		res, ds := stageH(t, newValidator(t, nil), b, files, workers)
 		if len(ds) > 0 {

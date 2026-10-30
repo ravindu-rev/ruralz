@@ -9,10 +9,12 @@ import (
 	"flag"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"text/tabwriter"
 
@@ -20,7 +22,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
+	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -58,44 +62,158 @@ func newObject(k v1alpha1.Kind) (any, bool) {
 	}
 }
 
-// loadBundle reads every .yaml file under dirs (a file of a later dir
-// replaces the file of the same relative path in an earlier one), parses
-// it with the restricted profile and builds the hub resources the way
-// stage G does: the typed object (unknown fields rejected), the registry
-// defaults materialized on a Policy and its config decoded into the
-// registry's config type.
-func loadBundle(t testing.TB, dirs ...string) (*hub.Bundle, *tree.FileTable) {
+// layer holds the YAML files of a Bundle by slash path relative to its
+// root.
+type layer map[string][]byte
+
+// dirLayer reads every .yaml file under dir.
+func dirLayer(t testing.TB, dir string) layer {
 	t.Helper()
-	files := map[string]string{}
-	for _, dir := range dirs {
-		err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(p, ".yaml") {
-				return err
-			}
-			rel, err := filepath.Rel(dir, p)
-			files[filepath.ToSlash(rel)] = p
+	l := layer{}
+	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".yaml") {
 			return err
-		})
+		}
+		rel, err := filepath.Rel(dir, p)
 		if err != nil {
-			t.Fatalf("walk %s: %v", dir, err)
+			return err
+		}
+		src, err := os.ReadFile(p) //nolint:gosec // G304: a file under testdata.
+		l[filepath.ToSlash(rel)] = src
+		return err
+	})
+	if err != nil {
+		t.Fatalf("walk %s: %v", dir, err)
+	}
+	return l
+}
+
+// goldenCorpus loads the configuration conformance corpus once for all
+// tests: the one golden corpus of pipeline outputs, which holds the
+// example Bundle and its effective tables
+// (docs/engineering/03-testing-and-quality-strategy.md "Golden tests").
+var goldenCorpus = sync.OnceValues(corpus.Default)
+
+// shopEntry is the corpus entry of the configuration model's example
+// Bundle ("Complete annotated example Bundle"), examples/shop-bundle.
+const shopEntry = "golden/shop-bundle"
+
+// shopIgnored lists the files of the entry's bundle/ that its .ruralzignore
+// keeps out of every render.
+func shopIgnored() []string {
+	return []string{"routes/orders-history.draft.yaml", "samples/orders-summary.json"}
+}
+
+// shopCorpusEntry returns the corpus entry of the example Bundle.
+func shopCorpusEntry(t testing.TB) *corpus.Entry {
+	t.Helper()
+	c, err := goldenCorpus()
+	if err != nil {
+		t.Fatalf("load the golden corpus: %v", err)
+	}
+	e, ok := c.Entry(shopEntry)
+	if !ok {
+		t.Fatalf("the golden corpus has no entry %s", shopEntry)
+	}
+	return e
+}
+
+// shopLayer returns the base files of the example Bundle in the golden
+// corpus: the YAML files of its bundle/ outside overlays/, which only a
+// render for an Environment reads, less those of shopIgnored. Discovery is
+// stage A, which internal/config/loader runs a layer above this package
+// (docs/engineering/02-repository-layout-and-conventions.md "Package
+// layers"), so the test names the files a render leaves out, and
+// TestShopBaseFiles holds the rest to the resources of the entry's render
+// without --env.
+func shopLayer(t testing.TB) layer {
+	t.Helper()
+	b, ok := shopCorpusEntry(t).Bundle(corpus.BundleDir)
+	if !ok {
+		t.Fatalf("%s has no %s/", shopEntry, corpus.BundleDir)
+	}
+	ignored := shopIgnored()
+	for _, name := range ignored {
+		if _, ok := b.File(name); !ok {
+			t.Fatalf("%s has no file %s to leave out", shopEntry, name)
 		}
 	}
-	rels := make([]string, 0, len(files))
-	for rel := range files {
-		rels = append(rels, rel)
+	l := layer{}
+	for _, f := range b.Files {
+		if strings.HasSuffix(f.Name, ".yaml") && !strings.HasPrefix(f.Name, "overlays/") && !slices.Contains(ignored, f.Name) {
+			l[f.Name] = f.Data
+		}
 	}
-	slices.Sort(rels)
+	return l
+}
+
+// shopLevel returns the outputs of the example Bundle at the hub schema's
+// level, the level this release renders.
+func shopLevel(t testing.TB) *corpus.Level {
+	t.Helper()
+	set, err := schemaidx.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, ok := set.Index(v1alpha1.APIVersion)
+	if !ok {
+		t.Fatalf("no %s schema", v1alpha1.APIVersion)
+	}
+	l, ok := shopCorpusEntry(t).Level(idx.Level())
+	if !ok {
+		t.Fatalf("%s has no %s", shopEntry, corpus.LevelDir(idx.Level()))
+	}
+	return l
+}
+
+// edited returns a copy of l whose file has the text old, which it must
+// hold once, replaced by repl.
+func edited(t testing.TB, l layer, file, old, repl string) layer {
+	t.Helper()
+	src, ok := l[file]
+	if !ok || bytes.Count(src, []byte(old)) != 1 {
+		t.Fatalf("%s does not hold %q once", file, old)
+	}
+	out := maps.Clone(l)
+	out[file] = bytes.Replace(src, []byte(old), []byte(repl), 1)
+	return out
+}
+
+// loadLayers parses the files of layers (a file of a later layer replaces
+// the file of the same path in an earlier one) with the restricted
+// profile, in path order, and builds the hub resources the way stage G
+// does: the typed object (unknown fields rejected), the registry defaults
+// materialized on a Policy and its config decoded into the registry's
+// config type.
+func loadLayers(t testing.TB, layers ...layer) (*hub.Bundle, *tree.FileTable) {
+	t.Helper()
+	files := layer{}
+	for _, l := range layers {
+		maps.Copy(files, l)
+	}
 	table := &tree.FileTable{}
 	reg := registry.New()
 	var rs []*hub.Resource
-	for _, rel := range rels {
-		src, err := os.ReadFile(files[rel])
-		if err != nil {
-			t.Fatal(err)
-		}
-		rs = append(rs, parseFile(t, table, reg, rel, src)...)
+	for _, rel := range slices.Sorted(maps.Keys(files)) {
+		rs = append(rs, parseFile(t, table, reg, rel, files[rel])...)
 	}
 	return hub.NewBundle(rs), table
+}
+
+// loadBundle loads the .yaml files under dirs (loadLayers).
+func loadBundle(t testing.TB, dirs ...string) (*hub.Bundle, *tree.FileTable) {
+	t.Helper()
+	layers := make([]layer, len(dirs))
+	for i, dir := range dirs {
+		layers[i] = dirLayer(t, dir)
+	}
+	return loadLayers(t, layers...)
+}
+
+// loadShop loads the base files of the example Bundle (shopLayer).
+func loadShop(t testing.TB) (*hub.Bundle, *tree.FileTable) {
+	t.Helper()
+	return loadLayers(t, shopLayer(t))
 }
 
 // parseFile parses one YAML file into hub resources.

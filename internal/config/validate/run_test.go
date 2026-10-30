@@ -289,7 +289,7 @@ func TestYieldReadsInjectedClock(t *testing.T) {
 	var reads atomic.Int64
 	now := func() time.Time { return time.Unix(0, reads.Add(1)*int64(time.Millisecond)) }
 	v := newValidator(t, func(o *Options) { o.Now, o.YieldAfter = now, time.Microsecond })
-	b, files := loadDirs(t, "testdata/shop-bundle")
+	b, files := loadShop(t)
 	stageH(t, v, b, files, 2)
 	if reads.Load() == 0 {
 		t.Fatal("the run never read the injected clock")

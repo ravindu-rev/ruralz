@@ -160,7 +160,7 @@ func TestYieldAfterHonored(t *testing.T) {
 // never depends on the yields (chains and findings equal with and without
 // a clock, on 1 and 4 workers, over the shop Bundle and the fuzz seeds).
 func TestYieldNilNowAndResult(t *testing.T) {
-	shop, files := loadBundle(t, shopBundle)
+	shop, files := loadShop(t)
 	bundles := []struct {
 		b     *hub.Bundle
 		files *tree.FileTable

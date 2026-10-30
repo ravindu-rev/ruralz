@@ -8,8 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -21,43 +19,28 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/revision"
 	"github.com/ravindu-rev/ruralz/internal/config/subst"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// sourceFiles parses every configuration file under dir, overlays
-// included, into SourceFiles, as the CLI hands a source Bundle to Convert.
+// sourceFiles parses every configuration file of the Bundle at dir,
+// overlays included, into SourceFiles, as the CLI hands a source Bundle to
+// Convert: the files stage A discovers (discover), each parsed as authored
+// by loader.Bundle.ParseFile.
 func sourceFiles(t testing.TB, dir string) []SourceFile {
 	t.Helper()
+	b, _ := discover(t, dir)
 	var out []SourceFile
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
-			return err
-		}
-		f, ok := profile.FormatOf(p)
-		if !ok {
-			return nil
-		}
-		rel, err := filepath.Rel(dir, p)
-		if err != nil {
-			return err
-		}
-		data, err := os.ReadFile(p) //nolint:gosec // G304: a file under testdata or t.TempDir.
-		if err != nil {
-			return err
-		}
-		docs, ds, err := profile.Parse(t.Context(), data, 0, rel, f, profile.Options{})
+	for _, f := range b.Files() {
+		rs, ds, err := b.ParseFile(t.Context(), f.Path)
 		if err != nil || len(ds) > 0 {
-			t.Fatalf("parse %s: %v %v", rel, ds, err)
+			t.Fatalf("parse %s: %v %v", f.Path, ds, err)
 		}
-		sf := SourceFile{Path: filepath.ToSlash(rel)}
-		for _, doc := range docs {
-			sf.Documents = append(sf.Documents, doc.Root)
+		sf := SourceFile{Path: f.Path}
+		for _, r := range rs {
+			sf.Documents = append(sf.Documents, r.Root)
 		}
 		out = append(out, sf)
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
 	}
 	return out
 }
@@ -97,9 +80,10 @@ func buildDir(t *testing.T, dir string) BuildFunc {
 // TestConvertKeepsSources checks the rewrite of render --api-version on the
 // example Bundle: every base and overlay file comes back at its own path in
 // its own format, holding the same values, with ${VAR} expressions and
-// $patch entries as authored and comments dropped.
+// $patch entries as authored and comments dropped; the files its
+// .ruralzignore excludes are no source.
 func TestConvertKeepsSources(t *testing.T) {
-	src := sourceFiles(t, shopBundle)
+	src := sourceFiles(t, shopDir(t))
 	files, ds, err := Convert(t.Context(), src, v1alpha1.APIVersion, convert.Default())
 	if err != nil || len(ds) > 0 {
 		t.Fatalf("Convert = %v, %v", ds, err)
@@ -134,12 +118,16 @@ func TestConvertKeepsSources(t *testing.T) {
 	if s := byPath["overlays/staging/models.yaml"]; !strings.Contains(s, `"$patch": delete`) {
 		t.Errorf("the staging overlay lost its $patch entry:\n%s", s)
 	}
+	bundle, ok := shopCorpusEntry(t).Bundle(corpus.BundleDir)
+	if !ok {
+		t.Fatalf("%s has no %s/", shopEntry, corpus.BundleDir)
+	}
 	for p, comment := range map[string]string{
 		"ruralz.yaml":                  "# HTTP/3 on UDP 8443",
 		"upstreams/services.yaml":      "# upstream leg only",
 		"overlays/staging/models.yaml": "# Kubernetes strategic-merge directive",
 	} {
-		if src, _ := os.ReadFile(filepath.Join(shopBundle, p)); !bytes.Contains(src, []byte(comment)) { //nolint:gosec // G304: a file under testdata.
+		if src, _ := bundle.File(p); !bytes.Contains(src, []byte(comment)) {
 			t.Fatalf("%s no longer has the comment %q the test looks for", p, comment)
 		}
 		if strings.Contains(byPath[p], comment) {
@@ -167,15 +155,15 @@ func mapsEqual(a, b map[string]string) bool {
 // Revision as its source for every Environment of the --environments
 // file, so every comparison is Equal.
 func TestConversionKeepsRevision(t *testing.T) {
-	files, ds, err := Convert(t.Context(), sourceFiles(t, shopBundle), v1alpha1.APIVersion, convert.Default())
+	files, ds, err := Convert(t.Context(), sourceFiles(t, shopDir(t)), v1alpha1.APIVersion, convert.Default())
 	if err != nil || len(ds) > 0 {
 		t.Fatalf("Convert = %v, %v", ds, err)
 	}
 	out := filepath.Join(t.TempDir(), "converted")
-	if err := WriteTree(out, files, TreeOptions{SourceRoot: shopBundle}); err != nil {
+	if err := WriteTree(out, files, TreeOptions{SourceRoot: shopDir(t)}); err != nil {
 		t.Fatal(err)
 	}
-	cs, err := VerifyConversion(t.Context(), []string{"staging", "prod"}, buildDir(t, shopBundle), buildDir(t, out))
+	cs, err := VerifyConversion(t.Context(), []string{"staging", "prod"}, buildDir(t, shopDir(t)), buildDir(t, out))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +232,7 @@ func TestConvertMultiDocumentOrder(t *testing.T) {
 // TestConvertUnservedTarget checks that a target apiVersion this release
 // does not serve is one RZ-CFG-007 diagnostic naming it, with no files.
 func TestConvertUnservedTarget(t *testing.T) {
-	files, ds, err := Convert(t.Context(), sourceFiles(t, shopBundle), "ruralz/v1beta1", convert.Default())
+	files, ds, err := Convert(t.Context(), sourceFiles(t, shopDir(t)), "ruralz/v1beta1", convert.Default())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +307,7 @@ func TestConvertInputErrors(t *testing.T) {
 // TestConvertLeavesInputUnchanged checks that Convert never rewrites the
 // source trees, which the loader may still use.
 func TestConvertLeavesInputUnchanged(t *testing.T) {
-	src := sourceFiles(t, shopBundle)
+	src := sourceFiles(t, shopDir(t))
 	before := values(t, src)
 	conv, err := convert.NewRegistry(convert.Lifecycle{}, renaming{})
 	if err != nil {

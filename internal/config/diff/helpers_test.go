@@ -7,36 +7,35 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"flag"
-	"io/fs"
-	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"github.com/ravindu-rev/ruralz/internal/config/canonical"
 	"github.com/ravindu-rev/ruralz/internal/config/defaults"
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/config/loader"
 	"github.com/ravindu-rev/ruralz/internal/config/precedence"
-	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaview"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/errcode"
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // stages holds the process-wide inputs of the test pipeline, built once.
 type stages struct {
-	set   *schemaidx.Set
-	idx   *schemaidx.Index
-	views *schemaview.Set
-	g     *defaults.Stage
-	i     *precedence.Resolver
+	set    *schemaidx.Set
+	idx    *schemaidx.Index
+	views  *schemaview.Set
+	g      *defaults.Stage
+	i      *precedence.Resolver
+	loader *loader.Loader
 }
 
 // bodyOracle stands in for the CEL compiler: a rule reads the body when it
@@ -69,7 +68,11 @@ var testStages = sync.OnceValues(func() (*stages, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &stages{set: set, idx: idx, views: views, g: g, i: i}, nil
+	ld, err := loader.New(loader.Options{Schemas: set, Views: views})
+	if err != nil {
+		return nil, err
+	}
+	return &stages{set: set, idx: idx, views: views, g: g, i: i, loader: ld}, nil
 })
 
 // pipe returns the test pipeline.
@@ -91,60 +94,43 @@ type source struct {
 	src  string
 }
 
-// readDir reads every .yaml file under dir as sources, in path order.
-func readDir(t testing.TB, dir string) []source {
+// rendered runs stages A to E through the loader over the Bundle srcs
+// holds, as the pipeline facade does: discovery, which leaves out what a
+// .ruralzignore excludes, parsing, the overlay of the diff example's
+// Environment and the substitution of its variables, from the corpus
+// entry's environments.yaml (diffEnv). A finding that blocks a Revision
+// fails t.
+func rendered(t testing.TB, srcs []source) ([]*tree.Resource, *tree.FileTable) {
 	t.Helper()
-	var out []source
-	err := filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || !strings.HasSuffix(p, ".yaml") {
-			return err
-		}
-		b, err := os.ReadFile(p) //nolint:gosec // G304: a test fixture under testdata.
-		if err != nil {
-			return err
-		}
-		rel, err := filepath.Rel(dir, p)
-		out = append(out, source{path: filepath.ToSlash(rel), src: string(b)})
-		return err
+	fsys := fstest.MapFS{}
+	for _, s := range srcs {
+		fsys[s.path] = &fstest.MapFile{Data: []byte(s.src)}
+	}
+	envs := diffCorpusEntry(t).Environments
+	if envs == nil {
+		t.Fatalf("%s has no %s", diffEntry, corpus.EnvironmentsFile)
+	}
+	res, err := pipe(t).loader.Load(context.Background(), loader.Request{
+		Source:       loader.Source{FS: fsys, Path: "."},
+		Environments: loader.Source{FS: fstest.MapFS{corpus.EnvironmentsFile: {Data: envs}}, Path: corpus.EnvironmentsFile},
+		Environment:  diffEnv,
 	})
 	if err != nil {
-		t.Fatalf("read %s: %v", dir, err)
+		t.Fatalf("stages A to E: %v", err)
 	}
-	slices.SortFunc(out, func(a, b source) int { return strings.Compare(a.path, b.path) })
-	return out
+	if res.HasErrors() || res.Stopped {
+		t.Fatalf("stages A to E:\n%s", texts(res.Diagnostics))
+	}
+	return res.Resources, res.Files
 }
 
-// render runs the test pipeline over sources: parse (stage B), schema
-// validation (F), defaults (G), effective chains (I) and the canonical form
-// (L), as the pipeline facade does for a rendered Bundle.
+// render runs the test pipeline over sources: stages A to E (rendered),
+// then schema validation (F), defaults (G), effective chains (I) and the
+// canonical form (L), as the pipeline facade does.
 func render(t testing.TB, srcs []source) *hub.Validated {
 	t.Helper()
-	files := &tree.FileTable{}
-	var rs []*tree.Resource
-	for _, f := range srcs {
-		id := files.Add(tree.File{Path: f.path, Role: tree.RoleBase})
-		docs, ds, err := profile.Parse(context.Background(), []byte(f.src), id, f.path, profile.FormatYAML, profile.Options{})
-		if err != nil || len(ds) > 0 {
-			t.Fatalf("parse %s: %v %s", f.path, err, texts(ds))
-		}
-		for _, d := range docs {
-			rs = append(rs, resource(t, d.Root, d.Start))
-		}
-	}
+	rs, files := rendered(t, srcs)
 	return finish(t, rs, files)
-}
-
-// resource returns the tree.Resource of a parsed envelope.
-func resource(t testing.TB, root *tree.Node, start tree.Pos) *tree.Resource {
-	t.Helper()
-	k, _ := root.Get("kind")
-	v, _ := root.Get("apiVersion")
-	meta, _ := root.Get("metadata")
-	name, _ := meta.Get("name")
-	if k == nil || v == nil || name == nil {
-		t.Fatal("resource without apiVersion, kind or metadata.name")
-	}
-	return &tree.Resource{ID: tree.ID{Kind: v1alpha1.Kind(k.Text), Name: name.Text}, APIVersion: v.Text, Root: root, Start: start}
 }
 
 // finish runs stages F, G, I and L over parsed or decoded resources.
@@ -199,38 +185,74 @@ func texts(ds diag.List) string {
 	return b.String()
 }
 
-// update rewrites the golden files: go test ./internal/config/diff -run Golden -update.
-var update = flag.Bool("update", false, "rewrite the golden files under testdata/golden")
+// goldenCorpus loads the configuration conformance corpus once for all
+// tests: the one golden corpus of pipeline outputs, which holds the
+// configuration model's diff example, its two Bundles and its outputs
+// (docs/engineering/03-testing-and-quality-strategy.md "Golden tests").
+var goldenCorpus = sync.OnceValues(corpus.Default)
 
-// golden compares got with testdata/golden/name, rewriting it with
-// -update.
-func golden(t *testing.T, name string, got []byte) {
+// diffEntry is the corpus entry of the configuration model's diff example
+// ("Diff semantics"): its to/ is the example Bundle, examples/shop-bundle,
+// and its from/ the earlier state the example compares it with.
+const diffEntry = "golden/shop-bundle-diff"
+
+// diffEnv is the Environment the diff example renders both sides for.
+const diffEnv = "prod"
+
+// diffCorpusEntry returns the corpus entry of the diff example.
+func diffCorpusEntry(t testing.TB) *corpus.Entry {
 	t.Helper()
-	p := filepath.Join("testdata", "golden", name)
-	if *update {
-		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(p, got, 0o600); err != nil {
-			t.Fatal(err)
-		}
-		return
-	}
-	want, err := os.ReadFile(p) //nolint:gosec // G304: a golden file under testdata.
+	c, err := goldenCorpus()
 	if err != nil {
-		t.Fatalf("read golden (run with -update to create it): %v", err)
+		t.Fatalf("load the golden corpus: %v", err)
+	}
+	e, ok := c.Entry(diffEntry)
+	if !ok {
+		t.Fatalf("the golden corpus has no entry %s", diffEntry)
+	}
+	return e
+}
+
+// diffLevel returns the outputs of the diff example at the hub schema's
+// level, the level this release renders.
+func diffLevel(t testing.TB) *corpus.Level {
+	t.Helper()
+	n := hubIndex(t).Level()
+	l, ok := diffCorpusEntry(t).Level(n)
+	if !ok {
+		t.Fatalf("%s has no %s", diffEntry, corpus.LevelDir(n))
+	}
+	return l
+}
+
+// sameAsCorpus compares got with the output name of the diff example in the
+// golden corpus.
+func sameAsCorpus(t *testing.T, name string, got []byte) {
+	t.Helper()
+	want, ok := diffLevel(t).File(name)
+	if !ok {
+		t.Fatalf("%s has no output %s", diffEntry, name)
 	}
 	if !bytes.Equal(got, want) {
-		t.Errorf("%s differs from the golden file:\n--- got\n%s\n--- want\n%s", name, got, want)
+		t.Errorf("%s differs from the golden corpus:\n--- got\n%s\n--- want\n%s", name, got, want)
 	}
 }
 
-// shop returns the sources of the example Bundle rendered for prod, or
-// of the earlier state the configuration model's diff example compares
-// it with.
+// shop returns the files of a side of the diff example in the golden
+// corpus, corpus.FromDir or corpus.ToDir, the example Bundle being to/:
+// the Bundle as authored, its overlays and the files its .ruralzignore
+// excludes included, which render renders for prod.
 func shop(t testing.TB, side string) []source {
 	t.Helper()
-	return readDir(t, filepath.Join("testdata", "shop", side))
+	b, ok := diffCorpusEntry(t).Bundle(side)
+	if !ok {
+		t.Fatalf("%s has no %s/", diffEntry, side)
+	}
+	out := make([]source, 0, len(b.Files))
+	for _, f := range b.Files {
+		out = append(out, source{path: f.Name, src: string(f.Data)})
+	}
+	return out
 }
 
 // edit returns srcs with the first old in file replaced by repl.

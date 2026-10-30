@@ -19,6 +19,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -36,8 +37,7 @@ func FuzzDiffProperties(f *testing.F) {
 	}
 	f.Fuzz(func(t *testing.T, seed uint64, n uint8) {
 		r := rand.New(rand.NewPCG(seed, uint64(n))) //nolint:gosec // G404: a reproducible fuzz input, not a secret.
-		files := &tree.FileTable{}
-		base := parse(t, files, shop(t, "to"))
+		base, files := rendered(t, shop(t, corpus.ToDir))
 		a := mutate(r, base, 1+int(n%4))
 		b := mutate(r, a, 1+int(n/4%5))
 		va, err := build(files, a)
@@ -51,23 +51,6 @@ func FuzzDiffProperties(f *testing.F) {
 		checkProperties(t, va, vb, 1+int(n%3))
 		checkReordering(t, r, va, vb)
 	})
-}
-
-// parse parses sources into resources recorded in files.
-func parse(t *testing.T, files *tree.FileTable, srcs []source) []*tree.Resource {
-	t.Helper()
-	var out []*tree.Resource
-	for _, s := range srcs {
-		id := files.Add(tree.File{Path: s.path, Role: tree.RoleBase})
-		docs, ds, err := profile.Parse(context.Background(), []byte(s.src), id, s.path, profile.FormatYAML, profile.Options{})
-		if err != nil || len(ds) > 0 {
-			t.Fatalf("parse %s: %v %s", s.path, err, texts(ds))
-		}
-		for _, d := range docs {
-			out = append(out, resource(t, d.Root, d.Start))
-		}
-	}
-	return out
 }
 
 // build runs stages F to L on copies of rs, reporting a finding as an error.

@@ -689,7 +689,7 @@ func TestCheckPolicies(t *testing.T) {
 // TestWorkersDeterministic checks that the result never depends on the
 // worker count or scheduling.
 func TestWorkersDeterministic(t *testing.T) {
-	b, files := loadBundle(t, shopBundle, "testdata/fixtures/019-exclude")
+	b, files := fixture(t, shopEntry, "019-exclude")
 	r := mustNew(t, nil, Options{Body: bodyOracle{}})
 	c1, d1, err1 := r.Run(t.Context(), b, files, 1)
 	for _, w := range []int{2, 3, 16} {
@@ -702,7 +702,7 @@ func TestWorkersDeterministic(t *testing.T) {
 
 // TestConcurrentResolve shares one Resolver between goroutines (-race).
 func TestConcurrentResolve(t *testing.T) {
-	b, files := loadBundle(t, shopBundle)
+	b, files := loadShop(t)
 	r := mustNew(t, nil, Options{Body: bodyOracle{}})
 	want, _, err := r.Run(t.Context(), b, files, 1)
 	if err != nil {
@@ -733,24 +733,23 @@ func TestConcurrentResolve(t *testing.T) {
 // Resolvers) do.
 func TestResolverAcrossLoads(t *testing.T) {
 	r := mustNew(t, nil, Options{Body: bodyOracle{}})
-	const common = "testdata/fixtures/common"
-	for i, dirs := range [][]string{
-		{shopBundle, "testdata/fixtures/019-exclude"},
-		{common, "testdata/fixtures/018-route-auth"},
-		{common, "testdata/fixtures/020-plugin-route"},
-		{shopBundle, "testdata/fixtures/019-exclude"},
+	for i, load := range [][2]string{
+		{shopEntry, "019-exclude"},
+		{common, "018-route-auth"},
+		{common, "020-plugin-route"},
+		{shopEntry, "019-exclude"},
 	} {
-		b, files := loadBundle(t, dirs...)
+		b, files := fixture(t, load[0], load[1])
 		_, ds, err := r.Run(t.Context(), b, files, 2)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, err := os.ReadFile(filepath.Join(dirs[1], "want.txt"))
+		want, err := os.ReadFile(filepath.Join("testdata", "fixtures", load[1], "want.txt"))
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := diagText(t, ds); got != string(want) {
-			t.Errorf("load %d (%s): got %q, want %q", i, dirs[1], got, want)
+			t.Errorf("load %d (%s): got %q, want %q", i, load[1], got, want)
 		}
 	}
 }

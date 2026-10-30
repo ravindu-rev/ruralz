@@ -332,7 +332,7 @@ func TestOpsOrder(t *testing.T) {
 	b := edit(t, a, "ai/models.yaml", "  limits: {maxInputTokens: 32000, maxOutputTokens: 2048}", "  limits: {maxInputTokens: 16000}")
 	b = edit(t, b, "ai/models.yaml", "    - name: primary\n      provider: anthropic-prod\n      model: claude-sonnet-4-5\n", "")
 	b = edit(t, b, "ai/models.yaml", "      model: gpt-4.1-mini\n", "      model: gpt-4.1\n")
-	b = edit(t, b, "ai/models.yaml", "# overlays/prod/scale.yaml\n", "\n    - name: tertiary\n      provider: openai-prod\n      model: gpt-4.1-nano\n")
+	b = edit(t, b, "ai/models.yaml", "      when: \"ai.estimatedInputTokens < 100000\"\n", "      when: \"ai.estimatedInputTokens < 100000\"\n    - name: tertiary\n      provider: openai-prod\n      model: gpt-4.1-nano\n")
 	d := compare(t, render(t, a), render(t, b))
 	sameLines(t, "ops", opLines(t, d, "AIModel/support-chat"), []string{
 		"~ spec.candidates[name=secondary].model: gpt-4.1-mini -> gpt-4.1",

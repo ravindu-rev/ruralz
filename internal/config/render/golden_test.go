@@ -5,28 +5,28 @@ package render
 
 import (
 	"bytes"
-	"path/filepath"
 	"testing"
 )
 
-// TestShopBundleGolden pins the rendered example Bundle for each
+// TestShopBundleGolden checks the rendered example Bundle for each
 // Environment of its --environments file and with no Environment, in YAML
-// and in JSON: the overlay merged (prod raises the orders retries and
-// replaces the secondary candidate's when; staging deletes that
-// candidate), every ${VAR} substituted (the OTLP endpoint takes the
-// Environment's value, or its default without one), resources in
-// canonical order with their envelope first, defaults never written and
-// secretRefs written as references.
+// and in JSON, against the golden corpus's rendered/<render>.yaml and
+// .json: the overlay merged (prod raises the orders retries and replaces
+// the secondary candidate's when; staging deletes that candidate), every
+// ${VAR} substituted (the OTLP endpoint takes the Environment's value, or
+// its default without one), resources in canonical order with their
+// envelope first, defaults never written and secretRefs written as
+// references.
 func TestShopBundleGolden(t *testing.T) {
-	for _, env := range []string{"prod", "staging", ""} {
+	for _, env := range shopRenders(t) {
 		name := env
 		if name == "" {
 			name = "no-environment"
 		}
 		t.Run(name, func(t *testing.T) {
 			r := shop(t, env)
-			golden(t, filepath.Join("testdata", "golden", "bundle-"+name+".yaml"), renderAs(t, r, FormatYAML))
-			golden(t, filepath.Join("testdata", "golden", "bundle-"+name+".json"), renderAs(t, r, FormatJSON))
+			sameAsCorpus(t, "rendered/"+renderName(env)+".yaml", renderAs(t, r, FormatYAML))
+			sameAsCorpus(t, "rendered/"+renderName(env)+".json", renderAs(t, r, FormatJSON))
 		})
 	}
 }
@@ -36,7 +36,7 @@ func TestShopBundleGolden(t *testing.T) {
 // rendering it again yields the same Revision and the same bytes, for
 // every Environment of the example Bundle.
 func TestRenderTwiceSameRevision(t *testing.T) {
-	for _, env := range []string{"prod", "staging", ""} {
+	for _, env := range shopRenders(t) {
 		r := shop(t, env)
 		first := renderYAML(t, r)
 		again := rendered(t, first)

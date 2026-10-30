@@ -19,7 +19,7 @@ import (
 // in a file-mode load; the example diagnostics keep their file, line and
 // column.
 func TestLocatorWithoutFiles(t *testing.T) {
-	b, _ := loadBundle(t, shopBundle, "testdata/fixtures/019-exclude")
+	b, _ := fixture(t, shopEntry, "019-exclude")
 	_, ds, err := mustNew(t, nil, Options{Body: bodyOracle{}}).Run(t.Context(), b, nil, 1)
 	if err != nil {
 		t.Fatal(err)

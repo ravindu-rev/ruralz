@@ -5,9 +5,12 @@
 // test/conformance/config (docs/engineering/03-testing-and-quality-
 // strategy.md "Golden tests"): the golden entries, the JSON subset pairs
 // and the negative fixtures. The conformance suite runs every entry from
-// it, and every fuzz target that parses configuration seeds itself
-// through its helpers (TQ "Fuzzing": "seeded from the golden and negative
-// corpora"):
+// it; a package's tests read from it the example Bundles and pipeline
+// outputs they check, since it is the one golden corpus of pipeline
+// outputs and a package keeps golden files only for its own internal
+// forms (Corpus.Entry, Corpus.Path, Bundle.File); and every fuzz target
+// that parses configuration seeds itself through its helpers (TQ
+// "Fuzzing": "seeded from the golden and negative corpora"):
 //
 //	func FuzzProfileYAML(f *testing.F) {
 //		corpus.AddYAML(f)
@@ -151,6 +154,16 @@ type Bundle struct {
 	Files []File
 }
 
+// File returns the Bundle's file name, a slash path relative to the
+// Bundle root such as "routes/orders.yaml".
+func (b *Bundle) File(name string) ([]byte, bool) {
+	i := slices.IndexFunc(b.Files, func(f File) bool { return f.Name == name })
+	if i < 0 {
+		return nil, false
+	}
+	return b.Files[i].Data, true
+}
+
 // Level is the outputs of a golden entry at one schema level
 // (level-<n>/).
 type Level struct {
@@ -249,6 +262,24 @@ type Corpus struct {
 	Entries []Entry
 	// files holds every seed-sized regular file by corpus-relative path.
 	files []File
+}
+
+// Entry returns the entry name, its path relative to the corpus
+// directory, such as "golden/shop-bundle".
+func (c *Corpus) Entry(name string) (*Entry, bool) {
+	i := slices.IndexFunc(c.Entries, func(e Entry) bool { return e.Name == name })
+	if i < 0 {
+		return nil, false
+	}
+	return &c.Entries[i], true
+}
+
+// Path returns the operating system path of rel, a slash path relative to
+// the corpus directory, such as the Bundle directory
+// "golden/shop-bundle/bundle" that a test hands to an API reading
+// directories.
+func (c *Corpus) Path(rel string) string {
+	return filepath.Join(c.Root, filepath.FromSlash(rel))
 }
 
 // Find returns the absolute corpus directory of the repository containing

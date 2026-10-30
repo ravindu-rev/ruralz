@@ -14,27 +14,32 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/fstest"
 
 	"github.com/ravindu-rev/ruralz/internal/config/defaults"
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/config/loader"
 	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/registry"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/schemaview"
+	"github.com/ravindu-rev/ruralz/internal/config/subst"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 var update = flag.Bool("update", false, "rewrite the want files under testdata")
 
-// stages holds the schema indexes, the compiled schema views and stage G,
-// built once for the package's tests.
+// stages holds the schema indexes, the compiled schema views, the loader
+// over them and stage G, built once for the package's tests.
 type stages struct {
-	idx   *schemaidx.Set
-	views *schemaview.Set
-	g     *defaults.Stage
-	reg   *registry.Registry
+	idx    *schemaidx.Set
+	views  *schemaview.Set
+	g      *defaults.Stage
+	reg    *registry.Registry
+	loader *loader.Loader
 }
 
 var (
@@ -63,7 +68,12 @@ func pipeline(t testing.TB) stages {
 			stagesErr = err
 			return
 		}
-		stagesVal = stages{idx: idx, views: views, g: g, reg: reg}
+		ld, err := loader.New(loader.Options{Schemas: idx, Views: views})
+		if err != nil {
+			stagesErr = err
+			return
+		}
+		stagesVal = stages{idx: idx, views: views, g: g, reg: reg, loader: ld}
 	})
 	if stagesErr != nil {
 		t.Fatal(stagesErr)
@@ -126,7 +136,6 @@ func readDirs(t testing.TB, dirs ...string) map[string]string {
 // stages B to G: their findings fail the test.
 func loadFiles(t testing.TB, files map[string]string) (*hub.Bundle, *tree.FileTable) {
 	t.Helper()
-	s := pipeline(t)
 	paths := slices.Sorted(maps.Keys(files))
 	table := &tree.FileTable{}
 	var rs []*tree.Resource
@@ -141,18 +150,80 @@ func loadFiles(t testing.TB, files map[string]string) (*hub.Bundle, *tree.FileTa
 			meta, _ := d.Root.Get("metadata")
 			n, _ := meta.Get("name")
 			av, _ := d.Root.Get("apiVersion")
-			res := &tree.Resource{ID: tree.ID{Kind: v1alpha1.Kind(k.Text), Name: n.Text}, APIVersion: av.Text, Root: d.Root, Start: d.Start}
-			if ds, ok := s.views.Validate(res, table); !ok || len(ds) > 0 {
-				t.Fatalf("stage F on %s: %s", res.ID, diagText(t, ds))
-			}
-			rs = append(rs, res)
+			rs = append(rs, &tree.Resource{ID: tree.ID{Kind: v1alpha1.Kind(k.Text), Name: n.Text}, APIVersion: av.Text, Root: d.Root, Start: d.Start})
+		}
+	}
+	return stagesFG(t, rs, table), table
+}
+
+// stagesFG runs the rendered schema (stage F) on each resource, then stage
+// G, failing on any finding.
+func stagesFG(t testing.TB, rs []*tree.Resource, table *tree.FileTable) *hub.Bundle {
+	t.Helper()
+	s := pipeline(t)
+	for _, res := range rs {
+		if ds, ok := s.views.Validate(res, table); !ok || len(ds) > 0 {
+			t.Fatalf("stage F on %s: %s", res.ID, diagText(t, ds))
 		}
 	}
 	b, ds, err := s.g.Run(t.Context(), rs, table, 2)
 	if err != nil || len(ds) > 0 || b == nil {
 		t.Fatalf("stage G: %v\n%s", err, diagText(t, ds))
 	}
-	return b, table
+	return b
+}
+
+// goldenCorpus loads the configuration conformance corpus once for all
+// tests: the one golden corpus of pipeline outputs, which holds the
+// example Bundle (docs/engineering/03-testing-and-quality-strategy.md
+// "Golden tests").
+var goldenCorpus = sync.OnceValues(corpus.Default)
+
+// shopEntry is the corpus entry of the Configuration model's example
+// Bundle, examples/shop-bundle.
+const shopEntry = "golden/shop-bundle"
+
+// shopEdit changes the example Bundle before a test loads it: in file,
+// the text old, which the file holds once, becomes repl.
+type shopEdit struct{ file, old, repl string }
+
+// loadShop loads the example Bundle of the golden corpus as its render
+// without --env does: stages A to E through the loader, over the entry's
+// files with edits applied and an empty variable set, then stages F and G
+// (stagesFG). Every finding fails t.
+func loadShop(t testing.TB, edits ...shopEdit) (*hub.Bundle, *tree.FileTable) {
+	t.Helper()
+	c, err := goldenCorpus()
+	if err != nil {
+		t.Fatalf("load the golden corpus: %v", err)
+	}
+	e, ok := c.Entry(shopEntry)
+	if !ok {
+		t.Fatalf("the golden corpus has no entry %s", shopEntry)
+	}
+	b, ok := e.Bundle(corpus.BundleDir)
+	if !ok {
+		t.Fatalf("%s has no %s/", shopEntry, corpus.BundleDir)
+	}
+	fsys := fstest.MapFS{}
+	for _, f := range b.Files {
+		fsys[f.Name] = &fstest.MapFile{Data: bytes.Clone(f.Data)}
+	}
+	for _, ed := range edits {
+		f, ok := fsys[ed.file]
+		if !ok || bytes.Count(f.Data, []byte(ed.old)) != 1 {
+			t.Fatalf("%s/%s does not hold %q once", shopEntry, ed.file, ed.old)
+		}
+		f.Data = bytes.Replace(f.Data, []byte(ed.old), []byte(ed.repl), 1)
+	}
+	res, err := pipeline(t).loader.Load(t.Context(), loader.Request{Source: loader.Source{FS: fsys, Path: "."}, Variables: subst.Map{}})
+	if err != nil {
+		t.Fatalf("load %s: %v", shopEntry, err)
+	}
+	if len(res.Diagnostics) > 0 || res.Stopped {
+		t.Fatalf("stages A to E on %s:\n%s", shopEntry, diagText(t, res.Diagnostics))
+	}
+	return stagesFG(t, res.Resources, res.Files), res.Files
 }
 
 // loadDirs loads the .yaml files of dirs (see readDirs).

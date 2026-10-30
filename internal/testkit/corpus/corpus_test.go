@@ -226,6 +226,71 @@ func TestLoadGroupsEntries(t *testing.T) {
 	}
 }
 
+// TestEntryPathAndFile covers the lookups a package's tests read the
+// corpus with: an entry by its full name, the operating system path of a
+// corpus directory, and a Bundle's file by its slash path.
+func TestEntryPathAndFile(t *testing.T) {
+	root := sampleTree(t)
+	c, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		ok   bool
+	}{
+		{"golden/minimal", true},
+		{"negative/RZ-CFG-005-missing-spec/nested", true},
+		{"json-subset/tabs", true},
+		{"minimal", false},
+		{"golden/minimal/bundle", false},
+		{"golden/none", false},
+		{"", false},
+	} {
+		e, ok := c.Entry(tc.name)
+		if ok != tc.ok || ok && e.Name != tc.name {
+			t.Errorf("Entry(%q) = %v, %v; want found %v", tc.name, e, ok, tc.ok)
+		}
+	}
+	e, _ := c.Entry("golden/minimal")
+	if &c.Entries[0] != e {
+		t.Error("Entry returned a copy, not the corpus's entry")
+	}
+	for rel, want := range map[string]string{
+		"":                      root,
+		"golden/minimal/bundle": filepath.Join(root, "golden", "minimal", "bundle"),
+		"golden/minimal/level-0/canonical/-.json": filepath.Join(root, "golden", "minimal", "level-0", "canonical", "-.json"),
+	} {
+		got := c.Path(rel)
+		if got != want {
+			t.Errorf("Path(%q) = %q, want %q", rel, got, want)
+		}
+		if _, err := os.Stat(got); err != nil {
+			t.Errorf("Path(%q): %v", rel, err)
+		}
+	}
+	b, ok := e.Bundle(BundleDir)
+	if !ok {
+		t.Fatal("minimal has no bundle/")
+	}
+	for _, tc := range []struct {
+		name, want string
+		ok         bool
+	}{
+		{"routes/orders.yaml", "kind: Route\n", true},
+		{"ruralz.yaml", "kind: Gateway\n", true},
+		{"raw/crlf.yaml", "kind: Route\r\n", true},
+		{"routes", "", false},
+		{"orders.yaml", "", false},
+		{"missing.yaml", "", false},
+	} {
+		data, ok := b.File(tc.name)
+		if ok != tc.ok || string(data) != tc.want {
+			t.Errorf("File(%q) = %q, %v; want %q, %v", tc.name, data, ok, tc.want, tc.ok)
+		}
+	}
+}
+
 func TestSeeds(t *testing.T) { // YAML, JSON, canonical and Bundle seeds
 	c, err := Load(sampleTree(t))
 	if err != nil {

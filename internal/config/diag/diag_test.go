@@ -8,27 +8,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/testkit/corpus"
 )
 
 // Tests for the diagnostic model, key-aware paths, the text form and the
 // JSON form with its sort and cap. FuzzHumanPath covers path printing
 // (diag.Path is the only path type).
-
-func golden(t *testing.T, name string) []byte {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join("testdata", name)) //nolint:gosec // G304: the test reads its own golden files.
-	if err != nil {
-		t.Fatal(err)
-	}
-	return b
-}
 
 // cmExample is the pair of diagnostics of docs/architecture/02-configuration-model.md
 // "Diagnostics and source map".
@@ -53,25 +46,298 @@ func cmExample() List {
 	}
 }
 
-func TestGoldenText(t *testing.T) {
-	// The CM example lines, byte for byte.
-	var buf bytes.Buffer
-	if err := WriteText(&buf, cmExample()); err != nil {
+// goldenPair is one run's diagnostics as the golden corpus pins them, in
+// both forms.
+type goldenPair struct {
+	// name is the JSON file's path relative to the corpus directory.
+	name       string
+	json, text []byte
+	// list is the JSON form read back.
+	list List
+}
+
+// goldenPairs returns every pair of diagnostics files of the golden corpus
+// (docs/engineering/03-testing-and-quality-strategy.md "Golden tests"),
+// which pins what the configuration pipeline writes: each golden entry's
+// diagnostics/<render>.json and .txt at every level, and each negative
+// fixture's expected.json and expected.txt. The corpus is the one golden
+// corpus of pipeline outputs, so this package keeps no copy of them. The
+// pairs hold every part of a diagnostic and every shape of a list
+// (checkCoverage), so neither form can drop one unnoticed.
+func goldenPairs(t *testing.T) []goldenPair {
+	t.Helper()
+	c, err := corpus.Default()
+	if err != nil {
 		t.Fatal(err)
 	}
-	if want := golden(t, "cm-example.txt"); !bytes.Equal(buf.Bytes(), want) {
-		t.Fatalf("WriteText =\n%s\nwant\n%s", buf.Bytes(), want)
+	var out []goldenPair
+	add := func(name string, js, text []byte) {
+		l, err := decodeJSON(js)
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		out = append(out, goldenPair{name: name, json: js, text: text, list: l})
+	}
+	for i := range c.Entries {
+		e := &c.Entries[i]
+		switch e.Kind {
+		case corpus.Golden:
+			for j := range e.Levels {
+				l := &e.Levels[j]
+				for _, f := range l.Files {
+					stem, ok := strings.CutSuffix(f.Name, ".json")
+					if !ok || !strings.HasPrefix(f.Name, "diagnostics/") {
+						continue
+					}
+					text, ok := l.File(stem + ".txt")
+					if !ok {
+						t.Fatalf("%s/%s/%s has no text form beside it", e.Name, corpus.LevelDir(l.N), f.Name)
+					}
+					add(e.Name+"/"+corpus.LevelDir(l.N)+"/"+f.Name, f.Data, text)
+				}
+			}
+		case corpus.Negative:
+			if e.Expected == nil || e.ExpectedText == nil {
+				t.Fatalf("%s lacks %s or %s", e.Name, corpus.ExpectedFile, corpus.ExpectedTextFile)
+			}
+			add(e.Name+"/"+corpus.ExpectedFile, e.Expected, e.ExpectedText)
+		case corpus.JSONSubset:
+			// A JSON subset pair renders without diagnostics and pins none.
+		}
+	}
+	checkCoverage(t, out)
+	return out
+}
+
+// checkCoverage fails t unless the pairs hold every shape of a list (empty,
+// and more than one diagnostic in list order) and every part of a
+// diagnostic the forms write: a resource, a key-aware path with keyed and
+// index elements, a location without a line, a warning, a hint, related
+// locations and an Environment.
+func checkCoverage(t *testing.T, pairs []goldenPair) {
+	t.Helper()
+	have := map[string]bool{}
+	mark := func(part string, holds bool) {
+		if holds {
+			have[part] = true
+		}
+	}
+	for _, p := range pairs {
+		mark("an empty list", len(p.list) == 0)
+		mark("a list of two diagnostics or more", len(p.list) > 1)
+		for _, d := range p.list {
+			mark("a resource", d.Resource != nil)
+			mark("a location without a line", d.File != "" && d.Line == 0)
+			mark("a warning", d.Severity == SeverityWarning)
+			mark("a hint", d.Hint != "")
+			mark("related locations", len(d.Related) > 0)
+			mark("an Environment", d.Environment != "")
+			for _, e := range d.Path {
+				mark("a keyed path element", e.Kind == ElemKeyed)
+				mark("an index path element", e.Kind == ElemIndex)
+			}
+		}
+	}
+	for _, part := range []string{
+		"an empty list", "a list of two diagnostics or more", "a resource", "a location without a line", "a warning",
+		"a hint", "related locations", "an Environment", "a keyed path element", "an index path element",
+	} {
+		if !have[part] {
+			t.Errorf("no diagnostics pair of the golden corpus holds %s", part)
+		}
 	}
 }
 
+// jsonForm is one diagnostic of the JSON form, with every member WriteJSON
+// writes.
+type jsonForm struct {
+	Code     string            `json:"code"`
+	Severity string            `json:"severity"`
+	File     string            `json:"file"`
+	Line     int               `json:"line"`
+	Column   int               `json:"column"`
+	Resource *ResourceID       `json:"resource"`
+	Path     []json.RawMessage `json:"path"`
+	Message  string            `json:"message"`
+	Hint     string            `json:"hint"`
+	Related  []struct {
+		File    string `json:"file"`
+		Line    int    `json:"line"`
+		Column  int    `json:"column"`
+		Message string `json:"message"`
+	} `json:"related"`
+	Environment string `json:"environment"`
+}
+
+// decodeJSON reads the JSON form back into a List: a member WriteJSON never
+// writes, or a path element of no form of Path.MarshalJSON, is an error.
+func decodeJSON(data []byte) (List, error) {
+	if !bytes.HasPrefix(data, []byte("[")) {
+		return nil, errors.New("not an array")
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var in []jsonForm
+	if err := dec.Decode(&in); err != nil {
+		return nil, err
+	}
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("data after the array: %v", err)
+	}
+	out := make(List, 0, len(in))
+	for _, j := range in {
+		d := Diagnostic{
+			Code: j.Code, Location: Location{File: j.File, Line: j.Line, Column: j.Column},
+			Resource: j.Resource, Message: j.Message, Hint: j.Hint, Environment: j.Environment,
+		}
+		switch j.Severity {
+		case "error":
+			d.Severity = SeverityError
+		case "warning":
+			d.Severity = SeverityWarning
+		default:
+			return nil, fmt.Errorf("%s: severity %q", j.Code, j.Severity)
+		}
+		for _, e := range j.Path {
+			elem, err := decodeElem(e)
+			if err != nil {
+				return nil, fmt.Errorf("%s: path %s: %w", j.Code, e, err)
+			}
+			d.Path = append(d.Path, elem)
+		}
+		for _, r := range j.Related {
+			d.Related = append(d.Related, Related{Location: Location{File: r.File, Line: r.Line, Column: r.Column}, Message: r.Message})
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// decodeElem reads one path element of the JSON form: a string is a field,
+// an integer an index, {"item": v} a set element and any other one-member
+// object a keyed entry.
+func decodeElem(raw json.RawMessage) (PathElem, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return PathElem{}, errors.New("empty element")
+	}
+	switch c := raw[0]; {
+	case c == '"':
+		var name string
+		err := json.Unmarshal(raw, &name)
+		return Field(name), err
+	case c == '{':
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil || len(m) != 1 {
+			return PathElem{}, fmt.Errorf("not a one-member object (%v)", err)
+		}
+		for k, v := range m {
+			if k == "item" {
+				item, err := decodeItem(v)
+				return Item(item), err
+			}
+			var key string
+			err := json.Unmarshal(v, &key)
+			return Keyed(k, key), err
+		}
+	case c == '-' || c >= '0' && c <= '9':
+		var i int
+		err := json.Unmarshal(raw, &i)
+		return Index(i), err
+	}
+	return PathElem{}, errors.New("neither a string, an integer nor a one-member object")
+}
+
+// decodeItem reads a set element's value as Item takes it: a string,
+// json.Number, bool or, for an object, its compact JSON.
+func decodeItem(raw json.RawMessage) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	switch v.(type) {
+	case string, json.Number, bool:
+		return v, nil
+	default:
+		var b bytes.Buffer
+		err := json.Compact(&b, raw)
+		return json.RawMessage(b.Bytes()), err
+	}
+}
+
+// TestGoldenText checks the text form against every pair of the golden
+// corpus: WriteText of the JSON form read back writes the text file's
+// bytes, one line per diagnostic in list order with location, severity,
+// code, resource, key-aware path, message, hint, related locations and
+// Environment.
+func TestGoldenText(t *testing.T) {
+	for _, p := range goldenPairs(t) {
+		var buf bytes.Buffer
+		if err := WriteText(&buf, p.list); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(buf.Bytes(), p.text) {
+			t.Errorf("%s: WriteText =\n%s\nwant\n%s", p.name, buf.Bytes(), p.text)
+		}
+	}
+}
+
+// TestGoldenJSON checks the JSON form against every pair of the golden
+// corpus: WriteJSON of the JSON form read back writes its bytes again, a
+// bare array with members in order, a two-space indent, no HTML escaping
+// and a final newline.
 func TestGoldenJSON(t *testing.T) {
-	// Bare array, member order, two-space indent, final newline.
+	for _, p := range goldenPairs(t) {
+		var buf bytes.Buffer
+		if err := WriteJSON(&buf, p.list); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(buf.Bytes(), p.json) {
+			t.Errorf("%s: WriteJSON =\n%s\nwant\n%s", p.name, buf.Bytes(), p.json)
+		}
+	}
+}
+
+// TestDecodeJSON covers the test's reader of the JSON form, so the golden
+// tests compare what the corpus holds: every element form of a path, and
+// refusals of what WriteJSON never writes.
+func TestDecodeJSON(t *testing.T) {
+	l := List{{
+		Code: "RZ-CFG-005", Severity: SeverityWarning,
+		Location: Location{File: "a.yaml", Line: 2, Column: 3},
+		Resource: &ResourceID{Kind: "Route", Name: "r"},
+		Path: Path{
+			Field("spec"), Field("a.b"), Index(4), Keyed("name", "x y"), Item("GET"), Item(json.Number("7")),
+			Item(true), Item(json.RawMessage(`{"a":[1,2]}`)),
+		},
+		Message: "m", Hint: "h", Environment: "prod",
+		Related: []Related{{Location: Location{File: "b.yaml", Line: 1}, Message: "declared in"}},
+	}}
 	var buf bytes.Buffer
-	if err := WriteJSON(&buf, cmExample()); err != nil {
+	if err := WriteJSON(&buf, l); err != nil {
 		t.Fatal(err)
 	}
-	if want := golden(t, "cm-example.json"); !bytes.Equal(buf.Bytes(), want) {
-		t.Fatalf("WriteJSON =\n%s\nwant\n%s", buf.Bytes(), want)
+	got, err := decodeJSON(buf.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, l) {
+		t.Errorf("decodeJSON(WriteJSON(l)) =\n%+v\nwant\n%+v", got, l)
+	}
+	for _, bad := range []string{
+		``, `{}`, `null`, `[] []`,
+		`[{"code":"RZ-CFG-005","severity":"fatal","message":"m"}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","extra":1}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[{"a":"b","c":"d"}]}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[{"name":1}]}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[1.5]}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[null]}]`,
+	} {
+		if _, err := decodeJSON([]byte(bad)); err == nil {
+			t.Errorf("decodeJSON(%q) = nil error", bad)
+		}
 	}
 }
 
