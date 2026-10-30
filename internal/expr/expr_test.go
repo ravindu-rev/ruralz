@@ -33,6 +33,7 @@ func TestPlacesTable(t *testing.T) {
 		PlaceRateLimitCost:          {PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
 		PlaceRateLimitWhen:          {PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},
 		PlaceQuotaKey:               {PlaceQuotaKey, ResultString, base, RuleFailureMode, "M1"},
+		PlaceQuotaCost:              {PlaceQuotaCost, ResultInt, base, RuleFailureMode, "M1"},
 		PlaceHeadersRequestValue:    {PlaceHeadersRequestValue, ResultString, base, RuleFailureMode, "M1"},
 		PlaceHeadersResponseValue:   {PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		PlaceCacheKey:               {PlaceCacheKey, ResultString, base, RuleCacheBypass, "M1"},

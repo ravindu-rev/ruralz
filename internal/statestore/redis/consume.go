@@ -76,23 +76,23 @@ func toInt64(f float64) int64 {
 // micros converts a whole number of microseconds to a Duration.
 func micros(us float64) time.Duration { return time.Duration(toInt64(us)) * time.Microsecond }
 
-// floorDiv is floor(a / b) for b > 0.
-func floorDiv(a, b int64) int64 {
-	q := a / b
-	if a%b != 0 && a < 0 {
-		q--
+// quotaCost returns the cost a Quota call sends: its Cost, at most
+// Limit + 1. Every cost above Limit is denied whatever the count, so the
+// cap changes no decision and keeps the library's numbers exact.
+func quotaCost(q *statestore.Quota) int64 {
+	cost, _ := statestore.Cost(q.Cost)
+	if q.Limit < math.MaxInt64 && cost > q.Limit+1 {
+		cost = q.Limit + 1
 	}
-	return q
+	return cost
 }
 
-// quotaWindows returns the Node clock's window start A and its nearer
-// neighbor B, in Unix milliseconds, for a window of w milliseconds.
-func quotaWindows(nodeMs, w int64) (a, b int64) {
-	a = floorDiv(nodeMs, w) * w
-	if 2*(nodeMs-a) < w {
-		return a, a - w
-	}
-	return a, a + w
+// validQuota reports whether the library would take q: a cost and a
+// limit of at least 0, and a window of at least 1 ms unless it counts a
+// calendar month.
+func validQuota(q *statestore.Quota) bool {
+	_, ok := statestore.Cost(q.Cost)
+	return ok && q.Limit >= 0 && (q.Month || q.Window.Milliseconds() > 0)
 }
 
 // formatFloat writes f so a strtod reads it back exactly.
@@ -229,16 +229,17 @@ func (d *Driver) finishConsume(stripe emit.Stripe, label int, group []*statestor
 
 // encodeConsume writes the group's EVALSHA: KEYS are every limit's TAT
 // key, then each Quota's two window keys (the Node clock's window and its
-// nearer neighbor); ARGV is c, the call count, then per call g, the cost,
-// the limit count and each limit's T and τ, or q, the limit, the window
-// and the two window starts. False is a call the library would refuse.
+// nearer neighbor, statestore.QuotaCandidates); ARGV is c, the call
+// count, then per call g, the cost, the limit count and each limit's T
+// and τ, or q, the limit, the cost (quotaCost) and each candidate's start
+// and end. False is a call the library would refuse.
 func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 	nkeys := 0
 	for _, c := range group {
 		switch c.Kind {
 		case statestore.OpGCRA:
 			g := &c.GCRA
-			if _, ok := statestore.GCRACost(g.Cost); !ok || len(g.Out) < len(g.Limits) {
+			if _, ok := statestore.Cost(g.Cost); !ok || len(g.Out) < len(g.Limits) {
 				return false
 			}
 			for _, l := range g.Limits {
@@ -248,7 +249,7 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 			}
 			nkeys += len(g.Limits)
 		case statestore.OpQuota:
-			if c.Quota.Window.Milliseconds() <= 0 {
+			if !validQuota(&c.Quota) {
 				return false
 			}
 			nkeys += 2
@@ -268,16 +269,16 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 			continue
 		}
 		q := &c.Quota
-		a, b := quotaWindows(nodeMs, q.Window.Milliseconds())
-		tr.key(string(keys.AppendQuota(buf[:0], q.Name, q.Window, time.UnixMilli(a), q.Digest)))
-		tr.key(string(keys.AppendQuota(buf[:0], q.Name, q.Window, time.UnixMilli(b), q.Digest)))
+		a, b := statestore.QuotaCandidates(nodeMs, q.Window, q.Month)
+		tr.key(string(keys.AppendQuotaCounter(buf[:0], q.Name, q.Window, q.Month, time.UnixMilli(a.Start), q.Digest)))
+		tr.key(string(keys.AppendQuotaCounter(buf[:0], q.Name, q.Window, q.Month, time.UnixMilli(b.Start), q.Digest)))
 	}
 	tr.arg(opConsume)
 	tr.arg(strconv.Itoa(len(group)))
 	for _, c := range group {
 		if c.Kind == statestore.OpGCRA {
 			g := &c.GCRA
-			cost, _ := statestore.GCRACost(g.Cost)
+			cost, _ := statestore.Cost(g.Cost)
 			tr.arg(kindGCRA)
 			tr.arg(strconv.FormatInt(cost, 10))
 			tr.arg(strconv.Itoa(len(g.Limits)))
@@ -289,13 +290,14 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 			continue
 		}
 		q := &c.Quota
-		w := q.Window.Milliseconds()
-		a, b := quotaWindows(nodeMs, w)
+		a, b := statestore.QuotaCandidates(nodeMs, q.Window, q.Month)
 		tr.arg(kindQuota)
 		tr.arg(strconv.FormatInt(q.Limit, 10))
-		tr.arg(strconv.FormatInt(w, 10))
-		tr.arg(strconv.FormatInt(a, 10))
-		tr.arg(strconv.FormatInt(b, 10))
+		tr.arg(strconv.FormatInt(quotaCost(q), 10))
+		tr.arg(strconv.FormatInt(a.Start, 10))
+		tr.arg(strconv.FormatInt(a.End, 10))
+		tr.arg(strconv.FormatInt(b.Start, 10))
+		tr.arg(strconv.FormatInt(b.End, 10))
 	}
 	return true
 }
@@ -371,7 +373,7 @@ func gcraOutcome(g *statestore.GCRA, tatMsgs []rueidis.RedisMessage, now instant
 		}
 		tats = append(tats, tat)
 	}
-	cost, _ := statestore.GCRACost(g.Cost)
+	cost, _ := statestore.Cost(g.Cost)
 	denied, retry := -1, 0.0
 	for i, l := range g.Limits {
 		t, tau, _ := gcraParams(l)
@@ -407,9 +409,9 @@ func gcraOutcome(g *statestore.GCRA, tatMsgs []rueidis.RedisMessage, now instant
 }
 
 // quotaOutcome fills q from the count and window start the library
-// returned.
+// returned: the window must be the one the server's clock holds.
 func quotaOutcome(q *statestore.Quota, msgs []rueidis.RedisMessage, now instant, allowed bool) bool {
-	if len(msgs) != 2 {
+	if len(msgs) != 2 || !validQuota(q) {
 		return false
 	}
 	used, err := msgs[0].AsInt64()
@@ -417,21 +419,31 @@ func quotaOutcome(q *statestore.Quota, msgs []rueidis.RedisMessage, now instant,
 		return false
 	}
 	ws, err := msgs[1].AsInt64()
-	w := q.Window.Milliseconds()
-	if err != nil || w <= 0 || ws != floorDiv(now.ms, w)*w {
+	win := statestore.QuotaWindowOf(now.ms, q.Window, q.Month)
+	if err != nil || ws != win.Start {
 		return false
 	}
-	// An admission counts 1 to limit units; a denial found limit or more.
-	if (allowed && (used < 1 || used > q.Limit)) || (!allowed && (used < 0 || used < q.Limit)) {
+	// An admission counts cost to limit units; a denial found a count to
+	// which the cost would not fit.
+	cost, _ := statestore.Cost(q.Cost)
+	if (allowed && (used < cost || used > q.Limit)) || (!allowed && (used < 0 || used <= q.Limit-cost)) {
 		return false
 	}
-	q.WindowStart = time.UnixMilli(ws).UTC()
+	q.WindowStart, q.WindowEnd = time.UnixMilli(win.Start).UTC(), time.UnixMilli(win.End).UTC()
 	q.ServerNow = time.UnixMilli(now.ms).UTC()
 	q.Allowed, q.Used, q.RetryAfter = allowed, used, 0
 	if !allowed {
-		q.RetryAfter = time.Duration(ws+w-now.ms) * time.Millisecond
+		q.RetryAfter = time.Duration(win.End-now.ms) * time.Millisecond
 	}
 	return true
+}
+
+// quotaWindowName names q's window in logs: its length, or month.
+func quotaWindowName(q *statestore.Quota) string {
+	if q.Month {
+		return "month"
+	}
+	return q.Window.String()
 }
 
 // logSkew logs, at most once per interval, a Quota call the library
@@ -451,5 +463,5 @@ func (d *Driver) logSkew(ctx context.Context, group []*statestore.Call, err erro
 	}
 	q := &group[i-1].Quota
 	d.log.WarnContext(ctx, "state store clock skew beyond half a quota window; call failed",
-		catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", q.Window.String())
+		catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", quotaWindowName(q))
 }

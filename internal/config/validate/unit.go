@@ -42,6 +42,8 @@ func (u *unit) validate() {
 		u.policy()
 	case v1alpha1.KindPlugin:
 		u.plugin()
+	case v1alpha1.KindConsumer:
+		u.consumer()
 	default:
 	}
 }

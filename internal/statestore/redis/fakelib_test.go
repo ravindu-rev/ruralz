@@ -57,7 +57,7 @@ func (s *fakeServer) library(keys, argv []string) string {
 	case opConsume:
 		return s.libConsume(keys, argv, sec, usec, nowMs)
 	case opRefund:
-		return s.libRefund(keys)
+		return s.libRefund(keys, argv)
 	case opGeneration:
 		return s.libGeneration(keys, argv)
 	case opStore:
@@ -196,21 +196,26 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 			}
 		case kindQuota:
 			limit, ok1 := tonumber(luaArg(argv, a+1))
-			w, ok2 := tonumber(luaArg(argv, a+2))
-			wa, ok3 := tonumber(luaArg(argv, a+3))
-			wb, ok4 := tonumber(luaArg(argv, a+4))
-			if !ok1 || !ok2 || !ok3 || !ok4 || w < 1 {
+			cost, ok2 := tonumber(luaArg(argv, a+2))
+			sa, ok3 := tonumber(luaArg(argv, a+3))
+			ea, ok4 := tonumber(luaArg(argv, a+4))
+			sb, ok5 := tonumber(luaArg(argv, a+5))
+			eb, ok6 := tonumber(luaArg(argv, a+6))
+			if !ok1 || !ok2 || !ok3 || !ok4 || !ok5 || !ok6 || limit < 0 ||
+				cost < 1 || cost != math.Floor(cost) || ea <= sa || eb <= sb {
 				return bad("quota")
 			}
-			a += 5
+			a += 7
 			ms := float64(nowMs)
-			ws := ms - (ms - math.Floor(ms/w)*w)
 			var key string
-			switch ws {
-			case wa:
+			var ws, we float64
+			switch {
+			case sa <= ms && ms < ea:
 				key, ok = luaKey(keys, k)
-			case wb:
+				ws, we = sa, ea
+			case sb <= ms && ms < eb:
 				key, ok = luaKey(keys, k+1)
+				ws, we = sb, eb
 			default:
 				return errorReply(skewPrefix + strconv.Itoa(c))
 			}
@@ -219,21 +224,23 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 			}
 			k += 2
 			used := 0.0
-			if v, held := s.get(key); held {
+			v, held := s.get(key)
+			if held {
 				if used, ok = tonumber(v, true); !ok {
 					return bad("counter")
 				}
 			}
-			if used >= limit {
+			if used+cost > limit {
 				out = append(out, array(integer(0), integer(int64(used)), integer(int64(ws))))
 				return array(out...)
 			}
-			n, err := s.incrBy(key, 1)
+			by, _ := strconv.ParseInt(luaInt(cost), 10, 64)
+			n, err := s.incrBy(key, by)
 			if err != "" {
 				return err
 			}
-			if n == 1 {
-				at, _ := strconv.ParseInt(luaInt(ws+2*w), 10, 64)
+			if !held {
+				at, _ := strconv.ParseInt(luaInt(we+(we-ws)), 10, 64)
 				s.pexpireAt(key, at)
 			}
 			out = append(out, array(integer(1), integer(n), integer(int64(ws))))
@@ -260,7 +267,11 @@ func (s *fakeServer) incrBy(k string, by int64) (int64, string) {
 	return n, ""
 }
 
-func (s *fakeServer) libRefund(keys []string) string {
+func (s *fakeServer) libRefund(keys, argv []string) string {
+	units, ok := tonumber(luaArg(argv, 2))
+	if !ok || units < 1 || units != math.Floor(units) {
+		return bad("units")
+	}
 	key, ok := luaKey(keys, 1)
 	if !ok {
 		return errorReply(badArgs)
@@ -276,7 +287,9 @@ func (s *fakeServer) libRefund(keys []string) string {
 	if n <= 0 {
 		return integer(0)
 	}
-	if _, err := s.incrBy(key, -1); err != "" {
+	units = min(units, n)
+	by, _ := strconv.ParseInt(luaInt(units), 10, 64)
+	if _, err := s.incrBy(key, -by); err != "" {
 		return err
 	}
 	return integer(1)

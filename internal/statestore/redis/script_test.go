@@ -302,7 +302,7 @@ func luaGlobals() []string {
 // luaCommands are the commands the library may call.
 func luaCommands() []string {
 	return []string{
-		"TIME", "GET", "SET", "INCR", "DECR", "PEXPIREAT", "PEXPIRE", "PTTL", "EXISTS", "DEL",
+		"TIME", "GET", "SET", "INCRBY", "DECRBY", "PEXPIREAT", "PEXPIRE", "PTTL", "EXISTS", "DEL",
 		"HGET", "HSET", "HDEL", "HEXISTS",
 	}
 }

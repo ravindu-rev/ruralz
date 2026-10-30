@@ -112,7 +112,7 @@ func TestConsumersQuotaMap(t *testing.T) {
 		{
 			Metadata: v1alpha1.ObjectMeta{Name: "acme"},
 			Spec: v1alpha1.ConsumerSpec{Quotas: []v1alpha1.Quota{
-				{Name: "daily-tokens", Unit: v1alpha1.QuotaUnitTokens, Limit: 2000000, Window: day},
+				{Name: "daily-tokens", Unit: v1alpha1.QuotaUnitTokens, Limit: 2000000, Window: &day},
 			}},
 		},
 		nil,
@@ -143,7 +143,7 @@ func TestConsumersQuotaMap(t *testing.T) {
 		if ok != tt.ok || q.Limit != tt.limit {
 			t.Errorf("Quota(%s, %s) = %+v, %v; want limit %d, %v", tt.consumer, tt.quota, q, ok, tt.limit, tt.ok)
 		}
-		if ok && (q.Window != day || q.Unit != v1alpha1.QuotaUnitTokens) {
+		if ok && (q.Window == nil || *q.Window != day || q.Unit != v1alpha1.QuotaUnitTokens) {
 			t.Errorf("Quota(%s, %s) = %+v", tt.consumer, tt.quota, q)
 		}
 		// Quota reads the view's map, which the quota Policies read directly.

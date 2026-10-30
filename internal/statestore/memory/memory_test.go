@@ -635,7 +635,7 @@ func inspectQuota(d *Driver, name string, w time.Duration, ws time.Time, dg stat
 	s := d.shardOf(int(keys.DigestSlot(dg)))
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	e, ok := s.qt[qtKey{name, w, ws.UnixMilli(), dg}]
+	e, ok := s.qt[quotaKey(name, w, false, ws.UnixMilli(), dg)]
 	return e.exp, ok
 }
 

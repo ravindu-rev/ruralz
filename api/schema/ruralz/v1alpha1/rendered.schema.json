@@ -3294,8 +3294,28 @@
     },
     "Quota": {
       "additionalProperties": false,
-      "description": "Quota is one named Consumer quota.",
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "window"
+              ]
+            },
+            {
+              "required": [
+                "calendar"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Quota is one named Consumer quota, counted per fixed window or per UTC calendar month: exactly one of window or calendar.",
       "properties": {
+        "calendar": {
+          "$ref": "#/$defs/QuotaCalendar",
+          "description": "Calendar counts the quota per UTC calendar month instead of a window; a month starts at 00:00 UTC on its first day."
+        },
         "limit": {
           "description": "Limit is the amount allowed per window.",
           "minimum": 0,
@@ -3311,23 +3331,46 @@
         },
         "window": {
           "$ref": "#/$defs/Duration",
-          "description": "Window is the window length."
+          "description": "Window is the window length, at least 1s in whole seconds; windows are fixed and epoch-aligned in UTC, so 24h resets at midnight."
         }
       },
       "required": [
         "name",
         "unit",
-        "limit",
-        "window"
+        "limit"
       ],
       "type": "object"
     },
+    "QuotaCalendar": {
+      "description": "QuotaCalendar is the calendar period a quota counts in.",
+      "enum": [
+        "month"
+      ],
+      "type": "string"
+    },
     "QuotaConfig": {
+      "additionalProperties": false,
       "description": "QuotaConfig is the config of a quota Policy.",
       "properties": {
         "consumerQuota": {
           "description": "ConsumerQuota names a Consumer quota with unit requests.",
           "type": "string"
+        },
+        "cost": {
+          "default": "1",
+          "description": "Cost is the number of units a request reserves, at least 1, and a refund returns; a runtime error or a smaller value applies failureMode, and a cost above the units left in the window is denied, reserving nothing.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "int",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
         },
         "key": {
           "default": "consumer.name",

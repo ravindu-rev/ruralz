@@ -114,8 +114,9 @@ func TestDigestSlots(t *testing.T) {
 	rl := AppendRateLimit(nil, "ratelimit-gold", statestore.GCRALimit{Requests: 100, Window: time.Second}, d)
 	rl2 := AppendRateLimit(nil, "ratelimit-gold", statestore.GCRALimit{Requests: 5000, Window: time.Minute}, d)
 	qt := AppendQuota(nil, "monthly-requests", 720*time.Hour, time.UnixMilli(1757376000000), d)
+	qm := AppendQuotaMonth(nil, "monthly-requests", time.UnixMilli(1788220800000), d)
 	gen := AppendCacheGeneration(nil, d)
-	for name, key := range map[string][]byte{"ratelimit": rl, "ratelimit 1m": rl2, "quota": qt, "generation": gen} {
+	for name, key := range map[string][]byte{"ratelimit": rl, "ratelimit 1m": rl2, "quota": qt, "quota month": qm, "generation": gen} {
 		if got := Slot(key); got != want {
 			t.Errorf("%s key %q in slot %d, want DigestSlot %d", name, key, got, want)
 		}

@@ -53,6 +53,7 @@ const (
 	PlaceRateLimitCost          PlaceID = "ratelimit config.cost"
 	PlaceRateLimitWhen          PlaceID = "ratelimit config.limits[].when"
 	PlaceQuotaKey               PlaceID = "quota config.key"
+	PlaceQuotaCost              PlaceID = "quota config.cost"
 	PlaceHeadersRequestValue    PlaceID = "headers config.request.set[].valueExpression"
 	PlaceHeadersResponseValue   PlaceID = "headers config.response.set[].valueExpression"
 	PlaceCacheKey               PlaceID = "cache config.key"
@@ -167,6 +168,7 @@ func Places() []Place {
 		{PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
 		{PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},
 		{PlaceQuotaKey, ResultString, base, RuleFailureMode, "M1"},
+		{PlaceQuotaCost, ResultInt, base, RuleFailureMode, "M1"},
 		{PlaceHeadersRequestValue, ResultString, base, RuleFailureMode, "M1"},
 		{PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
 		{PlaceCacheKey, ResultString, base, RuleCacheBypass, "M1"},

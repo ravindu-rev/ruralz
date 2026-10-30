@@ -5,6 +5,7 @@ package statestoretest_test
 
 import (
 	"context"
+	"math"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -92,7 +93,7 @@ func TestModelQuota(t *testing.T) {
 	if ok, skew := m.Quota(now, now, &q); !ok || skew || !q.Allowed || q.Used != 1 || !q.WindowStart.Equal(start()) {
 		t.Fatalf("reserve: %+v", q)
 	}
-	if m.Count("q", time.Hour, start(), d) != 1 {
+	if m.Count("q", time.Hour, false, start(), d) != 1 {
 		t.Fatal("count")
 	}
 	q = statestore.Quota{Name: "q", Window: time.Hour, Limit: 1, Digest: d}
@@ -116,7 +117,7 @@ func TestModelQuota(t *testing.T) {
 		node, _ := time.Parse(time.RFC3339, c.node)
 		wa, _ := time.Parse(time.RFC3339, c.a)
 		wb, _ := time.Parse(time.RFC3339, c.b)
-		a, b := statestoretest.QuotaWindows(node, time.Hour)
+		a, b := statestoretest.QuotaWindows(node, time.Hour, false)
 		if a != wa.UnixMilli() || b != wb.UnixMilli() {
 			t.Errorf("node %s: candidates %v, %v; want %s, %s", c.node, time.UnixMilli(a).UTC(), time.UnixMilli(b).UTC(), c.a, c.b)
 		}
@@ -129,6 +130,114 @@ func TestModelQuota(t *testing.T) {
 	q.Window = time.Microsecond
 	if ok, _ := m.Quota(now, now, &q); ok {
 		t.Fatal("sub-millisecond window accepted")
+	}
+}
+
+// TestModelQuotaCost covers cost units: all or none, a cost above the
+// units left denying with the count unchanged, 0 counting as 1, a
+// negative cost or limit refused; and refunds of units, bounded at 0.
+func TestModelQuotaCost(t *testing.T) {
+	m := statestoretest.NewModel()
+	d := statestore.DigestOf("k")
+	now := start().Add(30 * time.Minute)
+	reserve := func(cost int64) statestore.Quota {
+		q := statestore.Quota{Name: "c", Window: time.Hour, Limit: 5, Cost: cost, Digest: d}
+		if ok, skew := m.Quota(now, now, &q); !ok || skew {
+			t.Fatalf("cost %d: the model refused the call", cost)
+		}
+		return q
+	}
+	if q := reserve(3); !q.Allowed || q.Used != 3 || !q.WindowEnd.Equal(start().Add(time.Hour)) {
+		t.Fatalf("cost 3: %+v", q)
+	}
+	if q := reserve(3); q.Allowed || q.Used != 3 || q.RetryAfter != 30*time.Minute {
+		t.Fatalf("cost 3 past the units left: %+v", q)
+	}
+	if q := reserve(0); !q.Allowed || q.Used != 4 {
+		t.Fatalf("cost 0 counts as 1: %+v", q)
+	}
+	if q := reserve(1); !q.Allowed || q.Used != 5 {
+		t.Fatalf("the last unit: %+v", q)
+	}
+	ref := statestore.Refund{Name: "c", Window: time.Hour, WindowStart: start(), Units: 2, Digest: d}
+	if !m.Refund(ref) || m.Count("c", time.Hour, false, start(), d) != 3 {
+		t.Fatalf("refund of 2 units: count %d, want 3", m.Count("c", time.Hour, false, start(), d))
+	}
+	ref.Units = 10
+	if !m.Refund(ref) || m.Count("c", time.Hour, false, start(), d) != 0 {
+		t.Fatal("a refund above the count does not stop at 0")
+	}
+	ref.Units = -1
+	if m.Refund(ref) {
+		t.Fatal("refund of negative units applied")
+	}
+	for _, q := range []statestore.Quota{
+		{Name: "c", Window: time.Hour, Limit: 5, Cost: -1, Digest: d},
+		{Name: "c", Window: time.Hour, Limit: -1, Digest: d},
+	} {
+		if ok, _ := m.Quota(now, now, &q); ok {
+			t.Errorf("Quota(cost %d, limit %d) accepted", q.Cost, q.Limit)
+		}
+	}
+	huge := statestore.Quota{Name: "h", Window: time.Hour, Limit: 5, Cost: math.MaxInt64, Digest: d}
+	m.Quota(now, now, &huge)
+	if ok, _ := m.Quota(now, now, &huge); !ok || huge.Allowed || huge.Used != 0 {
+		t.Fatalf("the largest cost: %+v", huge)
+	}
+}
+
+// TestModelQuotaMonth covers calendar months: the UTC month holding the
+// server time, 28 to 31 days, its own counter apart from any window, and
+// the nearer neighbor by the middle of the Node's month, across a year
+// and a leap February.
+func TestModelQuotaMonth(t *testing.T) {
+	m := statestoretest.NewModel()
+	d := statestore.DigestOf("k")
+	at := func(s string) time.Time {
+		v, err := time.Parse(time.RFC3339Nano, s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	now := at("2026-02-14T08:00:00Z")
+	q := statestore.Quota{Name: "m", Month: true, Window: time.Hour, Limit: 2, Cost: 2, Digest: d}
+	if ok, skew := m.Quota(now, now, &q); !ok || skew || !q.Allowed || q.Used != 2 {
+		t.Fatalf("month reserve: %+v", q)
+	}
+	if !q.WindowStart.Equal(at("2026-02-01T00:00:00Z")) || !q.WindowEnd.Equal(at("2026-03-01T00:00:00Z")) {
+		t.Fatalf("month window [%v, %v)", q.WindowStart, q.WindowEnd)
+	}
+	if m.Count("m", 0, true, q.WindowStart, d) != 2 || m.Count("m", time.Hour, false, q.WindowStart, d) != 0 {
+		t.Fatal("a month counter shares a window's")
+	}
+	q = statestore.Quota{Name: "m", Month: true, Limit: 2, Digest: d}
+	if m.Quota(now, now, &q); q.Allowed || q.RetryAfter != at("2026-03-01T00:00:00Z").Sub(now) {
+		t.Fatalf("month deny: %+v", q)
+	}
+	for _, c := range []struct{ node, a, b string }{
+		{"2026-02-10T00:00:00Z", "2026-02-01T00:00:00Z", "2026-01-01T00:00:00Z"},
+		{"2026-02-15T00:00:00Z", "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"},
+		{"2026-03-16T11:59:59.999Z", "2026-03-01T00:00:00Z", "2026-02-01T00:00:00Z"},
+		{"2026-03-16T12:00:00Z", "2026-03-01T00:00:00Z", "2026-04-01T00:00:00Z"},
+		{"2026-12-20T00:00:00Z", "2026-12-01T00:00:00Z", "2027-01-01T00:00:00Z"},
+		{"2027-01-02T00:00:00Z", "2027-01-01T00:00:00Z", "2026-12-01T00:00:00Z"},
+		{"2028-02-15T12:00:00Z", "2028-02-01T00:00:00Z", "2028-03-01T00:00:00Z"},
+		{"2028-02-15T11:59:59.999Z", "2028-02-01T00:00:00Z", "2028-01-01T00:00:00Z"},
+	} {
+		a, b := statestoretest.QuotaWindows(at(c.node), 0, true)
+		if a != at(c.a).UnixMilli() || b != at(c.b).UnixMilli() {
+			t.Errorf("node %s: candidates %v, %v; want %s, %s", c.node, time.UnixMilli(a).UTC(), time.UnixMilli(b).UTC(), c.a, c.b)
+		}
+	}
+	// A server half a month behind the Node's late-month clock: skew.
+	late := statestore.Quota{Name: "m", Month: true, Limit: 9, Digest: d}
+	if ok, skew := m.Quota(at("2026-03-20T00:00:00Z"), at("2026-02-10T00:00:00Z"), &late); ok || !skew {
+		t.Fatal("skew beyond the nearer month not reported")
+	}
+	ref := statestore.Refund{Name: "m", Month: true, WindowStart: at("2026-02-01T00:00:00Z"), Units: 1, Digest: d}
+	if !m.Refund(ref) || m.Count("m", 0, true, ref.WindowStart, d) != 1 {
+		t.Fatal("month refund")
 	}
 }
 

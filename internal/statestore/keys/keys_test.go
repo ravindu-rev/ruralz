@@ -50,6 +50,8 @@ func goldenKeys() [][2]string {
 		{"quota-escape-colon", s(AppendQuota(nil, "a:b", time.Hour, day, user))},
 		{"quota-escape-percent", s(AppendQuota(nil, "%", time.Hour, day, user))},
 		{"quota-escape-utf8", s(AppendQuota(nil, "é", time.Hour, day, user))},
+		{"quota-month", s(AppendQuotaMonth(nil, "monthly-requests", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), user))},
+		{"quota-month-escaped", s(AppendQuotaMonth(nil, "a{b}", time.Date(2026, 2, 1, 0, 0, 0, 0, time.UTC), user))},
 		{"cache-generation", s(AppendCacheGeneration(nil, u))},
 		{"cache-partition", s(AppendCachePartition(nil, ck))},
 		{"cache-lease", s(AppendCacheLease(nil, ck))},
@@ -104,6 +106,9 @@ func TestKeyLayoutShapes(t *testing.T) {
 		{"gcra 1m0s", string(AppendRateLimit(nil, "ratelimit-gold", statestore.GCRALimit{Requests: 5000, Window: time.Minute}, user)), "rz:rl:ratelimit-gold:5000/1m0s:{" + hexUser + "}"},
 		{"quota 720h0m0s", string(AppendQuota(nil, "monthly-requests", 720*time.Hour, time.UnixMilli(1757376000000), user)), "rz:qt:monthly-requests:720h0m0s:1757376000000:{" + hexUser + "}"},
 		{"quota escaped", string(AppendQuota(nil, "a{b}:c%é", time.Hour, time.UnixMilli(0), user)), "rz:qt:a%7Bb%7D%3Ac%25%C3%A9:1h0m0s:0:{" + hexUser + "}"},
+		{"quota month", string(AppendQuotaMonth(nil, "monthly-requests", time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), user)), "rz:qt:monthly-requests:month:1788220800000:{" + hexUser + "}"},
+		{"quota counter month", string(AppendQuotaCounter(nil, "m", time.Hour, true, time.UnixMilli(0), user)), "rz:qt:m:month:0:{" + hexUser + "}"},
+		{"quota counter window", string(AppendQuotaCounter(nil, "m", time.Hour, false, time.UnixMilli(0), user)), "rz:qt:m:1h0m0s:0:{" + hexUser + "}"},
 		{"empty digest", string(AppendHex(nil, statestore.DigestOf(""))), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
 	}
 	for _, c := range cases {
@@ -298,6 +303,8 @@ func TestBuildersDoNotAllocate(t *testing.T) {
 	cases := map[string]func(){
 		"AppendRateLimit":       func() { buf = AppendRateLimit(buf[:0], "ratelimit-gold", l, d) },
 		"AppendQuota":           func() { buf = AppendQuota(buf[:0], "monthly-requests", 720*time.Hour, start, d) },
+		"AppendQuotaMonth":      func() { buf = AppendQuotaMonth(buf[:0], "monthly-requests", start, d) },
+		"AppendQuotaCounter":    func() { buf = AppendQuotaCounter(buf[:0], "monthly-requests", 0, true, start, d) },
 		"AppendCacheGeneration": func() { buf = AppendCacheGeneration(buf[:0], d) },
 		"AppendCachePartition":  func() { buf = AppendCachePartition(buf[:0], ck) },
 		"AppendCacheLease":      func() { buf = AppendCacheLease(buf[:0], ck) },

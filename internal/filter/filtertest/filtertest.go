@@ -172,12 +172,24 @@ type Exchange struct {
 	State         any
 	StripeV       emit.Stripe
 	RouteMetricsV *emit.RouteMetrics
+	// PolicyName names the calling Policy in the Charges it makes.
+	PolicyName string
 
 	// Effects recorded by the Filter under test.
 	Replaced    *filter.Response
 	RateLimits  []filter.RateLimitField
 	CacheResult string
 	Annotations map[string]slog.Value
+	// Charged is the request's charged-counter record (Charge), made on
+	// first use; Exchanges standing for several Policies of one request
+	// share one.
+	Charged *Charges
+}
+
+// Charges is a request's charged-counter record (filter.Exchange.Charge).
+type Charges struct {
+	// List holds the request's Charges in charge order.
+	List []*filter.Charge
 }
 
 var _ filter.Exchange = (*Exchange)(nil)
@@ -281,6 +293,22 @@ func (x *Exchange) AddRateLimitField(f filter.RateLimitField) {
 
 // SetCacheResult implements filter.Exchange.
 func (x *Exchange) SetCacheResult(result string) { x.CacheResult = result }
+
+// Charge implements filter.Exchange: the record of c in Charged, made for
+// PolicyName when the calling Policy is the first to charge c.
+func (x *Exchange) Charge(c filter.Counter) (*filter.Charge, bool) {
+	if x.Charged == nil {
+		x.Charged = &Charges{}
+	}
+	for _, ch := range x.Charged.List {
+		if ch.Counter == c {
+			return ch, false
+		}
+	}
+	ch := &filter.Charge{Counter: c, Policy: x.PolicyName}
+	x.Charged.List = append(x.Charged.List, ch)
+	return ch, true
+}
 
 // Annotate implements filter.Exchange.
 func (x *Exchange) Annotate(key string, v slog.Value) {

@@ -1,0 +1,36 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: acme
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        hash: "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
+      - name: retrievable
+        secretRef: {provider: env, name: RURALZ_SECRET_ACME_KEY}
+  quotas:
+    - name: daily-requests
+      unit: requests
+      limit: 100000
+      window: 24h
+    - name: daily-tokens
+      unit: tokens
+      limit: 2000000
+      window: 24h
+    - name: sub-second
+      unit: requests
+      limit: 10
+      window: 500ms
+    - name: fractional
+      unit: requests
+      limit: 10
+      window: 1500ms
+    - name: one-second
+      unit: requests
+      limit: 10
+      window: 1s
+    - name: monthly
+      unit: requests
+      limit: 10
+      calendar: month

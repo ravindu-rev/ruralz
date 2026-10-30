@@ -190,7 +190,6 @@ type RateLimit struct {
 
 // QuotaConfig is the config of a quota Policy.
 // +ruralz:policyType=quota
-// +ruralz:open
 type QuotaConfig struct {
 	// ConsumerQuota names a Consumer quota with unit requests.
 	// +ruralz:required
@@ -199,6 +198,10 @@ type QuotaConfig struct {
 	// +ruralz:default=consumer.name
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
 	Key *string `json:"key,omitempty"`
+	// Cost is the number of units a request reserves, at least 1, and a refund returns; a runtime error or a smaller value applies failureMode, and a cost above the units left in the window is denied, reserving nothing.
+	// +ruralz:default="1"
+	// +ruralz:cel=request,source,route,consumer,auth,now:int
+	Cost *string `json:"cost,omitempty"`
 }
 
 // ValidationJSONSchemaConfig is the config of a validation.json-schema

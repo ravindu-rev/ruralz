@@ -11,10 +11,12 @@
 --   c  consumptive calls of one slot, in order, stopping after the first
 --      deny: g runs GCRA over every limit of one ratelimit Policy with the
 --      server's TIME, charging config.cost emission intervals and
---      updating the TATs only if all allow; q reserves one
---      Quota unit in the window the server's TIME picks from the Node's
---      two candidates
---   r  returns one Quota unit, never below 0 and never creating a key
+--      updating the TATs only if all allow; q reserves config.cost
+--      Quota units, all or none, in the window the server's TIME picks
+--      from the Node's two candidates, each an epoch-aligned window or a
+--      UTC calendar month given as its start and end
+--   r  returns a reservation's units, never below 0 and never creating a
+--      key
 --   n  the generation step of a Response Cache store, refresh or
 --      end-stale, on the URI's generation key: c creates it holding the
 --      Node's token unless a key exists (SET NX), h checks that it holds
@@ -161,20 +163,25 @@ if op == 'c' then
         return out
       end
     elseif kind == 'q' then
+      -- The candidate [start, end) holding the server's now is charged:
+      -- cost units if the count plus cost stays within the limit, else
+      -- nothing. A new counter expires a window after its window closes.
       local limit = tonumber(ARGV[a + 1])
-      local w = tonumber(ARGV[a + 2])
-      local wa = tonumber(ARGV[a + 3])
-      local wb = tonumber(ARGV[a + 4])
-      if not limit or not w or not wa or not wb or w < 1 then
+      local cost = tonumber(ARGV[a + 2])
+      local sa = tonumber(ARGV[a + 3])
+      local ea = tonumber(ARGV[a + 4])
+      local sb = tonumber(ARGV[a + 5])
+      local eb = tonumber(ARGV[a + 6])
+      if not limit or not cost or not sa or not ea or not sb or not eb or limit < 0 or
+          cost < 1 or cost ~= math.floor(cost) or ea <= sa or eb <= sb then
         return bad('quota')
       end
-      a = a + 5
-      local ws = now_ms - now_ms % w
-      local key
-      if ws == wa then
-        key = KEYS[k]
-      elseif ws == wb then
-        key = KEYS[k + 1]
+      a = a + 7
+      local key, ws, we
+      if sa <= now_ms and now_ms < ea then
+        key, ws, we = KEYS[k], sa, ea
+      elseif sb <= now_ms and now_ms < eb then
+        key, ws, we = KEYS[k + 1], sb, eb
       else
         return redis.error_reply('RZSKEW ' .. c)
       end
@@ -187,13 +194,13 @@ if op == 'c' then
           return bad('counter')
         end
       end
-      if used >= limit then
+      if used + cost > limit then
         out[#out + 1] = {0, used, ws}
         return out
       end
-      used = redis.call('INCR', key)
-      if used == 1 then
-        redis.call('PEXPIREAT', key, int(ws + 2 * w))
+      used = redis.call('INCRBY', key, int(cost))
+      if not v then
+        redis.call('PEXPIREAT', key, int(we + (we - ws)))
       end
       out[#out + 1] = {1, used, ws}
     else
@@ -204,6 +211,10 @@ if op == 'c' then
 end
 
 if op == 'r' then
+  local units = tonumber(ARGV[2])
+  if not units or units < 1 or units ~= math.floor(units) then
+    return bad('units')
+  end
   local v = redis.call('GET', KEYS[1])
   if not v then
     return 0
@@ -215,7 +226,10 @@ if op == 'r' then
   if n <= 0 then
     return 0
   end
-  redis.call('DECR', KEYS[1])
+  if units > n then
+    units = n
+  end
+  redis.call('DECRBY', KEYS[1], int(units))
   return 1
 end
 

@@ -277,6 +277,7 @@ func TestStageJListsCELUses(t *testing.T) {
 	want := []use{
 		{"Policy/hdr", "spec.config.request.set[name=x-a].valueExpression", "route.name", phase.ScopeGateway, diag.Location{File: "p.yaml", Line: 10, Column: 40}},
 		{"Policy/hdr", "spec.config.request.set[name=x-a].valueExpression", "route.name", phase.ScopeUpstream, diag.Location{File: "p.yaml", Line: 10, Column: 40}},
+		{"Policy/q", "spec.config.cost", "1", phase.ScopeRoute, diag.Location{File: "p.yaml", Line: 19, Column: 5}},
 		{"Policy/q", "spec.config.key", "consumer.name", phase.ScopeRoute, diag.Location{File: "p.yaml", Line: 19, Column: 5}},
 	}
 	if !slices.Equal(got, want) {

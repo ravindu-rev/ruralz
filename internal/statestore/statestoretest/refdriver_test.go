@@ -138,10 +138,10 @@ func (r *refDriver) Consume(ctx context.Context, rb *statestore.RequestBudget, c
 			}
 			allowed = q.Allowed
 			if allowed {
-				k := string(keys.AppendQuota(nil, q.Name, q.Window, q.WindowStart, q.Digest))
-				exp := q.WindowStart.Add(2 * q.Window).UnixMilli()
-				if v, ok := r.str[k]; ok && q.Used > 1 {
-					exp = v.exp
+				k := string(keys.AppendQuotaCounter(nil, q.Name, q.Window, q.Month, q.WindowStart, q.Digest))
+				exp := q.WindowEnd.Add(q.WindowEnd.Sub(q.WindowStart)).UnixMilli()
+				if _, held := r.get(k); held {
+					exp = r.str[k].exp
 				}
 				r.str[k] = refValue{strconv.FormatInt(q.Used, 10), exp}
 			}
@@ -203,10 +203,15 @@ func (r *refDriver) Write(ctx context.Context, batch []*statestore.Write) {
 		}
 		switch {
 		case w.Kind == statestore.OpRefund:
-			k := string(keys.AppendQuota(nil, w.Refund.Name, w.Refund.Window, w.Refund.WindowStart, w.Refund.Digest))
+			units, valid := statestore.Cost(w.Refund.Units)
+			if !valid {
+				w.Err = statestore.ErrFailed
+				continue
+			}
+			k := string(keys.AppendQuotaCounter(nil, w.Refund.Name, w.Refund.Window, w.Refund.Month, w.Refund.WindowStart, w.Refund.Digest))
 			if v, ok := r.get(k); ok && v != "0" {
 				n, _ := strconv.ParseInt(v, 10, 64)
-				r.str[k] = refValue{strconv.FormatInt(n-1, 10), r.str[k].exp}
+				r.str[k] = refValue{strconv.FormatInt(n-min(units, n), 10), r.str[k].exp}
 				r.model.Refund(w.Refund)
 				w.Applied = true
 			}
@@ -340,7 +345,7 @@ func (r *refDriver) inspect(k statestoretest.Key) (statestoretest.Stored, bool) 
 	case statestoretest.KeyRateLimit:
 		key = string(keys.AppendRateLimit(nil, k.Policy, k.Limit, k.Digest))
 	case statestoretest.KeyQuota:
-		key = string(keys.AppendQuota(nil, k.Name, k.Window, k.WindowStart, k.Digest))
+		key = string(keys.AppendQuotaCounter(nil, k.Name, k.Window, k.Month, k.WindowStart, k.Digest))
 	case statestoretest.KeyCacheGeneration:
 		key = string(keys.AppendCacheGeneration(nil, k.Cache.URI))
 	case statestoretest.KeyCacheLease:

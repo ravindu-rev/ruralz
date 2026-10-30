@@ -26,6 +26,7 @@ func schemaPlace() map[string]expr.PlaceID {
 		"RateLimitConfig.cost":                 expr.PlaceRateLimitCost,
 		"RateLimit.when":                       expr.PlaceRateLimitWhen,
 		"QuotaConfig.key":                      expr.PlaceQuotaKey,
+		"QuotaConfig.cost":                     expr.PlaceQuotaCost,
 		"HeaderRequestSet.valueExpression":     expr.PlaceHeadersRequestValue,
 		"HeaderResponseSet.valueExpression":    expr.PlaceHeadersResponseValue,
 		"CacheConfig.key":                      expr.PlaceCacheKey,

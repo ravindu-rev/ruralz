@@ -97,7 +97,7 @@ func inspectKey(k statestoretest.Key) (key, field string) {
 	case statestoretest.KeyRateLimit:
 		return string(keys.AppendRateLimit(nil, k.Policy, k.Limit, k.Digest)), ""
 	case statestoretest.KeyQuota:
-		return string(keys.AppendQuota(nil, k.Name, k.Window, k.WindowStart, k.Digest)), ""
+		return string(keys.AppendQuotaCounter(nil, k.Name, k.Window, k.Month, k.WindowStart, k.Digest)), ""
 	case statestoretest.KeyCacheGeneration:
 		return string(keys.AppendCacheGeneration(nil, k.Cache.URI)), ""
 	case statestoretest.KeyCachePartition:

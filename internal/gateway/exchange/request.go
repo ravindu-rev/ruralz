@@ -142,6 +142,8 @@ type Request struct {
 	// cache is the cache result a Filter recorded (SetCacheResult).
 	cache string
 	final filter.Final
+	// charges are the Quota counters the request charged (Charge).
+	charges charges
 
 	rec record
 }
@@ -257,11 +259,12 @@ func (x *Request) Outbound() *snapshot.Outbound { return &x.out }
 func (x *Request) Timer() *emit.GatewayTimer { return &x.timer }
 
 // SetFinal records the request outcome Exchange.Final returns in onLog and
-// Finish (status, code, committed; RejectedAfter is computed per calling
-// Policy, LegStatus is the status SetResponse recorded) and the request
+// Finish (status, code, committed, whether an attempt reached an
+// Upstream; RejectedAfter is computed per calling Policy, LegStatus is the
+// status SetResponse recorded) and the request
 // duration, CEL duration.
 func (x *Request) SetFinal(f filter.Final, d time.Duration) {
-	x.final = filter.Final{Status: f.Status, Code: f.Code, Committed: f.Committed}
+	x.final = filter.Final{Status: f.Status, Code: f.Code, Committed: f.Committed, UpstreamReached: f.UpstreamReached}
 	x.vars.Duration = d
 }
 
@@ -471,6 +474,7 @@ func (x *Request) reset() {
 	x.whens.reset()
 	x.slots.reset()
 	x.rec.reset()
+	x.charges.reset()
 	x.bodyDec.v = decoded{}
 	x.bodyDec.ready.Store(false)
 	x.id.Store(nil)

@@ -824,6 +824,10 @@ func (*legView) ReplaceResponse(*filter.Response) {}
 // AddRateLimitField implements filter.Exchange: nothing on a leg.
 func (*legView) AddRateLimitField(filter.RateLimitField) {}
 
+// Charge implements filter.Exchange: a leg keeps no record, so the caller
+// charges as the first.
+func (*legView) Charge(filter.Counter) (*filter.Charge, bool) { return nil, true }
+
 // SetCacheResult implements filter.Exchange: nothing on a leg.
 func (*legView) SetCacheResult(string) {}
 

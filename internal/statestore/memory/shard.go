@@ -47,10 +47,12 @@ type rlKey struct {
 }
 
 // qtKey locates one Quota counter:
-// rz:qt:<name>:<window>:<window start>:{<digest>}.
+// rz:qt:<name>:<window>:<window start>:{<digest>}, <window> being month
+// for a calendar month (window 0).
 type qtKey struct {
 	name   string
 	window time.Duration
+	month  bool
 	start  int64 // Unix ms
 	digest statestore.Digest
 }

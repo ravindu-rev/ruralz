@@ -333,8 +333,12 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 	}
 	if skewed >= 0 && d.skewLog.allow(d.node.Now()) {
 		q := &group[skewed].Quota
+		window := q.Window.String()
+		if q.Month {
+			window = "month"
+		}
 		d.logger.WarnContext(ctx, "state store clock skew beyond half a quota window; call failed",
-			catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", q.Window.String())
+			catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", window)
 	}
 	return n
 }
@@ -409,7 +413,7 @@ func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 		ok := true
 		switch w.Kind {
 		case statestore.OpRefund:
-			w.Applied = d.refund(&w.Refund, now)
+			w.Applied, ok = d.refund(&w.Refund, now)
 		case statestore.OpCacheSet:
 			if w.Lease.Mode != 0 {
 				w.Applied, ok = d.lease(&w.Lease, now)

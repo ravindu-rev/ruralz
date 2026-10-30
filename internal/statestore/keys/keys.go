@@ -255,6 +255,28 @@ func AppendQuota(dst []byte, name string, window time.Duration, start time.Time,
 	return appendTag(dst, d)
 }
 
+// AppendQuotaMonth appends the counter key of one UTC calendar month of a
+// Quota (docs/architecture/09-traffic-management-and-resilience.md
+// "Quotas"): rz:qt:<escaped consumerQuota>:month:<month start in Unix
+// milliseconds>:{<hex of the config.key digest>}.
+func AppendQuotaMonth(dst []byte, name string, start time.Time, d statestore.Digest) []byte {
+	dst = append(dst, PrefixQuota...)
+	dst = AppendEscaped(dst, name)
+	dst = append(dst, ":month:"...)
+	dst = strconv.AppendInt(dst, start.UnixMilli(), 10)
+	dst = append(dst, ':')
+	return appendTag(dst, d)
+}
+
+// AppendQuotaCounter appends the counter key of one Quota window:
+// AppendQuotaMonth with month, else AppendQuota.
+func AppendQuotaCounter(dst []byte, name string, window time.Duration, month bool, start time.Time, d statestore.Digest) []byte {
+	if month {
+		return AppendQuotaMonth(dst, name, start, d)
+	}
+	return AppendQuota(dst, name, window, start, d)
+}
+
 // AppendCacheGeneration appends the generation key of a URI digest U:
 // rz:rc:{<hex U>}:gen.
 func AppendCacheGeneration(dst []byte, uri statestore.Digest) []byte {

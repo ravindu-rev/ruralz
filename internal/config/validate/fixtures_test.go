@@ -58,6 +58,7 @@ func TestFixtures(t *testing.T) {
 		{"005-step-path", "literal step paths without the hardening of the client path or with a control byte in the query; escapes and three dots accepted", []string{CodeSchema}},
 		{"005-step-target", "step targets that are no dot path; star and escapes accepted", []string{CodeSchema}},
 		{"005-step-group", "collection: true with an empty group, which is no group; a named group accepted", []string{CodeSchema}},
+		{"005-quota-window", "Consumer quota windows below 1s or not whole seconds; 1s and calendar: month accepted", []string{CodeSchema}},
 		{"021-image-digest", "Plugin images without a full lower-case @sha256 digest; pinned images accepted", []string{CodePlugin}},
 		{"031-steps", "more steps than an authored maxCompositionSteps", []string{CodeSteps}},
 		{"031-steps-default", "more steps than the default maxCompositionSteps 16", []string{CodeSteps}},

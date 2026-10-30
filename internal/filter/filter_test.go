@@ -297,3 +297,33 @@ func TestIdentityMethods(t *testing.T) {
 		t.Fatalf("methods = %v", got)
 	}
 }
+
+// TestFinalRefunds covers the quota refund condition
+// (docs/architecture/09-traffic-management-and-resilience.md "Quotas"): a
+// later Filter's rejection, or no attempt reaching an Upstream for a Node
+// or Upstream rejection or a client gone before a response; a response a
+// Filter served without an Upstream, such as a cache hit, and any request
+// an attempt reached are charged.
+func TestFinalRefunds(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		f    Final
+		want bool
+	}{
+		{"rejected later", Final{Status: http.StatusForbidden, Code: "RZ-AUTH-001", RejectedAfter: true}, true},
+		{"rejected later after an attempt", Final{Status: http.StatusOK, UpstreamReached: true, RejectedAfter: true}, true},
+		{"body too large", Final{Status: http.StatusRequestEntityTooLarge, Code: "RZ-RT-003"}, true},
+		{"route timeout before an attempt", Final{Status: http.StatusGatewayTimeout, Code: "RZ-RT-007"}, true},
+		{"connect failed", Final{Status: http.StatusBadGateway, Code: "RZ-UP-001"}, true},
+		{"breaker open", Final{Status: http.StatusServiceUnavailable, Code: "RZ-UP-005"}, true},
+		{"client gone before a response", Final{}, true},
+		{"cache hit", Final{Status: http.StatusOK, Committed: true}, false},
+		{"upstream answered", Final{Status: http.StatusOK, Committed: true, UpstreamReached: true}, false},
+		{"upstream reset after connecting", Final{Status: http.StatusBadGateway, Code: "RZ-UP-004", UpstreamReached: true}, false},
+		{"client gone after an attempt", Final{UpstreamReached: true}, false},
+	} {
+		if got := tc.f.Refunds(); got != tc.want {
+			t.Errorf("%s: Refunds() = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}

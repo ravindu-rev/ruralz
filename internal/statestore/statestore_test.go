@@ -280,3 +280,85 @@ func TestCapabilities(t *testing.T) {
 		}
 	}
 }
+
+// TestCost covers the units a call charges and a refund returns: the
+// value itself, 0 counting as 1, a negative value refused.
+func TestCost(t *testing.T) {
+	for _, tc := range []struct {
+		in, want int64
+		ok       bool
+	}{
+		{0, 1, true}, {1, 1, true}, {5, 5, true}, {1 << 62, 1 << 62, true}, {-1, 0, false},
+	} {
+		if got, ok := Cost(tc.in); got != tc.want || ok != tc.ok {
+			t.Errorf("Cost(%d) = %d, %v; want %d, %v", tc.in, got, ok, tc.want, tc.ok)
+		}
+	}
+}
+
+// rfcMillis parses an RFC 3339 time to Unix milliseconds.
+func rfcMillis(t *testing.T, s string) int64 {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return v.UnixMilli()
+}
+
+// TestQuotaWindowOf covers the window holding an instant: epoch-aligned
+// fixed windows, before the epoch too, and UTC calendar months of 28 to
+// 31 days, a leap February and a December included.
+func TestQuotaWindowOf(t *testing.T) {
+	for _, tc := range []struct {
+		at         string
+		window     time.Duration
+		month      bool
+		start, end string
+	}{
+		{"2026-09-26T12:34:56Z", 24 * time.Hour, false, "2026-09-26T00:00:00Z", "2026-09-27T00:00:00Z"},
+		{"2026-09-26T12:00:00Z", time.Hour, false, "2026-09-26T12:00:00Z", "2026-09-26T13:00:00Z"},
+		{"1969-12-31T23:59:59.999Z", time.Hour, false, "1969-12-31T23:00:00Z", "1970-01-01T00:00:00Z"},
+		{"2026-02-14T08:00:00Z", 0, true, "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"},
+		{"2028-02-29T23:59:59.999Z", 0, true, "2028-02-01T00:00:00Z", "2028-03-01T00:00:00Z"},
+		{"2026-04-30T23:59:59.999Z", time.Hour, true, "2026-04-01T00:00:00Z", "2026-05-01T00:00:00Z"},
+		{"2026-12-31T23:00:00Z", 0, true, "2026-12-01T00:00:00Z", "2027-01-01T00:00:00Z"},
+		{"2027-01-01T00:00:00Z", 0, true, "2027-01-01T00:00:00Z", "2027-02-01T00:00:00Z"},
+	} {
+		got := QuotaWindowOf(rfcMillis(t, tc.at), tc.window, tc.month)
+		if got.Start != rfcMillis(t, tc.start) || got.End != rfcMillis(t, tc.end) {
+			t.Errorf("QuotaWindowOf(%s, %v, %v) = [%v, %v), want [%s, %s)", tc.at, tc.window, tc.month,
+				time.UnixMilli(got.Start).UTC(), time.UnixMilli(got.End).UTC(), tc.start, tc.end)
+		}
+	}
+}
+
+// TestQuotaCandidates covers the Node's two windows: its own and the one
+// before it in its first half, the one after from its middle on, for
+// fixed windows and for months, whose middle depends on their length.
+func TestQuotaCandidates(t *testing.T) {
+	for _, tc := range []struct {
+		node   string
+		window time.Duration
+		month  bool
+		a, b   string
+	}{
+		{"2026-09-26T12:29:59.999Z", time.Hour, false, "2026-09-26T12:00:00Z", "2026-09-26T11:00:00Z"},
+		{"2026-09-26T12:30:00Z", time.Hour, false, "2026-09-26T12:00:00Z", "2026-09-26T13:00:00Z"},
+		{"2026-02-14T23:59:59.999Z", 0, true, "2026-02-01T00:00:00Z", "2026-01-01T00:00:00Z"},
+		{"2026-02-15T00:00:00Z", 0, true, "2026-02-01T00:00:00Z", "2026-03-01T00:00:00Z"},
+		{"2028-02-15T11:59:59.999Z", 0, true, "2028-02-01T00:00:00Z", "2028-01-01T00:00:00Z"},
+		{"2028-02-15T12:00:00Z", 0, true, "2028-02-01T00:00:00Z", "2028-03-01T00:00:00Z"},
+		{"2026-12-31T00:00:00Z", 0, true, "2026-12-01T00:00:00Z", "2027-01-01T00:00:00Z"},
+		{"2027-01-01T00:00:00Z", 0, true, "2027-01-01T00:00:00Z", "2026-12-01T00:00:00Z"},
+	} {
+		a, b := QuotaCandidates(rfcMillis(t, tc.node), tc.window, tc.month)
+		if a.Start != rfcMillis(t, tc.a) || b.Start != rfcMillis(t, tc.b) {
+			t.Errorf("QuotaCandidates(%s, %v, %v) = %v, %v; want starts %s, %s", tc.node, tc.window, tc.month,
+				time.UnixMilli(a.Start).UTC(), time.UnixMilli(b.Start).UTC(), tc.a, tc.b)
+		}
+		if a.End != b.Start && b.End != a.Start {
+			t.Errorf("QuotaCandidates(%s): %v and %v are not adjacent", tc.node, a, b)
+		}
+	}
+}

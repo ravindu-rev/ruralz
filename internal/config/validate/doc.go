@@ -30,7 +30,8 @@
 //     path, and a non-empty group beside collection: true (step); an
 //     Upstream Endpoint source, and Endpoint
 //     addresses and dns discovery as internal/netaddr parses them for the
-//     Upstream layer; a Policy filterClass the registry accepts.
+//     Upstream layer; a Policy filterClass the registry accepts; a
+//     Consumer quota window of at least 1s in whole seconds.
 //   - RZ-CFG-021: a Plugin image pinned by its full @sha256 digest.
 //   - RZ-CFG-031 and RZ-CFG-032: composition steps within
 //     limits.maxCompositionSteps, and explicit maxBodyBytes values within

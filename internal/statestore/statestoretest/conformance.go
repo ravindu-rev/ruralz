@@ -82,9 +82,10 @@ type Key struct {
 	// Policy, Limit and Digest name a KeyRateLimit.
 	Policy string
 	Limit  statestore.GCRALimit
-	// Name, Window, WindowStart and Digest name a KeyQuota.
+	// Name, Window or Month, WindowStart and Digest name a KeyQuota.
 	Name        string
 	Window      time.Duration
+	Month       bool
 	WindowStart time.Time
 	Digest      statestore.Digest
 	// Cache names the cache keys (Cache.URI alone for a generation).
@@ -276,6 +277,14 @@ func quotaCall(name string, window time.Duration, limit int64, d statestore.Dige
 	}}
 }
 
+// quotaCostCall returns a Quota call reserving cost units of window, or
+// of the UTC calendar month with month.
+func quotaCostCall(name string, window time.Duration, month bool, limit, cost int64, d statestore.Digest) *statestore.Call {
+	c := quotaCall(name, window, limit, d)
+	c.Quota.Month, c.Quota.Cost = month, cost
+	return c
+}
+
 func lookupCall(k statestore.CacheKey, v statestore.Digest) *statestore.Call {
 	return &statestore.Call{Kind: statestore.OpCacheGet, Timeout: callTimeout, Lookup: statestore.CacheLookup{Key: k, Variant: v}}
 }
@@ -342,19 +351,26 @@ func (s *suite) checkQuota(what string, c *statestore.Call) {
 	s.t.Helper()
 	s.answered(what, c)
 	q := &c.Quota
-	want := statestore.Quota{Name: q.Name, Window: q.Window, Limit: q.Limit, Digest: q.Digest}
+	want := statestore.Quota{Name: q.Name, Window: q.Window, Month: q.Month, Limit: q.Limit, Cost: q.Cost, Digest: q.Digest}
 	if ok, skew := s.model.Quota(q.ServerNow, q.ServerNow, &want); !ok || skew {
 		s.t.Fatalf("%s: the model rejects the call", what)
 	}
 	if q.Allowed != want.Allowed || q.Used != want.Used || q.RetryAfter != want.RetryAfter ||
-		!q.WindowStart.Equal(want.WindowStart) || !q.ServerNow.Equal(want.ServerNow) {
+		!q.WindowStart.Equal(want.WindowStart) || !q.WindowEnd.Equal(want.WindowEnd) || !q.ServerNow.Equal(want.ServerNow) {
 		s.t.Fatalf("%s: got %+v, model %+v", what, *q, want)
 	}
 }
 
 func (s *suite) quota(what, name string, window time.Duration, limit int64, d statestore.Digest) *statestore.Quota {
 	s.t.Helper()
-	c := quotaCall(name, window, limit, d)
+	return s.quotaCost(what, name, window, false, limit, 0, d)
+}
+
+// quotaCost runs one Quota call reserving cost units of window, or of the
+// calendar month with month, and checks it against the model.
+func (s *suite) quotaCost(what, name string, window time.Duration, month bool, limit, cost int64, d statestore.Digest) *statestore.Quota {
+	s.t.Helper()
+	c := quotaCostCall(name, window, month, limit, cost, d)
 	if n := s.consume(c); n != 1 {
 		s.t.Fatalf("%s: Consume took %d calls, want 1", what, n)
 	}
@@ -443,6 +459,13 @@ func needExact(h Harness) string {
 func needInspect(h Harness) string {
 	if h.Inspect == nil {
 		return "harness has no Inspect"
+	}
+	return ""
+}
+
+func needSkew(h Harness) string {
+	if h.SkewNode == nil {
+		return "harness cannot skew the Node clock"
 	}
 	return ""
 }
@@ -720,6 +743,180 @@ func gcraCases() []conformanceCase {
 
 // quotaCases cover Quota reserve and refund, clock skew included.
 func quotaCases() []conformanceCase {
+	return append(quotaWindowCases(), quotaCostCases()...)
+}
+
+// quotaCostCases cover cost units, refunded units and calendar months.
+func quotaCostCases() []conformanceCase {
+	return []conformanceCase{
+		{name: "quota/cost", run: func(s *suite) {
+			// Cost units are reserved all or none: a cost above the units
+			// left denies, the count unchanged, with RetryAfter to the
+			// window end; 0 counts as 1. The calls must charge one window.
+			s.timed(func(try int) (func(), bool) {
+				n, d := s.name("q"+tryTag(try)), s.digest("k"+tryTag(try))
+				first := s.quotaCost("cost 3", n, time.Hour, false, 5, 3, d)
+				over := s.quotaCost("cost 3 past the units left", n, time.Hour, false, 5, 3, d)
+				zero := s.quotaCost("cost 0", n, time.Hour, false, 5, 0, d)
+				last := s.quotaCost("the last unit", n, time.Hour, false, 5, 1, d)
+				full := s.quotaCost("exhausted", n, time.Hour, false, 5, 1, d)
+				return func() {
+					if !first.Allowed || first.Used != 3 {
+						s.t.Fatalf("cost 3: allowed %v used %d", first.Allowed, first.Used)
+					}
+					if over.Allowed || over.Used != 3 || over.RetryAfter != over.WindowEnd.Sub(over.ServerNow) {
+						s.t.Fatalf("cost 3 past the units left: allowed %v used %d retry %v", over.Allowed, over.Used, over.RetryAfter)
+					}
+					if !zero.Allowed || zero.Used != 4 {
+						s.t.Fatalf("cost 0: allowed %v used %d, want one unit", zero.Allowed, zero.Used)
+					}
+					if !last.Allowed || last.Used != 5 || full.Allowed || full.Used != 5 {
+						s.t.Fatalf("last unit %+v, exhausted %+v", *last, *full)
+					}
+				}, sameWindow(first, over, zero, last, full)
+			})
+		}},
+		{name: "quota/cost-above-limit", run: func(s *suite) {
+			// A cost above the limit, the largest included, denies and
+			// reserves nothing.
+			n, d := s.name("q"), s.digest("k")
+			for _, cost := range []int64{6, math.MaxInt64} {
+				if q := s.quotaCost("cost above the limit", n, time.Hour, false, 5, cost, d); q.Allowed || q.Used != 0 {
+					s.t.Fatalf("cost %d: allowed %v used %d", cost, q.Allowed, q.Used)
+				}
+			}
+			if q := s.quotaCost("after", n, time.Hour, false, 5, 5, d); !q.Allowed || q.Used != 5 {
+				s.t.Fatalf("after denied costs: allowed %v used %d", q.Allowed, q.Used)
+			}
+		}},
+		{name: "quota/negative-cost", run: func(s *suite) {
+			// A negative cost is an error reply (RZ-STS-002) charging nothing.
+			n, d := s.name("q"), s.digest("k")
+			c := quotaCostCall(n, time.Hour, false, 5, -1, d)
+			s.consume(c)
+			if c.Done || c.Err != statestore.ErrFailed {
+				s.t.Fatalf("negative cost: Done %v Err %v, want RZ-STS-002", c.Done, c.Err)
+			}
+			if q := s.quota("after", n, time.Hour, 5, d); !q.Allowed || q.Used != 1 {
+				s.t.Fatalf("after a negative cost: allowed %v used %d", q.Allowed, q.Used)
+			}
+		}},
+		{name: "quota/refund-units", run: func(s *suite) {
+			// A refund returns its units, at most the count, so the count
+			// stops at 0. The reservations must charge one window.
+			s.timed(func(try int) (func(), bool) {
+				n, d := s.name("q"+tryTag(try)), s.digest("k"+tryTag(try))
+				q := s.quotaCost("reserve 4", n, time.Hour, false, 10, 4, d)
+				ref := statestore.Refund{Name: n, Window: time.Hour, WindowStart: q.WindowStart, Units: 3, Digest: d}
+				var applied []bool
+				refund := func(what string, units int64) {
+					ref.Units = units
+					ok := s.refund(what, ref)
+					if ok {
+						s.model.Refund(ref)
+					}
+					applied = append(applied, ok)
+				}
+				refund("refund 3", 3)
+				mid := s.quotaCost("reserve 1", n, time.Hour, false, 10, 1, d)
+				refund("refund 10", 10)
+				refund("refund at 0", 10)
+				after := s.quotaCost("after", n, time.Hour, false, 10, 1, d)
+				return func() {
+					if !applied[0] || mid.Used != 2 {
+						s.t.Fatalf("refund 3 of 4: applied %v, then used %d; want 2", applied[0], mid.Used)
+					}
+					if !applied[1] || applied[2] || after.Used != 1 {
+						s.t.Fatalf("refund 10 of 2: applied %v, at 0 applied %v, then used %d; want 1", applied[1], applied[2], after.Used)
+					}
+				}, sameWindow(q, mid, after)
+			})
+		}},
+		{name: "quota/refund-negative-units", run: func(s *suite) {
+			// Negative units are an error reply (RZ-STS-002).
+			w := &statestore.Write{Kind: statestore.OpRefund, Timeout: callTimeout, Refund: statestore.Refund{
+				Name: s.name("q"), Window: time.Hour, WindowStart: time.UnixMilli(0), Units: -1, Digest: s.digest("k"),
+			}}
+			s.write(w)
+			if w.Err != statestore.ErrFailed || w.Applied {
+				s.t.Fatalf("negative units: Err %v Applied %v, want RZ-STS-002", w.Err, w.Applied)
+			}
+		}},
+		{name: "quota/month", run: func(s *suite) {
+			// A calendar quota charges the UTC month holding the store's
+			// time, from 00:00 UTC on its first day to the next month's,
+			// on a counter of its own that lives a month past the month's
+			// end; a refund names that month. The calls must charge one
+			// month.
+			s.timed(func(try int) (func(), bool) {
+				n, d := s.name("q"+tryTag(try)), s.digest("k"+tryTag(try))
+				q := s.quotaCost("month", n, 0, true, 10, 2, d)
+				win := s.quotaCost("a window of the same name", n, 720*time.Hour, false, 10, 1, d)
+				ws, we := q.WindowStart.UTC(), q.WindowEnd.UTC()
+				var st Stored
+				var held bool
+				if s.h.Inspect != nil {
+					st, held = s.inspect(Key{Kind: KeyQuota, Name: n, Month: true, WindowStart: ws, Digest: d})
+				}
+				ref := statestore.Refund{Name: n, Month: true, WindowStart: ws, Units: 2, Digest: d}
+				refunded := s.refund("month refund", ref)
+				if refunded {
+					s.model.Refund(ref)
+				}
+				after := s.quotaCost("after the refund", n, 0, true, 10, 1, d)
+				return func() {
+					if ws.Day() != 1 || ws.Hour() != 0 || ws.Minute() != 0 || ws.Second() != 0 || ws.Nanosecond() != 0 ||
+						!we.Equal(ws.AddDate(0, 1, 0)) || q.ServerNow.Before(ws) || !q.ServerNow.Before(we) {
+						s.t.Fatalf("month [%v, %v) for store time %v", ws, we, q.ServerNow)
+					}
+					if !q.Allowed || q.Used != 2 || !win.Allowed || win.Used != 1 {
+						s.t.Fatalf("month %+v, window %+v: want separate counters", *q, *win)
+					}
+					if !refunded || after.Used != 1 {
+						s.t.Fatalf("month refund applied %v, then used %d; want 1", refunded, after.Used)
+					}
+					if s.h.Inspect != nil {
+						if !held || st.Value != "2" {
+							s.t.Fatalf("month counter %q, %v; want 2", st.Value, held)
+						}
+						s.ttlNear("month counter", st.TTL, we.Add(we.Sub(ws)).Sub(q.ServerNow), q.ServerNow)
+					}
+				}, q.WindowStart.Equal(after.WindowStart)
+			})
+		}},
+		{name: "quota/month-skew", skip: needSkew, run: func(s *suite) {
+			// A Node clock 70 days ahead offers two months, its own and
+			// the nearer neighbor, neither holding the store's time:
+			// RZ-STS-002, charging nothing.
+			n, d := s.name("q"), s.digest("k")
+			s.h.SkewNode(s.t, s.d, 70*24*time.Hour)
+			c := quotaCostCall(n, 0, true, 10, 1, d)
+			s.consume(c)
+			if c.Done || c.Err != statestore.ErrFailed {
+				s.t.Fatalf("70 days ahead: Done %v Err %v, want RZ-STS-002", c.Done, c.Err)
+			}
+			if !s.h.Exact {
+				return
+			}
+			// A minute before the store's month ends, a Node clock two
+			// minutes ahead lies early in the next month, whose nearer
+			// neighbor is the store's month: that month is charged.
+			s.h.SkewNode(s.t, s.d, 0)
+			now := s.now()
+			_, end := QuotaWindowAt(now, 0, true)
+			s.advance(time.UnixMilli(end).Sub(now) - time.Minute)
+			s.h.SkewNode(s.t, s.d, 2*time.Minute)
+			q := s.quotaCost("store month", n, 0, true, 10, 1, d)
+			if !q.Allowed || q.Used != 1 || !q.WindowEnd.Equal(time.UnixMilli(end)) {
+				s.t.Fatalf("Node in the next month: %+v, want the store's month ending %v", *q, time.UnixMilli(end).UTC())
+			}
+		}},
+	}
+}
+
+// quotaWindowCases cover window reservations and refunds, clock skew
+// included.
+func quotaWindowCases() []conformanceCase {
 	return []conformanceCase{
 		{name: "quota/limit", run: func(s *suite) {
 			// Reserve up to the limit, then deny with RetryAfter to the

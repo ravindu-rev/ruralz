@@ -568,8 +568,8 @@ func TestMaterializeShapes(t *testing.T) {
 }
 
 // TestMaterializeLargeObject covers the index Materialize builds for an
-// object with many members: defaults are added once and the authored
-// members stay.
+// object with many members: defaults are added once (cost) and the
+// authored members stay.
 func TestMaterializeLargeObject(t *testing.T) {
 	var b strings.Builder
 	b.WriteString(`{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "q"}, "spec": {"type": "quota", "config": {"consumerQuota": "c"`)
@@ -580,10 +580,13 @@ func TestMaterializeLargeObject(t *testing.T) {
 	res := newFixture().resource(t, "q.json", b.String())
 	Materialize(hubIndex(t), registry.New(), res)
 	cfg := at(t, res.Root, "spec.config")
-	if len(cfg.Members) != 102 {
-		t.Errorf("config has %d members, want 102", len(cfg.Members))
+	if len(cfg.Members) != 103 {
+		t.Errorf("config has %d members, want 103", len(cfg.Members))
 	}
 	if k := at(t, cfg, "key"); k.Text != "request.host" {
 		t.Errorf("key = %s, want the authored value", dump(k))
+	}
+	if c := at(t, cfg, "cost"); c.Text != "1" {
+		t.Errorf("cost = %s, want the default", dump(c))
 	}
 }

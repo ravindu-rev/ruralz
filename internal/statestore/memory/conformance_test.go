@@ -129,7 +129,7 @@ func inspect(d *Driver, k statestoretest.Key) (statestoretest.Stored, bool) {
 		s := d.shardOf(int(keys.DigestSlot(k.Digest)))
 		s.mu.Lock()
 		defer s.mu.Unlock()
-		e, ok := s.qt[qtKey{k.Name, k.Window, k.WindowStart.UnixMilli(), k.Digest}]
+		e, ok := s.qt[quotaKey(k.Name, k.Window, k.Month, k.WindowStart.UnixMilli(), k.Digest)]
 		if !ok || expired(e.exp, now) {
 			return statestoretest.Stored{}, false
 		}

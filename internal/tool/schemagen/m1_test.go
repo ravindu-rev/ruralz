@@ -96,6 +96,7 @@ func TestDefaults(t *testing.T) {
 		"PluginLimits.memoryBytes":             `16777216`,
 		"PluginLimits.timeout":                 `"5ms"`,
 		"PolicySpec.overridable":               `true`,
+		"QuotaConfig.cost":                     `"1"`,
 		"QuotaConfig.key":                      `"consumer.name"`,
 		"RateLimitConfig.cost":                 `"1"`,
 		"RateLimitConfig.localOnly":            `false`,
@@ -470,7 +471,7 @@ func TestPolicyConfigClosure(t *testing.T) {
 		"AuthzGeoIPConfig":           false,
 		"RateLimitConfig":            false, // every ratelimit field is registered
 		"RateLimit":                  false,
-		"QuotaConfig":                true,
+		"QuotaConfig":                false, // every quota field is registered
 		"ValidationJSONSchemaConfig": false,
 		"CORSConfig":                 false, // every cors field is registered
 		"CacheConfig":                true,

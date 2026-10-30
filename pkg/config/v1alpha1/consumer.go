@@ -117,7 +117,9 @@ const (
 	QuotaUnitTokens QuotaUnit = "tokens"
 )
 
-// Quota is one named Consumer quota.
+// Quota is one named Consumer quota, counted per fixed window or per UTC
+// calendar month: exactly one of window or calendar.
+// +ruralz:exactlyOneOf=window,calendar
 type Quota struct {
 	// Name identifies the quota.
 	// +ruralz:required
@@ -129,7 +131,17 @@ type Quota struct {
 	// +ruralz:required
 	// +ruralz:minimum=0
 	Limit int64 `json:"limit"`
-	// Window is the window length.
-	// +ruralz:required
-	Window Duration `json:"window"`
+	// Window is the window length, at least 1s in whole seconds; windows are fixed and epoch-aligned in UTC, so 24h resets at midnight.
+	Window *Duration `json:"window,omitempty"`
+	// Calendar counts the quota per UTC calendar month instead of a window; a month starts at 00:00 UTC on its first day.
+	Calendar QuotaCalendar `json:"calendar,omitempty"`
 }
+
+// QuotaCalendar is the calendar period a quota counts in.
+type QuotaCalendar string
+
+// Quota calendar periods.
+const (
+	// QuotaCalendarMonth is the UTC calendar month, 28 to 31 days long.
+	QuotaCalendarMonth QuotaCalendar = "month"
+)

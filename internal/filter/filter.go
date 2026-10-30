@@ -383,6 +383,58 @@ type Final struct {
 	// request's; a composition step's leg does not, since the composition
 	// decides its step's outcome.
 	RejectedAfter bool
+	// UpstreamReached is true when some attempt of the request reached an
+	// Upstream: it connected and finished TLS, so the Upstream may have
+	// served it. It is false when no attempt was made, as for a Node
+	// rejection before any attempt (RZ-RT-003, RZ-RT-004, RZ-RT-007,
+	// RZ-RT-014, RZ-RT-016) or an Upstream that took none (RZ-UP-005,
+	// RZ-UP-006, RZ-UP-008), and when every attempt failed to connect or
+	// to finish TLS (RZ-UP-001, RZ-UP-002). A quota Policy refunds a
+	// request no attempt reached unless a Filter served it
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Quotas"). The request handler sets it with Status and Code.
+	UpstreamReached bool
+}
+
+// Refunds reports whether a quota reservation of the calling Policy is
+// returned in onLog (docs/architecture/09-traffic-management-and-resilience.md
+// "Quotas"): a later Filter rejected the request (RejectedAfter), or no
+// attempt reached an Upstream (UpstreamReached false) and the request did
+// not end served: it ended with an RZ code, a Node or Upstream rejection,
+// or before any response (Status 0). A response a Filter served without
+// an Upstream, such as a cache hit, is charged.
+func (f Final) Refunds() bool {
+	return f.RejectedAfter || (!f.UpstreamReached && (f.Code != "" || f.Status == 0))
+}
+
+// Counter identifies one Quota counter a request charges
+// (docs/architecture/09-traffic-management-and-resilience.md "Quotas"):
+// the Consumer quota, its window and the SHA-256 digest of the
+// config.key value. A request charges each counter once.
+type Counter struct {
+	// Quota is the Consumer quota's name.
+	Quota string
+	// Window is the quota's window length; 0 with Month, a UTC calendar
+	// month.
+	Window time.Duration
+	Month  bool
+	// Key is the SHA-256 digest of the config.key value.
+	Key statestore.Digest
+}
+
+// Charge is a request's record of one Counter (Exchange.Charge): the
+// Policy that charged it and, once known, the decision it took, which a
+// later quota Policy whose counter it is takes without a call.
+type Charge struct {
+	// Counter is the counter charged.
+	Counter Counter
+	// Policy is the charging Policy's name.
+	Policy string
+	// Decided is set once the charging Policy decided, with Result its
+	// decision, an emit.Quota* result index; a Policy whose round trip
+	// was never sent never decides.
+	Decided bool
+	Result  int
 }
 
 // Tee is the store side of the Response Cache: a copy kept while the
@@ -410,8 +462,9 @@ type Tee interface {
 // Filter never shares a view between goroutines. On a leg view
 // SetIdentity returns ErrNotAvailable, TeeResponse returns nil,
 // LegResponse and Final return the zero value (a leg ends before the
-// request does), Received describes the client request, and
-// ReplaceResponse, AddRateLimitField and SetCacheResult do nothing.
+// request does), Received describes the client request, Charge keeps no
+// record, and ReplaceResponse, AddRateLimitField and SetCacheResult do
+// nothing.
 type Exchange interface {
 	// RequestID returns the 32-hex trace ID.
 	RequestID() string
@@ -477,6 +530,15 @@ type Exchange interface {
 	// a batched member that completes after a later member decided in
 	// Prepare still lists first.
 	AddRateLimitField(f RateLimitField)
+	// Charge returns the request's record of Quota counter c and whether
+	// the calling Policy is the first to charge it, which makes it the
+	// charging Policy: a later quota Policy whose counter an earlier
+	// Policy charged takes that Policy's decision without a call, and
+	// only the charging Policy refunds
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Quotas"). The record is the exchange's memory, valid until the
+	// request ends; a leg view keeps none and returns nil and true.
+	Charge(c Counter) (rec *Charge, first bool)
 	// SetCacheResult records the request's cache result for the access
 	// log's cache field: for the Response Cache, the result label of
 	// ruralz_cache_requests_total (catalog.CacheResults: hit, miss, bypass,

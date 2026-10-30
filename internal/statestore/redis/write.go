@@ -239,10 +239,14 @@ func (d *Driver) stepShard(w *statestore.Write, st uint8) (sh *shard, script, ok
 }
 
 // writeShard returns the shard of w's keys and whether a script writes
-// it; ok is false for a write of an unknown kind or lease mode.
+// it; ok is false for a write of an unknown kind or lease mode, or a
+// refund of negative units.
 func (d *Driver) writeShard(w *statestore.Write) (sh *shard, script, ok bool) {
 	slot := keys.WriteSlot(w)
 	if slot < 0 {
+		return nil, false, false
+	}
+	if _, valid := statestore.Cost(w.Refund.Units); w.Kind == statestore.OpRefund && !valid {
 		return nil, false, false
 	}
 	script = true
@@ -322,10 +326,12 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 	switch w.Kind {
 	case statestore.OpRefund:
 		r := &w.Refund
+		units, _ := statestore.Cost(r.Units)
 		var qb [512]byte
 		tr.cmd(k, "EVALSHA", d.sha, "1")
-		tr.key(string(keys.AppendQuota(qb[:0], r.Name, r.Window, r.WindowStart, r.Digest)))
+		tr.key(string(keys.AppendQuotaCounter(qb[:0], r.Name, r.Window, r.Month, r.WindowStart, r.Digest)))
 		tr.arg(opRefund)
+		tr.arg(strconv.FormatInt(units, 10))
 	case statestore.OpCacheInvalidate:
 		var tb [keys.TokenLen]byte
 		tr.cmd(k, "EVALSHA", d.sha, "1")

@@ -220,9 +220,10 @@ type GCRALimit struct {
 	Burst int64
 }
 
-// GCRACost returns the cost a GCRA call charges: c, or 1 for 0; ok is
-// false for a negative c, which drivers answer with RZ-STS-002.
-func GCRACost(c int64) (cost int64, ok bool) {
+// Cost returns the units a GCRA or Quota call charges and a Refund
+// returns: c, or 1 for 0; ok is false for a negative c, which drivers
+// answer with RZ-STS-002.
+func Cost(c int64) (cost int64, ok bool) {
 	switch {
 	case c < 0:
 		return 0, false
@@ -260,18 +261,69 @@ type GCRA struct {
 	ServerNow  time.Time
 }
 
-// Quota reserves one unit of a Consumer quota window.
+// Quota reserves Cost units of one Consumer quota window: the fixed,
+// epoch-aligned Window, or the UTC calendar month when Month is set
+// (docs/architecture/09-traffic-management-and-resilience.md "Quotas").
+// The server's clock picks the window from the Node's two candidates
+// (QuotaCandidates).
 type Quota struct {
 	Name   string
 	Window time.Duration
-	Limit  int64
+	// Month counts the UTC calendar month instead of Window, which is
+	// then ignored.
+	Month bool
+	Limit int64
+	// Cost is the units the call reserves: a window whose count plus Cost
+	// is at most Limit admits it and reserves all of them, otherwise it
+	// denies it and reserves nothing. 0 counts as 1; a negative Cost is
+	// an error reply (RZ-STS-002).
+	Cost   int64
 	Digest Digest
 
 	Allowed     bool
 	WindowStart time.Time
-	Used        int64
-	RetryAfter  time.Duration
-	ServerNow   time.Time
+	// WindowEnd is when the charged window closes.
+	WindowEnd time.Time
+	// Used is the window's count after the decision: Cost included on an
+	// admission, as found on a denial.
+	Used int64
+	// RetryAfter is the time to WindowEnd on a denial, 0 otherwise.
+	RetryAfter time.Duration
+	ServerNow  time.Time
+}
+
+// QuotaWindow is one Quota window, [Start, End) in Unix milliseconds.
+type QuotaWindow struct{ Start, End int64 }
+
+// QuotaWindowOf returns the window holding ms: the epoch-aligned window of
+// length w, or with month the UTC calendar month, which starts at 00:00 UTC
+// on its first day. w is at least 1 ms unless month is set.
+func QuotaWindowOf(ms int64, w time.Duration, month bool) QuotaWindow {
+	if month {
+		t := time.UnixMilli(ms).UTC()
+		start := time.Date(t.Year(), t.Month(), 1, 0, 0, 0, 0, time.UTC)
+		return QuotaWindow{Start: start.UnixMilli(), End: start.AddDate(0, 1, 0).UnixMilli()}
+	}
+	wm := w.Milliseconds()
+	start := ms / wm * wm
+	if ms%wm < 0 {
+		start -= wm
+	}
+	return QuotaWindow{Start: start, End: start + wm}
+}
+
+// QuotaCandidates returns the windows a Node offers a Quota call for its
+// clock reading nodeMs: its own window A and the nearer neighbor B, the
+// window before A when nodeMs lies in A's first half (2 × (nodeMs -
+// A.Start) < A.End - A.Start), else the one after. The server charges the
+// candidate holding its own clock, so Node clock skew up to half a window,
+// half the shorter month for a calendar month, does not matter.
+func QuotaCandidates(nodeMs int64, w time.Duration, month bool) (a, b QuotaWindow) {
+	a = QuotaWindowOf(nodeMs, w, month)
+	if 2*(nodeMs-a.Start) < a.End-a.Start {
+		return a, QuotaWindowOf(a.Start-1, w, month)
+	}
+	return a, QuotaWindowOf(a.End, w, month)
 }
 
 // CacheKey locates a Response Cache partition: SHA-256 of the URI and of
@@ -345,12 +397,18 @@ type Call struct {
 	Trip RoundTrip
 }
 
-// Refund returns one unit to the window a reservation charged.
+// Refund returns a reservation's units to the window it charged, never
+// taking the count below 0 and never creating a key.
 type Refund struct {
-	Name        string
-	Window      time.Duration
+	Name   string
+	Window time.Duration
+	// Month names a UTC calendar month window, as Quota.Month does.
+	Month       bool
 	WindowStart time.Time
-	Digest      Digest
+	// Units is the reserved Cost to return; 0 counts as 1, and a negative
+	// Units is an error reply (RZ-STS-002).
+	Units  int64
+	Digest Digest
 }
 
 // CacheStore stores one variant under the partition's fill lease, in two

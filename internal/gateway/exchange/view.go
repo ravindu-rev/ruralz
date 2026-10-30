@@ -107,6 +107,10 @@ func (v *view) ReplaceResponse(r *filter.Response) { (*Request)(v).replaceRespon
 // AddRateLimitField implements filter.Exchange.
 func (v *view) AddRateLimitField(f filter.RateLimitField) { (*Request)(v).addRateLimitField(f) }
 
+// Charge implements filter.Exchange: the request's record of Quota
+// counter c, made for the calling Policy when it is the first.
+func (v *view) Charge(c filter.Counter) (*filter.Charge, bool) { return (*Request)(v).charge(c) }
+
 // SetCacheResult implements filter.Exchange: the access record's cache
 // field (FillAccess).
 func (v *view) SetCacheResult(result string) { v.cache = result }

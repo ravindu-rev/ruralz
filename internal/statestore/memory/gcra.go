@@ -68,7 +68,7 @@ func gcraAdvance(tat, t float64, cost int64) float64 { return tat + float64(floa
 // caller holds s.mu. False is an error reply (RZ-STS-002): an invalid
 // limit or cost, an Out shorter than Limits, or a full shard.
 func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
-	cost, ok := statestore.GCRACost(g.Cost)
+	cost, ok := statestore.Cost(g.Cost)
 	if len(g.Out) < len(g.Limits) || !ok {
 		return false
 	}
@@ -125,54 +125,56 @@ func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
 	return true
 }
 
-// floorDiv is floor(a / b) for b > 0.
-func floorDiv(a, b int64) int64 {
-	q := a / b
-	if a%b != 0 && a < 0 {
-		q--
+// quotaKey returns the counter key of q's window starting at start: a
+// calendar month carries no window length.
+func quotaKey(name string, window time.Duration, month bool, start int64, d statestore.Digest) qtKey {
+	if month {
+		window = 0
 	}
-	return q
+	return qtKey{name: name, window: window, month: month, start: start, digest: d}
 }
 
-// reserve runs sub-operation q, one Quota unit. Windows are fixed and
-// epoch-aligned: ws = now_ms - now_ms mod W on the server clock. The Node
-// offers its own window A = floor(node_ms / W) × W and the nearer neighbor
-// B (A - W when node_ms - A < W / 2, else A + W); the reservation charges
-// whichever equals ws, else it is clock skew (skew true): an error reply
-// the caller logs. The caller holds s.mu.
+// reserve runs sub-operation q, Cost Quota units, all or none. The Node
+// offers its own window A and the nearer neighbor B
+// (statestore.QuotaCandidates), each an epoch-aligned window or a UTC
+// calendar month; the reservation charges the candidate holding the
+// server clock's now_ms, else it is clock skew (skew true): an error
+// reply the caller logs. A count plus Cost above Limit denies, reserving
+// nothing. The caller holds s.mu.
 func (d *Driver) reserve(s *shard, q *statestore.Quota, now instant, nodeMs int64) (ok, skew bool) {
-	w := q.Window.Milliseconds()
-	if w <= 0 {
+	cost, valid := statestore.Cost(q.Cost)
+	if !valid || q.Limit < 0 || (!q.Month && q.Window.Milliseconds() <= 0) {
 		return false, false
 	}
-	a := floorDiv(nodeMs, w) * w
-	b := a + w
-	if 2*(nodeMs-a) < w {
-		b = a - w
-	}
-	ws := floorDiv(now.ms, w) * w
-	if ws != a && ws != b {
+	a, b := statestore.QuotaCandidates(nodeMs, q.Window, q.Month)
+	var win statestore.QuotaWindow
+	switch {
+	case a.Start <= now.ms && now.ms < a.End:
+		win = a
+	case b.Start <= now.ms && now.ms < b.End:
+		win = b
+	default:
 		return false, true
 	}
-	k := qtKey{q.Name, q.Window, ws, q.Digest}
+	k := quotaKey(q.Name, q.Window, q.Month, win.Start, q.Digest)
 	e, live := s.qt[k]
 	if live && expired(e.exp, now.ms) {
 		e, live = countEntry{}, false
 	}
-	q.WindowStart = time.UnixMilli(ws).UTC()
+	q.WindowStart, q.WindowEnd = time.UnixMilli(win.Start).UTC(), time.UnixMilli(win.End).UTC()
 	q.ServerNow = time.UnixMilli(now.ms).UTC()
-	if e.n >= q.Limit {
+	if cost > q.Limit-e.n {
 		q.Allowed, q.Used = false, e.n
-		q.RetryAfter = time.Duration(ws+w-now.ms) * time.Millisecond
+		q.RetryAfter = time.Duration(win.End-now.ms) * time.Millisecond
 		return true, false
 	}
 	if !live && !d.room(s, 1, now.ms) {
 		return false, false
 	}
-	e.n++
-	if e.n == 1 {
-		// PEXPIREAT ws + 2W: a window after the window closes.
-		e.exp = ws + 2*w
+	e.n += cost
+	if !live {
+		// PEXPIREAT end + (end - start): a window after the window closes.
+		e.exp = win.End + (win.End - win.Start)
 		s.track(e.exp)
 	}
 	s.qt[k] = e
@@ -181,25 +183,30 @@ func (d *Driver) reserve(s *shard, q *statestore.Quota, now instant, nodeMs int6
 }
 
 // refund runs sub-operation r: on the exact key the reservation
-// charged, one unit back if the count is above 0; it never creates a
-// key and never goes below 0. It reports whether it decremented.
-func (d *Driver) refund(r *statestore.Refund, now instant) bool {
-	k := qtKey{r.Name, r.Window, r.WindowStart.UnixMilli(), r.Digest}
+// charged, its Units back, at most the count; it never creates a key and
+// never goes below 0. It reports whether it decremented; valid is false
+// for negative Units, an error reply.
+func (d *Driver) refund(r *statestore.Refund, now instant) (applied, valid bool) {
+	units, valid := statestore.Cost(r.Units)
+	if !valid {
+		return false, false
+	}
+	k := quotaKey(r.Name, r.Window, r.Month, r.WindowStart.UnixMilli(), r.Digest)
 	s := d.shardOf(int(keys.DigestSlot(r.Digest)))
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	e, held := s.qt[k]
 	if !held {
-		return false
+		return false, true
 	}
 	if expired(e.exp, now.ms) {
 		delete(s.qt, k)
-		return false
+		return false, true
 	}
 	if e.n <= 0 {
-		return false
+		return false, true
 	}
-	e.n--
+	e.n -= min(units, e.n)
 	s.qt[k] = e
-	return true
+	return true, true
 }
