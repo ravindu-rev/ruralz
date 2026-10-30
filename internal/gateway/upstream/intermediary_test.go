@@ -4,6 +4,7 @@
 package upstream
 
 import (
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 
 	"github.com/ravindu-rev/ruralz/internal/gateway/body"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
@@ -327,6 +329,55 @@ func TestLegRequestBodyOverLimit(t *testing.T) {
 	}
 }
 
+// TestLegRequestBodyBroken checks a streamed client body whose read fails
+// while an attempt sends it, as an HTTP/2 body that ends short of its
+// content-length does: the client's fault, so the attempt ends without
+// retry and as no Upstream failure (no attempt count, no breaker or
+// ejection count), and the leg fails with ErrClientBody and no RZ code
+// instead of the RZ-UP code of a reset.
+func TestLegRequestBodyBroken(t *testing.T) {
+	var served atomic.Int64
+	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
+		served.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		w.WriteHeader(http.StatusOK)
+	})
+	f := newFixture(t)
+	met := newMetrics()
+	up := newUpstream("orders", srv.addr)
+	// Any counted failure would open this breaker after the 20-leg guard,
+	// and the default retryOn retries a PUT that got no response.
+	up.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1)}
+	s := f.compile(nil, Config{Upstream: up, Metrics: met.m})
+	u := f.upstream(s, "orders")
+	short := errors.New("request declared a Content-Length of 4096 but only wrote 2048 bytes")
+	for range resilience.BreakerMinimumLegs + 1 {
+		o := outbound(exchange(http.MethodPut, "/orders"), nil)
+		q := &body.Request{}
+		q.SetStream(io.MultiReader(strings.NewReader(strings.Repeat("x", 2048)), iotest.ErrReader(short)), 4096, 1<<20)
+		o.Body = q
+		r, err := u.Leg(t.Context(), o, Target{})
+		if r != nil || !errors.Is(err, ErrClientBody) || codeOf(err) != "" {
+			t.Fatalf("Leg = %v, %v, want ErrClientBody without a code", r, err)
+		}
+		if !q.Broken() {
+			t.Fatal("the body does not report its failed read")
+		}
+	}
+	if a := met.attempts.list(); len(a) != 0 {
+		t.Errorf("attempts counted = %v, want none", a)
+	}
+	if st := u.rt.res.Breaker().State(); st != resilience.StateClosed {
+		t.Errorf("breaker state = %v, want closed", st)
+	}
+	if n := met.eject[0].get(); n != 0 {
+		t.Errorf("passive ejections = %d, want 0", n)
+	}
+	if n := served.Load(); n > int64(resilience.BreakerMinimumLegs+1) {
+		t.Errorf("the Upstream saw %d requests for %d legs: an attempt was retried", n, resilience.BreakerMinimumLegs+1)
+	}
+}
+
 // TestLegRecordsReached checks Outbound.Reached, which
 // filter.Final.UpstreamReached reports: set once an attempt got a
 // connection, left unset when every attempt failed to connect.
@@ -381,5 +432,42 @@ func TestLegResponseTrailerAccessor(t *testing.T) {
 	got := tb.Trailer()
 	if got.Get("X-Declared") != "d" || got.Get("X-Late") != "l" {
 		t.Errorf("trailer after the body = %v, want X-Declared d and X-Late l", got)
+	}
+}
+
+// TestLegResponseTrailerWithoutConnectionOptions checks that the trailer
+// fields the response's Connection field names, hop-by-hop fields of the
+// whole response (RFC 9110 section 7.6.1), leave the leg's response with
+// its header fields: the declared ones at once, the undeclared ones net/http
+// adds as the body ends, while the others pass.
+func TestLegResponseTrailerWithoutConnectionOptions(t *testing.T) {
+	srv := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		h := w.Header()
+		h.Set("Connection", "X-Hop-Declared, X-Hop-Late")
+		h.Set("Trailer", "X-Declared, X-Hop-Declared")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "body")
+		w.(http.Flusher).Flush()
+		h.Set("X-Declared", "d")
+		h.Set("X-Hop-Declared", "hd")
+		h.Set(http.TrailerPrefix+"X-Late", "l")
+		h.Set(http.TrailerPrefix+"X-Hop-Late", "hl")
+	})
+	f := newFixture(t)
+	s := f.compile(nil, Config{Upstream: newUpstream("orders", srv.addr)})
+	r, err := f.upstream(s, "orders").Leg(t.Context(), outbound(exchange(http.MethodGet, "/"), nil), Target{})
+	if err != nil {
+		t.Fatalf("Leg: %v", err)
+	}
+	if _, ok := r.Trailer["X-Hop-Declared"]; ok {
+		t.Errorf("declared trailer = %v, want no X-Hop-Declared, which Connection names", r.Trailer)
+	}
+	if _, ok := r.Trailer["X-Declared"]; !ok {
+		t.Errorf("declared trailer = %v, want X-Declared declared", r.Trailer)
+	}
+	readAll(t, r)
+	got := r.Body.(interface{ Trailer() http.Header }).Trailer()
+	if got.Get("X-Declared") != "d" || got.Get("X-Late") != "l" || got.Get("X-Hop-Declared") != "" || got.Get("X-Hop-Late") != "" {
+		t.Errorf("trailer after the body = %v, want X-Declared d and X-Late l without the fields Connection names", got)
 	}
 }

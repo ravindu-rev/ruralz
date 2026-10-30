@@ -77,7 +77,10 @@ jobs:
     # process flavor, plus a linux/amd64 leg running the State Store container
     # flavors (Redis 8, Valkey 9.0.1 or newer, Dragonfly, three-primary
     # clusters) on the runner's Docker. make integration also verifies the
-    # systemd unit with systemd-analyze.
+    # systemd unit with systemd-analyze. The linux/amd64 floor leg builds and
+    # runs the protocol conformance suite on the latest Go 1.26 patch with
+    # GOEXPERIMENT=jsonv2 (INTEGRATION_FLOOR), since floor and release builds
+    # run different HTTP/2 code (ADR-0009).
     name: 8. Integration and conformance (${{ matrix.leg }})
     needs: changes
     if: needs.changes.outputs.integration == 'true'
@@ -95,6 +98,9 @@ jobs:
           - leg: linux/amd64 container
             runner: ubuntu-latest
             statestore: container
+          - leg: linux/amd64 Go 1.26 floor
+            runner: ubuntu-latest
+            floor: true
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 40
     env:
@@ -104,8 +110,15 @@ jobs:
         with:
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ !matrix.floor }}
         with:
           go-version-file: go.mod
+      - name: Set up the Go 1.26 floor toolchain
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: ${{ matrix.floor }}
+        with:
+          go-version: '1.26.x'
+          check-latest: true
       - name: Install redis-server for the process flavor
         if: matrix.statestore == 'process'
         run: |
@@ -123,7 +136,9 @@ jobs:
           if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
             sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
           fi
-      - run: make integration
+      - env:
+          INTEGRATION_FLOOR: ${{ matrix.floor && '1' || '' }}
+        run: make integration
 
   gates:
     # alloc/op on the shared linux/amd64 runner; the stripped size of both

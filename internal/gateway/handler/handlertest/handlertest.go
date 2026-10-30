@@ -383,6 +383,10 @@ func (t *Tracer) StartUpstream(ctx context.Context, name string, _ emit.Upstream
 	return ctx, t.add(&Span{Kind: "upstream", Name: name})
 }
 
+// ContextWithSpan implements emit.Tracer: spans record no parent, so ctx
+// is returned.
+func (*Tracer) ContextWithSpan(ctx context.Context, _ emit.Span) context.Context { return ctx }
+
 // Inject implements emit.Tracer: it writes the decision's traceparent.
 func (*Tracer) Inject(_ context.Context, d *emit.Decision, h http.Header) {
 	flags := "00"

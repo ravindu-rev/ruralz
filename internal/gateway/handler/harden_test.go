@@ -118,14 +118,30 @@ func TestFieldListSize(t *testing.T) {
 }
 
 // TestConflictingFraming checks RZ-RT-017 for framing net/http let
-// through: a coding other than exactly chunked, or Transfer-Encoding beside
-// Content-Length.
+// through: a coding other than exactly chunked, Transfer-Encoding beside
+// Content-Length, and Content-Length field lines that disagree with the
+// length net/http framed the request by, as the Go 1.26 HTTP/2 server
+// lets them through: differing values, a list or a signed value, which it
+// reads as 0, and a length on a stream that ended with its HEADERS.
 func TestConflictingFraming(t *testing.T) {
 	tests := map[string]func(*http.Request){
 		"two codings":     func(r *http.Request) { r.TransferEncoding = []string{"gzip", "chunked"} },
 		"not chunked":     func(r *http.Request) { r.TransferEncoding = []string{"gzip"} },
 		"beside a length": func(r *http.Request) { r.TransferEncoding = []string{"chunked"}; r.Header.Set("Content-Length", "5") },
 		"left in header":  func(r *http.Request) { r.Header.Set("Transfer-Encoding", "chunked") },
+		"differing lengths": func(r *http.Request) {
+			r.ProtoMajor, r.Header["Content-Length"] = 2, []string{"5", "6"}
+		},
+		"a list of lengths": func(r *http.Request) {
+			r.ProtoMajor, r.Header["Content-Length"], r.ContentLength = 2, []string{"5, 5"}, 0
+		},
+		"a signed length": func(r *http.Request) {
+			r.ProtoMajor, r.Header["Content-Length"], r.ContentLength = 2, []string{"+5"}, 0
+		},
+		"a length without content": func(r *http.Request) {
+			r.ProtoMajor, r.Body, r.ContentLength = 2, http.NoBody, 0
+			r.Header.Set("Content-Length", "5")
+		},
 	}
 	for name, mod := range tests {
 		t.Run(name, func(t *testing.T) {
@@ -137,6 +153,32 @@ func TestConflictingFraming(t *testing.T) {
 			wantProblem(t, k.do(r), http.StatusBadRequest, codeRejected)
 			if n.Load() != 0 {
 				t.Error("conflicting framing was forwarded")
+			}
+		})
+	}
+}
+
+// TestAgreeingContentLength checks that Content-Length field lines that
+// agree with the request's framing pass: one value, equal repeated lines,
+// which count as one, and 0 on a request without content.
+func TestAgreeingContentLength(t *testing.T) {
+	tests := map[string]func(*http.Request){
+		"one value":      func(r *http.Request) { r.Header.Set("Content-Length", "5") },
+		"repeated lines": func(r *http.Request) { r.ProtoMajor, r.Header["Content-Length"] = 2, []string{"5", "5"} },
+		"zero without content": func(r *http.Request) {
+			r.Body, r.ContentLength = http.NoBody, 0
+			r.Header.Set("Content-Length", "0")
+		},
+	}
+	for name, mod := range tests {
+		t.Run(name, func(t *testing.T) {
+			k := newKit(t)
+			var n atomic.Int64
+			k.publish(handlertest.Spec{Routes: []handlertest.Route{route("all", counted(&n))}})
+			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+			mod(r)
+			if res := k.do(r); res.Code != http.StatusOK || n.Load() != 1 {
+				t.Errorf("response %d, forwarded %d; want 200 forwarded once", res.Code, n.Load())
 			}
 		})
 	}

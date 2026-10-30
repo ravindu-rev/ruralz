@@ -188,6 +188,7 @@ func (l *Loader) activate(ctx context.Context, c *candidate) (ok bool) {
 		l.held = sws
 	}
 	l.setLKGBootLocked(c.origin == OriginLastKnownGood)
+	l.setHeaderLimitCappedLocked(snap.Gateway.Limits.HeaderLimitCapped)
 	l.mu.Unlock()
 	cmp.Activate()
 
@@ -349,6 +350,21 @@ func (l *Loader) setLKGBootLocked(on bool) {
 	l.lkgBoot = on
 	if l.cfg.Status != nil {
 		l.cfg.Status.SetDegraded(catalog.ReasonLKGBoot, statusSource, on)
+	}
+}
+
+// setHeaderLimitCappedLocked raises header_limit_capped while the active
+// Revision's limits.maxRequestHeaderBytes exceeds the 256 KiB process
+// ceiling, which caps it (docs/architecture/03-data-plane.md "Listeners
+// and protocols"), and clears it once a Revision within the ceiling
+// activates.
+func (l *Loader) setHeaderLimitCappedLocked(on bool) {
+	if l.headerCapped == on {
+		return
+	}
+	l.headerCapped = on
+	if l.cfg.Status != nil {
+		l.cfg.Status.SetDegraded(catalog.ReasonHeaderLimitCapped, statusSource, on)
 	}
 }
 

@@ -338,6 +338,49 @@ func TestStripAtAdmissionKeepsPolicyFields(t *testing.T) {
 	}
 }
 
+// TestStripNamed checks the trailer section rule: the fields a message's
+// Connection field names are hop-by-hop in its trailer section too (RFC
+// 9110 section 7.6.1), so StripNamed removes them there, whatever their
+// spelling, and leaves the fixed hop-by-hop fields to IsForwardableTrailer.
+func TestStripNamed(t *testing.T) {
+	tests := []struct {
+		name    string
+		conn    []string
+		section http.Header
+		want    http.Header
+	}{
+		{
+			name:    "named fields removed, others and fixed ones kept",
+			conn:    []string{"keep-alive, X-Private", "x-other"},
+			section: http.Header{"X-Private": {"1"}, "X-Other": {"2"}, "X-Public": {"3"}, "Keep-Alive": {"4"}},
+			want:    http.Header{"X-Public": {"3"}, "Keep-Alive": {"4"}},
+		},
+		{
+			name:    "non-canonical spelling",
+			conn:    []string{"X-Private"},
+			section: http.Header{"x-private": {"1"}, "X-Public": {"2"}},
+			want:    http.Header{"X-Public": {"2"}},
+		},
+		{
+			name:    "no Connection",
+			section: http.Header{"X-Private": {"1"}},
+			want:    http.Header{"X-Private": {"1"}},
+		},
+		{
+			name: "no section",
+			conn: []string{"X-Private"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			StripNamed(tt.section, tt.conn)
+			if !reflect.DeepEqual(tt.section, tt.want) {
+				t.Errorf("StripNamed = %q, want %q", tt.section, tt.want)
+			}
+		})
+	}
+}
+
 // TestStripConnectionOptionsDoesNotAllocate keeps the admission strip
 // free of allocations on a canonical header.
 func TestStripConnectionOptionsDoesNotAllocate(t *testing.T) {

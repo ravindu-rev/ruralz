@@ -31,7 +31,10 @@
 // Before routing, in order: CONNECT is 404 RZ-RT-001; a header block over
 // the snapshot's limits.maxRequestHeaderBytes or MaxFieldLines is 431
 // RZ-RT-002, counted as RFC 9113's field-list size for every protocol, the
-// request target included; conflicting framing, an absolute-form target
+// request target included; conflicting framing net/http let through (a
+// Transfer-Encoding other than exactly chunked or beside Content-Length,
+// Content-Length field lines that disagree with the request's framing, as
+// the Go 1.26 HTTP/2 server lets them through), an absolute-form target
 // whose scheme is not the listener's, and an HTTP/2 Host naming another
 // host than :authority are 400 RZ-RT-017; a path NormalizePath refuses is
 // 400 RZ-RT-017, and OPTIONS * is 404 RZ-RT-001 (the listener Servers set
@@ -59,11 +62,16 @@
 // request); onRequestBody and onRoute run; then the Route's Forwarder
 // (plain upstreams or composition) runs with the executor's leg hooks, the
 // request's sampling decision, the Route deadline, the client hop's Via
-// entry, the client's request trailers and, on a Route with upstreams for
+// entry, the client's request trailers (without the fields the client's
+// Connection field named, which are hop-by-hop in the trailer section
+// too: httpfield.StripNamed) and, on a Route with upstreams for
 // an HTTP/1.1 or later client, the 103 Early Hints relay; a composition
 // keeps Ruralz-Partial on the response it builds when an optional step
 // was left out. A streamed body cut at its limit
-// while a leg sent it is 413 RZ-RT-003. A leg failure becomes the problem
+// while a leg sent it is 413 RZ-RT-003; one whose read fails while a leg
+// sends it (its framing broke, it ended short of its declared length, its
+// read deadline passed) is no Upstream failure, and the request aborts. A
+// leg failure becomes the problem
 // document of its RZ code; one with an RZ-UP code is an Upstream failure,
 // on which the Response Cache may still serve stale-if-error. A Route that
 // gates its response reads the Upstream body whole before onResponse: over
@@ -100,9 +108,9 @@
 // The handler is the snapshot.EarlyHints of a plain upstreams leg: each
 // request has its own token, so a 103 the transport delivers after the
 // attempt, or after the request, writes nothing. A relayed 103 carries the
-// Upstream's fields without hop-by-hop ones, which leave the header map
-// again after it, and nothing is relayed once the final response is
-// committed.
+// Upstream's fields without hop-by-hop ones, the fields its own Connection
+// field names included, which leave the header map again after it, and
+// nothing is relayed once the final response is committed.
 //
 // # onLog, the access record and /tap
 //

@@ -124,6 +124,22 @@ func StripConnectionOptions(h http.Header) {
 	stripNamed(h, conns)
 }
 
+// StripNamed removes from section every field a token element of the
+// Connection field values conn names, except the fixed hop-by-hop fields
+// of [IsHopByHop], which [StripHopByHop] and [IsForwardableTrailer]
+// handle. A Connection option names hop-by-hop fields of its whole
+// message, the trailer section included (RFC 9110 section 7.6.1), so a
+// caller that forwards a trailer section reads conn from the header
+// section before stripping it and applies it here. Keys match without
+// regard to ASCII case, at the cost of StripHopByHop; an empty section or
+// conn costs nothing.
+func StripNamed(section http.Header, conn []string) {
+	if len(section) == 0 || len(conn) == 0 {
+		return
+	}
+	stripNamed(section, [][]string{conn})
+}
+
 // stripNamed deletes from h every field a token element of the Connection
 // values conns names, except the fixed hop-by-hop fields: StripHopByHop
 // has deleted those already and StripConnectionOptions keeps them.

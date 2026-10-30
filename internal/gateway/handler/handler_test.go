@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
@@ -459,6 +460,35 @@ func TestStreamedBodyCutWhileForwarding(t *testing.T) {
 	wantProblem(t, res, http.StatusRequestEntityTooLarge, codeBodyTooLarge)
 }
 
+// TestStreamedBodyBrokenWhileForwarding checks a streamed body whose read
+// fails while the leg sends it, as an HTTP/2 body that ends short of its
+// content-length: no Upstream failed, so the request aborts without a
+// response instead of answering the leg's error as a 502.
+func TestStreamedBodyBrokenWhileForwarding(t *testing.T) {
+	k := newKit(t)
+	fwd := handlertest.ForwardFunc(func(_ context.Context, o *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
+		rd, err := o.Body.Open()
+		if err != nil {
+			return nil, err
+		}
+		_, err = io.Copy(io.Discard, rd)
+		// What a transport reports for a body that failed while it was
+		// sent: a reset of the attempt.
+		return nil, &upstream.LegError{Upstream: "orders", Err: errcode.Wrap("RZ-UP-004", err)}
+	})
+	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
+	short := errors.New("request declared a Content-Length of 10 but only wrote 4 bytes")
+	r := httptest.NewRequest(http.MethodPut, "/", io.MultiReader(strings.NewReader("data"), iotest.ErrReader(short)))
+	r.ContentLength = 10
+	res := k.do(r)
+	if !res.aborted || res.Body.Len() != 0 {
+		t.Fatalf("aborted %t, response %d %q, want an abort without a response", res.aborted, res.Code, res.Body.String())
+	}
+	if k.units.InUse() != 0 {
+		t.Errorf("in-flight units = %d after the abort, want 0", k.units.InUse())
+	}
+}
+
 // TestWebSocketUpgradeRejected checks a WebSocket upgrade on an http
 // Route: 400 RZ-RT-023 after the match and before onRequestHeaders, with
 // the response Phases run on it.
@@ -541,6 +571,30 @@ func TestRequestTrailersReachForwarder(t *testing.T) {
 	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
 	r.Trailer = http.Header{"X-Sum": nil}
 	k.do(r)
+	if _, ok := tr["X-Sum"]; !ok {
+		t.Errorf("Outbound.Trailer = %v, want the client's declared X-Sum", tr)
+	}
+}
+
+// TestRequestTrailersWithoutConnectionOptions checks that a declared
+// trailer field the client's Connection field names, a hop-by-hop field
+// of the whole request (RFC 9110 section 7.6.1), never reaches the
+// Forwarder, while the other declared fields do.
+func TestRequestTrailersWithoutConnectionOptions(t *testing.T) {
+	k := newKit(t)
+	var tr http.Header
+	fwd := handlertest.ForwardFunc(func(_ context.Context, o *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
+		tr = o.Trailer
+		return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{}, Body: http.NoBody}, nil
+	})
+	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
+	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
+	r.Header.Set("Connection", "keep-alive, X-Hop-Sum")
+	r.Trailer = http.Header{"X-Sum": nil, "X-Hop-Sum": nil}
+	k.do(r)
+	if _, ok := tr["X-Hop-Sum"]; ok {
+		t.Errorf("Outbound.Trailer = %v, want no X-Hop-Sum, which Connection names", tr)
+	}
 	if _, ok := tr["X-Sum"]; !ok {
 		t.Errorf("Outbound.Trailer = %v, want the client's declared X-Sum", tr)
 	}

@@ -90,6 +90,10 @@ type state struct {
 	path         string
 	pathCode     string
 	hints        bool
+	// connOpts are the client's Connection field values, read before the
+	// admission strip removes them: they name hop-by-hop fields of the
+	// request's trailer section too.
+	connOpts []string
 
 	// The outcome the commit and the copy leave for finish.
 	status       int
@@ -138,7 +142,7 @@ func (st *state) reset() {
 	st.w, st.r, st.conn, st.start, st.wallStart, st.stripe, st.cancel, st.deadlineTimer = nil, nil, nil, time.Time{}, time.Time{}, 0, nil, nil
 	st.snap, st.view, st.lis, st.lm, st.x, st.run, st.route = nil, nil, nil, nil, nil, nil, nil
 	st.decision, st.span, st.spanEnded, st.tls, st.src, st.resp = emit.Decision{}, nil, false, filter.ConnTLS{}, filter.Source{}, filter.Response{}
-	st.deadline, st.listenerName, st.scheme, st.path, st.pathCode, st.hints = time.Time{}, "", "", "", "", false
+	st.deadline, st.listenerName, st.scheme, st.path, st.pathCode, st.hints, st.connOpts = time.Time{}, "", "", "", "", false, nil
 	st.status, st.code, st.generated, st.fromUpstream, st.abort, st.respBytes = 0, "", false, false, false, 0
 	st.upstream, st.endpoint, st.attempts, st.gwEnd, st.stream, st.upTrailer = "", "", 0, time.Time{}, nil, nil
 	clear(st.trailerKeys)
@@ -333,7 +337,9 @@ func (st *state) handle(ctx context.Context) {
 	}
 	// A Connection field names the fields present now, so the end-to-end
 	// fields it lists go before any Policy can set one of them for the
-	// Upstream; the fixed hop-by-hop fields go at leg build.
+	// Upstream; the fixed hop-by-hop fields go at leg build. Its values
+	// stay for the trailer section, whose fields it names too (forward).
+	st.connOpts = r.Header["Connection"]
 	httpfield.StripConnectionOptions(r.Header)
 
 	router := snap.Routers[st.listenerName]
@@ -624,6 +630,13 @@ func (st *state) forward(ctx context.Context, rt *snapshot.Route) executor.Respo
 	o.Trace, o.Deadline, o.Hooks, o.Via = &st.decision, st.deadline, st.run, viaEntry(st.r)
 	o.Excluder, o.Reached = &st.up, &st.reached
 	if len(st.r.Trailer) > 0 {
+		// The client's Connection field named hop-by-hop fields of the
+		// whole request (RFC 9110 section 7.6.1), so a trailer field it
+		// names is no more forwarded than a header field. The names go
+		// before any leg declares the trailer section, and a gated body
+		// was read whole already, so net/http adds none of them back that
+		// a leg would forward.
+		httpfield.StripNamed(st.r.Trailer, st.connOpts)
 		o.Trailer = st.r.Trailer
 	}
 	if _, composed := rt.Forward.(*composition.Composition); st.hints && !composed {
@@ -645,6 +658,20 @@ func (st *state) forward(ctx context.Context, rt *snapshot.Route) executor.Respo
 			_ = u.Body.Close()
 		}
 		x.SetGenerated(st.nodeResponse(codeBodyTooLarge))
+		return executor.ResponseGenerated
+	}
+	if x.RequestBody().Broken() {
+		// Reading the streamed body failed while a leg sent it: its
+		// framing broke, it ended short of its declared length or its
+		// read deadline passed. No Upstream failed and the client's
+		// request cannot be read to its end, so nothing is answered:
+		// the request aborts, which resets the HTTP/2 stream or closes
+		// the HTTP/1.1 connection, as for a gated body that cannot be
+		// read (prepareBody).
+		if u != nil && u.Body != nil {
+			_ = u.Body.Close()
+		}
+		st.abort = true
 		return executor.ResponseGenerated
 	}
 	if err != nil {

@@ -321,6 +321,20 @@ func (t *Tracer) StartUpstream(ctx context.Context, spanName string, a emit.Upst
 	return sctx, s
 }
 
+// ContextWithSpan returns ctx with s as the span later spans start under
+// when s is a span this Tracer started, else ctx (a no-op span). The
+// upstream leg runs onUpstreamResponseBody, and onUpstreamResponseHeaders
+// of an attempt that failed without a response, on the leg context under
+// the attempt's ruralz.upstream span, so upstream-scoped Policies stay
+// children of their leg's span; the span must still be open for children
+// to start under it.
+func (*Tracer) ContextWithSpan(ctx context.Context, s emit.Span) context.Context {
+	if sp, ok := s.(*span); ok {
+		return trace.ContextWithSpan(ctx, sp.sdk)
+	}
+	return ctx
+}
+
 // start starts a child span of the recording span in ctx.
 func (t *Tracer) start(ctx context.Context, name string, k spanKind, opts []trace.SpanStartOption) (context.Context, *span) {
 	sctx, sdk := t.tracer.Start(ctx, name, opts...)          //nolint:spancheck // returned as emit.Span; the caller ends it

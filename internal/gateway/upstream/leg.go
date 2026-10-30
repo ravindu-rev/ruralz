@@ -40,6 +40,12 @@ var (
 	errNoExchange = errors.New("upstream: leg without an Outbound exchange")
 )
 
+// ErrClientBody is the uncoded error of a leg whose attempt ended because
+// reading the client body failed while it was sent: the client's fault,
+// no Upstream failure, so the leg carries no RZ code and the request
+// aborts.
+var ErrClientBody = errors.New("upstream: reading the client body failed while an attempt sent it")
+
 // Target is what one leg sends besides the client request: the
 // composition step it serves and, for a step, its method and path.
 type Target struct {
@@ -61,7 +67,8 @@ type Target struct {
 }
 
 // LegError is the error of a leg that ended without a response. It wraps
-// the *errcode.Error carrying the leg's code (errcode.CodeOf finds it) and
+// the *errcode.Error carrying the leg's code (errcode.CodeOf finds it), or
+// ErrClientBody without a code when the client body broke, and
 // names the Upstream, the last Endpoint tried, the attempts and the last
 // error kind for the access log and the span.
 type LegError struct {
@@ -176,8 +183,11 @@ type legState struct {
 	cause     error
 	canceled  bool
 	// over is set when the client body passed its limit during an attempt.
-	over  bool
-	delay time.Duration
+	over bool
+	// broken is set when reading the client body failed during an
+	// attempt.
+	broken bool
+	delay  time.Duration
 	// park holds a response the leg decided to retry, kept until the retry
 	// attempt runs: when the retry cannot start, the leg returns it.
 	park parked
@@ -218,7 +228,7 @@ func (m *Manager) putLeg(ls *legState) {
 	ls.conn.Store(nil)
 	ls.armed.Store(nil)
 	ls.endpoint, ls.kind, ls.failed, ls.responded = "", resilience.KindNone, false, false
-	ls.cause, ls.canceled, ls.over, ls.delay = nil, false, false, 0
+	ls.cause, ls.canceled, ls.over, ls.broken, ls.delay = nil, false, false, false, 0
 	ls.park = parked{}
 	m.legs.Put(ls)
 }
@@ -552,11 +562,20 @@ func (ls *legState) bodyOver(err error) bool {
 	return ok && ex.Exceeded()
 }
 
+// bodyBroken reports whether an attempt ended because reading the client
+// body failed while it was sent (body.Request.Broken): its framing broke,
+// it ended short of its declared length or its read deadline passed.
+func (ls *legState) bodyBroken() bool {
+	b, ok := ls.o.Body.(interface{ Broken() bool })
+	return ok && b.Broken()
+}
+
 // onError handles an attempt that ended without response headers. An
 // attempt that was sent (it has an Endpoint) runs onUpstreamResponseHeaders
 // too, with no response and its error kind, on the leg's context (the
-// attempt's has ended): a Filter may ask for a retry, which retryOn then
-// does not decide (Provider Fallback), or fail closed, which ends the leg.
+// attempt's has ended) under the attempt's span, which ends after the
+// Phase: a Filter may ask for a retry, which retryOn then does not decide
+// (Provider Fallback), or fail closed, which ends the leg.
 func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, err error, end *attemptEnd, tracked bool, endpoint string) (step, *snapshot.UpstreamResponse, error) {
 	u := ls.u
 	if ls.bodyOver(err) {
@@ -570,6 +589,18 @@ func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, er
 		}
 		end.finish()
 		ls.over, ls.cause, ls.endpoint = true, err, endpoint
+		return stepStop, nil, nil
+	}
+	if ls.bodyBroken() {
+		// Reading the client body failed while the attempt sent it: the
+		// client's fault, so the attempt ends without retry (the body is
+		// spent) and counts as no Upstream failure, in neither the
+		// breaker nor passive ejection; the request aborts.
+		if tracked {
+			ls.ha.Cancel()
+		}
+		end.finish()
+		ls.broken, ls.cause, ls.endpoint = true, err, endpoint
 		return stepStop, nil, nil
 	}
 	kind, cause := classify(actx, err)
@@ -590,12 +621,22 @@ func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, er
 		ls.ha.End(ls.now(), health.Outcome{Failed: failed, Cause: cause, Passive: u.passive, Stripe: ls.o.Stripe})
 	}
 	u.metrics.Attempts.Inc(ls.o.Stripe, 0, int(kind))
+	// Upstream-scoped Policies are children of their attempt's span
+	// (docs/architecture/10-observability.md "Span model"), so the span of
+	// a sent attempt stays open through its onUpstreamResponseHeaders while
+	// the rest of the attempt ends now.
+	headersPhase := endpoint != "" && ls.hooks != nil
+	var span emit.Span
+	if headersPhase {
+		span, end.span = end.span, nil
+	}
 	end.finish()
 	ls.endpoint, ls.kind, ls.failed, ls.responded, ls.cause = endpoint, kind, failed, false, err
 	in := resilience.RetryInput{Replayable: ls.replayable()}
-	if endpoint != "" && ls.hooks != nil {
+	if headersPhase {
 		ls.fleg.Response, ls.fleg.ErrorKind = nil, kind.String()
-		retry, replace := ls.hooks.OnUpstreamResponseHeaders(ctx, &ls.fleg)
+		retry, replace := ls.hooks.OnUpstreamResponseHeaders(u.rt.m.tracer.ContextWithSpan(ctx, span), &ls.fleg)
+		endSpan(span, end.status, end.errType)
 		if replace != nil {
 			return stepDone, ls.generated(ctx, replace, ls.breakerResult(ls.leg.Outcome(false, kind))), nil
 		}
@@ -629,7 +670,13 @@ func (ls *legState) onResponse(ctx, sctx context.Context, a *resilience.Attempt,
 	if tracked {
 		ls.ha.Headers(now)
 	}
+	// A Connection option names hop-by-hop fields of the whole response
+	// (RFC 9110 section 7.6.1): the declared trailer fields it names go
+	// with the header fields now, and the body drops the undeclared ones
+	// net/http adds at its end (finalBody.Trailer).
+	end.connOpts = resp.Header["Connection"]
 	httpfield.StripHopByHop(resp.Header, httpfield.TowardClient)
+	httpfield.StripNamed(resp.Trailer, end.connOpts)
 	end.status = resp.StatusCode
 	v := ls.legVars(a.Number, resp, resilience.KindNone, endpoint)
 	failed := ls.failureWhen(ctx, v)
@@ -694,9 +741,20 @@ func (ls *legState) final(ctx context.Context, resp *http.Response, end attemptE
 	ls.fleg.Response = resp
 	var replace *filter.Response
 	if ls.hooks != nil {
-		// The body Phase runs on the leg context: reading the body to its
-		// end finishes the attempt and cancels the attempt context.
-		replace = ls.hooks.OnUpstreamResponseBody(ctx, &ls.fleg)
+		// The body Phase runs on the leg context, since reading the body to
+		// its end finishes the attempt and cancels the attempt context,
+		// under the attempt's span, which stays open until the Phase ends:
+		// upstream-scoped Policies are children of their attempt's span
+		// (docs/architecture/10-observability.md "Span model"). The body is
+		// read on this goroutine only until the leg returns.
+		span := fb.end.span
+		fb.end.span = nil
+		replace = ls.hooks.OnUpstreamResponseBody(u.rt.m.tracer.ContextWithSpan(ctx, span), &ls.fleg)
+		if fb.done.Load() {
+			endSpan(span, fb.end.status, fb.end.errType)
+		} else {
+			fb.end.span = span
+		}
 	}
 	if replace != nil {
 		_ = fb.Close()
@@ -750,6 +808,16 @@ func (ls *legState) end(ctx context.Context) (*snapshot.UpstreamResponse, error)
 		ls.leg.End(resilience.LegNotCounted)
 		ls.endHooks(ctx)
 		return nil, &LegError{Upstream: u.name, Endpoint: ls.endpoint, Attempts: attempts, Err: errcode.Wrap(codeRequestTooLarge, ls.cause)}
+	}
+	if ls.broken {
+		attempts := ls.leg.Attempts()
+		ls.leg.End(resilience.LegNotCounted)
+		ls.endHooks(ctx)
+		err := ErrClientBody
+		if ls.cause != nil {
+			err = fmt.Errorf("%w: %w", ErrClientBody, ls.cause)
+		}
+		return nil, &LegError{Upstream: u.name, Endpoint: ls.endpoint, Attempts: attempts, Err: err}
 	}
 	if ls.canceled {
 		attempts := ls.leg.Attempts()
@@ -921,6 +989,10 @@ type attemptEnd struct {
 	status  int
 	errType string
 	slot    bool
+	// connOpts holds the response's Connection field values, read before the
+	// header strip: they name hop-by-hop fields of its trailer section
+	// too, which net/http completes only as the body ends.
+	connOpts []string
 }
 
 // release returns the bulkhead slot and the Endpoint's in-flight count:
@@ -979,6 +1051,14 @@ func (e *attemptEnd) recycle() {
 	}
 }
 
+// endSpan ends an attempt's span that a leg Phase kept open past the rest
+// of the attempt, as attemptEnd.finish would have; nil ends nothing.
+func endSpan(s emit.Span, status int, errType string) {
+	if s != nil {
+		s.End(status, "", errType)
+	}
+}
+
 // finalBody is the body of the leg's response. The attempt ends when it is
 // closed or read to its end (or fails), whichever is first: the bulkhead
 // slot is held for the whole response, streaming included.
@@ -1009,6 +1089,11 @@ func (b *finalBody) Read(p []byte) (int, error) {
 		b.ex.Leave(b.clk.Now())
 	}
 	if err != nil {
+		if errors.Is(err, io.EOF) {
+			// net/http has completed the trailer section: drop the
+			// undeclared fields the response's Connection field names.
+			httpfield.StripNamed(b.resp.Trailer, b.end.connOpts)
+		}
 		b.finish()
 	}
 	return n, err
@@ -1034,9 +1119,13 @@ func (b *finalBody) finish() {
 
 // Trailer returns the trailer section of the leg's response as it stands:
 // complete once the body was read to its end, fields the response did not
-// declare included, since net/http adds those only then. Read it on the
-// goroutine that read the body.
-func (b *finalBody) Trailer() http.Header { return b.resp.Trailer }
+// declare included, since net/http adds those only then, without the
+// fields the response's Connection field names. Read it on the goroutine
+// that read the body.
+func (b *finalBody) Trailer() http.Header {
+	httpfield.StripNamed(b.resp.Trailer, b.end.connOpts)
+	return b.resp.Trailer
+}
 
 // joinedBody is a body a body Phase put in place of the Upstream's; its
 // Close also ends the attempt.

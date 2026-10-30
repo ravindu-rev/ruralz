@@ -618,6 +618,39 @@ func TestEarlyHintsRelay(t *testing.T) {
 	}
 }
 
+// TestEarlyHintsRelayDropsConnectionOptions checks that a relayed 103
+// leaves out the fields its own Connection field names, which are
+// hop-by-hop like the fixed ones (RFC 9110 section 7.6.1), and leaves the
+// transport's map as it was.
+func TestEarlyHintsRelayDropsConnectionOptions(t *testing.T) {
+	k := newKit(t)
+	in := http.Header{
+		"Link":           {"</a.css>; rel=preload"},
+		"Connection":     {"X-Hint-Private, keep-alive"},
+		"X-Hint-Private": {"secret"},
+	}
+	fwd := handlertest.ForwardFunc(func(_ context.Context, o *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
+		o.Hints.RelayHints(o.Hints.HintsToken(), in)
+		o.Hints.RelayHints(o.Hints.HintsToken(), http.Header{"Connection": {"X-Only"}, "X-Only": {"1"}})
+		return &snapshot.UpstreamResponse{Status: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader("ok"))}, nil
+	})
+	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
+	w := &hintWriter{ResponseRecorder: httptest.NewRecorder()}
+	k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !slices.Equal(w.codes, []int{http.StatusEarlyHints, http.StatusOK}) {
+		t.Fatalf("status lines = %v, want [103 200]: a 103 of named fields only relays nothing", w.codes)
+	}
+	if h := w.hdrs[0]; h.Get("Link") != "</a.css>; rel=preload" || h.Get("X-Hint-Private") != "" || h.Get("Connection") != "" {
+		t.Errorf("103 fields = %v, want Link without the fields its Connection names", h)
+	}
+	if in.Get("X-Hint-Private") != "secret" || in.Get("Connection") == "" {
+		t.Errorf("the relay changed the transport's fields: %v", in)
+	}
+}
+
 // TestEarlyHintsOverHTTP checks the relay over net/http: the client sees
 // the 103 with its Link before the final response, which does not repeat
 // it.

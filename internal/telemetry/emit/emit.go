@@ -500,6 +500,12 @@ type Tracer interface {
 	StartRouteMatch(ctx context.Context) (context.Context, Span)
 	StartFilter(ctx context.Context, spanName string, a FilterAttrs) (context.Context, Span)
 	StartUpstream(ctx context.Context, spanName string, a UpstreamAttrs) (context.Context, Span)
+	// ContextWithSpan returns ctx, its deadline and cancellation kept, with
+	// s, a span this Tracer started, as the parent of the spans started
+	// from it; a no-op span returns ctx. An upstream leg runs the leg
+	// Phases that outlive their attempt's context on the leg context under
+	// the attempt's span.
+	ContextWithSpan(ctx context.Context, s Span) context.Context
 	// Inject replaces client traceparent and tracestate on an outgoing leg.
 	Inject(ctx context.Context, d *Decision, h http.Header)
 }

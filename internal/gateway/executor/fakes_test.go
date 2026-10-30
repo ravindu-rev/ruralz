@@ -438,6 +438,10 @@ func (*fakeTracer) StartUpstream(ctx context.Context, _ string, _ emit.UpstreamA
 	return ctx, &fakeSpan{}
 }
 
+func (*fakeTracer) ContextWithSpan(ctx context.Context, s emit.Span) context.Context {
+	return context.WithValue(ctx, spanKey{}, s)
+}
+
 func (*fakeTracer) Inject(context.Context, *emit.Decision, http.Header) {}
 
 func (t *fakeTracer) named(name string) []*fakeSpan {

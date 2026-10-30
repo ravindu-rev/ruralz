@@ -38,6 +38,9 @@
 // ruralz_config_activation_duration_seconds by the Revision's size class,
 // sets ruralz_config_revision_info{role="active"}, logs the activation,
 // its warnings and the file descriptor warning of "Bounded resources".
+// Degraded reason header_limit_capped stays raised while the active
+// Revision's limits.maxRequestHeaderBytes exceeds the 256 KiB process
+// ceiling that caps it ("Listeners and protocols").
 //
 // # Rejections and retries
 //

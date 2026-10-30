@@ -108,6 +108,38 @@ func TestHotReload(t *testing.T) {
 	}
 }
 
+// TestHeaderLimitCappedWhileActive checks degraded reason
+// header_limit_capped (docs/architecture/03-data-plane.md "Listeners and
+// protocols"): raised while the active Revision's
+// limits.maxRequestHeaderBytes exceeds the 256 KiB process ceiling, which
+// caps it, cleared once a Revision within the ceiling activates, and
+// raised again by the next capped one.
+func TestHeaderLimitCappedWhileActive(t *testing.T) {
+	r := newRig(t)
+	capped := func(_ context.Context, in compile.Input) (Compiled, diag.List, error) {
+		c := r.comp.make(in)
+		c.snap.Gateway.Limits.HeaderLimitCapped = true
+		return c, nil, nil
+	}
+	r.comp.script(rev("A").Digest, capped)
+	r.start()
+	r.booted()
+	if !r.status.raised("header_limit_capped") {
+		t.Fatal("header_limit_capped is not raised while a capped Revision is active")
+	}
+	r.l.Offer(load(result("B")))
+	r.waitActive("B")
+	if r.status.raised("header_limit_capped") {
+		t.Fatal("header_limit_capped stays raised after a Revision within the ceiling activated")
+	}
+	r.comp.script(rev("C").Digest, capped)
+	r.l.Offer(load(result("C")))
+	r.waitActive("C")
+	if !r.status.raised("header_limit_capped") {
+		t.Fatal("header_limit_capped is not raised by the next capped Revision")
+	}
+}
+
 func TestSameRevisionActivatesNothing(t *testing.T) {
 	// A touched or reformatted file renders the active digest: nothing
 	// activates, counts or logs above debug.

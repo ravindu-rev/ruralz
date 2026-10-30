@@ -83,14 +83,19 @@
 // request and its URL, and answers httptrace's key with the pooled hook
 // set itself. An attempt that sends the client body forwards the
 // client's declared trailer fields after it, without hop-by-hop and
-// framing fields (httpfield.IsForwardableTrailer), unframed so HTTP/1.1
-// can carry them. On a plain upstreams leg each 103 Early Hints an attempt
+// framing fields (httpfield.IsForwardableTrailer; the handler has removed
+// those the client's Connection field names), unframed so HTTP/1.1 can
+// carry them. On a plain upstreams leg each 103 Early Hints an attempt
 // receives goes to snapshot.Outbound.Hints with the token the attempt took
 // as it started, so a 1xx that arrives late never reaches another request;
 // other 1xx responses stay on their hop. A streamed client body cut at
 // limits.maxRequestBodyBytes while an attempt sends it ends the leg with
 // 413 RZ-RT-003, without retry and as no Upstream failure: no attempt
-// count, breaker result or passive ejection. The attempt deadline is
+// count, breaker result or passive ejection. A client body whose read
+// fails while an attempt sends it (body.Request.Broken: its framing broke,
+// it ended short of its declared length, its read deadline passed) ends
+// the leg the same way, with ErrClientBody and no RZ code, since the fault
+// is the client's. The attempt deadline is
 // retries.perTryTimeout or the leg time left divided by the retries left
 // plus one; it stops at response headers, so a slow body is not cut.
 // failureWhen feeds passive ejection and the breaker; the default retryOn
@@ -108,14 +113,22 @@
 // filter.Leg.MaxBodyBytes), and keeps its bulkhead slot until its body is
 // closed or read to the end; the body's Trailer method gives the
 // response's trailer section once it was read, fields the Upstream did not
-// declare included. The round trips and the reads of the leg's
+// declare included, without the fields the response's Connection field
+// names, which are hop-by-hop in either section (RFC 9110 section 7.6.1).
+// The round trips and the reads of the leg's
 // response body, drains included, are Upstream I/O, excluded from
 // gateway-added time through snapshot.Outbound.Excluder. A leg without
 // a response is a *LegError with the code selection rule's RZ-UP code. An
 // attempt the caller canceled is no Upstream failure. Each attempt is one
 // ruralz.upstream.<name> span and one ruralz_upstream_attempts_total
 // count; retries, refused retries, CEL errors and attempt durations are
-// counted too.
+// counted too. Every leg Phase runs under its attempt's span, so
+// upstream-scoped Policies are children of their leg's span
+// (docs/architecture/10-observability.md "Span model"): the Phases that run
+// on the leg's context, onUpstreamResponseHeaders of an attempt without a
+// response and onUpstreamResponseBody, get it through
+// emit.Tracer.ContextWithSpan, and the span stays open until such a Phase
+// ends.
 //
 // Times come from the injected clock.Clock and randomness from the
 // injected source, so tests run on clocktest.Fake. The package logs

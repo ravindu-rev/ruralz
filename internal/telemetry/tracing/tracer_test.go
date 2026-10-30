@@ -389,6 +389,41 @@ func TestSpanModel(t *testing.T) {
 	}
 }
 
+// TestContextWithSpan checks that a leg Phase run on another context under
+// ContextWithSpan is a child of the attempt's ruralz.upstream span, as
+// upstream-scoped Policies are children of their leg's span
+// (docs/architecture/10-observability.md "Span model"), while a no-op
+// span leaves the context as it was.
+func TestContextWithSpan(t *testing.T) {
+	tr, mem := newMemTracer(t, Options{})
+	nm := newOrdersNames()
+	ctx := context.Background()
+	var d emit.Decision
+	tr.Decide(header(HeaderTraceparent, tpSampled), 0, &d)
+	sctx, server := tr.StartServer(ctx, &d, http.MethodGet, emit.ServerAttrs{})
+	_, up := tr.StartUpstream(sctx, nm.orders, emit.UpstreamAttrs{Attempt: 1})
+	// The leg context carries the server span; the body Phase runs on it
+	// under the attempt's span.
+	filterCall(tr.ContextWithSpan(sctx, up), tr, nm.hdr, "transform.response", phase.OnUpstreamResponseBody)
+	up.End(http.StatusOK, "", "")
+	server.End(http.StatusOK, "", "")
+	spans := flushed(ctx, t, tr, mem)
+	orders, _ := byName(spans, nm.orders)
+	body, ok := byName(spans, nm.hdr)
+	if !ok || body.Parent.SpanID() != orders.SpanContext.SpanID() {
+		t.Errorf("body Phase span parent %v, want the attempt span %v", body.Parent.SpanID(), orders.SpanContext.SpanID())
+	}
+	if got := tr.ContextWithSpan(sctx, noopSpan{}); got != sctx {
+		t.Error("ContextWithSpan with a no-op span changed the context")
+	}
+	var unsampled emit.Decision
+	tr.Decide(header(HeaderTraceparent, tpUnsampled), 0, &unsampled)
+	uctx, us := tr.StartServer(ctx, &unsampled, http.MethodGet, emit.ServerAttrs{})
+	if got := tr.ContextWithSpan(uctx, us); got != uctx {
+		t.Error("ContextWithSpan with an unsampled request's span changed the context")
+	}
+}
+
 func equalAttrs(got, want map[attribute.Key]attribute.Value) bool {
 	if len(got) != len(want) {
 		return false

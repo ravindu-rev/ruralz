@@ -359,17 +359,23 @@ func (st *state) HintsToken() uint64 {
 // later client, while token is the request's and nothing final was
 // written, then takes them out of the header map, which net/http keeps
 // after a 1xx (docs/architecture/07-multi-protocol.md "HTTP intermediary
-// behavior").
+// behavior"). The hop-by-hop fields are those of any forwarded header
+// section (httpfield.StripHopByHop): the fixed ones and the fields the
+// 103's own Connection field names (RFC 9110 section 7.6.1). The strip
+// runs on a copy, so the transport's map stays as it was; a 103 is rare
+// enough that the copy costs nothing that counts.
 func (st *state) RelayHints(token uint64, h http.Header) {
 	st.wmu.Lock()
 	defer st.wmu.Unlock()
 	if st.done || st.committed || token != st.gen || st.w == nil {
 		return
 	}
+	fields := h.Clone()
+	httpfield.StripHopByHop(fields, httpfield.TowardClient)
 	hdr := st.w.Header()
 	n := 0
-	for k, vs := range h {
-		if len(vs) == 0 || httpfield.IsHopByHop(k) {
+	for k, vs := range fields {
+		if len(vs) == 0 {
 			continue
 		}
 		hdr[k] = vs
@@ -379,7 +385,7 @@ func (st *state) RelayHints(token uint64, h http.Header) {
 		return
 	}
 	st.w.WriteHeader(http.StatusEarlyHints)
-	for k := range h {
+	for k := range fields {
 		delete(hdr, k)
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -202,7 +203,28 @@ type fakeTracer struct {
 const injected = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 
 func (t *fakeTracer) StartUpstream(ctx context.Context, _ string, a emit.UpstreamAttrs) (context.Context, emit.Span) {
-	return ctx, &fakeSpan{t: t, attrs: a}
+	sp := &fakeSpan{t: t, attrs: a}
+	return context.WithValue(ctx, spanKey{}, sp), sp
+}
+
+func (*fakeTracer) ContextWithSpan(ctx context.Context, s emit.Span) context.Context {
+	return context.WithValue(ctx, spanKey{}, s)
+}
+
+// spanKey is the context key of the span a fakeTracer context carries.
+type spanKey struct{}
+
+// spanUnder returns the attempt of the span ctx carries ("-" for none) and
+// whether that span is still open.
+func spanUnder(ctx context.Context) string {
+	sp, ok := ctx.Value(spanKey{}).(*fakeSpan)
+	if !ok {
+		return "-"
+	}
+	if sp.ended.Load() {
+		return strconv.Itoa(sp.attrs.Attempt) + " ended"
+	}
+	return strconv.Itoa(sp.attrs.Attempt)
 }
 
 func (*fakeTracer) Inject(_ context.Context, _ *emit.Decision, h http.Header) {
@@ -240,6 +262,9 @@ type hooks struct {
 	events []string
 	// legs are copies of the attempts onUpstreamRequest saw.
 	legs []filter.Leg
+	// under records each Phase call as "<phase> <leg attempt> under <span
+	// attempt>", the attempt of the span its context carries.
+	under []string
 	// onRequest, onHeaders and onBody script the Phases; nil continues.
 	onRequest func(leg *filter.Leg) *filter.Response
 	onHeaders func(leg *filter.Leg) (bool, *filter.Response)
@@ -258,6 +283,18 @@ func (h *hooks) list() []string {
 	return slices.Clone(h.events)
 }
 
+func (h *hooks) recordUnder(ctx context.Context, ph string, attempt int) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.under = append(h.under, fmt.Sprintf("%s %d under %s", ph, attempt, spanUnder(ctx)))
+}
+
+func (h *hooks) listUnder() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return slices.Clone(h.under)
+}
+
 func (h *hooks) BeginLeg(_ context.Context, upstream, step string) snapshot.LegRun {
 	h.record("begin %s %q", upstream, step)
 	return &legRun{h: h}
@@ -269,8 +306,9 @@ type legRun struct {
 	ended bool
 }
 
-func (r *legRun) OnUpstreamRequest(_ context.Context, leg *filter.Leg) *filter.Response {
+func (r *legRun) OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter.Response {
 	r.h.record("request %d %s", leg.Attempt, leg.Endpoint)
+	r.h.recordUnder(ctx, "request", leg.Attempt)
 	r.h.mu.Lock()
 	r.h.legs = append(r.h.legs, *leg)
 	r.h.mu.Unlock()
@@ -280,7 +318,8 @@ func (r *legRun) OnUpstreamRequest(_ context.Context, leg *filter.Leg) *filter.R
 	return nil
 }
 
-func (r *legRun) OnUpstreamResponseHeaders(_ context.Context, leg *filter.Leg) (bool, *filter.Response) {
+func (r *legRun) OnUpstreamResponseHeaders(ctx context.Context, leg *filter.Leg) (bool, *filter.Response) {
+	r.h.recordUnder(ctx, "headers", leg.Attempt)
 	if leg.Response == nil {
 		r.h.record("headers %d error %s", leg.Attempt, leg.ErrorKind)
 	} else {
@@ -292,12 +331,16 @@ func (r *legRun) OnUpstreamResponseHeaders(_ context.Context, leg *filter.Leg) (
 	return false, nil
 }
 
-func (r *legRun) OnUpstreamResponseBody(_ context.Context, leg *filter.Leg) *filter.Response {
+// OnUpstreamResponseBody records the span its context carries once
+// onBody, which may read the body to its end, has run.
+func (r *legRun) OnUpstreamResponseBody(ctx context.Context, leg *filter.Leg) *filter.Response {
 	r.h.record("body %d", leg.Response.StatusCode)
+	var resp *filter.Response
 	if r.h.onBody != nil {
-		return r.h.onBody(leg)
+		resp = r.h.onBody(leg)
 	}
-	return nil
+	r.h.recordUnder(ctx, "body", leg.Attempt)
+	return resp
 }
 
 func (r *legRun) End(context.Context) {

@@ -5,6 +5,8 @@ package handler
 
 import (
 	"net/http"
+	"net/textproto"
+	"strconv"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/gateway/listener"
@@ -78,17 +80,40 @@ func fieldListSize(r *http.Request, scheme string) (size int64, lines int) {
 
 // conflictingFraming reports framing that request hardening refuses and
 // net/http let through: a Transfer-Encoding with any coding other than
-// exactly chunked, or one beside a Content-Length.
+// exactly chunked, or one beside a Content-Length; or Content-Length field
+// lines that disagree with the length net/http framed the request by.
 func conflictingFraming(r *http.Request) bool {
 	te := r.TransferEncoding
 	if len(te) == 0 {
-		return len(r.Header["Transfer-Encoding"]) > 0
+		return len(r.Header["Transfer-Encoding"]) > 0 || contentLengthConflicts(r)
 	}
 	if len(te) > 1 || !strings.EqualFold(te[0], "chunked") {
 		return true
 	}
 	_, cl := r.Header["Content-Length"]
 	return cl
+}
+
+// contentLengthConflicts reports Content-Length field lines that disagree
+// with r.ContentLength, the length net/http framed the request by: a value
+// that is not a decimal number, values that differ, or a non-zero value on
+// a request without content (RFC 9110 section 8.6; RFC 9113 section
+// 8.1.1). Equal repeated lines count as one. net/http refuses such lines on
+// HTTP/1.1, and its HTTP/2 server resets their stream from Go 1.27 on,
+// while the Go 1.26 floor's HTTP/2 server reads only the first line, and
+// none for a stream that ended with its HEADERS
+// (docs/architecture/07-multi-protocol.md "HTTP intermediary behavior").
+func contentLengthConflicts(r *http.Request) bool {
+	for _, v := range r.Header["Content-Length"] {
+		v = textproto.TrimString(v)
+		if v == "" || strings.Trim(v, "0123456789") != "" {
+			return true
+		}
+		if n, err := strconv.ParseInt(v, 10, 64); err != nil || n != r.ContentLength {
+			return true
+		}
+	}
+	return false
 }
 
 // sameAuthority reports whether two authorities name the same host:

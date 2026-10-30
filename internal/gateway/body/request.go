@@ -41,7 +41,8 @@ const (
 //   - streamed: replayable only while no byte has been read and no read is
 //     in progress; a second Open after that is
 //     snapshot.ErrNotReplayable; the stream is cut at its limit with
-//     ErrTooLarge.
+//     ErrTooLarge (Exceeded), and a failed read of the client stream is
+//     recorded (Broken).
 //
 // Closing an opened reader never closes the client stream. A Request lives
 // in the handler's pooled per-request state: Prepare (or SetGated,
@@ -89,6 +90,7 @@ type stream struct {
 	read    int64  // bytes returned
 	eof     bool
 	over    bool // the body passed its limit
+	broken  bool // reading the client stream failed (Broken)
 	dead    bool // the request ended (Reset)
 }
 
@@ -276,6 +278,23 @@ func (q *Request) Exceeded() bool {
 	return q.st.over
 }
 
+// Broken reports whether reading a streamed body from the client failed
+// with an error other than its end or its limit: its framing broke, it
+// ended short of its declared length, its read deadline passed or the
+// client went away. The fault is the client's, never an Upstream's: the
+// attempt that sent the body is no Upstream failure, and the request,
+// whose body can no longer be read, aborts.
+func (q *Request) Broken() bool {
+	q.mu.RLock()
+	defer q.mu.RUnlock()
+	if q.mode != modeStream {
+		return false
+	}
+	q.st.mu.Lock()
+	defer q.st.mu.Unlock()
+	return q.st.broken
+}
+
 // ContentLength implements snapshot.RequestBody: the gated length, the
 // declared length of a streamed body (-1 when unknown) or 0.
 func (q *Request) ContentLength() int64 {
@@ -421,10 +440,13 @@ func (r *streamReader) Read(p []byte) (int, error) {
 	st.reading = false
 	st.read += int64(n)
 	switch {
+	case err == nil:
 	case errors.Is(err, io.EOF):
 		st.eof = true
 	case errors.Is(err, ErrTooLarge):
 		st.over = true
+	default:
+		st.broken = true
 	}
 	st.mu.Unlock()
 	return n, err

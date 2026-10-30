@@ -41,6 +41,9 @@
 // request Phases run: it removes Connection and the end-to-end fields it
 // names and leaves the fixed fields, TE included, to [StripHopByHop] at leg
 // build. An Upstream response is stripped before the response Phases run.
+// A Connection option names hop-by-hop fields of the whole message, so
+// [StripNamed] applies the options read from a header section to the
+// message's trailer section before it is forwarded.
 //
 // # Query editor
 //

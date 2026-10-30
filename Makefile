@@ -56,8 +56,14 @@ LDFLAGS := -s -w \
 FLOOR_GOTOOLCHAIN ?= local
 
 # Stage 8. RURALZ_TEST_STATESTORE=process|container and
-# RURALZ_TEST_REDIS_SERVER select the State Store flavors.
+# RURALZ_TEST_REDIS_SERVER select the State Store flavors. A non-empty
+# INTEGRATION_FLOOR runs the floor leg instead: the protocol conformance
+# suite alone, built and run on Go 1.26 (FLOOR_GOTOOLCHAIN, as for floor)
+# with GOEXPERIMENT=jsonv2, since floor and release builds run different
+# HTTP/2 code (docs/engineering/03-testing-and-quality-strategy.md,
+# "Conformance suites").
 INTEGRATION_TIMEOUT ?= 25m
+INTEGRATION_FLOOR ?=
 # Stage 9. BENCH_BASE is the ref whose merge base with HEAD is the alloc/op
 # baseline (empty: absolute caps only); GATES selects alloc and/or size; a
 # non-empty GATES_OVERRIDE records a maintainer's perf-override. BENCH_BASE
@@ -220,7 +226,14 @@ supply-chain: $(GOVULNCHECK) ## Stage 6: go mod verify, govulncheck, G2, G3, Raf
 
 # Stage 8's go test includes test/t5's unit check: systemd-analyze verify of
 # the systemd unit and systemd-sysusers with its sysusers.d entry.
-integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag integration, test/t5's systemd unit check included), State Store flavors, promtool rules, Dockerfile check
+integration: $(if $(INTEGRATION_FLOOR),,$(PROMTOOL)) ## Stage 8: integration and conformance suites (tag integration, test/t5's systemd unit check included), State Store flavors, promtool rules, Dockerfile check; INTEGRATION_FLOOR=1 runs the protocol suite on Go 1.26
+ifneq ($(INTEGRATION_FLOOR),)
+	export GOTOOLCHAIN=$(FLOOR_GOTOOLCHAIN) GOEXPERIMENT=jsonv2 CGO_ENABLED=1; \
+	v=$$(go env GOVERSION); \
+	if [[ $$v != go1.26.* ]]; then echo "integration: the floor leg wants Go 1.26, got $$v; set FLOOR_GOTOOLCHAIN" >&2; exit 1; fi; \
+	echo "integration: floor leg on $$v"; \
+	go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./test/conformance/protocol/...
+else
 	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./...
 	if [[ ! -f deploy/container/Dockerfile ]]; then \
 		echo "integration: skip Dockerfile check: deploy/container/Dockerfile is not present yet"; \
@@ -229,6 +242,7 @@ integration: $(PROMTOOL) ## Stage 8: integration and conformance suites (tag int
 	else \
 		docker buildx build --check -f deploy/container/Dockerfile .; \
 	fi
+endif
 
 # Every selected gate runs even after another fails, so the job summary
 # always reports both the alloc/op and the size and idle RSS values; the

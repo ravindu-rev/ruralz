@@ -56,7 +56,8 @@ const (
 	codeNoRevision = "RZ-RT-024"
 )
 
-// statusSource is the NodeStatus source of lkg_boot.
+// statusSource is the NodeStatus source of lkg_boot and
+// header_limit_capped.
 const statusSource = "reload"
 
 // Errors.
@@ -182,7 +183,8 @@ type Config struct {
 	// Metrics are the configuration handles of the Node metrics
 	// (emit.NodeMetrics.Config); nil records nothing.
 	Metrics *emit.ConfigMetrics
-	// Status raises and clears lkg_boot; nil reports nothing.
+	// Status raises and clears lkg_boot and header_limit_capped; nil
+	// reports nothing.
 	Status emit.NodeStatus
 	// Notifier sends STATUS= after every readiness change; nil sends none.
 	Notifier StatusSyncer
@@ -227,6 +229,8 @@ type Loader struct {
 	origin Origin
 	// lkgBoot is set while lkg_boot is raised.
 	lkgBoot bool
+	// headerCapped is set while header_limit_capped is raised.
+	headerCapped bool
 	// next is the latest Revision waiting to activate: pending a
 	// retirement or a hold, or a transient rejection's retry.
 	next *candidate

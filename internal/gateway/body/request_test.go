@@ -293,6 +293,54 @@ func TestStreamedOverLimit(t *testing.T) {
 	q.Reset()
 }
 
+// TestStreamedBroken: a client stream whose read fails with an error other
+// than its end or its limit (its framing broke, it ended short of its
+// declared length, its read deadline passed) is reported by Broken, which
+// a body that ends, passes its limit or was never read never is.
+func TestStreamedBroken(t *testing.T) {
+	short := errors.New("request declared a Content-Length of 5 but only wrote 4 bytes")
+	for _, tt := range []struct {
+		name         string
+		src          io.Reader
+		limit        int64
+		wantBroken   bool
+		wantExceeded bool
+	}{
+		{"framing broke", io.MultiReader(strings.NewReader("hell"), iotest.ErrReader(short)), 64, true, false},
+		{"read deadline", iotest.ErrReader(context.DeadlineExceeded), 64, true, false},
+		{"whole body", strings.NewReader(matrixBody), 64, false, false},
+		{"over the limit", strings.NewReader(matrixBody), 5, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var q Request
+			q.SetStream(tt.src, -1, tt.limit)
+			if q.Broken() {
+				t.Fatal("Broken before any read")
+			}
+			rc, err := q.Open()
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = io.ReadAll(rc)
+			if q.Broken() != tt.wantBroken || q.Exceeded() != tt.wantExceeded {
+				t.Errorf("Broken %v Exceeded %v, want %v and %v", q.Broken(), q.Exceeded(), tt.wantBroken, tt.wantExceeded)
+			}
+			q.Reset()
+			if q.Broken() {
+				t.Error("Broken after Reset")
+			}
+		})
+	}
+	var gated Request
+	if err := gated.Prepare(context.Background(), strings.NewReader(matrixBody), -1, true, 64, NewBudget(1<<20, nil), 0); err != nil {
+		t.Fatal(err)
+	}
+	if gated.Broken() {
+		t.Error("a gated body reports Broken")
+	}
+	gated.Reset()
+}
+
 // TestStreamedEmpty: a stream of unknown length that turns out empty
 // stays replayable and later Opens return http.NoBody.
 func TestStreamedEmpty(t *testing.T) {

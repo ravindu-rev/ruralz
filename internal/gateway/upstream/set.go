@@ -225,6 +225,8 @@ func (nopTracer) StartUpstream(ctx context.Context, _ string, _ emit.UpstreamAtt
 	return ctx, nopSpan{}
 }
 
+func (nopTracer) ContextWithSpan(ctx context.Context, _ emit.Span) context.Context { return ctx }
+
 func (nopTracer) Inject(context.Context, *emit.Decision, http.Header) {}
 
 // nopSpan records nothing.
