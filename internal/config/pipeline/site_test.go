@@ -177,42 +177,78 @@ func TestPolicySite(t *testing.T) {
 		phases phase.Set
 		want   expr.Site
 	}{
-		{"when in a body Phase", policy(v1alpha1.PolicyTypeValidationJSONSchema, nil), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeValidationJSONSchema, FirstPhase: phase.OnRequestBody, GatesBody: true}},
-		{"when in a response Phase", policy(v1alpha1.PolicyTypeHeaders, nil), expr.PlacePolicyWhen, nil, phase.ScopeGateway, phase.Of(phase.OnResponse),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeHeaders, FirstPhase: phase.OnResponse}},
-		{"transform.request with a body", policy(v1alpha1.PolicyTypeTransformRequest, body), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnUpstreamRequest, GatesBody: true}},
-		{"transform.request removing a body member", policy(v1alpha1.PolicyTypeTransformRequest, removesBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true}},
-		{"transform.request without a body need", policy(v1alpha1.PolicyTypeTransformRequest, headerOnly), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody}},
-		{"transform.request value reading the body", policy(v1alpha1.PolicyTypeTransformRequest, readsBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true}},
-		{"transform.request value that does not compile", policy(v1alpha1.PolicyTypeTransformRequest, badValue), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody}},
-		{"transform.response when", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnResponse),
-			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformResponse, FirstPhase: phase.OnResponse}},
-		{"header value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(0), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
-		{"query value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(1), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
-		{"path value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(2), phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString}},
-		{"body value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(3), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultDyn}},
-		{"value past the entries", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(4), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest}},
-		{"value without a path", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
-			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest}},
-		{"response header value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(0), phase.ScopeGateway, phase.Of(phase.OnResponse),
-			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultString}},
-		{"response body value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(1), phase.ScopeUpstream, phase.Of(phase.OnUpstreamResponseBody),
-			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultDyn}},
-		{"config field", policy(v1alpha1.PolicyTypeRateLimit, nil), expr.PlaceRateLimitKey, nil, phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
-			expr.Site{Place: expr.PlaceRateLimitKey, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeRateLimit}},
-		{"not a Policy", &hub.Resource{ID: hub.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Object: &v1alpha1.Route{}}, expr.PlaceRouteMatchWhen, nil, phase.ScopeRoute, 0,
-			expr.Site{Place: expr.PlaceRouteMatchWhen}},
+		{
+			"when in a body Phase", policy(v1alpha1.PolicyTypeValidationJSONSchema, nil), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeValidationJSONSchema, FirstPhase: phase.OnRequestBody, GatesBody: true},
+		},
+		{
+			"when in a response Phase", policy(v1alpha1.PolicyTypeHeaders, nil), expr.PlacePolicyWhen, nil, phase.ScopeGateway, phase.Of(phase.OnResponse),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeHeaders, FirstPhase: phase.OnResponse},
+		},
+		{
+			"transform.request with a body", policy(v1alpha1.PolicyTypeTransformRequest, body), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnUpstreamRequest, GatesBody: true},
+		},
+		{
+			"transform.request removing a body member", policy(v1alpha1.PolicyTypeTransformRequest, removesBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true},
+		},
+		{
+			"transform.request without a body need", policy(v1alpha1.PolicyTypeTransformRequest, headerOnly), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody},
+		},
+		{
+			"transform.request value reading the body", policy(v1alpha1.PolicyTypeTransformRequest, readsBody), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody, GatesBody: true},
+		},
+		{
+			"transform.request value that does not compile", policy(v1alpha1.PolicyTypeTransformRequest, badValue), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, FirstPhase: phase.OnRequestBody},
+		},
+		{
+			"transform.response when", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnResponse),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformResponse, FirstPhase: phase.OnResponse},
+		},
+		{
+			"header value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(0), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString},
+		},
+		{
+			"query value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(1), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString},
+		},
+		{
+			"path value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(2), phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultString},
+		},
+		{
+			"body value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(3), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest, Result: expr.ResultDyn},
+		},
+		{
+			"value past the entries", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(4), phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest},
+		},
+		{
+			"value without a path", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, nil, phase.ScopeRoute, phase.Of(phase.OnRequestBody),
+			expr.Site{Place: expr.PlaceTransformRequestValue, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformRequest},
+		},
+		{
+			"response header value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(0), phase.ScopeGateway, phase.Of(phase.OnResponse),
+			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeGateway, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultString},
+		},
+		{
+			"response body value", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlaceTransformResponseValue, value(1), phase.ScopeUpstream, phase.Of(phase.OnUpstreamResponseBody),
+			expr.Site{Place: expr.PlaceTransformResponseValue, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeTransformResponse, Result: expr.ResultDyn},
+		},
+		{
+			"config field", policy(v1alpha1.PolicyTypeRateLimit, nil), expr.PlaceRateLimitKey, nil, phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),
+			expr.Site{Place: expr.PlaceRateLimitKey, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeRateLimit},
+		},
+		{
+			"not a Policy", &hub.Resource{ID: hub.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Object: &v1alpha1.Route{}}, expr.PlaceRouteMatchWhen, nil, phase.ScopeRoute, 0,
+			expr.Site{Place: expr.PlaceRouteMatchWhen},
+		},
 	}
 	for _, tc := range tests {
 		if got := p.PolicySite(tc.r, tc.place, tc.path, tc.scope, tc.phases); siteKey(got) != siteKey(tc.want) {

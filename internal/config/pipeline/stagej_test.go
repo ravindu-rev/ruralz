@@ -34,27 +34,47 @@ func TestStageJPositions(t *testing.T) {
 	tests := []struct {
 		name, file, doc, want string
 	}{
-		{"plain", "r.yaml", routeWhen("r", "orders", "    when: request.method == response.status\n", ""),
-			"r.yaml:8:29 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"double-quoted", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"GET\\\" && response.status == 1\"\n", ""),
-			"r.yaml:8:41 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"double-quoted unicode escape", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"G\\u00c9T\\\" && response.status == 1\"\n", ""),
-			"r.yaml:8:46 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"single-quoted", "r.yaml", routeWhen("r", "orders", "    when: 'request.method == ''GET'' && response.status == 1'\n", ""),
-			"r.yaml:8:41 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"tagged", "r.yaml", routeWhen("r", "orders", "    when: !!str request.method == response.status\n", ""),
-			"r.yaml:8:35 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"JSON string", "r.json", `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {"match": {"path": {"prefix": "/r"}, "when": "request.method == \"G` +
-			`\` + `u00c9T\" && response.status == 1"}, "upstreams": [{"name": "orders"}]}}`,
-			"r.json:1:167 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"block scalar", "r.yaml", routeWhen("r", "orders", "    when: |\n      request.method == \"GET\" &&\n      response.status == 1\n", ""),
-			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: undeclared reference to 'response' at 2:1 (Route.spec.match.when has request, source, now)"},
-		{"plain over two lines", "r.yaml", routeWhen("r", "orders", "    when: request.method ==\n      response.status\n", ""),
-			"r.yaml:9:7 error RZ-CFG-014 Route/r spec.match.when: " + noResponse},
-		{"double-quoted over two lines", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"GET\\\" &&\n      response.status == 1\"\n", ""),
-			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: undeclared reference to 'response' at 1:28 (Route.spec.match.when has request, source, now)"},
-		{"issue without a position", "r.yaml", routeWhen("r", "orders", "    when: request.method\n", ""),
-			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: expression has type string, want bool (compare the value, as in x == \"y\")"},
+		{
+			"plain", "r.yaml", routeWhen("r", "orders", "    when: request.method == response.status\n", ""),
+			"r.yaml:8:29 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"double-quoted", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"GET\\\" && response.status == 1\"\n", ""),
+			"r.yaml:8:41 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"double-quoted unicode escape", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"G\\u00c9T\\\" && response.status == 1\"\n", ""),
+			"r.yaml:8:46 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"single-quoted", "r.yaml", routeWhen("r", "orders", "    when: 'request.method == ''GET'' && response.status == 1'\n", ""),
+			"r.yaml:8:41 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"tagged", "r.yaml", routeWhen("r", "orders", "    when: !!str request.method == response.status\n", ""),
+			"r.yaml:8:35 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"JSON string", "r.json", `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {"match": {"path": {"prefix": "/r"}, "when": "request.method == \"G` +
+				`\` + `u00c9T\" && response.status == 1"}, "upstreams": [{"name": "orders"}]}}`,
+			"r.json:1:167 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"block scalar", "r.yaml", routeWhen("r", "orders", "    when: |\n      request.method == \"GET\" &&\n      response.status == 1\n", ""),
+			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: undeclared reference to 'response' at 2:1 (Route.spec.match.when has request, source, now)",
+		},
+		{
+			"plain over two lines", "r.yaml", routeWhen("r", "orders", "    when: request.method ==\n      response.status\n", ""),
+			"r.yaml:9:7 error RZ-CFG-014 Route/r spec.match.when: " + noResponse,
+		},
+		{
+			"double-quoted over two lines", "r.yaml", routeWhen("r", "orders", "    when: \"request.method == \\\"GET\\\" &&\n      response.status == 1\"\n", ""),
+			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: undeclared reference to 'response' at 1:28 (Route.spec.match.when has request, source, now)",
+		},
+		{
+			"issue without a position", "r.yaml", routeWhen("r", "orders", "    when: request.method\n", ""),
+			"r.yaml:8:11 error RZ-CFG-014 Route/r spec.match.when: CEL Route.spec.match.when: expression has type string, want bool (compare the value, as in x == \"y\")",
+		},
 	}
 	p := newPipeline(t, Options{})
 	for _, tc := range tests {
