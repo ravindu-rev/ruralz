@@ -159,7 +159,10 @@ func checkTelemetryNames(fset *token.FileSet, rel string, f *ast.File) []finding
 	if strings.HasSuffix(rel, "_test.go") || strings.HasPrefix(rel, catalogDir) {
 		return nil
 	}
-	metric := regexp.MustCompile(`^ruralz_[a-z0-9_]+$`)
+	// A metric name is ruralz_<component>_<name>_<unit> (foundation pack
+	// section 2): at least two segments follow the prefix, so a one-segment
+	// literal such as the ruralz_testclock build tag is not one.
+	metric := regexp.MustCompile(`^ruralz_[a-z0-9]+(?:_[a-z0-9]+)+$`)
 	prefixes := []string{spanNS + ".route.", spanNS + ".filter.", spanNS + ".upstream."}
 	var out []finding
 	at := func(n ast.Node, msg string) {
