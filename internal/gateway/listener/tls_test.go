@@ -123,11 +123,13 @@ func TestClientCertificateRequest(t *testing.T) {
 }
 
 // TestClientCertModeChangeReplacesServer checks a Hot Reload changing the
-// client-certificate request mode: the socket stays, a new Server takes
-// new connections, which request the certificate, and the previous Server
-// shuts down: an idle HTTP/1.1 connection closes, a busy one gets
-// Connection: close, an HTTP/2 connection gets GOAWAY so the next request
-// dials anew.
+// client-certificate request mode: the socket stays, new Server shards
+// take new connections, which request the certificate, and the previous
+// shards shut down: an idle HTTP/1.1 connection closes, a busy one gets
+// Connection: close, an HTTP/2 connection gets GOAWAY, which ends it, so
+// the next request dials anew. The GOAWAY goes out after the activation
+// returns, so the next request waits until the client closed the old
+// connection, which it does only once it processed the GOAWAY.
 func TestClientCertModeChangeReplacesServer(t *testing.T) {
 	p := newTestPKI(t)
 	h := newHarness(t)
@@ -164,10 +166,11 @@ func TestClientCertModeChangeReplacesServer(t *testing.T) {
 	if r := recv(t, "the busy response", busyDone); !r.close {
 		t.Errorf("busy HTTP/1.1 response: %+v, want Connection: close", r)
 	}
+	recv(t, "GOAWAY to end the old HTTP/2 connection", dials.closed(t, 0))
 	if _, body := get(t, h2, "https://"+addr+"/"); field(body, 0) != "HTTP/2.0" || field(body, 2) != "true" || field(body, 3) != "1" {
 		t.Errorf("after the change: %q, want a new HTTP/2 connection requesting the certificate", body)
 	}
-	if n := dials.Load(); n != 2 {
+	if n := dials.count(); n != 2 {
 		t.Errorf("HTTP/2 dials = %d, want 2 (GOAWAY ended the first connection)", n)
 	}
 }

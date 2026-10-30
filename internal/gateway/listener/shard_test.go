@@ -119,8 +119,11 @@ func TestShutdownShardGivesBusyConnectionsConnectionClose(t *testing.T) {
 }
 
 // TestShutdownShardSendsGOAWAY checks that shutting down a shard sends
-// GOAWAY on its HTTP/2 connections only: the client of shard 0 dials anew
-// for its next request, while the client of shard 1 keeps its connection.
+// GOAWAY on its HTTP/2 connections only: the client of shard 0 closes its
+// connection and dials anew for its next request, while the client of
+// shard 1 keeps its connection. The GOAWAY goes out after ShutdownShard
+// returns, so the next requests wait until the client closed shard 0's
+// connection, which it does only once it processed the GOAWAY.
 func TestShutdownShardSendsGOAWAY(t *testing.T) {
 	h := newHarness(t)
 	h.activate(t, snap(httpListener("web", 0)), nil)
@@ -134,17 +137,22 @@ func TestShutdownShardSendsGOAWAY(t *testing.T) {
 	}
 
 	h.set.ShutdownShard(0)
-	recv(t, "shard 0 to finish shutting down", h.endpoint(t, "web").group.Load().shards[0].done)
+	recv(t, "GOAWAY to end shard 0's connection", dials0.closed(t, 0))
 	for _, c := range []*http.Client{onShard0, onShard1} {
 		if status, _ := get(t, c, url); status != http.StatusOK {
 			t.Fatalf("request after shard 0 shut down: %d", status)
 		}
 	}
-	if n := dials0.Load(); n != 2 {
+	if n := dials0.count(); n != 2 {
 		t.Errorf("shard 0's client dialed %d times, want 2: GOAWAY ended its connection", n)
 	}
-	if n := dials1.Load(); n != 1 {
+	if n := dials1.count(); n != 1 {
 		t.Errorf("shard 1's client dialed %d times, want 1: its connection got no GOAWAY", n)
+	}
+	select {
+	case <-dials1.closed(t, 0):
+		t.Error("shard 1's client closed its connection: it got a GOAWAY")
+	default:
 	}
 }
 

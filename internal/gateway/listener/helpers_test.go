@@ -363,14 +363,14 @@ func (h *harness) endpoint(t *testing.T, name string) *endpoint {
 // Clients.
 
 // client returns a client of the given protocols: HTTP/1.1, HTTP/2 over
-// TLS, h2c by prior knowledge.
-func client(t *testing.T, cfg *tls.Config, h1, h2, h2c bool) (*http.Client, *atomic.Int64) {
+// TLS, h2c by prior knowledge, and the log of the connections it dials.
+func client(t *testing.T, cfg *tls.Config, h1, h2, h2c bool) (*http.Client, *dialLog) {
 	t.Helper()
 	var p http.Protocols
 	p.SetHTTP1(h1)
 	p.SetHTTP2(h2)
 	p.SetUnencryptedHTTP2(h2c)
-	dials := new(atomic.Int64)
+	dials := &dialLog{}
 	var d net.Dialer
 	if cfg != nil {
 		cfg = cfg.Clone() // an HTTP/2 transport adds "h2" to its config's NextProtos
@@ -379,12 +379,65 @@ func client(t *testing.T, cfg *tls.Config, h1, h2, h2c bool) (*http.Client, *ato
 		Protocols:       &p,
 		TLSClientConfig: cfg,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			dials.Add(1)
-			return d.DialContext(ctx, network, addr)
+			c, err := d.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, err
+			}
+			return dials.add(c), nil
 		},
 	}
 	t.Cleanup(tr.CloseIdleConnections)
 	return &http.Client{Transport: tr}, dials
+}
+
+// dialLog records, in order, the connections a test client dials, and when
+// its transport closes each. The HTTP/2 transport marks a connection dead
+// before it closes it, once it processed the server's GOAWAY or close, so
+// a request sent after the close never reuses that connection, while one
+// sent before may still go out on it.
+type dialLog struct {
+	mu    sync.Mutex
+	conns []*trackedConn
+}
+
+// add records c and returns it wrapped.
+func (l *dialLog) add(c net.Conn) net.Conn {
+	tc := &trackedConn{Conn: c, closed: make(chan struct{})}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.conns = append(l.conns, tc)
+	return tc
+}
+
+// count returns the number of connections dialed.
+func (l *dialLog) count() int {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return len(l.conns)
+}
+
+// closed returns a channel closed once the client closed dialed
+// connection i, counting from 0.
+func (l *dialLog) closed(t *testing.T, i int) <-chan struct{} {
+	t.Helper()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if i >= len(l.conns) {
+		t.Fatalf("connection %d was never dialed (%d were)", i, len(l.conns))
+	}
+	return l.conns[i].closed
+}
+
+// trackedConn is a dialed connection that reports its Close.
+type trackedConn struct {
+	net.Conn
+	once   sync.Once
+	closed chan struct{}
+}
+
+func (c *trackedConn) Close() error {
+	c.once.Do(func() { close(c.closed) })
+	return c.Conn.Close()
 }
 
 // get sends GET url and returns the status and the body.
