@@ -245,6 +245,10 @@ func TestNew(t *testing.T) {
 		{"RZ-RT-019", 503, "Tap subscriber limit reached"},
 		{"RZ-RT-020", 404, "No admin endpoint"},
 		{"RZ-RT-021", 405, "Method not allowed on admin endpoint"},
+		{"RZ-RT-023", 400, "WebSocket upgrade refused"},
+		{"RZ-RT-024", 503, "No active Revision"},
+		{"RZ-RT-025", 500, "Internal fault"}, // StatusNote: 500 before commit
+		{"RZ-RT-026", 416, "Range not satisfiable from cache"},
 		{"RZ-AUTH-001", 401, "Unauthorized"}, // generic by status
 		{"RZ-AUTH-008", 421, "Misdirected Request"},
 		{"RZ-AUTH-013", 403, "Forbidden"},

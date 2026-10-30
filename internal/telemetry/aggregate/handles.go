@@ -266,7 +266,9 @@ func noopPolicyMetrics() *emit.PolicyMetrics {
 		JWKSAge:           noopGauge{},
 		UpstreamTokenAge:  noopGauge{},
 		UpstreamRefreshes: noopCounter{},
-		BucketEvictions:   noopCounter{},
+	}
+	for i := range m.BucketEvictions {
+		m.BucketEvictions[i] = noopCounter{}
 	}
 	for p := range m.Duration {
 		m.Duration[p] = noopHist{}

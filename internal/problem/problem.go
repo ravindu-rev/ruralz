@@ -95,6 +95,14 @@ func Title(code string, status int) string {
 		return "Method not allowed on admin endpoint"
 	case "RZ-RT-022":
 		return "Invalid tap sample rate"
+	case "RZ-RT-023":
+		return "WebSocket upgrade refused"
+	case "RZ-RT-024":
+		return "No active Revision"
+	case "RZ-RT-025":
+		return "Internal fault"
+	case "RZ-RT-026":
+		return "Range not satisfiable from cache"
 	}
 	if t := http.StatusText(status); t != "" {
 		return t

@@ -116,7 +116,9 @@ func wirePolicy(m *emit.PolicyMetrics, name string, ph int8, hs handleSet) {
 			m.RateLimit[i] = hs.counter(i)
 		}
 	case catalog.RateLimitBucketEvictionsTotal:
-		m.BucketEvictions = hs.counter(0)
+		for i := range m.BucketEvictions {
+			m.BucketEvictions[i] = hs.counter(i)
+		}
 	case catalog.QuotaDecisionsTotal:
 		for i := range m.Quota {
 			m.Quota[i] = hs.counter(i)

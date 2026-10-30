@@ -131,21 +131,33 @@ const (
 	NumRevalidationResults
 )
 
-// Rate limit results: allow, deny_local, deny_global, fail_open.
+// Rate limit results: allow, deny_local, deny_global, fail_open,
+// fail_closed, allow_local (a local-only entry or a localOnly Policy).
 const (
 	RateLimitAllow = iota
 	RateLimitDenyLocal
 	RateLimitDenyGlobal
 	RateLimitFailOpen
+	RateLimitFailClosed
+	RateLimitAllowLocal
 	NumRateLimitResults
 )
 
-// Quota results: allow, deny, no_quota, fail_open.
+// Rate limit key-table segments of ruralz_ratelimit_bucket_evictions_total:
+// main, local_only.
+const (
+	BucketSegmentMain = iota
+	BucketSegmentLocalOnly
+	NumBucketSegments
+)
+
+// Quota results: allow, deny, no_quota, fail_open, fail_closed.
 const (
 	QuotaAllow = iota
 	QuotaDeny
 	QuotaNoQuota
 	QuotaFailOpen
+	QuotaFailClosed
 	NumQuotaResults
 )
 
@@ -292,7 +304,7 @@ type PolicyMetrics struct {
 	UpstreamTokenAge  Gauge
 	UpstreamRefreshes Counter
 	RateLimit         [NumRateLimitResults]Counter
-	BucketEvictions   Counter
+	BucketEvictions   [NumBucketSegments]Counter
 	Quota             [NumQuotaResults]Counter
 	StoreSkipped      [NumSkipReasons]Counter
 }

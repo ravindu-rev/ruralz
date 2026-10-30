@@ -121,9 +121,9 @@ func TestPolicyFamiliesByType(t *testing.T) {
 		{catalog.AuthUpstreamRefreshFailuresTotal, "oauth", 1},
 		{catalog.FilterShortCircuitsTotal, "oauth", 5},
 		{catalog.AuthDecisionsTotal, "ipallow", 1},
-		{catalog.RateLimitDecisionsTotal, "rl", 4},
-		{catalog.RateLimitBucketEvictionsTotal, "rl", 1},
-		{catalog.QuotaDecisionsTotal, "q", 4},
+		{catalog.RateLimitDecisionsTotal, "rl", 6},
+		{catalog.RateLimitBucketEvictionsTotal, "rl", 2}, // main, local_only
+		{catalog.QuotaDecisionsTotal, "q", 5},
 		{catalog.FilterFailuresTotal, "q", 2},
 		{catalog.CacheStoreSkippedTotal, "c", 3},
 		{catalog.FilterShortCircuitsTotal, "c", 5},
@@ -155,7 +155,8 @@ func TestPolicyFamiliesByType(t *testing.T) {
 	pl.Policy("c").StoreSkipped[emit.SkipMemory].Add(0, 1)
 	pl.Policy("oauth").UpstreamRefreshes.Add(0, 1)
 	pl.Policy("oauth").UpstreamTokenAge.Set(5)
-	pl.Policy("rl").BucketEvictions.Add(0, 3)
+	pl.Policy("rl").BucketEvictions[emit.BucketSegmentMain].Add(0, 3)
+	pl.Policy("rl").BucketEvictions[emit.BucketSegmentLocalOnly].Add(0, 2)
 	pts = collectNow(t, r, clk)
 	for k, v := range map[string]float64{
 		catalog.FilterShortCircuitsTotal + `{phase="onRequestHeaders",policy="jwt",status_class="4xx"}`: 1,
@@ -169,7 +170,8 @@ func TestPolicyFamiliesByType(t *testing.T) {
 		catalog.CacheStoreSkippedTotal + `{policy="c",reason="memory"}`:                                 1,
 		catalog.AuthUpstreamRefreshFailuresTotal + `{policy="oauth"}`:                                   1,
 		catalog.AuthUpstreamTokenAgeSeconds + `{policy="oauth"}`:                                        5,
-		catalog.RateLimitBucketEvictionsTotal + `{policy="rl"}`:                                         3,
+		catalog.RateLimitBucketEvictionsTotal + `{policy="rl",segment="main"}`:                          3,
+		catalog.RateLimitBucketEvictionsTotal + `{policy="rl",segment="local_only"}`:                    2,
 	} {
 		if got := mustGet(t, pts, k).value; got != v {
 			t.Errorf("%s = %v, want %v", k, got, v)
@@ -416,7 +418,7 @@ func TestStripingDecisions(t *testing.T) {
 	base, _ := newTestRegistry(t, nil)
 	r, _ := newTestRegistry(t, func(o *Options) {
 		o.Limits = Limits{
-			StripedRoutes: 2, StripedUpstreams: 1, PolicyStripedSeries: 4, PolicyStripedHistograms: 1,
+			StripedRoutes: 2, StripedUpstreams: 1, PolicyStripedSeries: 10, PolicyStripedHistograms: 1,
 			ListenerStripedHistograms: base.nodeStripedHists + 1,
 		}
 	})
@@ -451,7 +453,7 @@ func TestStripingDecisions(t *testing.T) {
 		catalog.FilterDurationSeconds + "/g-q":              true,
 		catalog.FilterDurationSeconds + "/g-rl":             false, // one striped histogram label set
 		catalog.QuotaDecisionsTotal + "/g-q":                true,
-		catalog.RateLimitDecisionsTotal + "/g-rl":           false, // 4 + 4 > 4
+		catalog.RateLimitDecisionsTotal + "/g-rl":           false, // g-q's short circuits and decisions spent 10; 10 + 6 > 10
 		catalog.RateLimitDecisionsTotal + "/route-rl":       false,
 		catalog.FilterFailuresTotal + "/g-q":                false,
 		catalog.HTTPGatewayDurationSeconds + "/l1":          true, // reserved histograms + 1 fit
