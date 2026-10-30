@@ -34,20 +34,26 @@
 // PolicyState slots and spec.when decisions are indexed by Policy.Index
 // and grow to the largest index seen, keeping their memory across reuse.
 // Vars is the CEL activation of the current Phase: the pre-route variables
-// (request, source, now) from Begin, route from SetRoute, consumer and
-// auth from SetIdentity (Security and identity rule 2: a second binding is
-// filter.ErrSecondBinding), response and upstream from SetResponse, and
-// duration from SetFinal.
+// (request, source, now) from Begin, route and the Route deadline from
+// SetRoute, consumer and auth from SetIdentity (Security and identity rule
+// 2: a second binding is filter.ErrSecondBinding), response and upstream
+// from SetResponse, and duration from SetFinal. The Route deadline, the
+// request start plus the Route timeout, is the request deadline at which
+// every CEL evaluation after the match, onLog's included, stops a tracked
+// comprehension (expr.Vars.Deadline); before it, MatchRequest gives the
+// Router the request start, from which each candidate's own Route
+// deadline counts for its match.when.
 //
 // # Upstream legs
 //
 // Leg returns a fresh handle to a pooled leg state for one upstream leg:
 // the client request read-only, with its own Leg, outgoing request and
 // response messages, Vars copy (upstream, attempt, response and the
-// outgoing request view replaced), PolicyState slots, spec.when decisions,
-// buffer account and a copy of the State Store budget, so concurrent legs
-// of an aggregate composition share nothing mutable. Release merges the
-// leg's records into the request and returns the leg's memory to its pool.
+// outgoing request view replaced, the Route deadline kept), PolicyState
+// slots, spec.when decisions, buffer account and a copy of the State
+// Store budget, so concurrent legs of an aggregate composition share
+// nothing mutable. Release merges the leg's records into the request and
+// returns the leg's memory to its pool.
 // The memory is reused, the handle never is: once released, by Release or
 // by Pool.Put for a leg still live then, the handle and every view and
 // message taken from it do nothing, so a second or stale Release, or any

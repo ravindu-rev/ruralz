@@ -242,8 +242,11 @@ func (s *suite) request(t *testing.T, p *place, path string, in input) *http.Req
 }
 
 // do sends req and reads the answer.
-func (s *suite) do(req *http.Request) (answer, error) {
-	resp, err := s.client.Do(req)
+func (s *suite) do(req *http.Request) (answer, error) { return s.doOn(s.client, req) }
+
+// doOn sends req on client and reads the answer.
+func (s *suite) doOn(client *http.Client, req *http.Request) (answer, error) {
+	resp, err := client.Do(req)
 	if err != nil {
 		return answer{}, err
 	}

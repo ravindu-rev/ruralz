@@ -112,6 +112,59 @@ func TestSetRouteFixesRouteAndBudget(t *testing.T) {
 	}
 }
 
+// TestSetRouteGivesTheRouteDeadline checks that the activation carries
+// the request deadline every CEL evaluation stops a tracked comprehension
+// at (docs/architecture/02-configuration-model.md "Limits"): none before
+// the match, with the request start in the Router's input for the
+// candidates' own deadlines; the Route deadline, the request start plus
+// the Route timeout, once SetRoute fixed the Route, in the client
+// activation of every Phase, onLog's included, and in a leg's; none for
+// an unmatched request, a Route without a timeout, or the next request on
+// the pooled memory.
+func TestSetRouteGivesTheRouteDeadline(t *testing.T) {
+	f := newFixture(t)
+	x := f.begin(serverRequest(http.MethodGet, "/v1/orders", "", nil))
+	if d := x.Exchange().Vars().Deadline; !d.IsZero() {
+		t.Errorf("deadline before the match = %v, want none", d)
+	}
+	if s := x.MatchRequest().Start; !s.Equal(testStart()) {
+		t.Errorf("MatchRequest().Start = %v, want the request start %v", s, testStart())
+	}
+	rt := testRoute("orders", snapshot.BodyNeeds{})
+	x.SetRoute(rt, nil)
+	want := testStart().Add(rt.Timeout)
+	if d := x.Exchange().Vars().Deadline; !d.Equal(want) {
+		t.Errorf("deadline after SetRoute = %v, want the Route deadline %v", d, want)
+	}
+	x.Enter(nil, phase.OnLog, nil)
+	if d := x.Exchange().Vars().Deadline; !d.Equal(want) {
+		t.Errorf("onLog deadline = %v, want the Route deadline %v", d, want)
+	}
+	l := x.Leg("orders", "")
+	if d := l.Exchange().Vars().Deadline; !d.Equal(want) {
+		t.Errorf("leg deadline = %v, want the Route deadline %v", d, want)
+	}
+	l.Release()
+	x.SetRoute(nil, nil)
+	if d := x.Exchange().Vars().Deadline; !d.IsZero() {
+		t.Errorf("deadline of an unmatched request = %v, want none", d)
+	}
+	untimed := testRoute("untimed", snapshot.BodyNeeds{})
+	untimed.Timeout = 0
+	x.SetRoute(untimed, nil)
+	if d := x.Exchange().Vars().Deadline; !d.IsZero() {
+		t.Errorf("deadline of a Route without a timeout = %v, want none", d)
+	}
+	x.SetRoute(rt, nil)
+	f.pool.Put(x)
+
+	y := f.begin(serverRequest(http.MethodGet, "/v1/orders", "", nil))
+	defer f.pool.Put(y)
+	if d := y.Exchange().Vars().Deadline; !d.IsZero() {
+		t.Errorf("deadline of the next request before its match = %v, want none", d)
+	}
+}
+
 // TestSetIdentityOnce checks Security and identity rule 2: a second
 // successful authentication is filter.ErrSecondBinding and keeps the
 // first; the first sets CEL consumer and auth, and auth.mtls sets

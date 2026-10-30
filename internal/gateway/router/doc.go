@@ -33,8 +33,12 @@
 // matching with RZ-RT-006 and no fallthrough, so an erroring guard never
 // diverts traffic to a less protected Route. match.when sees the
 // candidate's template captures as request.pathParams, decoded, and
-// request.rawPathParams, as the normalized path holds them; on return the
-// activation holds the winner's captures, or none.
+// request.rawPathParams, as the normalized path holds them, and runs under
+// the candidate's Route deadline, the request start
+// (snapshot.MatchRequest.Start) plus its Route timeout, which stops a
+// tracked comprehension (expr.Vars.Deadline;
+// docs/architecture/02-configuration-model.md "Limits"); on return the
+// activation holds the winner's captures and Route deadline, or none.
 //
 // Match allocates nothing when params has room for MaxParams captures,
 // except to decode a percent-encoded capture, to join a repeated header

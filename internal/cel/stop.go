@@ -22,9 +22,9 @@ type stopPool struct {
 	clock clock.Clock
 	pool  sync.Pool // *stopper
 	// ended is canceled when the pool is made: the stop of an evaluation
-	// whose request context has ended or whose deadline has passed, which
-	// stops at the first interrupt check, as an expired context.WithTimeout
-	// would.
+	// whose request context has ended or whose request deadline has
+	// passed, which stops at the first interrupt check, as an expired
+	// context.WithTimeout would.
 	ended context.Context
 }
 
@@ -43,17 +43,21 @@ func newStopPool(clk clock.Clock) *stopPool {
 	return &stopPool{clock: clk, ended: ended}
 }
 
-// start returns the stop context of one evaluation under ctx: canceled
-// after the smaller of d and the time left before ctx's deadline, or
-// already canceled when ctx has ended or no time is left. The returned
-// stopper, nil for the ended context, goes back through end. A ctx
-// canceled after start no longer reaches the evaluation, which then still
-// stops at d or the deadline.
-func (s *stopPool) start(ctx context.Context, d time.Duration) (context.Context, *stopper) {
+// start returns the stop context of one evaluation under ctx with the
+// request deadline (expr.Vars.Deadline; the zero time is none): canceled
+// after the smaller of d and the time left before deadline on the pool's
+// clock, or already canceled when ctx has ended or no time is left, so an
+// evaluation that starts at or after its deadline stops at its first
+// interrupt check. ctx's own deadline is not read: it is a wall-clock
+// instant, while the request deadline runs on the pool's clock, as every
+// Node deadline does. The returned stopper, nil for the ended context,
+// goes back through end. A ctx canceled after start no longer reaches the
+// evaluation, which then still stops at d or the deadline.
+func (s *stopPool) start(ctx context.Context, deadline time.Time, d time.Duration) (context.Context, *stopper) {
 	if ctx.Err() != nil {
 		return s.ended, nil
 	}
-	if deadline, ok := ctx.Deadline(); ok {
+	if !deadline.IsZero() {
 		d = min(d, deadline.Sub(s.clock.Now()))
 	}
 	if d <= 0 {

@@ -45,7 +45,11 @@
 // raw query, sent as it is, and without one the client's raw query (after
 // the request Phases) is forwarded. A computed path that is not a
 // hardened path, or a computed query holding a raw control byte, fails
-// the step with RZ-RT-015.
+// the step with RZ-RT-015. A step's when and pathExpression evaluate over
+// a copy of the client's Base variables under the Route deadline
+// snapshot.Outbound.Deadline, at which a tracked comprehension stops
+// (expr.Vars.Deadline; docs/architecture/02-configuration-model.md
+// "Limits").
 //
 // A step fails on a leg without a response (its RZ-UP code, or RZ-RT-007
 // for a step started past the Route deadline), a CEL runtime error, a

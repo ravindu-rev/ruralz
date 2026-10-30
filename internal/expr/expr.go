@@ -280,8 +280,13 @@ type Refs struct {
 }
 
 // Program is an immutable compiled expression, safe for concurrent
-// evaluation. Evaluation reads v and never writes it; ctx supplies the
-// request deadline used by cost-tracked programs with comprehensions.
+// evaluation. Evaluation reads v and never writes it. A cost-tracked
+// program holding a comprehension stops at the earlier of v.Deadline and
+// the comprehension stop, both on the evaluating Compiler's clock and
+// fixed when the evaluation starts; one that starts at or after
+// v.Deadline, or under a ctx that has already ended, stops at its first
+// interrupt check. ctx's own deadline, a wall-clock instant, is never read
+// (docs/architecture/02-configuration-model.md "Limits").
 type Program interface {
 	// Place returns the place the program was compiled for.
 	Place() PlaceID
@@ -781,6 +786,14 @@ type Vars struct {
 	Now time.Time
 	// Duration is the total request time (onLog and accessLog.when).
 	Duration time.Duration
+	// Deadline is no CEL variable: it is the request deadline that stops a
+	// cost-tracked comprehension (Program), on the clock of the evaluating
+	// Compiler, ruralzd's process clock. The data plane sets the Route
+	// deadline, the request start plus the Route timeout, once the Route
+	// is fixed, and the candidate Route's while its match.when runs
+	// (docs/architecture/02-configuration-model.md "Limits"). The zero
+	// time is no deadline.
+	Deadline time.Time
 }
 
 // Reset clears v for reuse from a pool.

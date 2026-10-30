@@ -311,9 +311,11 @@ func stateStoreMax(ps []*snapshot.Policy) time.Duration {
 }
 
 // compileRouters compiles one Router per listener from the Routes bound
-// to it, with their compiled match.when, recording each Router the Router
-// package refuses at its listener. A Route whose match.when was refused,
-// a finding already, is left out, as the Revision is rejected anyway.
+// to it, with their compiled match.when and the Route timeout their
+// match.when's Route deadline counts from, recording each Router the
+// Router package refuses at its listener. A Route whose match.when was
+// refused, a finding already, is left out, as the Revision is rejected
+// anyway.
 func (b *build) compileRouters(whens map[string]expr.Program) error {
 	b.routers = make(map[string]snapshot.Router, len(b.gw.Spec.Listeners))
 	for _, l := range b.gw.Spec.Listeners {
@@ -326,7 +328,7 @@ func (b *build) compileRouters(whens map[string]expr.Program) error {
 			if rt.Spec.Match.When != "" && when == nil {
 				continue
 			}
-			rs = append(rs, router.Route{Index: b.routes[i].Index, Name: rt.Metadata.Name, Match: &rt.Spec.Match, When: when})
+			rs = append(rs, router.Route{Index: b.routes[i].Index, Name: rt.Metadata.Name, Match: &rt.Spec.Match, When: when, Timeout: b.routes[i].Timeout})
 		}
 		r, err := router.Compile(l.Hostnames, rs)
 		if err != nil {

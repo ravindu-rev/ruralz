@@ -100,7 +100,11 @@
 // plus one; it stops at response headers, so a slow body is not cut.
 // failureWhen feeds passive ejection and the breaker; the default retryOn
 // and failureWhen run natively (TestNativeDefaultsEqualCEL holds them equal
-// to their CEL sources). onUpstreamResponseHeaders runs for every attempt
+// to their CEL sources). hashKey, failureWhen and retryOn evaluate over
+// the leg's own copy of the client's Base variables under the Route
+// deadline snapshot.Outbound.Deadline, at which a tracked comprehension
+// stops (expr.Vars.Deadline; docs/architecture/02-configuration-model.md
+// "Limits"). onUpstreamResponseHeaders runs for every attempt
 // that was sent: with the response, or without one (filter.Leg.Response
 // nil, filter.Leg.ErrorKind set) on the leg's context, so a Filter can ask
 // for a retry or a Provider Fallback on a failed attempt too. After it,

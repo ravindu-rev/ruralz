@@ -16,6 +16,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/composition"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/forward"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/testkit/pki"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -455,6 +456,38 @@ func TestRouters(t *testing.T) {
 	if len(got) != 2 || !strings.Contains(got[0], `error RZ-CFG-023 Gateway/edge spec.listeners[name=public]: router: routes "open" and "posts" have identical match criteria`) ||
 		!strings.Contains(got[1], `error RZ-CFG-023 Gateway/edge spec.listeners[name=internal]:`) {
 		t.Errorf("findings\n%s\nwant one per listener", strings.Join(got, "\n"))
+	}
+}
+
+// TestRouterWhenDeadline checks that the Routers run each match.when under
+// its own Route's deadline: the request start plus the Route's effective
+// timeout, its spec.timeout or the 15 s default, at which a tracked
+// comprehension stops (docs/architecture/02-configuration-model.md
+// "Limits").
+func TestRouterWhenDeadline(t *testing.T) {
+	h := newHarness(t)
+	const shortWhen, defaultWhen = `request.method == "POST"`, `request.method == "PUT"`
+	short, def := h.cel.spy(shortWhen), h.cel.spy(defaultWhen)
+	s := h.mustCompile(h.validate(
+		gateway(""),
+		upstreamDoc("orders", "127.0.0.1:9001", ""),
+		doc("Route", "posts", "  match:\n    path:\n      prefix: /shop\n    when: '"+shortWhen+"'\n  upstreams:\n    - name: orders\n  timeout: 30ms\n"),
+		doc("Route", "puts", "  match:\n    path:\n      prefix: /shop\n    when: '"+defaultWhen+"'\n  upstreams:\n    - name: orders\n"),
+	), nil).Snapshot
+	req := &expr.Request{Method: http.MethodPut, Scheme: "http", Host: "shop.example", Path: "/shop", Header: http.Header{}}
+	q := &snapshot.MatchRequest{
+		Host: "shop.example", Path: "/shop", Method: http.MethodPut, Header: http.Header{},
+		Vars: &expr.Vars{Request: req, Now: t0}, Start: t0,
+	}
+	res := s.Routers["http"].Match(t.Context(), q, nil)
+	if res.Err != nil || res.Route < 0 || s.Routes[res.Route].Name != "puts" {
+		t.Fatalf("Match = %+v, want puts", res)
+	}
+	if got, want := short.deadlines(), []time.Time{t0.Add(30 * time.Millisecond)}; !slices.Equal(got, want) {
+		t.Errorf("posts' match.when saw deadlines %v, want %v", got, want)
+	}
+	if got, want := def.deadlines(), []time.Time{t0.Add(resilience.DefaultRouteTimeout)}; !slices.Equal(got, want) {
+		t.Errorf("puts' match.when saw deadlines %v, want %v", got, want)
 	}
 }
 

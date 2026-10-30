@@ -23,14 +23,16 @@ import (
 // expression does not select.
 
 // celFields maps each view's Go fields to the CEL field that reads it.
-// Prepared is the CEL implementation's cache and QuotaByName is for the
-// quota Policies (CEL reads Quotas); neither is a variable field.
+// Prepared is the CEL implementation's cache, QuotaByName is for the
+// quota Policies (CEL reads Quotas) and Deadline is the request deadline
+// of the comprehension stop; none is a variable field.
 func celFields() map[reflect.Type]map[string]string {
 	return map[reflect.Type]map[string]string{
 		reflect.TypeFor[expr.Vars](): {
 			"Request": "request", "Source": "source", "Route": "route", "Consumer": "consumer",
 			"Auth": "auth", "Response": "response", "Error": "error", "Upstream": "upstream",
 			"Attempt": "attempt", "Steps": "steps", "AI": "ai", "Now": "now", "Duration": "duration",
+			"Deadline": "",
 		},
 		reflect.TypeFor[expr.Request](): {
 			"Method": "method", "Scheme": "scheme", "Host": "host", "Path": "path",

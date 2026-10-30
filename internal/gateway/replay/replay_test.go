@@ -93,13 +93,15 @@ func saved(t *testing.T, target string, h http.Header) *http.Request {
 	return r
 }
 
-// legCall is what a leg saw of the replay.
+// legCall is what a leg saw of the replay: celDeadline is the request
+// deadline of its CEL activation.
 type legCall struct {
 	upstream       string
 	replay         bool
 	via            string
 	trace          emit.Decision
 	deadline       time.Time
+	celDeadline    time.Time
 	method, path   string
 	host, scheme   string
 	query          string
@@ -133,7 +135,7 @@ func (l *legRunner) RunLeg(ctx context.Context, name string, o *snapshot.Outboun
 		c.route = r.Name
 	}
 	if v := x.Vars(); v != nil {
-		c.consumer, c.auth = v.Consumer != nil, v.Auth != nil
+		c.consumer, c.auth, c.celDeadline = v.Consumer != nil, v.Auth != nil, v.Deadline
 	}
 	l.mu.Lock()
 	l.calls = append(l.calls, c)
@@ -182,8 +184,11 @@ func TestNewRequiresDeps(t *testing.T) {
 // leg to the named Upstream on a synthetic exchange (the saved request,
 // the named Route, no source, no consumer or auth), marked as a replay
 // without a Via entry or 103 relay, on a new unsampled root trace, with
-// the deadline at the call's start plus the Route timeout; the response
-// holds the pin and the in-flight unit until its body closes.
+// the deadline at the call's start plus the Route timeout, which is also
+// the request deadline of its CEL activation, where a tracked
+// comprehension stops (docs/architecture/02-configuration-model.md
+// "Limits"); the response holds the pin and the in-flight unit until its
+// body closes.
 func TestReplayRunsUpstreamLeg(t *testing.T) {
 	f := newFixture(t, 4)
 	legs := &legRunner{}
@@ -236,6 +241,9 @@ func TestReplayRunsUpstreamLeg(t *testing.T) {
 	}
 	if !c.deadline.Equal(epoch().Add(5 * time.Second)) {
 		t.Errorf("deadline = %v, want start + 5s", c.deadline)
+	}
+	if !c.celDeadline.Equal(c.deadline) {
+		t.Errorf("CEL activation deadline = %v, want the replay's deadline %v", c.celDeadline, c.deadline)
 	}
 	if req.Header.Get("Traceparent") == "" || len(req.Header) != 3 {
 		t.Errorf("saved request header = %v, want it untouched", req.Header)

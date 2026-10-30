@@ -338,7 +338,8 @@ loop:
 	return ls.end(ctx)
 }
 
-// hashKey evaluates the ring-hash key once per leg; retries reuse it. A
+// hashKey evaluates the ring-hash key once per leg, over the Base
+// variables under the Route deadline (baseVars); retries reuse it. A
 // runtime error picks weighted random Endpoints for the whole leg and is
 // counted in ruralz_upstream_cel_errors_total{field="hashKey"}.
 func (ls *legState) hashKey(ctx context.Context) {
@@ -346,7 +347,7 @@ func (ls *legState) hashKey(ctx context.Context) {
 	if u.alg != balance.RingHash || u.hashKey == nil {
 		return
 	}
-	k, err := u.hashKey.EvalString(ctx, ls.base)
+	k, err := u.hashKey.EvalString(ctx, ls.baseVars())
 	if err != nil {
 		ls.random = true
 		u.metrics.CELErrors[emit.CELHashKey].Add(ls.o.Stripe, 1)
@@ -871,16 +872,31 @@ func (ls *legState) unpark() {
 	ls.park = parked{}
 }
 
-// legVars returns the leg activation of retryOn and failureWhen: the
-// client request (without body), the response or the error, the attempt
-// and the upstream (name and Endpoint).
-func (ls *legState) legVars(attempt int, resp *http.Response, kind resilience.Kind, endpoint string) *expr.Vars {
+// baseVars returns the leg's own copy of the client's Base variables
+// (Outbound.X's activation, which concurrent legs share and none writes)
+// under the Route deadline Outbound.Deadline: the request deadline at
+// which hashKey, retryOn and failureWhen stop a tracked comprehension
+// (docs/architecture/02-configuration-model.md "Limits").
+func (ls *legState) baseVars() *expr.Vars {
 	v := &ls.vars
 	if ls.base != nil {
 		*v = *ls.base
 	} else {
 		*v = expr.Vars{}
 	}
+	v.Deadline = time.Time{}
+	if ls.o != nil {
+		v.Deadline = ls.o.Deadline
+	}
+	return v
+}
+
+// legVars returns the leg activation of retryOn and failureWhen: the
+// client request (without body), the response or the error, the attempt
+// and the upstream (name and Endpoint), under the Route deadline
+// (baseVars).
+func (ls *legState) legVars(attempt int, resp *http.Response, kind resilience.Kind, endpoint string) *expr.Vars {
+	v := ls.baseVars()
 	if v.Request == nil {
 		ls.req.Method = ls.method
 		v.Request = &ls.req

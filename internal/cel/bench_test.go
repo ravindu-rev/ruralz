@@ -34,12 +34,8 @@ func snapshotVars() *expr.Vars {
 
 // benchBool reports the evaluation of a bool program.
 func benchBool(b *testing.B, site expr.Site, src string, v *expr.Vars) {
-	benchBoolCtx(context.Background(), b, site, src, v)
-}
-
-// benchBoolCtx reports the evaluation of a bool program under ctx.
-func benchBoolCtx(ctx context.Context, b *testing.B, site expr.Site, src string, v *expr.Vars) {
 	prg := mustCapped(b, newCompiler(b), site, src, exampleCaps())
+	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
 		_, _ = prg.EvalBool(ctx, v)
@@ -88,12 +84,13 @@ func BenchmarkAuthzOrders(b *testing.B) {
 	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, snapshotVars())
 }
 
-// BenchmarkAuthzOrdersDeadline is BenchmarkAuthzOrders under a request
-// context with a deadline, as the data plane evaluates it.
+// BenchmarkAuthzOrdersDeadline is BenchmarkAuthzOrders with a request
+// deadline in the activation, as the data plane evaluates it: the Route
+// deadline of a matched request (expr.Vars.Deadline).
 func BenchmarkAuthzOrdersDeadline(b *testing.B) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-	defer cancel()
-	benchBoolCtx(ctx, b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, snapshotVars())
+	v := snapshotVars()
+	v.Deadline = time.Now().Add(time.Hour)
+	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, v)
 }
 
 // mapClaims is a JWT payload as auth.jwt holds it: a map that CEL reads in
@@ -112,7 +109,7 @@ func (c mapClaims) Tree() any { return map[string]any(c) }
 
 // BenchmarkAuthzOrdersJWTClaims is BenchmarkAuthzOrders over a verified
 // token's claims as auth.jwt sets them, eight registered and custom
-// members, under a request deadline.
+// members, with a request deadline in the activation.
 func BenchmarkAuthzOrdersJWTClaims(b *testing.B) {
 	v := snapshotVars()
 	v.Auth = &expr.Auth{Method: "jwt", Claims: mapClaims{
@@ -120,9 +117,8 @@ func BenchmarkAuthzOrdersJWTClaims(b *testing.B) {
 		"exp": json.Number("1793318400"), "iat": json.Number("1793314800"), "jti": "8f1c",
 		"azp": "portal", "scope": "orders:read orders:write",
 	}}
-	ctx, cancel := context.WithTimeout(context.Background(), time.Hour)
-	defer cancel()
-	benchBoolCtx(ctx, b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, v)
+	v.Deadline = time.Now().Add(time.Hour)
+	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, v)
 }
 
 func BenchmarkAccessLogWhen(b *testing.B) {

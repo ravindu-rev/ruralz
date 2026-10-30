@@ -181,7 +181,7 @@ func Snapshot(t testing.TB, s Spec) *snapshot.Snapshot {
 			}
 		}
 		for _, n := range names {
-			bound[n] = append(bound[n], router.Route{Index: int32(i), Name: r.Name, Match: r.Match, When: r.When})
+			bound[n] = append(bound[n], router.Route{Index: int32(i), Name: r.Name, Match: r.Match, When: r.When, Timeout: rt.Timeout})
 		}
 	}
 	for _, l := range listeners {

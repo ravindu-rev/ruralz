@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -44,6 +45,9 @@ type route struct {
 	grpc       string
 	grpcPrefix bool
 	when       expr.Program
+	// timeout is the effective Route timeout, from which when's Route
+	// deadline counts; 0 gives when no deadline.
+	timeout time.Duration
 }
 
 // compileRoute checks and compiles in's criteria.
@@ -59,7 +63,7 @@ func compileRoute(in *Route) (*route, error) {
 	case c.When == "" && in.When != nil:
 		return nil, errors.New("a match.when program is set without match.when")
 	}
-	rt := &route{index: in.Index, name: in.Name, key: routematch.MatchKey(&c), methods: c.Methods, when: in.When}
+	rt := &route{index: in.Index, name: in.Name, key: routematch.MatchKey(&c), methods: c.Methods, when: in.When, timeout: in.Timeout}
 	if err := rt.compilePath(c.Path); err != nil {
 		return nil, err
 	}
@@ -197,9 +201,10 @@ type matcher struct {
 	// params is the caller's storage, length 0.
 	params []expr.Param
 	// route is the winner's index, -1 until a Route wins; won holds its
-	// captures.
-	route int32
-	won   []expr.Param
+	// captures and timeout its Route timeout.
+	route   int32
+	won     []expr.Param
+	timeout time.Duration
 	// err is the RZ-RT-006 error of a failed match.when.
 	err error
 }
@@ -227,6 +232,7 @@ func (m *matcher) try(ctx context.Context, rt *route) bool {
 	}
 	if rt.when != nil {
 		m.setPathParams(params)
+		m.setDeadline(rt.timeout)
 		ok, err := rt.when.EvalBool(ctx, q.Vars)
 		if err != nil {
 			m.err = errcode.Wrap(codeWhen, fmt.Errorf("router: route %q: match.when: %w", rt.name, err))
@@ -236,7 +242,7 @@ func (m *matcher) try(ctx context.Context, rt *route) bool {
 			return false
 		}
 	}
-	m.route, m.won = rt.index, params
+	m.route, m.won, m.timeout = rt.index, params, rt.timeout
 	return true
 }
 
@@ -244,6 +250,23 @@ func (m *matcher) try(ctx context.Context, rt *route) bool {
 func (m *matcher) setPathParams(p []expr.Param) {
 	if v := m.q.Vars; v != nil && v.Request != nil {
 		v.Request.PathParams = p
+	}
+}
+
+// setDeadline sets the request deadline of the activation, if any, to the
+// Route deadline of a candidate whose Route timeout is timeout: the
+// request start plus timeout, which stops a tracked comprehension in the
+// candidate's match.when as it stops every later evaluation of a request
+// the candidate wins (docs/architecture/02-configuration-model.md
+// "Limits"). A zero timeout or request start sets none.
+func (m *matcher) setDeadline(timeout time.Duration) {
+	v := m.q.Vars
+	if v == nil {
+		return
+	}
+	v.Deadline = time.Time{}
+	if start := m.q.Start; timeout > 0 && !start.IsZero() {
+		v.Deadline = start.Add(timeout)
 	}
 }
 

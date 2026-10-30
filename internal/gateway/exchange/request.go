@@ -152,7 +152,8 @@ var _ snapshot.RequestState = (*Request)(nil)
 
 // Begin starts x for r, whose Body and ContentLength PrepareBody reads
 // later. It builds the pre-route activation (request without body, source,
-// now), binds the buffer account and resets the gateway-added timer. Until
+// now, no deadline) and the Router's input with the request start, binds
+// the buffer account and resets the gateway-added timer. Until
 // PrepareBody, the request body is empty.
 func (x *Request) Begin(r *http.Request, s *Start) {
 	x.hreq = r
@@ -176,7 +177,7 @@ func (x *Request) Begin(r *http.Request, s *Start) {
 	}
 	x.srcView = expr.Source{IP: s.Source.IP, Port: int(s.Source.Port), TLSVersion: tlsVersion(s.TLS)}
 	x.vars = expr.Vars{Request: &x.req, Source: &x.srcView, Now: s.Time.UTC()}
-	x.match = snapshot.MatchRequest{Host: r.Host, Path: s.Path, Method: r.Method, Header: x.hdr, Vars: &x.vars}
+	x.match = snapshot.MatchRequest{Host: r.Host, Path: s.Path, Method: r.Method, Header: x.hdr, Vars: &x.vars, Start: s.Time}
 	x.timer.Reset(s.Time)
 
 	x.acct.Bind(x.pool.budget, body.Gate, s.Stripe)
@@ -192,8 +193,10 @@ func tlsVersion(t *filter.ConnTLS) uint16 {
 }
 
 // MatchRequest returns the Router's input: the request host as received
-// (the Router normalizes it), the normalized path, method, headers and the
-// pre-route activation, whose request.pathParams Match sets.
+// (the Router normalizes it), the normalized path, method, headers, the
+// pre-route activation, whose request.pathParams and request deadline
+// Match sets, and the request start, from which each candidate's Route
+// deadline counts.
 func (x *Request) MatchRequest() *snapshot.MatchRequest { return &x.match }
 
 // ParamBuf returns empty storage for the Router's captures. Its capacity
@@ -202,19 +205,29 @@ func (x *Request) MatchRequest() *snapshot.MatchRequest { return &x.match }
 func (x *Request) ParamBuf() []expr.Param { return x.params[:0] }
 
 // SetRoute fixes the matched Route rt and its template captures (the
-// MatchResult's Params): CEL route and request.pathParams, the Route's
-// metric handles and the State Store budget of its largest
-// stateStoreTimeout. A nil rt leaves the request unmatched.
+// MatchResult's Params): CEL route and request.pathParams, the Route
+// deadline, the Route's metric handles and the State Store budget of its
+// largest stateStoreTimeout. The Route deadline, the request start plus
+// rt's timeout as the handler and a Response Cache replay date it, is the
+// activation's request deadline (expr.Vars.Deadline): every later CEL
+// evaluation of the request, on the client and in its legs, onLog's
+// included, stops a tracked comprehension at it
+// (docs/architecture/02-configuration-model.md "Limits"). A nil rt leaves
+// the request unmatched, without a deadline, as does a Route without a
+// timeout, which the snapshot compiler never builds.
 func (x *Request) SetRoute(rt *snapshot.Route, params []expr.Param) {
 	x.route = rt
 	x.req.PathParams = params
 	if cap(params) > cap(x.params) {
 		x.params = params[:0]
 	}
-	x.vars.Route = nil
+	x.vars.Route, x.vars.Deadline = nil, time.Time{}
 	maxWait := time.Duration(0)
 	if rt != nil {
 		x.vars.Route = rt.View
+		if rt.Timeout > 0 {
+			x.vars.Deadline = x.start.Add(rt.Timeout)
+		}
 		maxWait = rt.StateStoreMax
 	}
 	x.budget = statestore.NewRequestBudget(maxWait, x.stripe)

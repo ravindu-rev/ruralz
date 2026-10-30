@@ -82,18 +82,23 @@
 //
 // A tracked program holding a comprehension evaluates in an execution
 // frame whose context stops it at the smaller of the request deadline and
-// 50 ms (target, ADR-0019), fixed when the evaluation starts: a request
-// context that has already ended stops it at the first interrupt check,
-// and a cancellation during the evaluation does not stop it sooner. Either
-// stop is a runtime error, KindDeadline, even when cel-go's interrupted
-// comprehension yields an error value that a logical operator absorbs, as
-// in `list.exists(...) || b`: an evaluation whose interrupt check saw the
-// stop never yields a value. An untracked comprehension has
-// no stop, since its bound caps its work. The stop is a context and timer
-// taken from a pool the Compiler owns and returned unless it fired, so an
-// evaluation that finishes in time builds no context, timer or closure.
-// Its timer runs on the Compiler's clock: [NewWithClock] takes ruralzd's
-// process clock, and [New] the wall clock for validation.
+// 50 ms (target, ADR-0019), fixed when the evaluation starts. The request
+// deadline is expr.Vars.Deadline, which the data plane sets to the Route
+// deadline, on the Compiler's clock; a context's own deadline, a
+// wall-clock instant, is never read. An evaluation that starts at or after
+// its deadline, as an onLog one after a request that ran to its Route
+// deadline, or under a request context that has already ended, stops at
+// the first interrupt check, and a cancellation during the evaluation does
+// not stop it sooner. Either stop is a runtime error, KindDeadline, even
+// when cel-go's interrupted comprehension yields an error value that a
+// logical operator absorbs, as in `list.exists(...) || b`: an evaluation
+// whose interrupt check saw the stop never yields a value. An untracked
+// comprehension has no stop, since its bound caps its work. The stop is a
+// context and timer taken from a pool the Compiler owns and returned
+// unless it fired, so an evaluation that finishes in time builds no
+// context, timer or closure. Its timer runs on the Compiler's clock:
+// [NewWithClock] takes ruralzd's process clock, the clock of the Route
+// deadline, and [New] the wall clock for validation.
 //
 // What remains of a tracked evaluation's allocations is cel-go's: the cost
 // tracker clones itself, grows its value stack and copies call arguments

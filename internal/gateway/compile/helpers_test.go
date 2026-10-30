@@ -428,6 +428,56 @@ type recordingCEL struct {
 	consumers []*expr.Consumer
 	compiled  []compiledSrc
 	fail      map[string]string
+	// spies record the request deadline of every evaluation of their
+	// sources' programs.
+	spies map[string]*deadlineSpy
+}
+
+// deadlineSpy records the request deadline (expr.Vars.Deadline) of each
+// evaluation of a program.
+type deadlineSpy struct {
+	mu   sync.Mutex
+	seen []time.Time
+}
+
+// deadlines returns the deadlines recorded so far.
+func (s *deadlineSpy) deadlines() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return slices.Clone(s.seen)
+}
+
+// spyProgram is a compiled program whose bool evaluations its spy records.
+type spyProgram struct {
+	expr.Program
+	spy *deadlineSpy
+}
+
+func (p *spyProgram) EvalBool(ctx context.Context, v *expr.Vars) (bool, error) {
+	p.spy.mu.Lock()
+	p.spy.seen = append(p.spy.seen, v.Deadline)
+	p.spy.mu.Unlock()
+	return p.Program.EvalBool(ctx, v)
+}
+
+// spy makes the Builders wrap the programs of src in a spy, which it
+// returns.
+func (c *recordingCEL) spy(src string) *deadlineSpy {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.spies == nil {
+		c.spies = map[string]*deadlineSpy{}
+	}
+	s := &deadlineSpy{}
+	c.spies[src] = s
+	return s
+}
+
+// spyOf returns the spy of src, nil for none.
+func (c *recordingCEL) spyOf(src string) *deadlineSpy {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.spies[src]
 }
 
 // compiledSrc is one source a Builder compiled, at its site.
@@ -514,7 +564,11 @@ func (b *failingBuilder) Compile(site expr.Site, src string) (expr.Program, []ex
 	code, ok := b.c.failure(src)
 	switch {
 	case !ok:
-		return b.Builder.Compile(site, src)
+		prg, iss := b.Builder.Compile(site, src)
+		if s := b.c.spyOf(src); s != nil && prg != nil {
+			prg = &spyProgram{Program: prg, spy: s}
+		}
+		return prg, iss
 	case code == "":
 		return nil, nil
 	default:

@@ -133,9 +133,11 @@ func (p *Program) EvalValue(ctx context.Context, v *expr.Vars) (expr.Value, erro
 }
 
 // eval evaluates the program over v. A stoppable program runs under a
-// pooled stop that fires at the smaller of ctx's deadline and the stop, or
-// at once when ctx has already ended (stopPool); any other program cannot
-// run past the runtime limit and ignores ctx.
+// pooled stop that fires at the smaller of v.Deadline, the request
+// deadline, and the stop, on the Compiler's clock, or at its first
+// interrupt check when the deadline has passed or ctx has already ended
+// (stopPool); any other program cannot run past the runtime limit and
+// ignores both.
 func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 	if v == nil {
 		v = &expr.Vars{}
@@ -146,7 +148,7 @@ func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 		err error
 	)
 	if p.stoppable {
-		out, err = p.evalStoppable(ctx, act)
+		out, err = p.evalStoppable(ctx, v.Deadline, act)
 	} else {
 		out, _, err = p.prg.Eval(act)
 	}
@@ -160,21 +162,22 @@ func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 var errStopped = interpreter.EvalCancelledError{Message: "operation interrupted", Cause: interpreter.ContextCancelled}
 
 // evalStoppable evaluates a stoppable program in an execution frame whose
-// context is the stop, as ContextEval does, and keeps the frame until it
-// has read whether an interrupt check saw the stop. cel-go ends an
-// interrupted comprehension with an error value, which a logical operator
-// absorbs when its other operand decides, as in `list.exists(...) || b`;
-// a stop is a runtime error (docs/architecture/02-configuration-model.md
-// "Limits"), so an evaluation whose interrupt check saw its stop ends with
-// errStopped whatever value it produced. An evaluation that reached no
-// interrupt check after its stop keeps its result, as the stop acts only
-// through those checks. A cost-limit abort keeps its own error.
-func (p *Program) evalStoppable(ctx context.Context, act interpreter.Activation) (ref.Val, error) {
+// context is the stop at the earlier of deadline and p.stop, as
+// ContextEval does, and keeps the frame until it has read whether an
+// interrupt check saw the stop. cel-go ends an interrupted comprehension
+// with an error value, which a logical operator absorbs when its other
+// operand decides, as in `list.exists(...) || b`; a stop is a runtime
+// error (docs/architecture/02-configuration-model.md "Limits"), so an
+// evaluation whose interrupt check saw its stop ends with errStopped
+// whatever value it produced. An evaluation that reached no interrupt
+// check after its stop keeps its result, as the stop acts only through
+// those checks. A cost-limit abort keeps its own error.
+func (p *Program) evalStoppable(ctx context.Context, deadline time.Time, act interpreter.Activation) (ref.Val, error) {
 	frame, err := interpreter.NewExecutionFrame(act)
 	if err != nil {
 		return nil, err
 	}
-	sctx, st := p.stops.start(ctx, p.stop)
+	sctx, st := p.stops.start(ctx, deadline, p.stop)
 	defer p.stops.end(st)
 	if err := frame.SetContext(sctx, interruptCheckFrequency); err != nil {
 		frame.Close()

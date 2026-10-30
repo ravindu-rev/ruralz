@@ -179,12 +179,16 @@ func TestRequestReset(t *testing.T) {
 	}
 }
 
+// TestVarsReset checks that Reset clears every field, the request
+// deadline included, so a pooled activation never carries a former
+// request's variables or deadline.
 func TestVarsReset(t *testing.T) {
 	v := &Vars{
 		Request: &Request{}, Source: &Source{IP: netip.MustParseAddr("192.0.2.1")}, Route: &Route{Name: "r"},
 		Consumer: &Consumer{Name: "c"}, Auth: &Auth{Method: "jwt"}, Response: &Response{Status: 200},
 		Error: &AttemptError{Kind: "connect"}, Upstream: &Upstream{Name: "u"}, Attempt: 2, Steps: &Steps{},
 		AI: &AI{Model: "m"}, Now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), Duration: time.Second,
+		Deadline: time.Date(2026, 9, 26, 0, 0, 15, 0, time.UTC),
 	}
 	rv := reflect.ValueOf(v).Elem()
 	for i := range rv.NumField() {

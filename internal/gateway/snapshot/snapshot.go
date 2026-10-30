@@ -186,8 +186,13 @@ type MatchRequest struct {
 	Method string
 	Header http.Header
 	// Vars is the pre-route activation (request, source, now) for
-	// match.when; Match sets its request.pathParams.
+	// match.when; Match sets its request.pathParams and its request
+	// deadline.
 	Vars *expr.Vars
+	// Start is the request start on the handler's clock: a candidate's
+	// match.when runs under that candidate's Route deadline, Start plus
+	// its timeout (expr.Vars.Deadline). The zero time sets no deadline.
+	Start time.Time
 }
 
 // MatchResult is the Router's answer.

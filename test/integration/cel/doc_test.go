@@ -12,5 +12,9 @@
 // comprehension stop, the last two through one expression that the 64 KiB
 // header cap leaves tracked. Each case asserts the place's "On runtime
 // error" behavior and its signal, and the stop is a Node deadline on the
-// controllable clock: the answer waits for the clock to pass it.
+// controllable clock: the answer waits for the clock to pass it. On
+// Routes whose 30 ms timeout comes before the 50 ms stop, a match.when and
+// an authz.cel rule stop at the Route deadline instead, and
+// accessLog.when, which starts past it, stops at its first interrupt
+// check.
 package cel

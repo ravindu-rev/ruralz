@@ -51,11 +51,15 @@
 // The Route timeout starts at the request start: on the handler's clock it
 // cancels the root context with context.DeadlineExceeded, which ends State
 // Store calls, legs and body reads, and an Upstream attempt it cuts counts
-// as timed out. M1 serves Upstream protocol http only; a Route with
-// another is an internal fault, 500 RZ-RT-025. A WebSocket upgrade is 400
-// RZ-RT-023 after the match and before onRequestHeaders, and the response
-// Phases run on it as on any generated response. Otherwise the executor
-// runs onRequestHeaders; the request body is prepared
+// as timed out. The same Route deadline is the request deadline at which
+// every CEL evaluation after the match stops a tracked comprehension
+// (exchange.Request.SetRoute), and each candidate's match.when runs under
+// its own Route's deadline, counted from the request start the Router
+// gets with the request. M1 serves Upstream protocol http only; a Route
+// with another is an internal fault, 500 RZ-RT-025. A WebSocket upgrade is
+// 400 RZ-RT-023 after the match and before onRequestHeaders, and the
+// response Phases run on it as on any generated response. Otherwise the
+// executor runs onRequestHeaders; the request body is prepared
 // (exchange.Request.PrepareBody: a gated body read whole as client I/O, a
 // declared or read length over limits.maxRequestBodyBytes 413 RZ-RT-003, a
 // spent buffer budget 503 RZ-RT-004, a body that cannot be read aborts the
@@ -151,12 +155,13 @@
 // which the request path does not pay.
 //
 // Times come from the injected clock, which ruralzd sets to the process
-// clock: the request start, the Route deadline the Upstream layer compares
-// with its own process clock, the deadline timer, durations and the Date
-// field share it, so in the controllable-clock test build they all move
-// only on the harness's commands. The connection's read and write
-// deadlines, which the Go runtime enforces, are dated on the injected wall
-// clock instead, at the same distance from the request start
+// clock: the request start, the Route deadline the Upstream layer and the
+// CEL comprehension stop compare with their own process clock, the
+// deadline timer, durations and the Date field share it, so in the
+// controllable-clock test build they all move only on the harness's
+// commands. The connection's read and write deadlines, which the Go
+// runtime enforces, are dated on the injected wall clock instead, at the
+// same distance from the request start
 // (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
 // scope"); tests drive the handler with
 // internal/gateway/handler/handlertest.

@@ -26,7 +26,9 @@
 // rules. Every leg removes the forwarding fields of the saved request and
 // adds none, and adds no Via entry, since a replay has no client hop
 // (snapshot.Outbound.Replay). The deadline is the call's start plus the
-// Route timeout on the Replayer's clock; the caller's context, the
+// Route timeout on the Replayer's clock, which is also the request
+// deadline at which the replay's CEL evaluations stop a tracked
+// comprehension (exchange.Request.SetRoute); the caller's context, the
 // revalidation worker's own bound, still cancels it, and so does the
 // ending protocol.
 //

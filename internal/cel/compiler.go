@@ -48,12 +48,13 @@ var _ expr.Compiler = (*Compiler)(nil)
 // whose programs never evaluate a request.
 func New() (*Compiler, error) { return NewWithClock(clock.Real()) }
 
-// NewWithClock is New with the clock that times comprehension stops.
-// ruralzd passes its process clock, as for every Node deadline, so the
-// controllable-clock test build stops a comprehension only when the
-// harness moves the clock past the stop
-// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
-// scope").
+// NewWithClock is New with the clock that times comprehension stops and
+// reads the request deadline (expr.Vars.Deadline). ruralzd passes its
+// process clock, the clock of the Route deadline and of every Node
+// deadline, so the controllable-clock test build stops a comprehension
+// only when the harness moves the clock past the stop or the Route
+// deadline (docs/engineering/03-testing-and-quality-strategy.md "Hermetic
+// rule scope").
 func NewWithClock(clk clock.Clock) (*Compiler, error) {
 	p, err := celtypes.NewProvider()
 	if err != nil {
