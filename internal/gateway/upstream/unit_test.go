@@ -167,4 +167,65 @@ func TestStatus(t *testing.T) {
 	if st[0].Breaker.State != resilience.StateClosed || st[0].Balancers[0].Algorithm != balance.LeastRequest || st[0].Source.Type != "static" {
 		t.Errorf("breaker %v, algorithm %v, source %q; want closed, least-request, static", st[0].Breaker.State, st[0].Balancers[0].Algorithm, st[0].Source.Type)
 	}
+	if !st[0].Live {
+		t.Error("the activated snapshot's runtime is not live")
+	}
+}
+
+// TestStatusLive checks Status.Live, the "one entry per Upstream runtime a
+// live snapshot holds" rule of /debug/upstreams
+// (docs/architecture/03-data-plane.md "Admin endpoints"): a runtime only a
+// compiled Set holds is not live until the Set activates, a runtime stays
+// live while any activated Set that holds it is open, and closing a Set
+// that never activated changes no other runtime.
+func TestStatusLive(t *testing.T) {
+	f := newFixture(t)
+	compile := func(names ...string) *Set {
+		t.Helper()
+		var cfgs []Config
+		for _, n := range names {
+			cfgs = append(cfgs, Config{Upstream: newUpstream(n, "10.0.0.1:80")})
+		}
+		s, err := f.m.Compile(t.Context(), Input{Upstreams: cfgs})
+		if err != nil {
+			t.Fatalf("Compile: %v", err)
+		}
+		t.Cleanup(func() { _ = s.Close() })
+		return s
+	}
+	live := func() map[string]bool {
+		out := map[string]bool{}
+		for _, s := range f.m.Status() {
+			out[s.Name] = s.Live
+		}
+		return out
+	}
+	check := func(step string, want map[string]bool) {
+		t.Helper()
+		if got := live(); fmt.Sprint(got) != fmt.Sprint(want) {
+			t.Errorf("%s: Status liveness = %v, want %v", step, got, want)
+		}
+	}
+
+	a := compile("orders")
+	check("compiled, not activated", map[string]bool{"orders": false})
+	a.Activate()
+	check("activated", map[string]bool{"orders": true})
+	b := compile("orders", "users")
+	check("next Revision compiled", map[string]bool{"orders": true, "users": false})
+	b.Activate()
+	check("next Revision activated", map[string]bool{"orders": true, "users": true})
+	if err := a.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check("old snapshot closed", map[string]bool{"orders": true, "users": true})
+	c := compile("orders", "audit")
+	if err := c.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check("rejected Revision closed", map[string]bool{"orders": true, "users": true})
+	if err := b.Close(); err != nil {
+		t.Fatal(err)
+	}
+	check("last snapshot closed", map[string]bool{})
 }

@@ -38,5 +38,8 @@
 // Endpoint weights follow one rule everywhere: an Endpoint of weight 0 is
 // never picked while another Endpoint weighs more than 0, and when every
 // weight is 0 they all weigh 1 (the SRV weight rule applied to static
-// weights too).
+// weights too). A Route's upstreams entries follow the same rule over the
+// entries a pick may take (Split): every entry on the first pick, the
+// entries not tried yet when a refused leg picks again (Split.PickExcept),
+// so a weight-0 entry serves once every weighted entry was refused.
 package balance

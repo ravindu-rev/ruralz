@@ -111,8 +111,7 @@ const (
 	GateBreaker
 	// GateBulkhead is a full bulkhead with a full waiter queue: RZ-UP-006.
 	GateBulkhead
-	// GateNoEndpoint is an empty Endpoint set (or all-zero weights of a
-	// Route's upstreams): RZ-UP-008.
+	// GateNoEndpoint is an empty Endpoint set: RZ-UP-008.
 	GateNoEndpoint
 )
 

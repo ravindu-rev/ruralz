@@ -4,6 +4,7 @@
 package balance
 
 import (
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"slices"
@@ -225,25 +226,54 @@ func FuzzReplan(f *testing.F) {
 	})
 }
 
-// FuzzSplit is the weighted leg pick property: a pick never lands on
-// weight 0 and fails only when every weight is 0.
+// FuzzSplit is the weighted leg pick property: Pick fails only without
+// entries and lands on weight 0 only when every weight is 0; picking again
+// with PickExcept after each pick never returns a tried entry, visits
+// every entry exactly once, every weighted entry before any weight-0 one,
+// and then fails. More than 64 entries reach the set's allocated words.
 func FuzzSplit(f *testing.F) {
 	f.Add([]byte{95, 0, 5, 0}, uint64(1))
 	f.Add([]byte{0, 0, 0, 0}, uint64(2))
 	f.Add([]byte{0, 0, 1, 0, 0, 0, 1, 0, 2, 0, 3, 0, 4, 0, 5, 0, 6, 0, 7, 0}, uint64(3))
+	f.Add(bytes.Repeat([]byte{1, 0, 0, 0}, 50), uint64(4))
 	f.Fuzz(func(t *testing.T, data []byte, seed uint64) {
-		w := weightsFrom(data, 64)
+		w := weightsFrom(data, 160)
 		s := NewSplit(w)
 		live := slices.ContainsFunc(w, func(x uint32) bool { return x > 0 })
 		src := pcg(seed)
 		for range 16 {
 			i, ok := s.Pick(src)
-			if ok != live {
+			if ok != (len(w) > 0) {
 				t.Fatalf("Pick ok %v with weights %v", ok, w)
 			}
-			if ok && w[i] == 0 {
-				t.Fatalf("picked weight-0 entry %d", i)
+			if ok && live && w[i] == 0 {
+				t.Fatalf("picked weight-0 entry %d while another weighs more", i)
 			}
+		}
+		i, ok := s.Pick(src)
+		if !ok {
+			return
+		}
+		var tried Tried
+		tried.Add(i)
+		visited, zeroSeen := 1, w[i] == 0
+		for {
+			j, ok := s.PickExcept(src, &tried)
+			if !ok {
+				break
+			}
+			if tried.Has(j) {
+				t.Fatalf("PickExcept returned tried entry %d", j)
+			}
+			if w[j] > 0 && zeroSeen {
+				t.Fatalf("weighted entry %d picked after a weight-0 one", j)
+			}
+			zeroSeen = zeroSeen || w[j] == 0
+			tried.Add(j)
+			visited++
+		}
+		if visited != len(w) {
+			t.Fatalf("visited %d of %d entries", visited, len(w))
 		}
 	})
 }

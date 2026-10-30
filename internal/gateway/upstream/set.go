@@ -73,6 +73,7 @@ func (s *Set) Activate() {
 	cleartext := 0
 	for _, u := range s.sorted() {
 		u.rt.activate(u)
+		u.rt.live++
 		if u.tls.cfg == nil {
 			cleartext++
 		}
@@ -96,6 +97,11 @@ func (s *Set) Close() error {
 		return nil
 	}
 	s.closed = true
+	if s.activated {
+		for _, u := range s.ups {
+			u.rt.live--
+		}
+	}
 	s.releaseLocked()
 	if m.active == s {
 		m.active = nil

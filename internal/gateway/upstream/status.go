@@ -17,6 +17,10 @@ import (
 type Status struct {
 	// Name is the Upstream's metadata.name.
 	Name string
+	// Live reports that a live snapshot holds the runtime: an activated
+	// Set not yet closed. A runtime only a Set being compiled or never
+	// activated holds is not live, and /debug/upstreams leaves it out.
+	Live bool
 	// Source is the active Endpoint source's refresh state.
 	Source discovery.Status
 	// Balancers describe the published balancer structures, one per

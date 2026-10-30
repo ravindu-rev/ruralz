@@ -95,5 +95,6 @@
 // Times come from the injected clock.Clock and randomness from the
 // injected source, so tests run on clocktest.Fake. The package logs
 // nothing: errors reach the caller, telemetry and /debug/upstreams
-// (Manager.Status).
+// (Manager.Status, whose Live runtimes internal/gateway/upstream/forward
+// turns into the endpoint's body).
 package upstream

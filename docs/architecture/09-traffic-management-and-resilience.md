@@ -12,7 +12,7 @@ Non-goals, with owners: kinds and fields ([Configuration model](02-configuration
 
 ## Load balancing
 
-Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state, Planned (M1) for `http` Upstreams. A Route picks an `upstreams` entry per request by `weight`, under the Endpoint weight rule: an entry of weight 0 is never picked while another weighs more, and if every weight is 0 all weigh 1. When the picked entry's leg is refused before any attempt is sent (`RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`), the request picks again by weight among the entries it has not tried, each at most once, and answers with the last refusal when none is left. The Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
+Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state, Planned (M1) for `http` Upstreams. A Route picks an `upstreams` entry per request by `weight`, under the Endpoint weight rule: an entry of weight 0 is never picked while another weighs more, and if every weight is 0 all weigh 1. When the picked entry's leg is refused before any attempt is sent (`RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`), the request picks again by weight among the entries it has not tried, under the same rule, so a weight-0 entry serves once every weighted entry was refused; each entry is tried at most once, and the request answers with the last refusal when none is left. A leg that sent an attempt is final, even when a retry attempt is refused. The Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
 
 | Algorithm | Selection | Best for |
 |---|---|---|

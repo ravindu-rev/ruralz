@@ -487,18 +487,24 @@ func (m *Manager) applyPlanLocked(s *Set, plan balance.Plan) {
 }
 
 // Status returns the state of every Upstream runtime, by name, for
-// /debug/upstreams.
+// /debug/upstreams; Status.Live marks the runtimes a live snapshot holds.
 func (m *Manager) Status() []Status {
+	type entry struct {
+		rt   *runtime
+		live bool
+	}
 	m.mu.Lock()
-	rts := make([]*runtime, 0, len(m.runtimes))
+	rts := make([]entry, 0, len(m.runtimes))
 	for _, rt := range m.runtimes {
-		rts = append(rts, rt)
+		rts = append(rts, entry{rt: rt, live: rt.live > 0})
 	}
 	m.mu.Unlock()
-	slices.SortFunc(rts, func(a, b *runtime) int { return cmp.Compare(a.name, b.name) })
+	slices.SortFunc(rts, func(a, b entry) int { return cmp.Compare(a.rt.name, b.rt.name) })
 	out := make([]Status, 0, len(rts))
-	for _, rt := range rts {
-		out = append(out, rt.status())
+	for _, e := range rts {
+		st := e.rt.status()
+		st.Live = e.live
+		out = append(out, st)
 	}
 	return out
 }

@@ -39,6 +39,10 @@ type runtime struct {
 	name    string
 	tracker *health.Tracker
 	res     *resilience.Runtime
+	// live counts the activated Sets not yet closed that hold the runtime:
+	// the live snapshots /debug/upstreams lists it for. Guarded by
+	// Manager.mu.
+	live int
 	// metrics are the active snapshot's handles; nil before the first
 	// activation.
 	metrics atomic.Pointer[emit.UpstreamMetrics]

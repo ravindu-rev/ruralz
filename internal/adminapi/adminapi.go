@@ -3,9 +3,10 @@
 
 // Package adminapi holds the JSON wire shapes of the Ruralz Gateway admin
 // API (port 9901) that ruralzd serves and the ruralz CLI reads: /readyz,
-// /tap events and drop notices, /debug/snapshots. /config/dump is the
-// RFC 8785 document of internal/config/canonical. Shapes are versioned
-// surfaces: members are only added, and readers ignore unknown members.
+// /tap events and drop notices, /debug/snapshots, /debug/upstreams.
+// /config/dump is the RFC 8785 document of internal/config/canonical.
+// Shapes are versioned surfaces: members are only added, and readers
+// ignore unknown members.
 package adminapi
 
 // Readiness reasons of /readyz.

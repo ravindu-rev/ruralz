@@ -7,7 +7,8 @@ import (
 	"testing"
 )
 
-// TestPickAllocations is the allocation gate: the onRoute pick and every
+// TestPickAllocations is the allocation gate: the onRoute pick, the pick
+// again after a refused leg (with its tried set on the stack) and every
 // Endpoint selection allocate nothing, including under exclusions, a stale
 // structure and the keyless ring-hash pick; HashKey allocates nothing
 // either.
@@ -19,6 +20,25 @@ func TestPickAllocations(t *testing.T) {
 	src := pcg(1)
 	if a := testing.AllocsPerRun(1000, func() { split.Pick(src) }); a != 0 {
 		t.Errorf("Split.Pick allocates %.1f", a)
+	}
+	zeros := NewSplit([]uint32{0, 0, 0})
+	if a := testing.AllocsPerRun(1000, func() { zeros.Pick(src) }); a != 0 {
+		t.Errorf("Split.Pick with every weight 0 allocates %.1f", a)
+	}
+	three := NewSplit([]uint32{3, 0, 5, 0, 1})
+	if a := testing.AllocsPerRun(1000, func() {
+		var tried Tried
+		tried.Add(2)
+		if _, ok := three.PickExcept(src, &tried); !ok {
+			t.Fatal("PickExcept failed")
+		}
+		tried.Add(0)
+		tried.Add(4)
+		if _, ok := three.PickExcept(src, &tried); !ok {
+			t.Fatal("PickExcept of a weight-0 entry failed")
+		}
+	}); a != 0 {
+		t.Errorf("Split.PickExcept allocates %.1f", a)
 	}
 	var sink uint64
 	if a := testing.AllocsPerRun(1000, func() { sink = HashKey("user-1234567") }); a != 0 || sink == 0 {
