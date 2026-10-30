@@ -11,7 +11,7 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 
 ## Ground rules
 
-- The Go types in `pkg/config/v1alpha1` are the only source of `api/schema/ruralz/v1alpha1/{authoring,rendered}.schema.json`. Never edit the JSON. After a change run `go generate ./pkg/config/v1alpha1` and commit types and JSON together; `TestCommittedSchemaIsCurrent` fails on a stale schema and `make generate` diffs against the index.
+- The Go types in `pkg/config/v1alpha1` are the only source of `api/schema/ruralz/v1alpha1/{authoring,rendered}.schema.json` and of the served-feature table `internal/config/registry/planned_gen.go`. Never edit either. After a change run `go generate ./pkg/config/v1alpha1` and commit types, JSON and table together; `TestCommittedSchemaIsCurrent` and `TestCommittedPlannedIsCurrent` fail on stale output and `make generate` diffs against the index.
 - Add or change a field only when the configuration model defines it; its Kind catalog sketches are normative for names, `# required` and list types. Otherwise ask the owner.
 - `pkg/` non-test files import only the standard library and `pkg/`.
 - The 10 kinds are fixed (foundation pack section 3).
@@ -52,10 +52,11 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 | `open` | struct | Omits `additionalProperties: false` |
 | `minProperties=<n>` | struct or map field | The standard keyword |
 | `exactlyOneOf=`, `atMostOneOf=`, `atLeastOneOf=<json fields>` | struct | Presence constraints |
-| `requiredIf=<field>,<member>=<value>` | struct | `if`/`then`: `<field>` is required when `<member>` equals `<value>`, which must be in the member's enum |
+| `requiredIf=<field>,<member>=<value>` | struct | `if`/`then`: `<field>` is required when `<member>` equals `<value>`, which must be in the member's enum, or `true` or `false` for a bool member, whose `const` is then the boolean |
+| `planned=<milestone>` | a kind's spec type, field or enum `const` | No schema keyword: a row of the served-feature table `internal/config/registry/planned_gen.go`, which the Node's serve check refuses with RZ-CFG-040 when present with a value other than its default; the milestone must come after `ReleaseMilestone` of `internal/config/registry`, up to `M5`. Never on a `PolicyType` or `Kind` constant: Policy types take their milestone from the Policy type registry |
 | `pattern=`, `minLength=`, `maxLength=`, `minimum=`, `maximum=`, `minItems=` | field or named string type | The standard keyword |
 
-An unknown marker, or a marker given a value it does not take, fails generation (`internal/tool/schemagen/source.go`).
+An unknown marker, or a marker given a value it does not take, fails generation (`internal/tool/schemagen/source.go`). A constant takes no marker but `planned`.
 
 ## Adding a Policy type
 

@@ -152,10 +152,10 @@ lint: $(GOLANGCI_LINT) $(ACTIONLINT) ## Stage 2: gofumpt, goimports, golangci-li
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofumpt and goimports
 	$(GOLANGCI_LINT) fmt ./...
 
-# Generated trees diffed by stage 3: the JSON Schema (schemagen) and
-# the alert rules and dashboards generated from the telemetry catalog
-# (telemetrygen).
-GENERATED := api/schema/ruralz deploy/grafana
+# Generated trees diffed by stage 3: the JSON Schema and the
+# served-feature table (schemagen) and the alert rules and dashboards
+# generated from the telemetry catalog (telemetrygen).
+GENERATED := api/schema/ruralz internal/config/registry/planned_gen.go deploy/grafana
 
 generate: ## Stage 3: regenerate the JSON Schema, alert rules and dashboards and fail on any difference
 	go generate ./...

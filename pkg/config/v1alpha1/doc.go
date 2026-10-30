@@ -28,4 +28,4 @@
 // empty value from an absent one.
 package v1alpha1
 
-//go:generate go run ../../../internal/tool/schemagen -out ../../../api/schema/ruralz/v1alpha1
+//go:generate go run ../../../internal/tool/schemagen -out ../../../api/schema/ruralz/v1alpha1 -registry ../../../internal/config/registry

@@ -480,6 +480,9 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 	for _, m := range info.doc.markers {
 		switch m.name {
 		case "policyType":
+		case "planned":
+			// No schema keyword: a row of the served-feature table
+			// (plannedTable), which checks the marker.
 		case "open":
 			open = true
 		case "minProperties":
@@ -690,6 +693,9 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 				return nil, false, fmt.Errorf("+ruralz:minProperties=%s: want a non-negative integer", m.value)
 			}
 		case "default":
+		case "planned":
+			// No schema keyword: a row of the served-feature table
+			// (plannedTable), which checks the marker.
 		default:
 			if !isValueMarker(m.name) {
 				return nil, false, fmt.Errorf("marker %s is not allowed on a field", m.name)

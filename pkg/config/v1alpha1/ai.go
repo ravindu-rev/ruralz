@@ -23,6 +23,7 @@ const (
 )
 
 // AIProviderSpec is the spec of an AIProvider. Planned (M3).
+// +ruralz:planned=M3
 type AIProviderSpec struct {
 	// Dialect is the provider's wire dialect.
 	// +ruralz:required
@@ -90,6 +91,7 @@ const (
 )
 
 // AIModelSpec is the spec of an AIModel. Planned (M3).
+// +ruralz:planned=M3
 type AIModelSpec struct {
 	// Strategy selects among candidates.
 	// +ruralz:required

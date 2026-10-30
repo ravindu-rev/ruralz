@@ -219,8 +219,13 @@ func TestAcquireErrors(t *testing.T) {
 	t.Run("opener error", func(t *testing.T) {
 		o := &opener{err: openErr}
 		f := newFixture(t, o.openers())
-		if _, err := f.m.Acquire(t.Context(), redisSpec("redis://127.0.0.1:6379")); !errors.Is(err, openErr) {
+		_, err := f.m.Acquire(t.Context(), redisSpec("redis://127.0.0.1:6379"))
+		if !errors.Is(err, openErr) {
 			t.Errorf("Acquire = %v, want the opener's error", err)
+		}
+		var oe *OpenError
+		if !errors.As(err, &oe) || oe.Role != statestore.RoleMain || oe.Driver != statestore.DriverRedis {
+			t.Errorf("Acquire = %v, want an OpenError of the main redis driver", err)
 		}
 		if f.entries() != 0 {
 			t.Errorf("%d drivers left open", f.entries())
@@ -231,8 +236,12 @@ func TestAcquireErrors(t *testing.T) {
 		f := newFixture(t, Openers{Memory: mem.open, Redis: (&opener{err: openErr}).open})
 		spec := memorySpec(statestore.SourceGateway)
 		spec.Cache = cacheConfig("redis://127.0.0.1:6380")
-		if _, err := f.m.Acquire(t.Context(), spec); !errors.Is(err, openErr) {
+		_, err := f.m.Acquire(t.Context(), spec)
+		if !errors.Is(err, openErr) {
 			t.Fatalf("Acquire = %v, want the cache opener's error", err)
+		}
+		if oe := (*OpenError)(nil); !errors.As(err, &oe) || oe.Role != statestore.RoleCache {
+			t.Errorf("Acquire = %v, want an OpenError of the cache connection", err)
 		}
 		ds := mem.drivers()
 		if len(ds) != 1 {

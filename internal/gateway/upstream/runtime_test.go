@@ -163,6 +163,9 @@ func TestCompileRejects(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newFixture(t)
+			if err := Check(&Config{Upstream: tc.u}, secretStore{}); codeOf(err) != tc.code {
+				t.Errorf("Check = %v, want %s", err, tc.code)
+			}
 			ok := newUpstream("fine", "10.0.0.1:80")
 			_, err := f.m.Compile(t.Context(), Input{Upstreams: []Config{{Upstream: ok}, {Upstream: tc.u}}, Secrets: secretStore{}})
 			if codeOf(err) != tc.code {
@@ -176,6 +179,19 @@ func TestCompileRejects(t *testing.T) {
 	f := newFixture(t)
 	if _, err := f.m.Compile(t.Context(), Input{Upstreams: []Config{{Upstream: newUpstream("dup")}, {Upstream: newUpstream("dup")}}}); err == nil {
 		t.Error("Compile with a duplicate name succeeded")
+	}
+}
+
+// TestCheckPasses checks that Check passes what Compile serves: a
+// cleartext Upstream and one whose TLS CA bundle loads.
+func TestCheckPasses(t *testing.T) {
+	srv := newTLSServer(t, status(http.StatusOK, ""))
+	secure := newUpstream("secure", srv.addr)
+	secure.Spec.TLS = &v1alpha1.UpstreamTLS{CACertificate: &v1alpha1.SecretValue{SecretRef: v1alpha1.SecretRef{Provider: v1alpha1.SecretProviderFile, Name: caRef().Name}}}
+	for _, c := range []Config{{Upstream: newUpstream("plain", "10.0.0.1:80")}, {Upstream: secure}} {
+		if err := Check(&c, caStore(srv.Server)); err != nil {
+			t.Errorf("Check(%s) = %v, want nil", c.Upstream.Metadata.Name, err)
+		}
 	}
 }
 

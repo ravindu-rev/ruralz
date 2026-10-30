@@ -11,18 +11,25 @@ const (
 	// UpstreamProtocolHTTP is Planned (M1).
 	UpstreamProtocolHTTP UpstreamProtocol = "http"
 	// UpstreamProtocolGRPC is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolGRPC UpstreamProtocol = "grpc"
 	// UpstreamProtocolGraphQL is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolGraphQL UpstreamProtocol = "graphql"
 	// UpstreamProtocolWebSocket is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolWebSocket UpstreamProtocol = "websocket"
 	// UpstreamProtocolKafka is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolKafka UpstreamProtocol = "kafka"
 	// UpstreamProtocolNATS is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolNATS UpstreamProtocol = "nats"
 	// UpstreamProtocolMQTT is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolMQTT UpstreamProtocol = "mqtt"
 	// UpstreamProtocolAI is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolAI UpstreamProtocol = "ai"
 )
 
@@ -63,6 +70,7 @@ type UpstreamSpec struct {
 	// +ruralz:impact=traffic
 	Timeout *Duration `json:"timeout,omitempty"`
 	// Messaging applies to kafka, nats and mqtt only. Planned (M4).
+	// +ruralz:planned=M4
 	Messaging *Messaging `json:"messaging,omitempty"`
 	// AI applies to protocol ai only; its models replace endpoints. Planned (M3).
 	// +ruralz:impact=ai
@@ -91,6 +99,7 @@ const (
 	// DiscoveryTypeDNS resolves DNS names. Planned (M1).
 	DiscoveryTypeDNS DiscoveryType = "dns"
 	// DiscoveryTypeKubernetes watches EndpointSlices. Planned (M2).
+	// +ruralz:planned=M2
 	DiscoveryTypeKubernetes DiscoveryType = "kubernetes"
 )
 

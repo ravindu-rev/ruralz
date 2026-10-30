@@ -57,6 +57,7 @@ type Listener struct {
 	// +ruralz:maximum=65535
 	Port int32 `json:"port"`
 	// HTTP3 adds HTTP/3 on UDP on the same port; https only. Planned (M3); off in FIPS builds.
+	// +ruralz:planned=M3
 	HTTP3 *bool `json:"http3,omitempty"`
 	// ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).
 	// +ruralz:default=false

@@ -244,7 +244,13 @@ type Chain struct {
 	// Legs holds upstream-leg chains by Upstream name.
 	Legs map[string]*LegChain
 	// Policies lists every Policy once, in request order; Policy.Index
-	// points here (per-request skip bitsets, onLog order).
+	// points here (per-request skip bitsets, onLog order). A Route
+	// without a cache Policy that may share a URI with a cache Route ends
+	// the list with that Route's cache Policy as its invalidation entry
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Response caching", Invalidating Routes): a Phase-less copy, empty
+	// Phases and no When, whose Filter the executor only calls Invalidate
+	// on.
 	Policies []*Policy
 	// AuthPolicies counts auth-class Policies (Security rule 1).
 	AuthPolicies int

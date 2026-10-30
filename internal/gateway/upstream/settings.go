@@ -90,6 +90,29 @@ type connBounds struct {
 	ping      time.Duration
 }
 
+// Check reports whether Manager.Compile can serve c with secrets, without
+// creating a runtime, a source or a pool: the settings Compile converts
+// (RZ-CFG-040 for an unserved feature, RZ-CFG-005 for a shape validation
+// rejects first) and the TLS client configuration it builds from secrets
+// (the tlsconf codes, RZ-CFG-026 for a certificate or key that does not
+// load). The snapshot compiler checks every Upstream so it reports each
+// one Compile would refuse, not only the first.
+func Check(c *Config, secrets secret.Store) error {
+	st, err := parseSettings(c)
+	if err != nil {
+		return err
+	}
+	if st.tls == nil {
+		return nil
+	}
+	cfg, err := tlsconf.Upstream(*st.tls, secrets)
+	if err != nil {
+		return fmt.Errorf("upstream %q: %w", st.name, err)
+	}
+	cfg.Close()
+	return nil
+}
+
 // parseSettings converts one Config. Unserved features are RZ-CFG-040;
 // shapes validation rejects first are RZ-CFG-005.
 func parseSettings(c *Config) (settings, error) {

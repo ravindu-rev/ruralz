@@ -14,9 +14,17 @@
 // Defaults and decodes spec.config into NewConfig; stage H
 // (internal/config/validate) checks an authored filterClass with
 // CheckFilterClass (RZ-CFG-005); the Node's serve check, which follows the
-// digest, reports unserved types with CheckServed (RZ-CFG-040); stage I
+// digest, reports unserved types with CheckServed and every other unserved
+// feature with CheckFeatures (RZ-CFG-040); stage I
 // (internal/config/precedence) reads EffectiveSlot,
 // EffectiveClass, Phases (RZ-CFG-020) and CheckFailureMode (RZ-CFG-029).
+//
+// The serve check reads the served-feature table, planned_gen.go, which
+// schemagen generates from the +ruralz:planned markers of
+// pkg/config/v1alpha1: the kinds, fields and enum values whose milestone
+// is later than ReleaseMilestone
+// (docs/engineering/02-repository-layout-and-conventions.md "Markers").
+//
 // The package holds data and pure functions only: it never imports the
 // hub, the CEL module or a Filter, so every binary links it. Phase
 // selection for authz.cel asks a BodyOracle the caller passes, which the
@@ -154,17 +162,20 @@ type Entry struct {
 	cfgType reflect.Type
 }
 
-// Registry is the Policy type registry. The zero value is empty; use New.
+// Registry is the Policy type registry and the served-feature table. The
+// zero value is empty; use New.
 type Registry struct {
-	entries []Entry
-	byType  map[v1alpha1.PolicyType]int
+	entries  []Entry
+	byType   map[v1alpha1.PolicyType]int
+	features features
 }
 
 // New returns the registry of ruralz/v1alpha1: every Policy type of
-// foundation pack section 10, in that table's row order.
+// foundation pack section 10, in that table's row order, and the
+// served-feature table of this release.
 func New() *Registry {
 	t := table()
-	r := &Registry{entries: t, byType: make(map[v1alpha1.PolicyType]int, len(t))}
+	r := &Registry{entries: t, byType: make(map[v1alpha1.PolicyType]int, len(t)), features: newFeatures(plannedFeatures())}
 	for i, e := range t {
 		r.byType[e.Type] = i
 		if e.NewConfig != nil {

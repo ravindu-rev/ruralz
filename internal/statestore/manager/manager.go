@@ -38,6 +38,27 @@ var (
 	ErrNoOpener = errors.New("manager: no opener for the State Store driver")
 )
 
+// OpenError is an opener's refusal of one connection's configuration,
+// which Acquire returns: Role tells the main connection (Gateway
+// spec.stateStore) from the cache connection (spec.stateStore.cache), and
+// Err carries the opener's RZ code (statestore.Opener).
+type OpenError struct {
+	// Role is the connection whose driver did not open.
+	Role statestore.Role
+	// Driver is the driver the configuration names.
+	Driver statestore.DriverKind
+	// Err is the opener's error.
+	Err error
+}
+
+// Error returns "manager: open the <role> <driver> driver: <cause>".
+func (e *OpenError) Error() string {
+	return fmt.Sprintf("manager: open the %s %s driver: %v", roleName(e.Role), driverName(e.Driver), e.Err)
+}
+
+// Unwrap returns the opener's error.
+func (e *OpenError) Unwrap() error { return e.Err }
+
 // Openers construct the drivers. Wiring injects them, so the Manager links
 // neither driver.
 type Openers struct {
@@ -369,7 +390,7 @@ func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config) (*entr
 	}
 	d, err := open(ctx, cfg, m.deps)
 	if err != nil {
-		return nil, fmt.Errorf("manager: open the %s %s driver: %w", roleName(cfg.Role), driverName(cfg.Driver), err)
+		return nil, &OpenError{Role: cfg.Role, Driver: cfg.Driver, Err: err}
 	}
 	if d == nil {
 		return nil, fmt.Errorf("manager: the %s opener returned no driver", driverName(cfg.Driver))

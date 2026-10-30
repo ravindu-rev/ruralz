@@ -90,6 +90,7 @@ const (
 )
 
 // PluginSpec is the spec of a Plugin. Planned (M2).
+// +ruralz:planned=M2
 type PluginSpec struct {
 	// Image is the OCI reference; it MUST carry an @sha256 digest (RZ-CFG-021), and the tag is informational.
 	// +ruralz:required

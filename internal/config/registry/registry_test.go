@@ -329,10 +329,16 @@ func TestServedSet(t *testing.T) {
 	if reg.Served("rateLimit") {
 		t.Error("unknown type served")
 	}
-	// In M1 the served set is exactly the Planned (M1) types.
+	// The served set is exactly the types whose Planned tag the release
+	// has reached: in M1, the Planned (M1) types.
+	release, ok := milestoneOf(ReleaseMilestone)
+	if !ok {
+		t.Fatalf("ReleaseMilestone %q is not a milestone", ReleaseMilestone)
+	}
 	for _, e := range reg.Entries() {
-		if e.Served != (e.Planned == "M1") {
-			t.Errorf("%s: served %v, planned %s", e.Type, e.Served, e.Planned)
+		n, ok := milestoneOf(e.Planned)
+		if !ok || e.Served != (n <= release) {
+			t.Errorf("%s: served %v, planned %s, release %s", e.Type, e.Served, e.Planned, ReleaseMilestone)
 		}
 	}
 }

@@ -17,10 +17,11 @@ import (
 )
 
 // TestRun checks that the command writes exactly the committed files, as
-// `make generate` does.
+// `make generate` does: both schema views and the served-feature table.
 func TestRun(t *testing.T) {
 	out := filepath.Join(t.TempDir(), "schema")
-	if err := run(pkgDir, out); err != nil {
+	reg := releaseDir(t, "M1")
+	if err := run(pkgDir, out, reg); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range outputs() {
@@ -36,30 +37,67 @@ func TestRun(t *testing.T) {
 			t.Errorf("%s differs from the committed file", name)
 		}
 	}
+	got, err := os.ReadFile(filepath.Join(reg, plannedFile)) //nolint:gosec // Test reads a file it wrote.
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := os.ReadFile(filepath.Join(registryDir, plannedFile)) //nolint:gosec // Test reads the committed table.
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("%s differs from the committed file", plannedFile)
+	}
+}
+
+// releaseDir returns a directory holding a registry source that declares
+// ReleaseMilestone as release.
+func releaseDir(t *testing.T, release string) string {
+	t.Helper()
+	dir := t.TempDir()
+	src := "package registry\n\nconst " + releaseConst + " = \"" + release + "\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "served.go"), []byte(src), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
 }
 
 func TestRunErrors(t *testing.T) {
+	reg := releaseDir(t, "M1")
 	cases := []struct {
-		name, src, out, want string
+		name, src, out, registry, want string
 	}{
-		{"no out", pkgDir, "", "-out is required"},
-		{"no sources", t.TempDir(), t.TempDir(), "no Go files"},
+		{"no out", pkgDir, "", reg, "-out is required"},
+		{"no registry", pkgDir, t.TempDir(), "", "-registry is required"},
+		{"no sources", t.TempDir(), t.TempDir(), reg, "no Go files"},
+		{"no release", pkgDir, t.TempDir(), t.TempDir(), "no Go files"},
 	}
 	for _, c := range cases {
-		err := run(c.src, c.out)
+		err := run(c.src, c.out, c.registry)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", c.name, err, c.want)
 		}
 	}
-	if err := run(filepath.Join(t.TempDir(), "absent"), t.TempDir()); !errors.Is(err, fs.ErrNotExist) {
+	if err := run(filepath.Join(t.TempDir(), "absent"), t.TempDir(), reg); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("missing source directory: err = %v, want fs.ErrNotExist", err)
 	}
 	bad := t.TempDir()
 	if err := os.WriteFile(filepath.Join(bad, "x.go"), []byte("package x\nfunc {"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := run(bad, t.TempDir()); err == nil {
+	if err := run(bad, t.TempDir(), reg); err == nil {
 		t.Error("a source that does not parse was accepted")
+	}
+	// A release that has reached a marker's milestone refuses the marker
+	// and writes nothing, the schema views included.
+	out, late := filepath.Join(t.TempDir(), "schema"), releaseDir(t, "M2")
+	if err := run(pkgDir, out, late); err == nil || !strings.Contains(err.Error(), "after the release's own (M2)") {
+		t.Errorf("release M2: err = %v, want the M2 markers refused", err)
+	}
+	for _, p := range []string{out, filepath.Join(late, plannedFile)} {
+		if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("release M2: %s was written (err %v)", p, err)
+		}
 	}
 }
 

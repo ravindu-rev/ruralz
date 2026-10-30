@@ -46,10 +46,13 @@ type RouteMatch struct {
 	// +ruralz:list=map,key=name
 	Headers []HeaderMatch `json:"headers,omitempty"`
 	// GRPC matches a gRPC service and method. Planned (M3).
+	// +ruralz:planned=M3
 	GRPC *GRPCMatch `json:"grpc,omitempty"`
 	// GraphQL matches a GraphQL operation. Planned (M3).
+	// +ruralz:planned=M3
 	GraphQL *GraphQLMatch `json:"graphql,omitempty"`
 	// Topic matches an event topic. Planned (M4); its ingress declaration is OQ-configuration-model-11.
+	// +ruralz:planned=M4
 	Topic string `json:"topic,omitempty"`
 	// When is a CEL condition over the request without its body.
 	// +ruralz:cel=request,source,now:bool
