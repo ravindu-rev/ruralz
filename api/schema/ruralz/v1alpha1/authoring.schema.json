@@ -1144,21 +1144,7 @@
             }
           ],
           "default": 5,
-          "description": "ConsecutiveFailures is the run of failed legs that opens the breaker, together with failureRatio of at least minimumLegs legs in a rolling 10 s window."
-        },
-        "failureRatio": {
-          "anyOf": [
-            {
-              "maximum": 1,
-              "minimum": 0,
-              "type": "number"
-            },
-            {
-              "$ref": "#/$defs/Substitution"
-            }
-          ],
-          "default": 0.5,
-          "description": "FailureRatio is the share of failed legs in the window, 0 to 1, that the breaker also needs to open."
+          "description": "ConsecutiveFailures is the run of failed legs that opens the breaker, once a rolling 10 s window also holds at least 20 legs and at least half of them failed."
         },
         "failureWhen": {
           "description": "FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.",
@@ -1172,19 +1158,6 @@
               "upstream"
             ]
           }
-        },
-        "halfOpenSuccesses": {
-          "anyOf": [
-            {
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "$ref": "#/$defs/Substitution"
-            }
-          ],
-          "default": 3,
-          "description": "HalfOpenSuccesses is the run of successful probe legs that closes a half-open breaker; a failed probe reopens it."
         },
         "maxConnections": {
           "anyOf": [
@@ -1212,19 +1185,6 @@
           "default": 256,
           "description": "MaxPendingRequests caps attempts waiting for an in-flight slot; when the queue is full an attempt gets 503 RZ-UP-006 at once."
         },
-        "minimumLegs": {
-          "anyOf": [
-            {
-              "minimum": 1,
-              "type": "integer"
-            },
-            {
-              "$ref": "#/$defs/Substitution"
-            }
-          ],
-          "default": 20,
-          "description": "MinimumLegs is the number of legs a rolling 10 s window needs before the breaker may open."
-        },
         "openDuration": {
           "anyOf": [
             {
@@ -1235,7 +1195,7 @@
             }
           ],
           "default": "30s",
-          "description": "OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through."
+          "description": "OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through; 3 consecutive probe successes close it and a failed probe reopens it."
         }
       },
       "type": "object"
@@ -2194,6 +2154,30 @@
         "passive": {
           "$ref": "#/$defs/PassiveHealthCheck",
           "description": "Passive ejects Endpoints that fail requests."
+        },
+        "pingTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "5s",
+          "description": "PingTimeout is how long the ping an HTTP/2 connection to an Endpoint gets after 1 s of silence may go unanswered before the connection is closed and its streams reset."
+        },
+        "stallTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "1s",
+          "description": "StallTimeout is how long an attempt may wait for response headers before it is stalled; an Endpoint holding a stalled attempt that has sent no response headers for as long is suspect until it does, so selection skips it while another Endpoint remains and an attempt timeout on it ejects it."
         }
       },
       "type": "object"
@@ -2657,11 +2641,46 @@
           "description": "Endpoint is the OTLP/gRPC collector URL: http or https, a host and an optional port (default 4317), without path, user information, query or fragment. Unset, the Node exports nothing over OTLP."
         },
         "tls": {
-          "$ref": "#/$defs/UpstreamTLS",
+          "$ref": "#/$defs/OTLPTLS",
           "description": "TLS configures the client side of an https endpoint: server name, trust anchors and a client certificate. Without it an https endpoint is verified against the system roots.",
           "x-ruralz-impact": [
             "security"
           ]
+        }
+      },
+      "type": "object"
+    },
+    "OTLPTLS": {
+      "additionalProperties": false,
+      "description": "OTLPTLS configures the client side of the TLS connection to the OTLP collector, with the Upstream tls fields sni, caCertificate, clientCertificate and clientKey: TLS 1.2 or newer, the server certificate always verified. Set clientCertificate and clientKey together, or neither.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate is a PEM bundle that verifies the server instead of the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientCertificate is the PEM client certificate chain for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientKey is the PEM client private key for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "sni": {
+          "description": "SNI is the server name sent in the TLS handshake and verified in the server certificate.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -4835,6 +4854,21 @@
             "traffic"
           ]
         },
+        "connectTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "1s",
+          "description": "ConnectTimeout bounds the dial of a new connection to an Endpoint, shared by every address the Endpoint resolves to; when it expires the attempt fails with error kind connect.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
+        },
         "discovery": {
           "$ref": "#/$defs/Discovery",
           "description": "Discovery finds Endpoints instead of listing them.",
@@ -4932,7 +4966,7 @@
     },
     "UpstreamTLS": {
       "additionalProperties": false,
-      "description": "UpstreamTLS configures the client side of a TLS connection, to an Upstream's Endpoints or to the OTLP collector: TLS 1.2 or newer, the server certificate always verified. Set clientCertificate and clientKey together, or neither.",
+      "description": "UpstreamTLS configures the client side of the TLS connections to an Upstream's Endpoints: TLS 1.2 or newer, the server certificate always verified. Set clientCertificate and clientKey together, or neither.",
       "properties": {
         "caCertificate": {
           "$ref": "#/$defs/SecretValue",
@@ -4957,6 +4991,18 @@
             "security"
           ],
           "x-ruralz-secret": true
+        },
+        "handshakeTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "2s",
+          "description": "HandshakeTimeout bounds the TLS handshake of a new connection; when it expires the attempt fails with error kind tls."
         },
         "sni": {
           "description": "SNI is the server name sent in the TLS handshake and verified in the server certificate.",

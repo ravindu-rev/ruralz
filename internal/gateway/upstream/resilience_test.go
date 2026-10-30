@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -63,33 +64,83 @@ func blocking(release <-chan struct{}) http.HandlerFunc {
 // TestLegBreakerOpens checks the circuit breaker
 // (docs/architecture/09-traffic-management-and-resilience.md "Circuit
 // breakers"): a leg whose final result matches failureWhen counts as a
-// failure, the breaker opens past its thresholds, the state gauge follows,
-// and a leg is then refused at once with 503 RZ-UP-005 without any
-// attempt.
+// failure; even with consecutiveFailures 1 the breaker opens only once the
+// rolling 10 s window holds the fixed 20 legs, at least half of them
+// failed; the state gauge follows, and a leg is then refused at once with
+// 503 RZ-UP-005 without any attempt.
 func TestLegBreakerOpens(t *testing.T) {
 	srv := newServer(t, status(http.StatusServiceUnavailable, ""))
 	f := newFixture(t)
 	met := newMetrics()
 	u := newUpstream("orders", srv.addr)
 	u.Spec.Retries = &v1alpha1.Retries{Attempts: ptr[int32](0)}
-	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1), MinimumLegs: ptr[int32](1)}
+	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1)}
 	s := f.compile(nil, Config{Upstream: u, Metrics: met.m})
 	up := f.upstream(s, "orders")
 
-	r, err := up.Leg(t.Context(), outbound(exchange(http.MethodGet, "/"), nil), Target{})
-	if err != nil {
-		t.Fatalf("first Leg: %v", err)
+	runLegs(t, f, up, resilience.BreakerMinimumLegs-1)
+	if st := up.rt.res.Breaker().State(); st != resilience.StateClosed {
+		t.Fatalf("breaker = %v after %d failed legs, want closed below the 20-leg guard", st, resilience.BreakerMinimumLegs-1)
 	}
-	readAll(t, r)
+	runLegs(t, f, up, 1)
 	if st := up.rt.res.Breaker().State(); st != resilience.StateOpen {
-		t.Fatalf("breaker = %v after a failed leg, want open", st)
+		t.Fatalf("breaker = %v after 20 failed legs, want open", st)
 	}
 	if met.breaker[resilience.StateOpen].get() != 1 || met.breaker[resilience.StateClosed].get() != 0 {
 		t.Errorf("breaker gauges = closed %d open %d, want 0 and 1", met.breaker[resilience.StateClosed].get(), met.breaker[resilience.StateOpen].get())
 	}
-	_, err = up.Leg(t.Context(), outbound(exchange(http.MethodGet, "/"), nil), Target{})
-	if codeOf(err) != "RZ-UP-005" || srv.hits.Load() != 1 {
-		t.Errorf("Leg with the breaker open = %v after %d requests, want RZ-UP-005 after 1", err, srv.hits.Load())
+	_, err := up.Leg(t.Context(), outbound(exchange(http.MethodGet, "/"), nil), Target{})
+	if codeOf(err) != "RZ-UP-005" || srv.hits.Load() != resilience.BreakerMinimumLegs {
+		t.Errorf("Leg with the breaker open = %v after %d requests, want RZ-UP-005 after 20", err, srv.hits.Load())
+	}
+}
+
+// runLegs runs n legs to up, each with a Route deadline 15 s after the
+// fixture clock's now, that each end with a response, reading their
+// bodies.
+func runLegs(t *testing.T, f *fixture, up *Upstream, n int) {
+	t.Helper()
+	for i := range n {
+		o := outbound(exchange(http.MethodGet, "/"), nil)
+		o.Deadline = f.clk.Now().Add(15 * time.Second)
+		r, err := up.Leg(t.Context(), o, Target{})
+		if err != nil {
+			t.Fatalf("leg %d: %v", i+1, err)
+		}
+		readAll(t, r)
+	}
+}
+
+// TestLegBreakerCloses checks the half-open breaker: after openDuration
+// one probe leg at a time passes, the fixed 3 consecutive probe successes
+// close it, and the gauge follows.
+func TestLegBreakerCloses(t *testing.T) {
+	var code atomic.Int32
+	code.Store(http.StatusServiceUnavailable)
+	srv := newServer(t, func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(int(code.Load())) })
+	f := newFixture(t)
+	met := newMetrics()
+	u := newUpstream("orders", srv.addr)
+	u.Spec.Retries = &v1alpha1.Retries{Attempts: ptr[int32](0)}
+	s := f.compile(nil, Config{Upstream: u, Metrics: met.m})
+	up := f.upstream(s, "orders")
+	runLegs(t, f, up, resilience.BreakerMinimumLegs)
+	if st := up.rt.res.Breaker().State(); st != resilience.StateOpen {
+		t.Fatalf("breaker = %v after 20 failed legs, want open", st)
+	}
+	code.Store(http.StatusOK)
+	f.clk.Advance(resilience.DefaultOpenDuration * (100 + resilience.OpenJitterPercent) / 100)
+	for i := range resilience.HalfOpenSuccesses {
+		if st := up.rt.res.Breaker().State(); i > 0 && st != resilience.StateHalfOpen {
+			t.Fatalf("breaker = %v after %d probe successes, want half-open", st, i)
+		}
+		runLegs(t, f, up, 1)
+	}
+	if st := up.rt.res.Breaker().State(); st != resilience.StateClosed {
+		t.Fatalf("breaker = %v after 3 probe successes, want closed", st)
+	}
+	if met.breaker[resilience.StateClosed].get() != 1 || met.breaker[resilience.StateHalfOpen].get() != 0 {
+		t.Errorf("breaker gauges = closed %d half-open %d, want 1 and 0", met.breaker[resilience.StateClosed].get(), met.breaker[resilience.StateHalfOpen].get())
 	}
 }
 
@@ -409,7 +460,7 @@ func TestLegConnectErrorsCountPastEjectedMajority(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		errors  int32
-		opened  bool
+		counted bool
 		ejected bool
 	}{
 		{"not ejected: not counted", 5, false, false},
@@ -419,7 +470,6 @@ func TestLegConnectErrorsCountPastEjectedMajority(t *testing.T) {
 			f := newFixture(t, refused)
 			u := newUpstream("orders", refused)
 			u.Spec.Retries = &v1alpha1.Retries{Attempts: ptr[int32](0)}
-			u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1), MinimumLegs: ptr[int32](1)}
 			u.Spec.HealthCheck = &v1alpha1.HealthCheck{Passive: &v1alpha1.PassiveHealthCheck{ConsecutiveErrors: ptr(tc.errors)}}
 			s := f.compile(nil, Config{Upstream: u})
 			up := f.upstream(s, "orders")
@@ -427,9 +477,10 @@ func TestLegConnectErrorsCountPastEjectedMajority(t *testing.T) {
 				t.Fatalf("Leg = %v, want RZ-UP-001", err)
 			}
 			ejected := up.rt.tracker.Status(f.clk.Now())[0].Ejected
-			opened := up.rt.res.Breaker().State() == resilience.StateOpen
-			if ejected != tc.ejected || opened != tc.opened {
-				t.Errorf("ejected %v, breaker open %v; want %v and %v", ejected, opened, tc.ejected, tc.opened)
+			st := up.rt.res.Breaker().Stats()
+			counted := st.WindowLegs == 1 && st.WindowFailures == 1
+			if ejected != tc.ejected || counted != tc.counted {
+				t.Errorf("ejected %v, counted %v (window %d legs, %d failed); want %v and %v", ejected, counted, st.WindowLegs, st.WindowFailures, tc.ejected, tc.counted)
 			}
 		})
 	}

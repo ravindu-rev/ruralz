@@ -20,7 +20,6 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/balance"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/discovery"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/health"
-	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
 	"github.com/ravindu-rev/ruralz/internal/secret"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
@@ -67,8 +66,11 @@ type Options struct {
 // work: the active Endpoint sources, the balancer rebuilds (at most 8 at
 // a time) and the active health checks.
 type Manager struct {
-	clk      clock.Clock
-	rand     rand.Source
+	clk  clock.Clock
+	rand rand.Source
+	// guard dials every Endpoint connection when dial is nil.
+	guard *egress.Guard
+	// dial is Options.Dial; nil means the guard's dialer.
 	dial     discovery.DialFunc
 	resolver discovery.Resolver
 	status   emit.NodeStatus
@@ -98,6 +100,7 @@ func NewManager(o Options) *Manager {
 	m := &Manager{
 		clk:      o.Clock,
 		rand:     o.Rand,
+		guard:    o.Guard,
 		dial:     o.Dial,
 		resolver: o.Resolver,
 		status:   o.Status,
@@ -110,14 +113,22 @@ func NewManager(o Options) *Manager {
 	if m.clk == nil {
 		m.clk = clock.Real()
 	}
-	if m.dial == nil {
-		m.dial = o.Guard.Dialer(resilience.DialTimeout).DialContext
-	}
 	if m.tracer == nil {
 		m.tracer = nopTracer{}
 	}
 	m.prober = health.NewProber(health.ProberConfig{Clock: m.clk, Rand: m.rand, Status: m.status})
 	return m
+}
+
+// dialFunc returns the dial function of the pools whose dial bound is
+// connect (Upstream.spec.connectTimeout): Options.Dial when set, else the
+// egress guard's dialer with that timeout, so the dial of a single address
+// is never cut before the bound that discovery.Dial applies to them all.
+func (m *Manager) dialFunc(connect time.Duration) discovery.DialFunc {
+	if m.dial != nil {
+		return m.dial
+	}
+	return m.guard.Dialer(connect).DialContext
 }
 
 // setDegraded raises or clears a Node degraded reason.
@@ -429,8 +440,10 @@ func (m *Manager) newSource(st *settings, prev *discovery.Set) (*discovery.Sourc
 }
 
 // tlsEntry returns the runtime's TLS entry for st, building the client
-// configuration when the key is new: an unchanged TLS setting keeps its
-// entry, configuration and pools across a Hot Reload.
+// configuration when the key is new: an unchanged TLS setting with
+// unchanged connection bounds keeps its entry, configuration and pools
+// across a Hot Reload, and a changed bound gets an entry and pools of its
+// own while in-flight attempts finish on the old ones.
 func (rt *runtime) tlsEntry(st *settings, secrets secret.Store) (*tlsEntry, error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -438,7 +451,7 @@ func (rt *runtime) tlsEntry(st *settings, secrets secret.Store) (*tlsEntry, erro
 		e.refs++
 		return e, nil
 	}
-	e := &tlsEntry{key: st.poolKey, maxConns: st.res.Bulkhead.MaxConnections}
+	e := &tlsEntry{key: st.poolKey, maxConns: st.res.Bulkhead.MaxConnections, conn: st.conn}
 	if st.tls != nil {
 		cfg, err := tlsconf.Upstream(*st.tls, secrets)
 		if err != nil {

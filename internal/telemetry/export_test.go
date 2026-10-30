@@ -73,7 +73,7 @@ func TestExportOverTLS(t *testing.T) {
 	store := fakeStore{secret.RefOf(caRef): secret.NewValue(ca.CertPEM)}
 	applyEndpoint(t, r, &v1alpha1.Telemetry{OTLP: &v1alpha1.OTLP{
 		Endpoint: "https://" + sink.Addr(),
-		TLS:      &v1alpha1.UpstreamTLS{CACertificate: &v1alpha1.SecretValue{SecretRef: caRef}},
+		TLS:      &v1alpha1.OTLPTLS{CACertificate: &v1alpha1.SecretValue{SecretRef: caRef}},
 	}}, store)
 
 	ctx := waitCtx(t)

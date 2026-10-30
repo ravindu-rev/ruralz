@@ -150,8 +150,8 @@ func TestZeroFrontEnds(t *testing.T) {
 		"port":          "apiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: x\nspec:\n  listeners:\n  - name: http\n    protocol: http\n    port: %s\n",
 	}
 	substDocs := map[string]string{
-		"failureRatio":  envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "circuitBreaker": {"failureRatio": "${R}"}}`),
-		"traceSampling": envelope("Gateway", `{"listeners": [{"name": "a", "protocol": "http", "port": 80}], "telemetry": {"traceSampling": "${R}"}}`),
+		"similarityThreshold": envelope("AIModel", `{"strategy": "fallback", "candidates": [{"name": "a", "provider": "p", "model": "m"}], "cache": {"semantic": {"similarityThreshold": "${R}"}}}`),
+		"traceSampling":       envelope("Gateway", `{"listeners": [{"name": "a", "protocol": "http", "port": 80}], "telemetry": {"traceSampling": "${R}"}}`),
 	}
 	for _, z := range zeroForms() {
 		for pos, format := range yamlDocs {

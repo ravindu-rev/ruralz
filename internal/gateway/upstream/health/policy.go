@@ -45,12 +45,11 @@ const (
 	// ProbesSkippedWindow is the rolling window of that share.
 	ProbesSkippedWindow = time.Minute
 
-	// StallAfter is how long an attempt may go without response headers
-	// before it is stalled.
-	StallAfter = time.Second
-	// SuspectAfter is how long an Endpoint holding a stalled attempt may
-	// deliver no response headers before it is suspect.
-	SuspectAfter = time.Second
+	// DefaultStallTimeout is healthCheck.stallTimeout: an attempt without
+	// response headers this long after it started is stalled, and an
+	// Endpoint holding a stalled attempt that has delivered no response
+	// headers for as long is suspect.
+	DefaultStallTimeout = time.Second
 	// StalledSharePercent is the share of maxConnections held by stalled
 	// attempts from which every Endpoint holding one is avoided.
 	StalledSharePercent = 50
@@ -58,25 +57,31 @@ const (
 	DefaultMaxConnections = 1024
 
 	// PingAfter is HTTP2Config.SendPingTimeout for Upstream connections:
-	// a connection silent this long is pinged.
+	// a connection silent this long is pinged. It is fixed, not a field.
 	PingAfter = time.Second
-	// PingTimeout is HTTP2Config.PingTimeout: an unanswered ping closes
-	// the connection and resets its streams.
-	PingTimeout = 5 * time.Second
+	// DefaultPingTimeout is healthCheck.pingTimeout, the
+	// HTTP2Config.PingTimeout of Upstream connections: a ping unanswered
+	// this long closes the connection and resets its streams.
+	DefaultPingTimeout = 5 * time.Second
 
 	// FailureWindow is the span of the recent-failure count least-request
 	// adds to an Endpoint's load.
 	FailureWindow = time.Second
 )
 
-// PassivePolicy is healthCheck.passive of one snapshot. Zero fields take
-// their defaults.
+// PassivePolicy is the passive part of healthCheck in one snapshot:
+// healthCheck.passive, and healthCheck.stallTimeout for stall and suspect
+// detection. Zero fields take their defaults.
 type PassivePolicy struct {
 	// ConsecutiveErrors is the run of attempts matching failureWhen that
 	// ejects an Endpoint.
 	ConsecutiveErrors int
 	// EjectionTime is multiplied by the Endpoint's ejection count.
 	EjectionTime time.Duration
+	// StallTimeout is how long an attempt may go without response headers
+	// before it is stalled, and how long an Endpoint holding a stalled
+	// attempt may deliver none before it is suspect.
+	StallTimeout time.Duration
 }
 
 // WithDefaults returns p with zero or negative fields set to their
@@ -87,6 +92,9 @@ func (p PassivePolicy) WithDefaults() PassivePolicy {
 	}
 	if p.EjectionTime <= 0 {
 		p.EjectionTime = DefaultEjectionTime
+	}
+	if p.StallTimeout <= 0 {
+		p.StallTimeout = DefaultStallTimeout
 	}
 	return p
 }

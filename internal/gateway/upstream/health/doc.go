@@ -22,10 +22,11 @@
 //   - active health from probe results: healthyThreshold consecutive
 //     successes mark an Endpoint healthy, unhealthyThreshold consecutive
 //     failures unhealthy; new Endpoints start healthy;
-//   - stall and suspect: an attempt without response headers 1 s after it
-//     started is stalled; an Endpoint holding a stalled attempt that has
-//     delivered no response headers for 1 s is suspect until any attempt
-//     to it gets headers; once stalled attempts hold 50% of maxConnections,
+//   - stall and suspect: an attempt without response headers
+//     healthCheck.stallTimeout (1 s by default) after it started is
+//     stalled; an Endpoint holding a stalled attempt that has delivered no
+//     response headers for stallTimeout is suspect until any attempt to it
+//     gets headers; once stalled attempts hold 50% of maxConnections,
 //     every Endpoint holding one is avoided;
 //   - the ruralz_upstream_healthy_endpoints gauge and the
 //     attempts matching failureWhen in the last second, which least-request
@@ -35,7 +36,9 @@
 // to grade Endpoints for package balance: Down means passively ejected or
 // actively unhealthy, Avoid the suspect and stalled part of the Avoided
 // grade. It tracks each attempt with an Attempt (Begin, Headers, End),
-// which arms the pooled 1 s stall timer and feeds passive ejection.
+// which arms the pooled stall timer and feeds passive ejection. A View
+// and the Attempts it begins use the stallTimeout of the policy current
+// when the View was taken.
 // It raises upstream_panic itself from the Tracker's healthy count
 // (Config.OnHealthy); this package raises no Upstream degraded reason.
 //
@@ -58,8 +61,9 @@
 // manual date change) therefore neither prolongs nor shortens an
 // ejection, nor halts, nor bursts the probes.
 //
-// HTTP/2 connections to Endpoints ping after PingAfter of silence and close
-// after PingTimeout unanswered; the Upstream layer configures its
-// transports with those values and reports attempts reset by such a close
-// with CauseConnect, so they bypass the ejection cap.
+// HTTP/2 connections to Endpoints ping after PingAfter (1 s, fixed) of
+// silence and close after healthCheck.pingTimeout (DefaultPingTimeout, 5 s,
+// by default) unanswered; the Upstream layer configures its transports
+// with those values and reports attempts reset by such a close with
+// CauseConnect, so they bypass the ejection cap.
 package health

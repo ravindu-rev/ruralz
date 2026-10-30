@@ -109,7 +109,7 @@ func TestLegReplaceOnFailedAttempt(t *testing.T) {
 	const refused = "127.0.0.1:1"
 	f := newFixture(t, refused)
 	u := newUpstream("orders", refused, srv.addr)
-	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1), MinimumLegs: ptr[int32](1)}
+	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1)}
 	u.Spec.HealthCheck = &v1alpha1.HealthCheck{Passive: &v1alpha1.PassiveHealthCheck{ConsecutiveErrors: ptr[int32](1)}}
 	s := f.compile(nil, Config{Upstream: u})
 	up := f.upstream(s, "orders")
@@ -128,9 +128,9 @@ func TestLegReplaceOnFailedAttempt(t *testing.T) {
 		t.Errorf("Leg = %+v after %d requests, want the replacement after 1 attempt and none served", r, srv.hits.Load())
 	}
 	// One of two Endpoints ejected is no majority: the connect error does
-	// not count, the breaker stays closed.
-	if st := up.rt.res.Breaker().State(); st != resilience.StateClosed {
-		t.Errorf("breaker = %v, want closed", st)
+	// not count, so the breaker window stays empty.
+	if st := up.rt.res.Breaker().Stats(); st.State != resilience.StateClosed || st.WindowLegs != 0 {
+		t.Errorf("breaker = %+v, want closed with no counted leg", st)
 	}
 }
 

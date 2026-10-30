@@ -14,7 +14,7 @@ import (
 
 // lostPingText is the error net/http's HTTP/2 transport (Go 1.26 bundle
 // and Go 1.27 internal package alike) gives the streams of a connection it
-// closed because a ping went unanswered for health.PingTimeout.
+// closed because a ping went unanswered for healthCheck.pingTimeout.
 const lostPingText = "http2: client connection lost"
 
 // classify returns the error kind of an attempt that ended with err before

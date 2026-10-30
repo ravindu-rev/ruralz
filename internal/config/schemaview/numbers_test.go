@@ -592,8 +592,8 @@ func hugeEquivalents() []struct{ name, lit, short string } {
 
 // numberDocs place a literal last in a resource of the rendered view at
 // each position whose schema reads numbers: the listener port (integer,
-// minimum 1, maximum 65535), traceSampling, failureRatio and
-// similarityThreshold (number, minimum 0, maximum 1), ByteSize (anyOf an
+// minimum 1, maximum 65535), traceSampling and similarityThreshold
+// (number, minimum 0, maximum 1), ByteSize (anyOf an
 // integer of minimum 0 or a quantity string) and IntOrString (anyOf an
 // integer or a string). The literal is last, so every diagnostic has the
 // same location with a short or a long literal.
@@ -601,7 +601,6 @@ func numberDocs(lit string) map[string]string {
 	return map[string]string{
 		"port":                envelope("Gateway", `{"listeners": [{"name": "a", "protocol": "http", "port": `+lit+`}]}`),
 		"traceSampling":       envelope("Gateway", `{"listeners": [{"name": "a", "protocol": "http", "port": 80}], "telemetry": {"traceSampling": `+lit+`}}`),
-		"failureRatio":        envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "circuitBreaker": {"failureRatio": `+lit+`}}`),
 		"similarityThreshold": envelope("AIModel", `{"candidates": [{"name": "a", "provider": "p", "model": "m"}], "cache": {"semantic": {"similarityThreshold": `+lit+`}}}`),
 		"ByteSize":            envelope("Gateway", `{"listeners": [{"name": "a", "protocol": "http", "port": 80}], "limits": {"maxRequestBodyBytes": `+lit+`}}`),
 		"IntOrString":         envelope("Upstream", `{"protocol": "http", "discovery": {"type": "dns", "service": "a.example", "port": `+lit+`}}`),
@@ -987,7 +986,7 @@ func TestValidatorPanicRecovered(t *testing.T) {
 		inst       map[string]any
 	}{
 		{"maximum", "Gateway", testView(t), map[string]any{"spec": map[string]any{"telemetry": map[string]any{"traceSampling": json.Number("1e1000001")}}}},
-		{"minimum", "Upstream", testView(t), map[string]any{"spec": map[string]any{"circuitBreaker": map[string]any{"failureRatio": json.Number("1e-1000001")}}}},
+		{"minimum", "AIModel", testView(t), map[string]any{"spec": map[string]any{"cache": map[string]any{"semantic": map[string]any{"similarityThreshold": json.Number("1e-1000001")}}}}},
 		{"uniqueItems", "Num", numbersView(t), map[string]any{"spec": map[string]any{"many": slices.Repeat([]any{json.Number("1e1000001")}, 21)}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1041,13 +1040,13 @@ func TestInvalidNumberText(t *testing.T) {
 // diagnostic, and from a variable that stage E re-types into a number
 // (subst.Apply): no panic, and the diagnostics of the equivalent short
 // literal, for YAML such as `traceSampling: 1e1000001` and
-// `failureRatio: 1e-9999999`.
+// `similarityThreshold: 1e-9999999`.
 func TestNumberFrontEnds(t *testing.T) {
 	v := testView(t)
 	yamlDocs := map[string]string{
-		"traceSampling": "apiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: x\nspec:\n  listeners:\n  - name: http\n    port: 8080\n    protocol: http\n  telemetry:\n    traceSampling: %s\n",
-		"failureRatio":  "apiVersion: ruralz/v1alpha1\nkind: Upstream\nmetadata:\n  name: x\nspec:\n  protocol: http\n  endpoints:\n  - address: a:1\n  circuitBreaker:\n    failureRatio: %s\n",
-		"port":          "apiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: x\nspec:\n  listeners:\n  - name: http\n    protocol: http\n    port: %s\n",
+		"traceSampling":       "apiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: x\nspec:\n  listeners:\n  - name: http\n    port: 8080\n    protocol: http\n  telemetry:\n    traceSampling: %s\n",
+		"similarityThreshold": "apiVersion: ruralz/v1alpha1\nkind: AIModel\nmetadata:\n  name: x\nspec:\n  strategy: fallback\n  candidates:\n  - name: a\n    provider: p\n    model: m\n  cache:\n    semantic:\n      similarityThreshold: %s\n",
+		"port":                "apiVersion: ruralz/v1alpha1\nkind: Gateway\nmetadata:\n  name: x\nspec:\n  listeners:\n  - name: http\n    protocol: http\n    port: %s\n",
 	}
 	parse := func(t *testing.T, src string, f profile.Format) (diag.List, *tree.FileTable) {
 		t.Helper()
@@ -1091,7 +1090,7 @@ func TestNumberFrontEnds(t *testing.T) {
 			})
 		}
 	}
-	src := envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "circuitBreaker": {"failureRatio": "${R}"}}`)
+	src := envelope("AIModel", `{"strategy": "fallback", "candidates": [{"name": "a", "provider": "p", "model": "m"}], "cache": {"semantic": {"similarityThreshold": "${R}"}}}`)
 	for _, tc := range []struct{ value, want string }{
 		{"1e1000001", `must be at most 1; variable "R" was substituted into the value`},
 		{"-1e1000001", `must be at least 0; variable "R" was substituted into the value`},

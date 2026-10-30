@@ -4,18 +4,18 @@
 package resilience
 
 import (
-	"math"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
 // Field defaults (targets). The Upstream core applies them when a field or
-// its parent object is absent, so the runtime values equal the schema
-// markers of OQ-traffic-management-and-resilience-6.
+// its parent object is absent, so the runtime values equal the defaults of
+// docs/architecture/09-traffic-management-and-resilience.md "Deadlines".
 const (
-	// DefaultRouteTimeout is Route.spec.timeout for every M1 Route (a
-	// runtime rule, not materialized).
+	// DefaultRouteTimeout is Route.spec.timeout for every M1 Route: the
+	// default its protocol computes, a runtime rule kept out of the
+	// canonical form.
 	DefaultRouteTimeout = 15 * time.Second
 	// DefaultAttempts is retries.attempts: one retry.
 	DefaultAttempts = 1
@@ -27,26 +27,18 @@ const (
 	DefaultConsecutiveFailures = 5
 	// DefaultOpenDuration is circuitBreaker.openDuration.
 	DefaultOpenDuration = 30 * time.Second
-	// DefaultMinimumLegs is circuitBreaker.minimumLegs
-	// (OQ-traffic-management-and-resilience-5 (a)).
-	DefaultMinimumLegs = 20
-	// DefaultFailureRatio is circuitBreaker.failureRatio
-	// (OQ-traffic-management-and-resilience-5 (a)).
-	DefaultFailureRatio = 0.5
-	// DefaultHalfOpenSuccesses is circuitBreaker.halfOpenSuccesses
-	// (OQ-traffic-management-and-resilience-5 (a)).
-	DefaultHalfOpenSuccesses = 3
+	// DefaultConnectTimeout is Upstream.spec.connectTimeout, the bound of
+	// one dial; its expiry is error kind connect.
+	DefaultConnectTimeout = time.Second
+	// DefaultHandshakeTimeout is Upstream.spec.tls.handshakeTimeout, the
+	// bound of one TLS handshake; its expiry is error kind tls.
+	DefaultHandshakeTimeout = 2 * time.Second
 )
 
-// Fixed targets. They are constants, not fields
-// (OQ-traffic-management-and-resilience-5 (a) and -6: backoff and retry
-// budget stay fixed; dial, TLS and stall are fixed).
+// Fixed targets. They are constants, not fields: backoff, the retry budget
+// and the breaker guards (docs/architecture/09-traffic-management-and-resilience.md
+// "Retries", "Retry budget" and "Circuit breakers").
 const (
-	// DialTimeout bounds one dial; its expiry is error kind connect.
-	DialTimeout = time.Second
-	// TLSHandshakeTimeout bounds one TLS handshake; its expiry is error
-	// kind tls.
-	TLSHandshakeTimeout = 2 * time.Second
 	// BackoffBase is the backoff ceiling of the first retry.
 	BackoffBase = 25 * time.Millisecond
 	// BackoffCap caps the backoff ceiling of every retry.
@@ -66,6 +58,15 @@ const (
 	BreakerWindow = 10 * time.Second
 	// BreakerBuckets is the number of 1 s buckets of BreakerWindow.
 	BreakerBuckets = 10
+	// BreakerMinimumLegs is the counted legs the rolling window must hold
+	// before the breaker may open; below it the breaker never opens.
+	BreakerMinimumLegs = 20
+	// BreakerFailurePercent is the share of the window's counted legs that
+	// must have failed, at least, for the breaker to open.
+	BreakerFailurePercent = 50
+	// HalfOpenSuccesses is the run of successful probe legs that closes a
+	// half-open breaker.
+	HalfOpenSuccesses = 3
 	// OpenJitterPercent spreads openDuration by this share either way.
 	OpenJitterPercent = 20
 	// EjectedMajorityPercent is the share of ejected Endpoints above which
@@ -110,20 +111,12 @@ type RetryConfig struct {
 }
 
 // BreakerConfig is Upstream.spec.circuitBreaker: the breaker thresholds
-// and failureWhen.
+// and failureWhen. The window guard (BreakerMinimumLegs and
+// BreakerFailurePercent) and HalfOpenSuccesses are fixed.
 type BreakerConfig struct {
 	// ConsecutiveFailures is the run of failed counted legs that opens the
-	// breaker, together with the window condition.
+	// breaker, together with the window guard.
 	ConsecutiveFailures int
-	// FailureRatio is the share of failed legs, 0 to 1, the rolling window
-	// also needs to open the breaker.
-	FailureRatio float64
-	// MinimumLegs is the number of counted legs the rolling window needs
-	// before the breaker may open.
-	MinimumLegs int
-	// HalfOpenSuccesses is the run of successful probe legs that closes a
-	// half-open breaker.
-	HalfOpenSuccesses int
 	// OpenDuration is the open time before one probe leg is let through,
 	// jittered by OpenJitterPercent either way; 0 lets the probe through at
 	// once.
@@ -161,14 +154,10 @@ func DefaultRetryConfig() RetryConfig {
 }
 
 // DefaultBreakerConfig returns the breaker defaults: 5 consecutive
-// failures, 50% of at least 20 legs, 3 probe successes, 30 s open, default
-// failureWhen.
+// failures, 30 s open, default failureWhen.
 func DefaultBreakerConfig() BreakerConfig {
 	return BreakerConfig{
 		ConsecutiveFailures: DefaultConsecutiveFailures,
-		FailureRatio:        DefaultFailureRatio,
-		MinimumLegs:         DefaultMinimumLegs,
-		HalfOpenSuccesses:   DefaultHalfOpenSuccesses,
 		OpenDuration:        DefaultOpenDuration,
 	}
 }
@@ -180,10 +169,10 @@ func DefaultBulkheadConfig() BulkheadConfig {
 
 // Normalize replaces values outside the schema ranges with safe ones:
 // negative durations and counts that allow 0 become 0, and fields that
-// must be positive (or a ratio outside [0, 1], NaN included) take their
-// defaults. A validated Revision never needs it; it keeps a hand-built
-// Config from wedging a breaker or a bulkhead. An openDuration of 0 is
-// kept: the breaker lets a probe leg through as soon as it opens.
+// must be positive take their defaults. A validated Revision never needs
+// it; it keeps a hand-built Config from wedging a breaker or a bulkhead.
+// An openDuration of 0 is kept: the breaker lets a probe leg through as
+// soon as it opens.
 func (c *Config) Normalize() {
 	c.Timeout = max(c.Timeout, 0)
 	c.Retry.Attempts = max(c.Retry.Attempts, 0)
@@ -192,15 +181,6 @@ func (c *Config) Normalize() {
 	b.OpenDuration = max(b.OpenDuration, 0)
 	if b.ConsecutiveFailures < 1 {
 		b.ConsecutiveFailures = DefaultConsecutiveFailures
-	}
-	if math.IsNaN(b.FailureRatio) || b.FailureRatio < 0 || b.FailureRatio > 1 {
-		b.FailureRatio = DefaultFailureRatio
-	}
-	if b.MinimumLegs < 1 {
-		b.MinimumLegs = DefaultMinimumLegs
-	}
-	if b.HalfOpenSuccesses < 1 {
-		b.HalfOpenSuccesses = DefaultHalfOpenSuccesses
 	}
 	if c.Bulkhead.MaxConnections < 1 {
 		c.Bulkhead.MaxConnections = DefaultMaxConnections

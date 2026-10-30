@@ -67,10 +67,27 @@ type settings struct {
 	active  *health.ActivePolicy
 	// tls is the client TLS setting; nil for a cleartext Upstream.
 	tls *tlsconf.ClientSpec
-	// poolKey is the protocol and TLS part of the connection pool key
-	// (docs/architecture/03-data-plane.md "Upstream layer": pools are keyed
-	// by protocol, TLS settings and Endpoint).
+	// conn holds the connection bounds of the Upstream's pools.
+	conn connBounds
+	// poolKey is the protocol, TLS and connection-bound part of the
+	// connection pool key (docs/architecture/03-data-plane.md "Upstream
+	// layer": pools are keyed by protocol, TLS settings, connection bounds
+	// and Endpoint).
 	poolKey string
+}
+
+// connBounds are the per-connection bounds of an Upstream's pools
+// (docs/architecture/09-traffic-management-and-resilience.md "Deadlines"
+// and "Health checking and outlier detection"): the dial (connectTimeout,
+// whose expiry is error kind connect), the TLS handshake
+// (tls.handshakeTimeout, error kind tls) and the HTTP/2 ping
+// (healthCheck.pingTimeout, which closes the connection). The bounds are
+// part of the pool key, since an http.Transport fixes its HTTP/2 ping
+// timeout when it starts.
+type connBounds struct {
+	connect   time.Duration
+	handshake time.Duration
+	ping      time.Duration
 }
 
 // parseSettings converts one Config. Unserved features are RZ-CFG-040;
@@ -98,21 +115,28 @@ func parseSettings(c *Config) (settings, error) {
 		return settings{}, errcode.Errorf(codeSchema, "Upstream %q: ring-hash requires loadBalancing.hashKey", name)
 	}
 	st.res = resilienceConfig(sp, c)
+	st.conn = connBounds{
+		connect:   bound(sp.ConnectTimeout, resilience.DefaultConnectTimeout),
+		handshake: resilience.DefaultHandshakeTimeout,
+		ping:      health.DefaultPingTimeout,
+	}
 	if hc := sp.HealthCheck; hc != nil {
 		if hc.Passive != nil {
 			st.passive = passivePolicy(hc.Passive)
 		}
+		st.passive.StallTimeout = bound(hc.StallTimeout, health.DefaultStallTimeout)
+		st.conn.ping = bound(hc.PingTimeout, health.DefaultPingTimeout)
 		if hc.Active != nil {
 			a := activePolicy(hc.Active)
 			st.active = &a
 		}
 	}
-	st.poolKey = string(sp.Protocol)
 	if t := sp.TLS; t != nil {
 		st.scheme = "https"
 		st.tls = clientSpec(t)
-		st.poolKey = tlsKey(sp.Protocol, st.tls)
+		st.conn.handshake = bound(t.HandshakeTimeout, resilience.DefaultHandshakeTimeout)
 	}
+	st.poolKey = poolKey(sp.Protocol, st.tls, st.conn)
 	return st, nil
 }
 
@@ -175,12 +199,7 @@ func resilienceConfig(sp *v1alpha1.UpstreamSpec, c *Config) resilience.Config {
 		rc.Bulkhead.MaxConnections = count(b.MaxConnections, rc.Bulkhead.MaxConnections)
 		rc.Bulkhead.MaxPendingRequests = count(b.MaxPendingRequests, rc.Bulkhead.MaxPendingRequests)
 		rc.Breaker.ConsecutiveFailures = count(b.ConsecutiveFailures, rc.Breaker.ConsecutiveFailures)
-		rc.Breaker.MinimumLegs = count(b.MinimumLegs, rc.Breaker.MinimumLegs)
-		if b.FailureRatio != nil {
-			rc.Breaker.FailureRatio = *b.FailureRatio
-		}
 		rc.Breaker.OpenDuration = duration(b.OpenDuration, rc.Breaker.OpenDuration)
-		rc.Breaker.HalfOpenSuccesses = count(b.HalfOpenSuccesses, rc.Breaker.HalfOpenSuccesses)
 	}
 	rc.Breaker.FailureWhen = c.FailureWhen
 	rc.Normalize()
@@ -225,21 +244,41 @@ func clientSpec(t *v1alpha1.UpstreamTLS) *tlsconf.ClientSpec {
 	return cs
 }
 
-// tlsKey is the pool key of a TLS setting: the protocol, the SNI and the
-// references (never values), so a Hot Reload that keeps them keeps the
-// pool and its connections.
-func tlsKey(p v1alpha1.UpstreamProtocol, cs *tlsconf.ClientSpec) string {
+// poolKey is the pool key part of an Upstream's settings: the protocol;
+// for a TLS setting (cs not nil) its SNI, its references (never values)
+// and its handshake bound; then the dial and ping bounds. A Hot Reload that
+// keeps them keeps the pools and their connections.
+func poolKey(p v1alpha1.UpstreamProtocol, cs *tlsconf.ClientSpec, conn connBounds) string {
 	var b strings.Builder
 	b.WriteString(string(p))
-	b.WriteString("|tls|")
-	b.WriteString(cs.SNI)
-	for _, r := range []*secret.Ref{cs.CACertificate, cs.ClientCertificate, cs.ClientKey} {
-		b.WriteByte('|')
-		if r != nil {
-			b.WriteString(r.String())
+	if cs != nil {
+		b.WriteString("|tls|")
+		b.WriteString(cs.SNI)
+		for _, r := range []*secret.Ref{cs.CACertificate, cs.ClientCertificate, cs.ClientKey} {
+			b.WriteByte('|')
+			if r != nil {
+				b.WriteString(r.String())
+			}
 		}
+		b.WriteString("|handshake=")
+		b.WriteString(conn.handshake.String())
 	}
+	b.WriteString("|connect=")
+	b.WriteString(conn.connect.String())
+	b.WriteString("|ping=")
+	b.WriteString(conn.ping.String())
 	return b.String()
+}
+
+// bound returns a connection bound or stall timeout: *d, or def when
+// absent. A zero duration, which the schema admits, takes def too, since a
+// zero bound would fail every dial, handshake or ping at once and stall
+// every attempt.
+func bound(d *v1alpha1.Duration, def time.Duration) time.Duration {
+	if d == nil || *d <= 0 {
+		return def
+	}
+	return time.Duration(*d)
 }
 
 // duration returns *d, or def when absent.

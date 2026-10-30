@@ -158,7 +158,7 @@ func TestSuspectTimeoutEjectsAtOnce(t *testing.T) {
 	var a Attempt
 	now := clk.Now()
 	tr.View(now).Begin(&a, 1, now)
-	clk.Advance(StallAfter)
+	clk.Advance(DefaultStallTimeout)
 	if !a.Stalled() || !tr.View(clk.Now()).Suspect(1) {
 		t.Fatal("attempt not stalled and suspect after 1 s without headers")
 	}

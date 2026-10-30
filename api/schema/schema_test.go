@@ -51,7 +51,8 @@ func TestAccessorsReturnCopies(t *testing.T) {
 
 // TestM1Definitions checks the embedded views carry the definitions M1 adds
 // (the Response Cache connection, OQ-scalability-and-distributed-state-3
-// (a); the inline JSON Schema of validation.json-schema) and that only the
+// (a); the inline JSON Schema of validation.json-schema; the client TLS
+// blocks of Upstreams and of the OTLP collector) and that only the
 // authoring view defines the ${VAR} alternative.
 func TestM1Definitions(t *testing.T) {
 	for path, data := range map[string][]byte{"authoring": AuthoringV1alpha1(), "rendered": RenderedV1alpha1()} {
@@ -61,7 +62,7 @@ func TestM1Definitions(t *testing.T) {
 		if err := json.Unmarshal(data, &doc); err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
-		for _, name := range []string{"StateStoreCache", "JSONSchemaDocument", "UpstreamTLS"} {
+		for _, name := range []string{"StateStoreCache", "JSONSchemaDocument", "UpstreamTLS", "OTLPTLS"} {
 			if _, ok := doc.Defs[name]; !ok {
 				t.Errorf("%s: no definition %s", path, name)
 			}

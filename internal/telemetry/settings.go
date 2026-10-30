@@ -83,7 +83,7 @@ func (s Settings) Close() {
 }
 
 // clientSpec converts telemetry.otlp.tls; nil stays nil (system roots).
-func clientSpec(t *v1alpha1.UpstreamTLS) *tlsconf.ClientSpec {
+func clientSpec(t *v1alpha1.OTLPTLS) *tlsconf.ClientSpec {
 	if t == nil {
 		return nil
 	}

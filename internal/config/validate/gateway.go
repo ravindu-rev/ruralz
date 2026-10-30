@@ -43,12 +43,10 @@ func (u *unit) gateway() {
 		// of the other client TLS blocks; their cleartext-URL conflict
 		// needs the resolved URL, so the Node checks it (RZ-CFG-042).
 		if s.TLS != nil {
-			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("tls")),
-				&v1alpha1.UpstreamTLS{ClientCertificate: s.TLS.ClientCertificate, ClientKey: s.TLS.ClientKey})
+			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("tls")), s.TLS.ClientCertificate, s.TLS.ClientKey)
 		}
 		if c := s.Cache; c != nil && c.TLS != nil {
-			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("cache"), diag.Field("tls")),
-				&v1alpha1.UpstreamTLS{ClientCertificate: c.TLS.ClientCertificate, ClientKey: c.TLS.ClientKey})
+			u.clientPair(specPath(diag.Field("stateStore"), diag.Field("cache"), diag.Field("tls")), c.TLS.ClientCertificate, c.TLS.ClientKey)
 		}
 	}
 }
@@ -70,7 +68,7 @@ func (u *unit) otlp(o *v1alpha1.OTLP) {
 		}
 	}
 	if o.TLS != nil {
-		u.clientPair(base.Append(diag.Field("tls")), o.TLS)
+		u.clientPair(base.Append(diag.Field("tls")), o.TLS.ClientCertificate, o.TLS.ClientKey)
 	}
 }
 
@@ -125,15 +123,15 @@ func (u *unit) listeners(g *v1alpha1.Gateway) {
 	}
 }
 
-// clientPair checks a client TLS block (Upstream.spec.tls,
-// telemetry.otlp.tls): clientCertificate and clientKey together or
-// neither, reported at the missing one.
-func (u *unit) clientPair(base diag.Path, t *v1alpha1.UpstreamTLS) {
-	if (t.ClientCertificate == nil) == (t.ClientKey == nil) {
+// clientPair checks the clientCertificate and clientKey of a client TLS
+// block (Upstream.spec.tls, telemetry.otlp.tls, stateStore.tls,
+// stateStore.cache.tls): together or neither, reported at the missing one.
+func (u *unit) clientPair(base diag.Path, cert, key *v1alpha1.SecretValue) {
+	if (cert == nil) == (key == nil) {
 		return
 	}
 	missing, present := "clientKey", "clientCertificate"
-	if t.ClientCertificate == nil {
+	if cert == nil {
 		missing, present = present, missing
 	}
 	u.report(CodeSchema, base.Append(diag.Field(missing)),

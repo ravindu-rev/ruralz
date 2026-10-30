@@ -549,7 +549,8 @@ func TestLegAbandonAttempt(t *testing.T) {
 }
 
 // openBreaker ends 20 failing legs, which opens a default breaker
-// (minimumLegs 20, failureRatio 0.5, consecutiveFailures 5).
+// (the fixed guard of 50% failed of at least 20 legs, consecutiveFailures
+// 5).
 func openBreaker(t *testing.T, f *legFixture) {
 	t.Helper()
 	for range 20 {
@@ -692,7 +693,7 @@ func TestLegStartAttemptBreakerGate(t *testing.T) {
 		}
 		openBreaker(t, f)
 		f.clk.Advance(2 * time.Second)
-		for range DefaultHalfOpenSuccesses {
+		for range HalfOpenSuccesses {
 			probe := f.begin(t)
 			mustStart(t, probe)
 			probe.End(LegSuccess)

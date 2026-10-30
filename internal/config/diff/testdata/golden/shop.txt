@@ -1,4 +1,4 @@
-ruralz bundle diff: rev-08cc96106941 -> rev-98326e121cce (environment: prod)
+ruralz bundle diff: rev-5764a6e0953f -> rev-bfad72285ae2 (environment: prod)
 
 ~ Route/orders-summary                          routes/orders-summary.yaml   [traffic]
     ~ spec.timeout: 5s -> 4s

@@ -182,16 +182,16 @@ func TestCompileSettingsSampling(t *testing.T) {
 // and the key changes with the server name or a reference.
 func TestCompileSettingsTLS(t *testing.T) {
 	caRef := v1alpha1.SecretRef{Provider: "file", Name: "/etc/ruralz/otel/ca.crt"}
-	otlp := func(tls *v1alpha1.UpstreamTLS) *v1alpha1.Telemetry {
+	otlp := func(tls *v1alpha1.OTLPTLS) *v1alpha1.Telemetry {
 		return &v1alpha1.Telemetry{OTLP: &v1alpha1.OTLP{Endpoint: "https://collector:4317", TLS: tls}}
 	}
-	if _, err := CompileSettings(otlp(&v1alpha1.UpstreamTLS{CACertificate: &v1alpha1.SecretValue{SecretRef: caRef}}), fakeStore{}); err == nil {
+	if _, err := CompileSettings(otlp(&v1alpha1.OTLPTLS{CACertificate: &v1alpha1.SecretValue{SecretRef: caRef}}), fakeStore{}); err == nil {
 		t.Error("unresolved CA accepted")
 	} else if code, _ := errcode.CodeOf(err); code != "RZ-CFG-026" {
 		t.Errorf("unresolved CA error = %v, want RZ-CFG-026", err)
 	}
 	cert := &v1alpha1.SecretValue{SecretRef: v1alpha1.SecretRef{Provider: "file", Name: "/etc/ruralz/otel/c.crt"}}
-	if _, err := CompileSettings(otlp(&v1alpha1.UpstreamTLS{ClientCertificate: cert}), fakeStore{}); err == nil {
+	if _, err := CompileSettings(otlp(&v1alpha1.OTLPTLS{ClientCertificate: cert}), fakeStore{}); err == nil {
 		t.Error("client certificate without key accepted")
 	} else if code, _ := errcode.CodeOf(err); code != "RZ-CFG-005" {
 		t.Errorf("lone client certificate error = %v, want RZ-CFG-005", err)
@@ -201,7 +201,7 @@ func TestCompileSettingsTLS(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a.Close()
-	b, err := CompileSettings(otlp(&v1alpha1.UpstreamTLS{SNI: "otel.internal"}), nil)
+	b, err := CompileSettings(otlp(&v1alpha1.OTLPTLS{SNI: "otel.internal"}), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

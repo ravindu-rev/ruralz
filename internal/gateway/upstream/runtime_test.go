@@ -48,11 +48,15 @@ func TestHotReloadKeepsState(t *testing.T) {
 		t.Fatalf("Leg: %v", err)
 	}
 	readAll(t, r)
-	// One failed leg under thresholds of 1 opens the breaker.
+	// Failed legs open the breaker once the window holds the fixed 20 legs,
+	// the successful leg above among them.
 	ua := f.upstream(a, "orders")
-	bc := ua.res.Breaker
-	bc.ConsecutiveFailures, bc.MinimumLegs = 1, 1
-	ua.rt.res.Breaker().Record(&bc, mustAllow(t, ua), resilience.LegFailure)
+	for range resilience.BreakerMinimumLegs {
+		if ua.rt.res.Breaker().State() == resilience.StateOpen {
+			break
+		}
+		ua.rt.res.Breaker().Record(&ua.res.Breaker, mustAllow(t, ua), resilience.LegFailure)
+	}
 	if st := ua.rt.res.Breaker().State(); st != resilience.StateOpen {
 		t.Fatalf("breaker = %v, want open", st)
 	}
@@ -177,7 +181,9 @@ func TestCompileRejects(t *testing.T) {
 
 // TestParseSettingsDefaults checks the defaults of absent fields (the
 // schema defaults of docs/architecture/02-configuration-model.md
-// "Upstream") and the conversion of present ones.
+// "Upstream", connectTimeout 1 s, tls.handshakeTimeout 2 s,
+// healthCheck.stallTimeout 1 s and healthCheck.pingTimeout 5 s among them)
+// and the conversion of present ones.
 func TestParseSettingsDefaults(t *testing.T) {
 	st, err := parseSettings(&Config{Upstream: newUpstream("orders", "10.0.0.1:80")})
 	if err != nil {
@@ -187,6 +193,15 @@ func TestParseSettingsDefaults(t *testing.T) {
 	if st.res != def || st.passive != (health.PassivePolicy{}).WithDefaults() || st.active != nil || st.alg != balance.LeastRequest || st.scheme != "http" {
 		t.Errorf("defaults = %+v, want resilience.DefaultConfig, passive defaults, no active check, least-request, http", st)
 	}
+	if st.passive.StallTimeout != time.Second {
+		t.Errorf("default stallTimeout = %v, want 1s", st.passive.StallTimeout)
+	}
+	if want := (connBounds{connect: time.Second, handshake: 2 * time.Second, ping: 5 * time.Second}); st.conn != want {
+		t.Errorf("default connection bounds = %+v, want %+v", st.conn, want)
+	}
+	if st.poolKey != "http|connect=1s|ping=5s" {
+		t.Errorf("default pool key = %q", st.poolKey)
+	}
 	if len(st.source.Static) != 1 || st.source.Static[0].Weight != 1 {
 		t.Errorf("static source = %+v, want one Endpoint of weight 1", st.source.Static)
 	}
@@ -194,17 +209,19 @@ func TestParseSettingsDefaults(t *testing.T) {
 	u := newUpstream("orders", "10.0.0.1:80")
 	u.Spec.Endpoints[0].Weight = ptr[int32](0)
 	u.Spec.Timeout = dur(3 * time.Second)
+	u.Spec.ConnectTimeout = dur(250 * time.Millisecond)
 	u.Spec.Retries = &v1alpha1.Retries{Attempts: ptr[int32](2), PerTryTimeout: dur(time.Second)}
 	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{
-		MaxConnections: ptr[int32](10), MaxPendingRequests: ptr[int32](0), ConsecutiveFailures: ptr[int32](7),
-		MinimumLegs: ptr[int32](30), FailureRatio: ptr(0.25), OpenDuration: dur(time.Minute), HalfOpenSuccesses: ptr[int32](4),
+		MaxConnections: ptr[int32](10), MaxPendingRequests: ptr[int32](0), ConsecutiveFailures: ptr[int32](7), OpenDuration: dur(time.Minute),
 	}
 	u.Spec.HealthCheck = &v1alpha1.HealthCheck{
-		Passive: &v1alpha1.PassiveHealthCheck{ConsecutiveErrors: ptr[int32](3), EjectionTime: dur(time.Minute)},
-		Active:  &v1alpha1.ActiveHealthCheck{Path: ptr("/healthz"), UnhealthyThreshold: ptr[int32](4)},
+		Passive:      &v1alpha1.PassiveHealthCheck{ConsecutiveErrors: ptr[int32](3), EjectionTime: dur(time.Minute)},
+		Active:       &v1alpha1.ActiveHealthCheck{Path: ptr("/healthz"), UnhealthyThreshold: ptr[int32](4)},
+		StallTimeout: dur(1500 * time.Millisecond),
+		PingTimeout:  dur(10 * time.Second),
 	}
 	u.Spec.LoadBalancing = &v1alpha1.LoadBalancing{Algorithm: ptr(v1alpha1.LoadBalancingRoundRobin)}
-	u.Spec.TLS = &v1alpha1.UpstreamTLS{SNI: "orders.internal"}
+	u.Spec.TLS = &v1alpha1.UpstreamTLS{SNI: "orders.internal", HandshakeTimeout: dur(3 * time.Second)}
 	st, err = parseSettings(&Config{Upstream: u})
 	if err != nil {
 		t.Fatal(err)
@@ -212,21 +229,37 @@ func TestParseSettingsDefaults(t *testing.T) {
 	want := resilience.Config{
 		Timeout:  3 * time.Second,
 		Retry:    resilience.RetryConfig{Attempts: 2, PerTryTimeout: time.Second},
-		Breaker:  resilience.BreakerConfig{ConsecutiveFailures: 7, FailureRatio: 0.25, MinimumLegs: 30, HalfOpenSuccesses: 4, OpenDuration: time.Minute},
+		Breaker:  resilience.BreakerConfig{ConsecutiveFailures: 7, OpenDuration: time.Minute},
 		Bulkhead: resilience.BulkheadConfig{MaxConnections: 10, MaxPendingRequests: 0},
 	}
 	if st.res != want {
 		t.Errorf("resilience = %+v, want %+v", st.res, want)
 	}
-	if st.passive != (health.PassivePolicy{ConsecutiveErrors: 3, EjectionTime: time.Minute}) {
+	if st.passive != (health.PassivePolicy{ConsecutiveErrors: 3, EjectionTime: time.Minute, StallTimeout: 1500 * time.Millisecond}) {
 		t.Errorf("passive = %+v", st.passive)
 	}
 	wantActive := (health.ActivePolicy{Path: "/healthz", UnhealthyThreshold: 4}).WithDefaults()
 	if st.active == nil || *st.active != wantActive {
 		t.Errorf("active = %+v, want %+v", st.active, wantActive)
 	}
-	if st.alg != balance.RoundRobin || st.scheme != "https" || st.source.Static[0].Weight != 0 || st.poolKey != "http|tls|orders.internal|||" {
+	if want := (connBounds{connect: 250 * time.Millisecond, handshake: 3 * time.Second, ping: 10 * time.Second}); st.conn != want {
+		t.Errorf("connection bounds = %+v, want %+v", st.conn, want)
+	}
+	if st.alg != balance.RoundRobin || st.scheme != "https" || st.source.Static[0].Weight != 0 || st.poolKey != "http|tls|orders.internal||||handshake=3s|connect=250ms|ping=10s" {
 		t.Errorf("algorithm %v, scheme %s, weight %d, pool key %q", st.alg, st.scheme, st.source.Static[0].Weight, st.poolKey)
+	}
+
+	// A zero bound, which the schema admits, takes the default.
+	zero := newUpstream("orders", "10.0.0.1:80")
+	zero.Spec.ConnectTimeout = dur(0)
+	zero.Spec.TLS = &v1alpha1.UpstreamTLS{HandshakeTimeout: dur(0)}
+	zero.Spec.HealthCheck = &v1alpha1.HealthCheck{StallTimeout: dur(0), PingTimeout: dur(0)}
+	st, err = parseSettings(&Config{Upstream: zero})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (connBounds{connect: time.Second, handshake: 2 * time.Second, ping: 5 * time.Second}); st.conn != want || st.passive.StallTimeout != time.Second {
+		t.Errorf("zero bounds = %+v, stallTimeout %v; want %+v and 1s", st.conn, st.passive.StallTimeout, want)
 	}
 }
 

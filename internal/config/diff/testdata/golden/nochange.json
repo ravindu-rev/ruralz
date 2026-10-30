@@ -1,14 +1,14 @@
 {
   "format": "ruralz.diff.v1",
   "from": {
-    "revision": "rev-98326e121cce",
+    "revision": "rev-bfad72285ae2",
     "bundle": "./shop-bundle",
-    "digest": "sha256:98326e121cce1f99546b4e88cac77da2a92fd354587018bc73d31ee55cccf473"
+    "digest": "sha256:bfad72285ae2faf12f612cd93630a96b9c425814fa14b62c788dd9b9f8fa39f6"
   },
   "to": {
-    "revision": "rev-98326e121cce",
+    "revision": "rev-bfad72285ae2",
     "admin": "https://node-a.shop.example:9901",
-    "digest": "sha256:98326e121cce1f99546b4e88cac77da2a92fd354587018bc73d31ee55cccf473"
+    "digest": "sha256:bfad72285ae2faf12f612cd93630a96b9c425814fa14b62c788dd9b9f8fa39f6"
   },
   "environment": "prod",
   "resources": [],

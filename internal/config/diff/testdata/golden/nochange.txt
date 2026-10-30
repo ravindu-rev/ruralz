@@ -1,3 +1,3 @@
-ruralz bundle diff: rev-98326e121cce -> rev-98326e121cce (environment: prod)
+ruralz bundle diff: rev-bfad72285ae2 -> rev-bfad72285ae2 (environment: prod)
 
 0 resources changed: 0 added, 0 removed, 0 modified; 0 Route chains changed; impact: none

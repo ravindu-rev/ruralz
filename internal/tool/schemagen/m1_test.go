@@ -56,8 +56,11 @@ func propertyKeyword(t *testing.T, doc map[string]any, keyword string) map[strin
 // plus the M1 markers, which are the State Store timeout, the request
 // limits, the auth.api-key header, the trace sampling ratio
 // (OQ-observability-1 (a)) and the static Upstream defaults of
-// OQ-traffic-management-and-resilience-5 and -6. retryOn and failureWhen
-// stay runtime rules and have none.
+// docs/architecture/09-traffic-management-and-resilience.md "Deadlines",
+// the connectTimeout, tls.handshakeTimeout, healthCheck.stallTimeout and
+// healthCheck.pingTimeout bounds among them. retryOn and failureWhen stay
+// runtime rules and have none, and the breaker guards are fixed values,
+// not fields.
 func TestDefaults(t *testing.T) {
 	want := map[string]string{ //nolint:gosec // Schema defaults, among them a header name, not credentials.
 		"ActiveHealthCheck.healthyThreshold":   `2`,
@@ -71,15 +74,14 @@ func TestDefaults(t *testing.T) {
 		"AuthUpstreamSigV4Config.payload":      `"signed"`,
 		"BasicCredential.iterations":           `600000`,
 		"CircuitBreaker.consecutiveFailures":   `5`,
-		"CircuitBreaker.failureRatio":          `0.5`,
-		"CircuitBreaker.halfOpenSuccesses":     `3`,
 		"CircuitBreaker.maxConnections":        `1024`,
 		"CircuitBreaker.maxPendingRequests":    `256`,
-		"CircuitBreaker.minimumLegs":           `20`,
 		"CircuitBreaker.openDuration":          `"30s"`,
 		"CompositionStep.collection":           `false`,
 		"CompositionStep.optional":             `false`,
 		"Endpoint.weight":                      `1`,
+		"HealthCheck.pingTimeout":              `"5s"`,
+		"HealthCheck.stallTimeout":             `"1s"`,
 		"Limits.maxBufferedBytes":              `536870912`,
 		"Limits.maxCompositionSteps":           `16`,
 		"Limits.maxPluginMemoryBytes":          `2147483648`,
@@ -105,6 +107,8 @@ func TestDefaults(t *testing.T) {
 		"Telemetry.traceSampling":              `0.01`,
 		"TransformRequestConfig.contentType":   `"application/json"`,
 		"TransformResponseConfig.contentType":  `"application/json"`,
+		"UpstreamSpec.connectTimeout":          `"1s"`,
+		"UpstreamTLS.handshakeTimeout":         `"2s"`,
 	}
 	for _, v := range []view{rendered, authoring} {
 		got := map[string]string{}
@@ -126,7 +130,8 @@ func TestDefaults(t *testing.T) {
 			}
 		}
 		// Context-derived and CEL defaults are runtime rules, never schema
-		// defaults (OQ-traffic-management-and-resilience-6).
+		// defaults (docs/architecture/09-traffic-management-and-resilience.md
+		// "Deadlines").
 		for _, runtime := range []string{"Retries.retryOn", "CircuitBreaker.failureWhen", "Retries.perTryTimeout", "RouteSpec.timeout", "UpstreamSpec.timeout", "PolicySpec.stateStoreTimeout"} {
 			if _, ok := got[runtime]; ok {
 				t.Errorf("%s view: %s is a runtime rule, not a schema default", v, runtime)
@@ -254,6 +259,9 @@ func TestImpactClasses(t *testing.T) {
 		"Listener.proxyProtocol":                "security",
 		"Listener.tls":                          "security",
 		"OTLP.tls":                              "security",
+		"OTLPTLS.caCertificate":                 "security",
+		"OTLPTLS.clientCertificate":             "security",
+		"OTLPTLS.clientKey":                     "security",
 		"PluginSpec.capabilities":               "plugin,security",
 		"PluginSpec.image":                      "plugin,security",
 		"PolicySpec.overridable":                "security",
@@ -270,6 +278,7 @@ func TestImpactClasses(t *testing.T) {
 		"StateStoreTLS.clientKey":               "security",
 		"UpstreamSpec.ai":                       "ai",
 		"UpstreamSpec.circuitBreaker":           "traffic",
+		"UpstreamSpec.connectTimeout":           "traffic",
 		"UpstreamSpec.discovery":                "routing",
 		"UpstreamSpec.endpoints":                "routing",
 		"UpstreamSpec.healthCheck":              "traffic",
@@ -330,8 +339,9 @@ func TestSecretFieldsCarrySecurity(t *testing.T) {
 
 // TestSchemaLevelZero checks that the served schema level of
 // ruralz/v1alpha1 is the maximum x-ruralz-since, 0 in M1, so no field
-// carries the keyword (fields added before 0.1.0 are level 0,
-// OQ-traffic-management-and-resilience-5).
+// carries the keyword (fields added before 0.1.0 are level 0, whose
+// x-ruralz-since docs/architecture/02-configuration-model.md "Schema
+// keywords that drive tooling" omits).
 func TestSchemaLevelZero(t *testing.T) {
 	for _, v := range []view{authoring, rendered} {
 		out, err := generate(realInput(t), v)
@@ -397,15 +407,22 @@ func TestM1Fields(t *testing.T) {
 		{"stateStore.tls CA", []string{"$defs", "StateStoreTLS", "properties", "caCertificate", "x-ruralz-secret"}, `true`},
 		{"stateStore.tls certificate", []string{"$defs", "StateStoreTLS", "properties", "clientCertificate", "x-ruralz-secret"}, `true`},
 		{"stateStore.tls key", []string{"$defs", "StateStoreTLS", "properties", "clientKey", "x-ruralz-secret"}, `true`},
-		// OQ-observability-2 (a): otlp.tls with the UpstreamTLS shape.
-		{"otlp.tls", []string{"$defs", "OTLP", "properties", "tls", "$ref"}, `"#/$defs/UpstreamTLS"`},
+		// OQ-observability-2 (a): otlp.tls with the Upstream tls fields sni,
+		// caCertificate, clientCertificate and clientKey, without
+		// handshakeTimeout.
+		{"otlp.tls", []string{"$defs", "OTLP", "properties", "tls", "$ref"}, `"#/$defs/OTLPTLS"`},
+		{"otlp.tls closed", []string{"$defs", "OTLPTLS", "additionalProperties"}, `false`},
+		{"otlp.tls CA", []string{"$defs", "OTLPTLS", "properties", "caCertificate", "x-ruralz-secret"}, `true`},
+		{"otlp.tls sni", []string{"$defs", "OTLPTLS", "properties", "sni", "type"}, `"string"`},
 		// The endpoint pattern.
 		{"otlp.endpoint", []string{"$defs", "OTLP", "properties", "endpoint", "pattern"}, `"^https?://[^/?#@\\s]+/?$"`},
-		// OQ-traffic-management-and-resilience-5 (a): breaker guards.
-		{"minimumLegs", []string{"$defs", "CircuitBreaker", "properties", "minimumLegs", "minimum"}, `1`},
-		{"failureRatio type", []string{"$defs", "CircuitBreaker", "properties", "failureRatio", "type"}, `"number"`},
-		{"failureRatio max", []string{"$defs", "CircuitBreaker", "properties", "failureRatio", "maximum"}, `1`},
-		{"halfOpenSuccesses", []string{"$defs", "CircuitBreaker", "properties", "halfOpenSuccesses", "minimum"}, `1`},
+		// The Upstream connection bounds: Duration fields with their
+		// schema defaults (docs/architecture/09-traffic-management-and-resilience.md
+		// "Deadlines").
+		{"connectTimeout", []string{"$defs", "UpstreamSpec", "properties", "connectTimeout", "$ref"}, `"#/$defs/Duration"`},
+		{"tls.handshakeTimeout", []string{"$defs", "UpstreamTLS", "properties", "handshakeTimeout", "$ref"}, `"#/$defs/Duration"`},
+		{"healthCheck.stallTimeout", []string{"$defs", "HealthCheck", "properties", "stallTimeout", "$ref"}, `"#/$defs/Duration"`},
+		{"healthCheck.pingTimeout", []string{"$defs", "HealthCheck", "properties", "pingTimeout", "$ref"}, `"#/$defs/Duration"`},
 		// OQ-scalability-and-distributed-state-11 (a): localOnly.
 		{"localOnly", []string{"$defs", "RateLimitConfig", "properties", "localOnly", "type"}, `"boolean"`},
 		// validation.json-schema config.schema, inline draft 2020-12.
@@ -507,7 +524,7 @@ func TestAuthoringSubstitution(t *testing.T) {
 		{[]string{"OTLP", "properties", "endpoint"}, true},                      // field pattern
 		{[]string{"APIKey", "properties", "hash"}, true},                        // field pattern
 		{[]string{"PluginSpec", "properties", "phases", "items"}, true},         // enum list items
-		{[]string{"CircuitBreaker", "properties", "failureRatio"}, true},        // number
+		{[]string{"Telemetry", "properties", "traceSampling"}, true},            // number
 		{[]string{"Limits", "properties", "maxRequestBodyBytes"}, true},         // ByteSize
 		{[]string{"Listener", "properties", "name"}, false},                     // unconstrained string
 		{[]string{"SecretRef", "properties", "provider"}, false},                // inside a secret value

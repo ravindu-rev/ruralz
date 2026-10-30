@@ -4,22 +4,18 @@
 package resilience
 
 import (
-	"math"
 	"testing"
 	"time"
 )
 
-// TestDefaultConfig holds the runtime defaults and
-// OQ-traffic-management-and-resilience-5 (a).
+// TestDefaultConfig holds the runtime defaults of
+// docs/architecture/09-traffic-management-and-resilience.md "Deadlines".
 func TestDefaultConfig(t *testing.T) {
 	c := DefaultConfig()
 	want := Config{
 		Retry: RetryConfig{Attempts: 1},
 		Breaker: BreakerConfig{
 			ConsecutiveFailures: 5,
-			FailureRatio:        0.5,
-			MinimumLegs:         20,
-			HalfOpenSuccesses:   3,
 			OpenDuration:        30 * time.Second,
 		},
 		Bulkhead: BulkheadConfig{MaxConnections: 1024, MaxPendingRequests: 256},
@@ -32,15 +28,18 @@ func TestDefaultConfig(t *testing.T) {
 	}
 }
 
-// TestFixedTargets holds the fixed targets.
+// TestFixedTargets holds the field defaults kept as constants (Route
+// timeout, connectTimeout, tls.handshakeTimeout) and the fixed targets,
+// the breaker guards among them: at least 50% failed of at least 20 legs,
+// and 3 probe successes to close.
 func TestFixedTargets(t *testing.T) {
 	tests := []struct {
 		name      string
 		got, want time.Duration
 	}{
 		{"Route timeout", DefaultRouteTimeout, 15 * time.Second},
-		{"dial", DialTimeout, time.Second},
-		{"TLS handshake", TLSHandshakeTimeout, 2 * time.Second},
+		{"connectTimeout", DefaultConnectTimeout, time.Second},
+		{"tls.handshakeTimeout", DefaultHandshakeTimeout, 2 * time.Second},
 		{"backoff base", BackoffBase, 25 * time.Millisecond},
 		{"backoff cap", BackoffCap, 250 * time.Millisecond},
 		{"max Retry-After", MaxRetryAfter, 10 * time.Second},
@@ -58,6 +57,9 @@ func TestFixedTargets(t *testing.T) {
 	}{
 		{"retry budget minimum", RetryBudgetMin, 3},
 		{"retry budget percent", RetryBudgetPercent, 20},
+		{"breaker minimum legs", BreakerMinimumLegs, 20},
+		{"breaker failure percent", BreakerFailurePercent, 50},
+		{"half-open successes", HalfOpenSuccesses, 3},
 		{"open jitter percent", OpenJitterPercent, 20},
 		{"ejected majority percent", EjectedMajorityPercent, 50},
 		{"Endpoint cap minimum", EndpointCapMin, 8},
@@ -89,34 +91,29 @@ func TestNormalize(t *testing.T) {
 			in: Config{
 				Timeout:  -time.Second,
 				Retry:    RetryConfig{Attempts: -1, PerTryTimeout: -time.Second},
-				Breaker:  BreakerConfig{ConsecutiveFailures: -1, FailureRatio: -0.1, MinimumLegs: -1, HalfOpenSuccesses: -1, OpenDuration: -time.Second},
+				Breaker:  BreakerConfig{ConsecutiveFailures: -1, OpenDuration: -time.Second},
 				Bulkhead: BulkheadConfig{MaxConnections: -1, MaxPendingRequests: -1},
 			},
 			want: Config{
-				Breaker:  BreakerConfig{ConsecutiveFailures: 5, FailureRatio: 0.5, MinimumLegs: 20, HalfOpenSuccesses: 3},
+				Breaker:  BreakerConfig{ConsecutiveFailures: 5},
 				Bulkhead: BulkheadConfig{MaxConnections: 1024},
 			},
 		},
 		{
 			name: "zero values allowed by the schema stay",
 			in: Config{
-				Breaker:  BreakerConfig{ConsecutiveFailures: 1, FailureRatio: 0, MinimumLegs: 1, HalfOpenSuccesses: 1},
+				Breaker:  BreakerConfig{ConsecutiveFailures: 1},
 				Bulkhead: BulkheadConfig{MaxConnections: 1},
 			},
 			want: Config{
-				Breaker:  BreakerConfig{ConsecutiveFailures: 1, FailureRatio: 0, MinimumLegs: 1, HalfOpenSuccesses: 1},
+				Breaker:  BreakerConfig{ConsecutiveFailures: 1},
 				Bulkhead: BulkheadConfig{MaxConnections: 1},
 			},
 		},
 		{
-			name: "ratio above one",
-			in:   Config{Breaker: BreakerConfig{ConsecutiveFailures: 2, FailureRatio: 1.5, MinimumLegs: 2, HalfOpenSuccesses: 2, OpenDuration: time.Second}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
-			want: Config{Breaker: BreakerConfig{ConsecutiveFailures: 2, FailureRatio: 0.5, MinimumLegs: 2, HalfOpenSuccesses: 2, OpenDuration: time.Second}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
-		},
-		{
-			name: "NaN ratio",
-			in:   Config{Breaker: BreakerConfig{ConsecutiveFailures: 2, FailureRatio: math.NaN(), MinimumLegs: 2, HalfOpenSuccesses: 2}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
-			want: Config{Breaker: BreakerConfig{ConsecutiveFailures: 2, FailureRatio: 0.5, MinimumLegs: 2, HalfOpenSuccesses: 2}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
+			name: "zero consecutive failures",
+			in:   Config{Breaker: BreakerConfig{OpenDuration: time.Second}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
+			want: Config{Breaker: BreakerConfig{ConsecutiveFailures: 5, OpenDuration: time.Second}, Bulkhead: BulkheadConfig{MaxConnections: 2}},
 		},
 	}
 	for _, tt := range tests {

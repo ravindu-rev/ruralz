@@ -90,8 +90,26 @@ func (f *breakerFixture) legs(t *testing.T, n int, r LegResult) {
 	}
 }
 
+// openWith opens b under cfg from closed: BreakerMinimumLegs failed legs,
+// which meet the fixed window guard and any consecutiveFailures up to 20.
+func openWith(t *testing.T, b *Breaker, cfg *BreakerConfig) {
+	t.Helper()
+	for range BreakerMinimumLegs {
+		p, ok := b.Allow(cfg)
+		if !ok {
+			t.Fatalf("leg refused in state %v", b.State())
+		}
+		b.Record(cfg, p, LegFailure)
+	}
+	if b.State() != StateOpen {
+		t.Fatalf("state %v after %d failed legs, want open", b.State(), BreakerMinimumLegs)
+	}
+}
+
 // TestBreakerBothConditions: the consecutive and the ratio conditions are
-// both required, and below minimumLegs the breaker never opens.
+// both required, and below 20 legs in the window the breaker never opens,
+// whatever consecutiveFailures says: the window guard (at least 50% failed
+// of at least 20 legs in 10 s) is fixed, not a field.
 func TestBreakerBothConditions(t *testing.T) {
 	t.Run("consecutive without ratio stays closed", func(t *testing.T) {
 		f := newBreakerFixture()
@@ -124,7 +142,7 @@ func TestBreakerBothConditions(t *testing.T) {
 			t.Fatal("did not open at the 5th consecutive failure")
 		}
 	})
-	t.Run("below minimumLegs never opens", func(t *testing.T) {
+	t.Run("below 20 legs never opens", func(t *testing.T) {
 		f := newBreakerFixture()
 		f.legs(t, 19, LegFailure)
 		if f.b.State() != StateClosed {
@@ -133,6 +151,31 @@ func TestBreakerBothConditions(t *testing.T) {
 		f.legs(t, 1, LegFailure)
 		if f.b.State() != StateOpen {
 			t.Fatal("did not open at 20 failed legs")
+		}
+	})
+	t.Run("consecutiveFailures 1 keeps the 20-leg guard", func(t *testing.T) {
+		f := newBreakerFixture()
+		f.cfg.ConsecutiveFailures = 1
+		f.legs(t, 19, LegFailure)
+		if f.b.State() != StateClosed {
+			t.Fatal("consecutiveFailures 1 opened the breaker below 20 legs")
+		}
+		f.legs(t, 1, LegFailure)
+		if f.b.State() != StateOpen {
+			t.Fatal("did not open at 20 failed legs with consecutiveFailures 1")
+		}
+	})
+	t.Run("one failure short of half stays closed", func(t *testing.T) {
+		f := newBreakerFixture()
+		f.cfg.ConsecutiveFailures = 1
+		f.legs(t, 11, LegSuccess)
+		f.legs(t, 9, LegFailure) // 9 of 20: 45%, 9 in a row
+		if f.b.State() != StateClosed {
+			t.Fatal("opened at 9 failed legs of 20")
+		}
+		f.legs(t, 2, LegFailure) // 11 of 22: 50%
+		if f.b.State() != StateOpen {
+			t.Fatal("did not open at 11 failed legs of 22")
 		}
 	})
 	t.Run("the window rolls over ten 1 s buckets", func(t *testing.T) {
@@ -161,8 +204,8 @@ func TestBreakerBothConditions(t *testing.T) {
 }
 
 // TestBreakerOpenAndHalfOpen covers the open and half-open states: open
-// jitter, a single half-open probe, three successes close, one failure
-// reopens.
+// jitter, a single half-open probe, the fixed 3 consecutive probe
+// successes close, one failure reopens.
 func TestBreakerOpenAndHalfOpen(t *testing.T) {
 	f := newBreakerFixture()
 	f.legs(t, 20, LegFailure)
@@ -186,7 +229,7 @@ func TestBreakerOpenAndHalfOpen(t *testing.T) {
 		t.Fatal("a second leg passed with the probe in flight")
 	}
 	f.b.Record(&f.cfg, probe, LegNotCounted) // a gated probe frees the slot
-	for i := range 3 {
+	for i := range HalfOpenSuccesses {
 		if f.b.State() != StateHalfOpen {
 			t.Fatalf("closed after %d probe successes", i)
 		}
@@ -230,31 +273,29 @@ func TestBreakerOpenAndHalfOpen(t *testing.T) {
 func TestBreakerOpenJitter(t *testing.T) {
 	clk := newClock()
 	cfg := DefaultBreakerConfig()
-	cfg.MinimumLegs, cfg.ConsecutiveFailures = 1, 1
 	for i, src := range []*lockedSource{newLockedSource(1), newLockedSource(2)} {
 		b := NewBreaker(clk, src, nil)
+		openWith(t, b, &cfg)
 		lo, hi := time.Duration(math.MaxInt64), time.Duration(0)
 		for range 500 {
-			p, _ := b.Allow(&cfg)
-			b.Record(&cfg, p, LegFailure) // closed → open, or a failed probe
 			d := b.OpenUntil().Sub(clk.Now())
 			lo, hi = min(lo, d), max(hi, d)
 			clk.Advance(d)
+			p, _ := b.Allow(&cfg) // the half-open probe
+			b.Record(&cfg, p, LegFailure)
 		}
 		if lo < 24*time.Second || hi > 36*time.Second || hi-lo < 10*time.Second {
 			t.Fatalf("source %d: open times in [%v, %v], want spread within [24s, 36s]", i, lo, hi)
 		}
 	}
 	b := NewBreaker(clk, fixedSource{math.MaxUint64}, nil)
-	p, _ := b.Allow(&cfg)
-	b.Record(&cfg, p, LegFailure)
+	openWith(t, b, &cfg)
 	if d := b.OpenUntil().Sub(clk.Now()); d != 36*time.Second {
 		t.Fatalf("largest draw: %v", d)
 	}
 	cfg.OpenDuration = 0
 	b = NewBreaker(clk, nil, nil)
-	p, _ = b.Allow(&cfg)
-	b.Record(&cfg, p, LegFailure)
+	openWith(t, b, &cfg)
 	if p, ok := b.Allow(&cfg); !ok || !p.Probe() {
 		t.Fatal("openDuration 0 did not let the probe through at once")
 	}
@@ -436,19 +477,28 @@ func TestBreakerResult(t *testing.T) {
 }
 
 // TestBreakerHotReload carries the state across a Hot Reload while
-// the new snapshot's thresholds apply to later calls.
+// the new snapshot's thresholds apply to later calls; the window guard and
+// the 3 probe successes stay fixed.
 func TestBreakerHotReload(t *testing.T) {
 	f := newBreakerFixture()
-	f.legs(t, 10, LegFailure)
-	f.cfg = BreakerConfig{ConsecutiveFailures: 3, FailureRatio: 0.5, MinimumLegs: 11, HalfOpenSuccesses: 1, OpenDuration: 10 * time.Second}
-	f.legs(t, 1, LegFailure) // 11 legs: opens under the new minimum
+	f.legs(t, 19, LegFailure)
+	f.cfg = BreakerConfig{ConsecutiveFailures: 25, OpenDuration: 10 * time.Second}
+	f.legs(t, 5, LegFailure) // 24 legs, 24 in a row: below the new run
+	if f.b.State() != StateClosed {
+		t.Fatal("opened below the new consecutiveFailures")
+	}
+	f.legs(t, 1, LegFailure) // the run reaches 25 in the carried window
 	if f.b.State() != StateOpen || !f.b.OpenUntil().Equal(f.clk.Now().Add(8*time.Second)) {
-		t.Fatalf("state %v until %v after the reload", f.b.State(), f.b.OpenUntil())
+		t.Fatalf("state %v until %v after the reload, want open for the new 10 s minus 20%%", f.b.State(), f.b.OpenUntil())
 	}
 	f.clk.Advance(8 * time.Second)
-	f.legs(t, 1, LegSuccess) // halfOpenSuccesses 1
+	f.legs(t, HalfOpenSuccesses-1, LegSuccess)
+	if f.b.State() != StateHalfOpen {
+		t.Fatalf("state %v after %d probe successes, want half-open", f.b.State(), HalfOpenSuccesses-1)
+	}
+	f.legs(t, 1, LegSuccess)
 	if f.b.State() != StateClosed {
-		t.Fatal("the new halfOpenSuccesses did not apply")
+		t.Fatal("3 probe successes did not close the breaker")
 	}
 }
 
@@ -457,7 +507,7 @@ func TestBreakerHotReload(t *testing.T) {
 // of Figure 2.
 func TestBreakerConcurrent(t *testing.T) {
 	clk := newClock()
-	cfg := BreakerConfig{ConsecutiveFailures: 2, FailureRatio: 0.1, MinimumLegs: 4, HalfOpenSuccesses: 2}
+	cfg := BreakerConfig{ConsecutiveFailures: 2}
 	var (
 		mu     sync.Mutex
 		probes int
@@ -482,8 +532,9 @@ func TestBreakerConcurrent(t *testing.T) {
 					maxP = max(maxP, probes)
 					mu.Unlock()
 				}
+				// Two legs of three fail, past the fixed 50% guard.
 				r := LegSuccess
-				if (g+i)%3 == 0 {
+				if (g+i)%3 != 0 {
 					r = LegFailure
 				}
 				if p.Probe() {
@@ -509,11 +560,15 @@ func FuzzBreakerTransitions(f *testing.F) {
 	f.Add([]byte{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 5, 0, 2})
 	f.Add([]byte{0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 6, 0, 0, 2, 2, 2, 7, 0, 3})
 	f.Add([]byte{0, 1, 5, 0, 3, 0, 4, 0, 2, 8, 0, 1})
+	// 20 failed legs open the breaker; three probe successes close it, and
+	// 20 more failures and a failed probe reopen it.
+	opens := slices.Repeat([]byte{0, 1}, BreakerMinimumLegs)
+	f.Add(slices.Concat(opens, []byte{6, 0, 2, 0, 2, 0, 2}, opens, []byte{6, 0, 0, 1, 0, 4}))
 	f.Fuzz(func(t *testing.T, ops []byte) {
 		clk := newClock()
 		cfgs := []BreakerConfig{
-			{ConsecutiveFailures: 1, FailureRatio: 0.5, MinimumLegs: 2, HalfOpenSuccesses: 1, OpenDuration: time.Second},
-			{ConsecutiveFailures: 2, FailureRatio: 0, MinimumLegs: 1, HalfOpenSuccesses: 2, OpenDuration: 0},
+			{ConsecutiveFailures: 1, OpenDuration: time.Second},
+			{ConsecutiveFailures: 2, OpenDuration: 0},
 			DefaultBreakerConfig(),
 		}
 		cfg := &cfgs[0]

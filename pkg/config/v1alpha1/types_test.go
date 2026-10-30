@@ -5,13 +5,15 @@ package v1alpha1
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
 
 // TestDecodeGatewayM1Fields decodes the fields M1 adds to Gateway:
 // stateStore.cache (OQ-scalability-and-distributed-state-3 (a)) and
-// telemetry.otlp.tls with the UpstreamTLS shape (OQ-observability-2 (a)).
+// telemetry.otlp.tls with sni, caCertificate, clientCertificate and
+// clientKey (OQ-observability-2 (a)).
 func TestDecodeGatewayM1Fields(t *testing.T) {
 	const doc = `{
 	  "listeners": [{"name": "http", "protocol": "http", "port": 8080}],
@@ -55,25 +57,58 @@ func TestDecodeGatewayM1Fields(t *testing.T) {
 	}
 }
 
-// TestDecodeCircuitBreaker decodes the OQ-traffic-management-and-resilience-5
-// (a) guard fields and the active health check defaults' fields.
-func TestDecodeCircuitBreaker(t *testing.T) {
+// TestDecodeUpstreamTimeoutFields decodes the dial, TLS handshake, stall
+// and ping bounds of an Upstream (docs/architecture/09-traffic-management-and-resilience.md
+// "Deadlines" and "Health checking and outlier detection"), and checks
+// that the breaker guards are fixed values rather than circuitBreaker
+// fields and that telemetry.otlp.tls has no handshakeTimeout.
+func TestDecodeUpstreamTimeoutFields(t *testing.T) {
 	const doc = `{
 	  "protocol": "http",
 	  "endpoints": [{"address": "orders:8080"}],
-	  "healthCheck": {"active": {"path": "/healthz", "interval": "5s"}},
-	  "circuitBreaker": {"minimumLegs": 40, "failureRatio": 0.25, "halfOpenSuccesses": 1, "maxConnections": 64}
+	  "connectTimeout": "250ms",
+	  "tls": {"sni": "orders.internal", "handshakeTimeout": "3s"},
+	  "healthCheck": {"active": {"path": "/healthz", "interval": "5s"}, "stallTimeout": "1500ms", "pingTimeout": "10s"},
+	  "circuitBreaker": {"consecutiveFailures": 7, "maxConnections": 64}
 	}`
 	var u UpstreamSpec
 	if err := json.Unmarshal([]byte(doc), &u); err != nil {
 		t.Fatal(err)
 	}
-	cb := u.CircuitBreaker
-	if *cb.MinimumLegs != 40 || *cb.FailureRatio != 0.25 || *cb.HalfOpenSuccesses != 1 || *cb.MaxConnections != 64 {
+	for _, c := range []struct {
+		name string
+		got  *Duration
+		want time.Duration
+	}{
+		{"connectTimeout", u.ConnectTimeout, 250 * time.Millisecond},
+		{"tls.handshakeTimeout", u.TLS.HandshakeTimeout, 3 * time.Second},
+		{"healthCheck.stallTimeout", u.HealthCheck.StallTimeout, 1500 * time.Millisecond},
+		{"healthCheck.pingTimeout", u.HealthCheck.PingTimeout, 10 * time.Second},
+	} {
+		if c.got == nil || time.Duration(*c.got) != c.want {
+			t.Errorf("%s = %v, want %v", c.name, c.got, c.want)
+		}
+	}
+	if cb := u.CircuitBreaker; *cb.ConsecutiveFailures != 7 || *cb.MaxConnections != 64 {
 		t.Fatalf("circuitBreaker = %+v", cb)
 	}
 	if *u.HealthCheck.Active.Path != "/healthz" {
 		t.Fatalf("active path = %v", u.HealthCheck.Active.Path)
+	}
+	strict := func(src string, v any) error {
+		dec := json.NewDecoder(strings.NewReader(src))
+		dec.DisallowUnknownFields()
+		return dec.Decode(v)
+	}
+	for _, guard := range []string{"minimumLegs", "failureRatio", "halfOpenSuccesses"} {
+		var cb CircuitBreaker
+		if err := strict(`{"`+guard+`": 1}`, &cb); err == nil {
+			t.Errorf("circuitBreaker.%s decoded; the breaker guards are fixed values", guard)
+		}
+	}
+	var otlp OTLPTLS
+	if err := strict(`{"sni": "collector.internal", "handshakeTimeout": "2s"}`, &otlp); err == nil {
+		t.Error("telemetry.otlp.tls decoded handshakeTimeout, an Upstream tls field only")
 	}
 }
 

@@ -95,9 +95,9 @@ func TestSubstitutedVariablesNamed(t *testing.T) {
 			[]finding{{CodeSchema, "spec.listeners[name=http].port", `must be an integer, not a string; variable "HTTP_PORT" was substituted into the value`, ""}},
 		},
 		{
-			"number", rendered, envelope("Upstream", `{"protocol": "http", "endpoints": [{"address": "a:1"}], "circuitBreaker": {"failureRatio": "${RATIO}"}}`),
+			"number", rendered, envelope("AIModel", `{"strategy": "fallback", "candidates": [{"name": "a", "provider": "p", "model": "m"}], "cache": {"semantic": {"similarityThreshold": "${RATIO}"}}}`),
 			map[string]string{"RATIO": "half"},
-			[]finding{{CodeSchema, "spec.circuitBreaker.failureRatio", `must be a number, not a string; variable "RATIO" was substituted into the value`, ""}},
+			[]finding{{CodeSchema, "spec.cache.semantic.similarityThreshold", `must be a number, not a string; variable "RATIO" was substituted into the value`, ""}},
 		},
 		{
 			"boolean", rendered, listener(`, "port": 80, "protocol": "http", "http3": "${H3}"`),

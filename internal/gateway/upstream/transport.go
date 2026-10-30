@@ -16,7 +16,6 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/listener"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/discovery"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/health"
-	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 	"github.com/ravindu-rev/ruralz/internal/tlsconf"
 )
@@ -38,7 +37,7 @@ const (
 )
 
 // errHandshakeTimeout is the cancel cause of a TLS handshake that ran past
-// resilience.TLSHandshakeTimeout.
+// tls.handshakeTimeout.
 var errHandshakeTimeout = errors.New("TLS handshake timeout")
 
 // dialError marks a failure to establish the TCP connection to an
@@ -50,21 +49,24 @@ func (e *dialError) Error() string { return "upstream dial: " + e.err.Error() }
 func (e *dialError) Unwrap() error { return e.err }
 
 // handshakeError marks a failure during the TLS handshake: error kind tls
-// (a handshake or verification failure, or its 2 s timeout). The message
-// keeps the "tls: " prefix crypto/tls errors carry.
+// (a handshake or verification failure, or its tls.handshakeTimeout). The
+// message keeps the "tls: " prefix crypto/tls errors carry.
 type handshakeError struct{ err error }
 
 func (e *handshakeError) Error() string { return "tls: upstream handshake: " + e.err.Error() }
 func (e *handshakeError) Unwrap() error { return e.err }
 
-// tlsEntry is one TLS setting of an Upstream runtime, keyed by protocol,
-// SNI and secret references (settings.poolKey). It holds the client
-// configuration that follows rotations and is carried across Hot Reloads
-// that keep the key; the live snapshots referencing it count in refs.
+// tlsEntry is one TLS setting of an Upstream runtime with its connection
+// bounds, keyed by protocol, SNI, secret references and the bounds
+// (settings.poolKey). It holds the client configuration that follows
+// rotations and is carried across Hot Reloads that keep the key; the live
+// snapshots referencing it count in refs.
 type tlsEntry struct {
 	key string
 	// cfg is nil for a cleartext Upstream.
 	cfg *tlsconf.ClientConfig
+	// conn bounds the dials, TLS handshakes and HTTP/2 pings of its pools.
+	conn connBounds
 	// maxConns is circuitBreaker.maxConnections when the entry was made:
 	// the idle connection bound of its pools.
 	maxConns int
@@ -89,14 +91,17 @@ func (l *poolList) find(e *tlsEntry) *pool {
 	return nil
 }
 
-// pool is the connection pool of one (TLS setting, Endpoint): an
+// pool is the connection pool of one (TLS entry, Endpoint): an
 // http.Transport whose dialer reaches only that Endpoint, through the
-// egress guard, within the 1 s dial budget and 2 s TLS handshake.
+// egress guard, within the entry's connectTimeout, with its TLS handshake
+// within tls.handshakeTimeout.
 type pool struct {
 	rt    *runtime
 	st    *epState
 	entry *tlsEntry
-	tr    *http.Transport
+	// dialAddr dials one address of the Endpoint (Manager.dialFunc).
+	dialAddr discovery.DialFunc
+	tr       *http.Transport
 	// send sends an attempt: tr's RoundTrip (a test may stand in for it).
 	send http.RoundTripper
 	// retired is set when the Endpoint left the set or the TLS entry was
@@ -106,13 +111,13 @@ type pool struct {
 
 // newPool builds the pool of entry e for Endpoint st. Cleartext pools
 // speak HTTP/1.1; TLS pools offer h2 and http/1.1 by ALPN. HTTP/2
-// connections ping after health.PingAfter of silence and close after
-// health.PingTimeout unanswered, and an HTTP/2 Upstream's stream limit
-// opens another connection (StrictMaxConcurrentRequests false); every
-// attempt holds a bulkhead slot, so nothing queues unseen in the
-// transport.
+// connections ping after health.PingAfter of silence and close after the
+// entry's healthCheck.pingTimeout unanswered, and an HTTP/2 Upstream's
+// stream limit opens another connection (StrictMaxConcurrentRequests
+// false); every attempt holds a bulkhead slot, so nothing queues unseen in
+// the transport.
 func newPool(rt *runtime, st *epState, e *tlsEntry) *pool {
-	p := &pool{rt: rt, st: st, entry: e}
+	p := &pool{rt: rt, st: st, entry: e, dialAddr: rt.m.dialFunc(e.conn.connect)}
 	var protos http.Protocols
 	protos.SetHTTP1(true)
 	tr := &http.Transport{
@@ -124,7 +129,7 @@ func newPool(rt *runtime, st *epState, e *tlsEntry) *pool {
 		Protocols:              &protos,
 		HTTP2: &http.HTTP2Config{
 			SendPingTimeout:             health.PingAfter,
-			PingTimeout:                 health.PingTimeout,
+			PingTimeout:                 e.conn.ping,
 			StrictMaxConcurrentRequests: false,
 		},
 	}
@@ -152,26 +157,26 @@ func (p *pool) done() {
 }
 
 // dial connects to the Endpoint's cached addresses in answer order within
-// one dial budget (discovery.Dial), each through the egress guard. The
-// transport dials with a context detached from the request's
-// cancellation, so the budget alone bounds it.
+// one dial budget, the entry's connectTimeout (discovery.Dial), each
+// through the egress guard. The transport dials with a context detached
+// from the request's cancellation, so the budget alone bounds it.
 func (p *pool) dial(ctx context.Context, network, _ string) (net.Conn, error) {
 	n := p.st.net.Load()
 	if n == nil {
 		return nil, &dialError{err: discovery.ErrNoAddresses}
 	}
-	c, err := discovery.Dial(ctx, p.rt.m.clk, p.rt.m.dial, network, n.addrs, resilience.DialTimeout)
+	c, err := discovery.Dial(ctx, p.rt.m.clk, p.dialAddr, network, n.addrs, p.entry.conn.connect)
 	if err != nil {
 		return nil, &dialError{err: err}
 	}
 	return p.rt.track(c), nil
 }
 
-// dialTLS dials like dial and runs the TLS handshake within
-// resilience.TLSHandshakeTimeout with the TLS entry's current
-// configuration: rotated values reach new connections only. The server
-// name is the SNI when set, else the Endpoint host (an IP literal verifies
-// IP SANs and sends no SNI).
+// dialTLS dials like dial and runs the TLS handshake within the entry's
+// tls.handshakeTimeout with the TLS entry's current configuration: rotated
+// values reach new connections only. The server name is the SNI when set,
+// else the Endpoint host (an IP literal verifies IP SANs and sends no
+// SNI).
 func (p *pool) dialTLS(ctx context.Context, network, addr string) (net.Conn, error) {
 	raw, err := p.dial(ctx, network, addr)
 	if err != nil {
@@ -182,7 +187,7 @@ func (p *pool) dialTLS(ctx context.Context, network, addr string) (net.Conn, err
 	tc := tls.Client(raw, cfg)
 	hctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	t := p.rt.m.clk.AfterFunc(resilience.TLSHandshakeTimeout, func() { cancel(errHandshakeTimeout) })
+	t := p.rt.m.clk.AfterFunc(p.entry.conn.handshake, func() { cancel(errHandshakeTimeout) })
 	err = tc.HandshakeContext(hctx)
 	t.Stop()
 	if err != nil {

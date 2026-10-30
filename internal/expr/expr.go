@@ -417,7 +417,7 @@ type Compiler interface {
 
 // Default CEL sources of Upstream.spec.retries.retryOn and
 // circuitBreaker.failureWhen when the field is absent (runtime rule,
-// OQ-traffic-management-and-resilience-6).
+// docs/architecture/09-traffic-management-and-resilience.md "Deadlines").
 const (
 	DefaultRetryOn     = `error != null ? (error.kind == "connect" || (error.kind == "reset" && request.method in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"])) : (response.status == 503 && request.method in ["GET", "HEAD", "OPTIONS", "PUT", "DELETE"])`
 	DefaultFailureWhen = `error != null || response.status in [502, 503, 504]`

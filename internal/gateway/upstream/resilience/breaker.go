@@ -122,15 +122,16 @@ const (
 // counting legs by their final result:
 //
 //   - Closed: every leg passes. The breaker opens when consecutiveFailures
-//     consecutive counted legs failed and at least failureRatio of at least
-//     minimumLegs counted legs in the rolling window (ten 1 s buckets)
-//     failed; below minimumLegs legs per window it never opens.
+//     consecutive counted legs failed and the rolling window (ten 1 s
+//     buckets) holds at least BreakerMinimumLegs (20) counted legs, at
+//     least BreakerFailurePercent (50%) of them failed; below 20 legs per
+//     window it never opens. The window guard is fixed, not a field.
 //   - Open: every new leg is refused (RZ-UP-005, no retry) until
 //     openDuration, jittered ±20%, has elapsed; then the next leg becomes
 //     the half-open probe.
 //   - Half-open: exactly one probe leg at a time, others refused
-//     (RZ-UP-005); halfOpenSuccesses consecutive probe successes close the
-//     breaker (with a fresh window), a probe failure reopens it.
+//     (RZ-UP-005); HalfOpenSuccesses (3) consecutive probe successes close
+//     the breaker (with a fresh window), a probe failure reopens it.
 //
 // A leg admitted in one state period may start another attempt (a retry)
 // only while Admits holds: the breaker is closed, or half-open and the leg
@@ -268,7 +269,7 @@ func (b *Breaker) Record(cfg *BreakerConfig, p Permit, r LegResult) {
 		switch r {
 		case LegSuccess:
 			b.successes++
-			if b.successes >= max(cfg.HalfOpenSuccesses, 1) {
+			if b.successes >= HalfOpenSuccesses {
 				b.setLocked(StateClosed, cfg)
 			}
 		case LegFailure:
@@ -280,7 +281,9 @@ func (b *Breaker) Record(cfg *BreakerConfig, p Permit, r LegResult) {
 }
 
 // recordClosedLocked counts a closed-state leg and opens the breaker when
-// both conditions hold.
+// both conditions hold: the consecutive run, and the window guard of at
+// least BreakerMinimumLegs counted legs with at least
+// BreakerFailurePercent of them failed.
 func (b *Breaker) recordClosedLocked(cfg *BreakerConfig, r LegResult) {
 	if r == LegNotCounted {
 		return
@@ -301,7 +304,7 @@ func (b *Breaker) recordClosedLocked(cfg *BreakerConfig, r LegResult) {
 		return
 	}
 	legs, failures := b.windowLocked(sec)
-	if legs >= max(cfg.MinimumLegs, 1) && float64(failures)/float64(legs) >= cfg.FailureRatio {
+	if legs >= BreakerMinimumLegs && failures*100 >= legs*BreakerFailurePercent {
 		b.setLocked(StateOpen, cfg)
 	}
 }

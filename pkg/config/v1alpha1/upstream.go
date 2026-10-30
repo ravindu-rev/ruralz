@@ -55,6 +55,10 @@ type UpstreamSpec struct {
 	// TLS configures TLS to the Endpoints; without it the Upstream is a cleartext hop.
 	// +ruralz:impact=security
 	TLS *UpstreamTLS `json:"tls,omitempty"`
+	// ConnectTimeout bounds the dial of a new connection to an Endpoint, shared by every address the Endpoint resolves to; when it expires the attempt fails with error kind connect.
+	// +ruralz:default=1s
+	// +ruralz:impact=traffic
+	ConnectTimeout *Duration `json:"connectTimeout,omitempty"`
 	// Timeout is the per-leg deadline; default the Route's timeout.
 	// +ruralz:impact=traffic
 	Timeout *Duration `json:"timeout,omitempty"`
@@ -136,6 +140,12 @@ type HealthCheck struct {
 	Active *ActiveHealthCheck `json:"active,omitempty"`
 	// Passive ejects Endpoints that fail requests.
 	Passive *PassiveHealthCheck `json:"passive,omitempty"`
+	// StallTimeout is how long an attempt may wait for response headers before it is stalled; an Endpoint holding a stalled attempt that has sent no response headers for as long is suspect until it does, so selection skips it while another Endpoint remains and an attempt timeout on it ejects it.
+	// +ruralz:default=1s
+	StallTimeout *Duration `json:"stallTimeout,omitempty"`
+	// PingTimeout is how long the ping an HTTP/2 connection to an Endpoint gets after 1 s of silence may go unanswered before the connection is closed and its streams reset.
+	// +ruralz:default=5s
+	PingTimeout *Duration `json:"pingTimeout,omitempty"`
 }
 
 // ActiveHealthCheck probes Endpoints; its presence turns probing on. A probe
@@ -195,35 +205,21 @@ type CircuitBreaker struct {
 	// +ruralz:default=256
 	// +ruralz:minimum=0
 	MaxPendingRequests *int32 `json:"maxPendingRequests,omitempty"`
-	// ConsecutiveFailures is the run of failed legs that opens the breaker, together with failureRatio of at least minimumLegs legs in a rolling 10 s window.
+	// ConsecutiveFailures is the run of failed legs that opens the breaker, once a rolling 10 s window also holds at least 20 legs and at least half of them failed.
 	// +ruralz:default=5
 	// +ruralz:minimum=1
 	ConsecutiveFailures *int32 `json:"consecutiveFailures,omitempty"`
-	// MinimumLegs is the number of legs a rolling 10 s window needs before the breaker may open.
-	// +ruralz:default=20
-	// +ruralz:minimum=1
-	MinimumLegs *int32 `json:"minimumLegs,omitempty"`
-	// FailureRatio is the share of failed legs in the window, 0 to 1, that the breaker also needs to open.
-	// +ruralz:default=0.5
-	// +ruralz:minimum=0
-	// +ruralz:maximum=1
-	FailureRatio *float64 `json:"failureRatio,omitempty"`
-	// OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through.
+	// OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through; 3 consecutive probe successes close it and a failed probe reopens it.
 	// +ruralz:default=30s
 	OpenDuration *Duration `json:"openDuration,omitempty"`
-	// HalfOpenSuccesses is the run of successful probe legs that closes a half-open breaker; a failed probe reopens it.
-	// +ruralz:default=3
-	// +ruralz:minimum=1
-	HalfOpenSuccesses *int32 `json:"halfOpenSuccesses,omitempty"`
 	// FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.
 	// +ruralz:cel=request,response,error,upstream:bool
 	FailureWhen string `json:"failureWhen,omitempty"`
 }
 
-// UpstreamTLS configures the client side of a TLS connection, to an
-// Upstream's Endpoints or to the OTLP collector: TLS 1.2 or newer, the
-// server certificate always verified. Set clientCertificate and clientKey
-// together, or neither.
+// UpstreamTLS configures the client side of the TLS connections to an
+// Upstream's Endpoints: TLS 1.2 or newer, the server certificate always
+// verified. Set clientCertificate and clientKey together, or neither.
 type UpstreamTLS struct {
 	// SNI is the server name sent in the TLS handshake and verified in the server certificate.
 	SNI string `json:"sni,omitempty"`
@@ -239,6 +235,9 @@ type UpstreamTLS struct {
 	// +ruralz:secret
 	// +ruralz:impact=security
 	ClientKey *SecretValue `json:"clientKey,omitempty"`
+	// HandshakeTimeout bounds the TLS handshake of a new connection; when it expires the attempt fails with error kind tls.
+	// +ruralz:default=2s
+	HandshakeTimeout *Duration `json:"handshakeTimeout,omitempty"`
 }
 
 // Messaging configures kafka, nats and mqtt Upstreams. Planned (M4).

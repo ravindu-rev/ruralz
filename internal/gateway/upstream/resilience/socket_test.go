@@ -51,14 +51,14 @@ func classifyAttempt(ctx context.Context, tr http.RoundTripper, url string) (Kin
 	return ClassifyStage(ctx, err, st.Stage()), err
 }
 
-// transport returns a Transport with the fixed dial and TLS bounds,
+// transport returns a Transport with the default dial and TLS bounds,
 // cleartext HTTP/1 and HTTP/1 plus HTTP/2 over TLS.
 func transport(t *testing.T, tlsConf *tls.Config, control func(network, address string, c syscall.RawConn) error) *http.Transport {
 	t.Helper()
-	d := &net.Dialer{Timeout: DialTimeout, Control: control}
+	d := &net.Dialer{Timeout: DefaultConnectTimeout, Control: control}
 	tr := &http.Transport{
 		DialContext:         d.DialContext,
-		TLSHandshakeTimeout: TLSHandshakeTimeout,
+		TLSHandshakeTimeout: DefaultHandshakeTimeout,
 		TLSClientConfig:     tlsConf,
 		DisableCompression:  true,
 		Proxy:               nil,

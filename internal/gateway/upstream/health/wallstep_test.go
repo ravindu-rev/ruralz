@@ -93,7 +93,7 @@ func TestTrackerWallClockStep(t *testing.T) {
 			now := clk.Fake.Now()
 			tr.View(now).Begin(&a, 1, now)
 			clk.step.Add(int64(tc.step))
-			clk.Advance(StallAfter)
+			clk.Advance(DefaultStallTimeout)
 			if !a.Stalled() || !tr.View(clk.Fake.Now()).Suspect(1) {
 				t.Fatal("attempt without headers did not stall 1 s after it started")
 			}

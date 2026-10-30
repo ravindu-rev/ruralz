@@ -22,7 +22,7 @@ func TestStallAndSuspect(t *testing.T) {
 	if !tr.View(start).Begin(&a, 1, start) {
 		t.Fatal("Begin")
 	}
-	clk.Advance(StallAfter - time.Millisecond)
+	clk.Advance(DefaultStallTimeout - time.Millisecond)
 	if a.Stalled() || tr.View(clk.Now()).Avoid(1) {
 		t.Fatal("stalled before 1 s")
 	}
@@ -45,7 +45,7 @@ func TestStallAndSuspect(t *testing.T) {
 	if tr.View(clk.Now()).Suspect(1) {
 		t.Fatal("suspect right after headers")
 	}
-	clk.Advance(SuspectAfter)
+	clk.Advance(DefaultStallTimeout)
 	if !tr.View(clk.Now()).Suspect(1) {
 		t.Fatal("not suspect again 1 s after the last headers with a stalled attempt")
 	}
@@ -65,6 +65,66 @@ func TestStallAndSuspect(t *testing.T) {
 	a2.End(clk.Now(), Outcome{})
 }
 
+// TestStallTimeout covers healthCheck.stallTimeout: it defaults to 1 s; a
+// configured value moves both the stall of an attempt without headers and
+// the suspicion of its Endpoint; a new policy applies to Views taken after
+// it, while an attempt keeps the stall timeout it began with.
+func TestStallTimeout(t *testing.T) {
+	if got := (PassivePolicy{}).WithDefaults().StallTimeout; got != time.Second || DefaultStallTimeout != time.Second {
+		t.Fatalf("default stall timeout = %v (constant %v), want 1s", got, DefaultStallTimeout)
+	}
+	const stall = 3 * time.Second
+	tr, clk, _, _ := newTracker(t, 2, func(c *Config) { c.Passive = PassivePolicy{StallTimeout: stall} })
+	if got := tr.Passive().StallTimeout; got != stall {
+		t.Fatalf("Passive().StallTimeout = %v, want %v", got, stall)
+	}
+	var a Attempt
+	tr.View(clk.Now()).Begin(&a, 0, clk.Now())
+	clk.Advance(DefaultStallTimeout)
+	if a.Stalled() || tr.View(clk.Now()).Suspect(0) {
+		t.Fatal("stalled after the 1 s default, under a 3 s stallTimeout")
+	}
+	clk.Advance(stall - DefaultStallTimeout - time.Millisecond)
+	if a.Stalled() {
+		t.Fatal("stalled before its stallTimeout")
+	}
+	clk.Advance(time.Millisecond)
+	if v := tr.View(clk.Now()); !a.Stalled() || !v.Suspect(0) || !v.Avoid(0) || !tr.Status(clk.Now())[0].Suspect {
+		t.Fatalf("at 3 s: stalled %v, suspect %v", a.Stalled(), v.Suspect(0))
+	}
+	// Headers through another attempt clear the suspicion for stallTimeout.
+	var b Attempt
+	tr.View(clk.Now()).Begin(&b, 0, clk.Now())
+	b.Headers(clk.Now())
+	b.End(clk.Now(), Outcome{})
+	clk.Advance(stall - time.Millisecond)
+	if tr.View(clk.Now()).Suspect(0) {
+		t.Fatal("suspect before stallTimeout passed without headers")
+	}
+	clk.Advance(time.Millisecond)
+	if !tr.View(clk.Now()).Suspect(0) {
+		t.Fatal("not suspect stallTimeout after the last headers")
+	}
+	a.Cancel()
+
+	// A Hot Reload to 1 s: an attempt begun before it keeps 3 s, one
+	// begun after it stalls at 1 s.
+	var old, cur Attempt
+	tr.View(clk.Now()).Begin(&old, 1, clk.Now())
+	tr.SetPolicy(PassivePolicy{StallTimeout: time.Second}, nil, 0)
+	tr.View(clk.Now()).Begin(&cur, 0, clk.Now())
+	clk.Advance(time.Second)
+	if !cur.Stalled() || old.Stalled() {
+		t.Fatalf("1 s after the reload: new attempt stalled %v, old attempt stalled %v; want true, false", cur.Stalled(), old.Stalled())
+	}
+	clk.Advance(stall - time.Second)
+	if !old.Stalled() {
+		t.Fatal("the attempt begun before the reload did not stall at its 3 s")
+	}
+	old.Cancel()
+	cur.Cancel()
+}
+
 // TestStalledShareRule covers the stalled share: once stalled attempts hold
 // 50% of maxConnections, every Endpoint holding one is avoided, suspect or
 // not.
@@ -76,7 +136,7 @@ func TestStalledShareRule(t *testing.T) {
 	}
 	// Endpoint 0 and 1 hold stalled attempts; both got headers recently
 	// through other attempts, so neither is suspect.
-	clk.Advance(StallAfter)
+	clk.Advance(DefaultStallTimeout)
 	for i := range 2 {
 		var h Attempt
 		tr.View(clk.Now()).Begin(&h, i, clk.Now())
@@ -109,9 +169,9 @@ func TestAttemptReuse(t *testing.T) {
 	var a Attempt
 	for range 5 {
 		tr.View(clk.Now()).Begin(&a, 0, clk.Now())
-		clk.Advance(StallAfter / 2)
+		clk.Advance(DefaultStallTimeout / 2)
 		a.Headers(clk.Now())
-		clk.Advance(StallAfter)
+		clk.Advance(DefaultStallTimeout)
 		if a.Stalled() {
 			t.Fatal("attempt with headers stalled")
 		}
@@ -119,7 +179,7 @@ func TestAttemptReuse(t *testing.T) {
 	}
 	// Begin while the previous attempt is stalled releases it.
 	tr.View(clk.Now()).Begin(&a, 0, clk.Now())
-	clk.Advance(StallAfter)
+	clk.Advance(DefaultStallTimeout)
 	if !a.Stalled() || tr.stalled.Load() != 1 {
 		t.Fatal("not stalled")
 	}
@@ -127,7 +187,7 @@ func TestAttemptReuse(t *testing.T) {
 	if tr.stalled.Load() != 0 || a.Stalled() {
 		t.Fatal("previous stalled attempt not released")
 	}
-	clk.Advance(StallAfter)
+	clk.Advance(DefaultStallTimeout)
 	if !a.Stalled() || tr.tab.Load().eps[1].stalled.Load() != 1 {
 		t.Fatal("new generation did not stall on Endpoint 1")
 	}
@@ -158,7 +218,7 @@ func TestLateStallCallback(t *testing.T) {
 	a.End(clk.Now(), Outcome{})
 	clk.Advance(10 * time.Second)
 	tr.View(clk.Now()).Begin(&a, 0, clk.Now())
-	clk.Advance(StallAfter / 2)
+	clk.Advance(DefaultStallTimeout / 2)
 	a.onStall() // the previous generation's callback, delivered late
 	if a.Stalled() {
 		t.Fatal("late callback stalled a young attempt")

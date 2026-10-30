@@ -17,7 +17,8 @@ import (
 //	Route deadline   = request start + Route timeout (15 s by default)
 //	leg deadline     = min(Route deadline, leg start + Upstream timeout)
 //	attempt deadline = min(leg deadline, attempt start + perTryTimeout)
-//	dial 1 s, TLS handshake 2 s (DialTimeout, TLSHandshakeTimeout)
+//	dial connectTimeout, TLS handshake tls.handshakeTimeout (1 s and 2 s
+//	by default: DefaultConnectTimeout, DefaultHandshakeTimeout)
 //
 // A zero time.Time is "no bound" in every function here.
 

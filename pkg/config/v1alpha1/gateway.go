@@ -138,7 +138,29 @@ type OTLP struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	// TLS configures the client side of an https endpoint: server name, trust anchors and a client certificate. Without it an https endpoint is verified against the system roots.
 	// +ruralz:impact=security
-	TLS *UpstreamTLS `json:"tls,omitempty"`
+	TLS *OTLPTLS `json:"tls,omitempty"`
+}
+
+// OTLPTLS configures the client side of the TLS connection to the OTLP
+// collector, with the Upstream tls fields sni, caCertificate,
+// clientCertificate and clientKey: TLS 1.2 or newer, the server certificate
+// always verified. Set clientCertificate and clientKey together, or
+// neither.
+type OTLPTLS struct {
+	// SNI is the server name sent in the TLS handshake and verified in the server certificate.
+	SNI string `json:"sni,omitempty"`
+	// CACertificate is a PEM bundle that verifies the server instead of the system roots.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	CACertificate *SecretValue `json:"caCertificate,omitempty"`
+	// ClientCertificate is the PEM client certificate chain for mTLS.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
+	// ClientKey is the PEM client private key for mTLS.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientKey *SecretValue `json:"clientKey,omitempty"`
 }
 
 // AccessLog configures the access log.

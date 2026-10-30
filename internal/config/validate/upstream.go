@@ -39,7 +39,7 @@ func (u *unit) upstream() {
 		u.dns(d)
 	}
 	if sp.TLS != nil {
-		u.clientPair(specPath(diag.Field("tls")), sp.TLS)
+		u.clientPair(specPath(diag.Field("tls")), sp.TLS.ClientCertificate, sp.TLS.ClientKey)
 	}
 }
 

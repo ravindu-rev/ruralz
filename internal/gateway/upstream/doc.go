@@ -43,14 +43,16 @@
 // # Connection pools
 //
 // Pools are keyed by protocol, TLS setting (SNI and secret references,
-// never values) and Endpoint, and carried across Hot Reloads that keep the
-// key. A pool is an http.Transport whose dialer reaches only its Endpoint:
-// the cached addresses in answer order within the 1 s dial budget, each
-// through the egress guard; TLS within 2 s with the rotating client
+// never values), connection bounds (connectTimeout, tls.handshakeTimeout,
+// healthCheck.pingTimeout) and Endpoint, and carried across Hot Reloads
+// that keep the key. A pool is an http.Transport whose dialer reaches only
+// its Endpoint: the cached addresses in answer order within one
+// connectTimeout (1 s by default), each through the egress guard; TLS
+// within tls.handshakeTimeout (2 s by default) with the rotating client
 // configuration, h2 or http/1.1 by ALPN; cleartext is HTTP/1.1. HTTP/2
-// connections ping after 1 s of silence and close after 5 s unanswered
-// (health.PingAfter, health.PingTimeout); a server's stream limit opens
-// another connection. The transport never asks for or decodes compression,
+// connections ping after 1 s of silence (health.PingAfter, fixed) and
+// close after healthCheck.pingTimeout (5 s by default) unanswered; a
+// server's stream limit opens another connection. The transport never asks for or decodes compression,
 // and caps a response header block at the client header ceiling, 256 KiB
 // (MaxResponseHeaderBytes). Connections count in
 // ruralz_upstream_pool_connections, active while an attempt uses them.

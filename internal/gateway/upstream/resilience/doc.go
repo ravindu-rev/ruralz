@@ -8,10 +8,11 @@
 //
 //   - Config, RetryConfig, BreakerConfig and BulkheadConfig: one Upstream's
 //     settings, filled by the Upstream core (internal/gateway/upstream)
-//     from Upstream.spec, with the defaults (DefaultConfig) and
-//     the fixed targets as constants (OQ-traffic-management-and-resilience-5
-//     (a): backoff and retry budget stay fixed, the breaker reads
-//     minimumLegs, failureRatio and halfOpenSuccesses);
+//     from Upstream.spec, with the defaults (DefaultConfig, and the dial
+//     and TLS handshake bounds DefaultConnectTimeout and
+//     DefaultHandshakeTimeout) and the fixed targets as constants: backoff,
+//     the retry budget and the breaker guards (BreakerMinimumLegs,
+//     BreakerFailurePercent, HalfOpenSuccesses) are not fields;
 //   - deadline arithmetic (RouteDeadline, LegDeadline, PerTryTimeout,
 //     AttemptDeadline) and clock-driven attempt contexts (WithDeadline,
 //     whose Stop keeps a slow body from being cut once headers arrive;
@@ -26,11 +27,11 @@
 //     in-flight originals)) per Upstream per Node, every retry counted from
 //     its backoff start to its leg's end (RetryBudget);
 //   - the circuit breaker (Breaker, Figure 2 of the design
-//     document): consecutiveFailures together with failureRatio of at least
-//     minimumLegs legs in a rolling 10 s window of ten 1 s buckets, a
+//     document): consecutiveFailures together with at least 50% failed of
+//     at least 20 legs in a rolling 10 s window of ten 1 s buckets, a
 //     jittered openDuration, one half-open probe leg at a time (a retry
-//     needs Breaker.Admits: closed, or this leg the probe) and
-//     halfOpenSuccesses probe successes to close; failureWhen
+//     needs Breaker.Admits: closed, or this leg the probe) and 3
+//     consecutive probe successes to close; failureWhen
 //     (EvalFailureWhen, the native form of expr.DefaultFailureWhen when
 //     absent) decides a leg's failure and BreakerResult whether it counts;
 //     Breaker.Stats reads it for /debug/upstreams;

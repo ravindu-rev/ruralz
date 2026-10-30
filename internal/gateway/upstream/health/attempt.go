@@ -32,11 +32,13 @@ const (
 // The stall timer comes from the clock of the first Tracker the Attempt
 // serves, so every Tracker it serves must share that clock (the Node's).
 type Attempt struct {
-	// state is generation<<2 | phase; tr, ep and start are published
-	// before state, so the stall callback reads a consistent attempt.
-	// start is an instant of tr (Tracker.at).
+	// state is generation<<2 | phase; tr, ep, start and stall are
+	// published before state, so the stall callback reads a consistent
+	// attempt. start is an instant of tr (Tracker.at); stall is the
+	// attempt's stall timeout in nanoseconds.
 	state atomic.Uint64
 	start atomic.Int64
+	stall atomic.Int64
 	tr    atomic.Pointer[Tracker]
 	ep    atomic.Pointer[endpoint]
 
@@ -44,8 +46,9 @@ type Attempt struct {
 	ended bool
 }
 
-// begin starts an attempt to e at now, finishing any previous one first.
-func (a *Attempt) begin(t *Tracker, e *endpoint, now time.Time) {
+// begin starts an attempt to e at now under stall timeout stall, finishing
+// any previous one first.
+func (a *Attempt) begin(t *Tracker, e *endpoint, now time.Time, stall time.Duration) {
 	if !a.ended && a.state.Load()&phaseMask != phaseIdle {
 		a.Cancel()
 	}
@@ -54,30 +57,31 @@ func (a *Attempt) begin(t *Tracker, e *endpoint, now time.Time) {
 	a.tr.Store(t)
 	a.ep.Store(e)
 	a.start.Store(t.at(now))
+	a.stall.Store(int64(stall))
 	a.state.Store(gen<<2 | phaseRunning)
 	if a.timer == nil {
-		a.timer = t.clk.AfterFunc(StallAfter, a.onStall)
+		a.timer = t.clk.AfterFunc(stall, a.onStall)
 		return
 	}
-	a.timer.Reset(StallAfter)
+	a.timer.Reset(stall)
 }
 
-// onStall is the stall timer: an attempt still waiting for headers
-// StallAfter after it started becomes stalled. A late firing armed for an
-// earlier generation finds the current attempt younger than StallAfter and
-// does nothing; the current generation's own firing follows. The age is
-// elapsed time, like the timer's, so a wall-clock step neither suppresses
-// nor hastens a stall.
+// onStall is the stall timer: an attempt still waiting for headers its
+// stall timeout after it started becomes stalled. A late firing armed for
+// an earlier generation finds the current attempt younger than its stall
+// timeout and does nothing; the current generation's own firing follows.
+// The age is elapsed time, like the timer's, so a wall-clock step neither
+// suppresses nor hastens a stall.
 func (a *Attempt) onStall() {
 	s := a.state.Load()
 	if s&phaseMask != phaseRunning {
 		return
 	}
-	start, t, e := a.start.Load(), a.tr.Load(), a.ep.Load()
+	start, stall, t, e := a.start.Load(), a.stall.Load(), a.tr.Load(), a.ep.Load()
 	if a.state.Load() != s || t == nil || e == nil {
 		return
 	}
-	if t.elapsed()-start < int64(StallAfter) {
+	if t.elapsed()-start < stall {
 		return
 	}
 	if a.state.CompareAndSwap(s, s&^phaseMask|phaseStalled) {
@@ -137,9 +141,10 @@ func (a *Attempt) End(now time.Time, o Outcome) bool {
 	a.ended = true
 	e, t := a.ep.Load(), a.tr.Load()
 	n := t.at(now)
-	// Suspicion is judged with this attempt still counted: a timeout of
-	// the attempt that made the Endpoint suspect ejects it.
-	suspect := e.suspect(n)
+	// Suspicion is judged with this attempt still counted, under its own
+	// stall timeout: a timeout of the attempt that made the Endpoint
+	// suspect ejects it.
+	suspect := e.suspect(n, a.stall.Load())
 	a.timer.Stop()
 	a.settle()
 	return t.observe(e, n, o, suspect)

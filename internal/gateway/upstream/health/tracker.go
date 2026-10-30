@@ -38,8 +38,8 @@ type endpoint struct {
 
 	// Stall and suspect: attempts to this Endpoint that are stalled
 	// now, and the last time any attempt to it got headers (0: none
-	// since the base; a stall needs StallAfter past an attempt's start,
-	// so that reads as long enough ago).
+	// since the base; a stall needs its stall timeout past an attempt's
+	// start, so that reads as long enough ago).
 	stalled     atomic.Int32
 	lastHeaders atomic.Int64
 
@@ -57,9 +57,9 @@ func (e *endpoint) down(now int64) bool {
 }
 
 // suspect reports whether e is suspect: holding a stalled attempt and no
-// response headers for SuspectAfter.
-func (e *endpoint) suspect(now int64) bool {
-	return e.stalled.Load() > 0 && now-e.lastHeaders.Load() >= int64(SuspectAfter)
+// response headers for stall, the stall timeout in nanoseconds.
+func (e *endpoint) suspect(now, stall int64) bool {
+	return e.stalled.Load() > 0 && now-e.lastHeaders.Load() >= stall
 }
 
 // table is one immutable Endpoint list, indexed like the Upstream's
@@ -76,7 +76,8 @@ type Config struct {
 	// clock.Real(). The Tracker measures time as elapsed since its own
 	// creation (Clock.Since), so a wall-clock step moves no deadline.
 	Clock clock.Clock
-	// Passive is the current snapshot's healthCheck.passive.
+	// Passive is the current snapshot's healthCheck.passive and
+	// healthCheck.stallTimeout.
 	Passive PassivePolicy
 	// Active is the current snapshot's healthCheck.active; nil: off.
 	Active *ActivePolicy
@@ -395,12 +396,14 @@ func (t *Tracker) report(changed bool) {
 }
 
 // View is the health state one attempt consults, indexed like the Endpoint
-// list of the last SetEndpoints before it was taken. It is a small value;
-// taking and reading it allocates nothing.
+// list of the last SetEndpoints before it was taken, under the stall
+// timeout of the policy current then. It is a small value; taking and
+// reading it allocates nothing.
 type View struct {
 	t         *Tracker
 	tab       *table
 	now       int64
+	stall     int64
 	stallSkip bool
 }
 
@@ -410,6 +413,7 @@ func (t *Tracker) View(now time.Time) View {
 		t:         t,
 		tab:       t.tab.Load(),
 		now:       t.at(now),
+		stall:     int64(t.passive.Load().StallTimeout),
 		stallSkip: t.stalled.Load()*100 >= t.maxConns.Load()*StalledSharePercent,
 	}
 }
@@ -442,7 +446,7 @@ func (v View) Down(i int) bool {
 // Suspect reports whether Endpoint i is suspect.
 func (v View) Suspect(i int) bool {
 	e := v.ep(i)
-	return e != nil && e.suspect(v.now)
+	return e != nil && e.suspect(v.now, v.stall)
 }
 
 // Avoid reports the health part of avoidance for Endpoint i: suspect, or
@@ -454,7 +458,7 @@ func (v View) Avoid(i int) bool {
 	if e == nil {
 		return false
 	}
-	return e.suspect(v.now) || v.stallSkip && e.stalled.Load() > 0
+	return e.suspect(v.now, v.stall) || v.stallSkip && e.stalled.Load() > 0
 }
 
 // Failures returns Endpoint i's attempts matching failureWhen in the last
@@ -467,14 +471,15 @@ func (v View) Failures(i int) int64 {
 	return e.failures.sum(v.now)
 }
 
-// Begin starts tracking an attempt to Endpoint i of this View at now (see
-// Attempt). It reports false, and tracks nothing, when i is out of range.
+// Begin starts tracking an attempt to Endpoint i of this View at now under
+// the View's stall timeout (see Attempt). It reports false, and tracks
+// nothing, when i is out of range.
 func (v View) Begin(a *Attempt, i int, now time.Time) bool {
 	e := v.ep(i)
 	if e == nil {
 		return false
 	}
-	a.begin(v.t, e, now)
+	a.begin(v.t, e, now, time.Duration(v.stall))
 	return true
 }
 
@@ -494,7 +499,7 @@ type EndpointStatus struct {
 	// ConsecutiveErrors is the current run of failures.
 	ConsecutiveErrors int
 	// Suspect reports whether the Endpoint is suspect: holding a stalled
-	// attempt and no response headers for SuspectAfter.
+	// attempt and no response headers for the current stall timeout.
 	Suspect bool
 	// Stalled counts the Endpoint's stalled attempts.
 	Stalled int
@@ -516,7 +521,7 @@ func (t *Tracker) Status(now time.Time) []EndpointStatus {
 			Healthy:           !e.unhealthy.Load(),
 			Ejections:         decayed(e, n, pol.EjectionTime),
 			ConsecutiveErrors: int(e.consecutive.Load()),
-			Suspect:           e.suspect(n),
+			Suspect:           e.suspect(n, int64(pol.StallTimeout)),
 			Stalled:           int(e.stalled.Load()),
 			Failures1s:        e.failures.sum(n),
 		}
