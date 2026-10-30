@@ -15,7 +15,7 @@ CI checks every non-merge commit of a pull request; Dependabot commits are exemp
 
 ## Pull request titles
 
-Pull requests are squash-merged, so the title becomes the commit subject, and merge only when the branch is up to date with `main` and the required `pr-fast` and `pr-title` checks pass. The title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions. Announce each deprecated surface with a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, at least two minor releases after the release that ships it; `make hygiene` checks it ([Conventional Commits](docs/engineering/02-repository-layout-and-conventions.md#conventional-commits)).
+Pull requests are squash-merged, so the title becomes the commit subject, and merge only when the branch is up to date with `main` and the required `pr-fast`, `pr-full` and `pr-title` checks pass. The title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions. Announce each deprecated surface with a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, at least two minor releases after the release that ships it; `make hygiene` checks it ([Conventional Commits](docs/engineering/02-repository-layout-and-conventions.md#conventional-commits)).
 
 | Type | Scopes |
 |---|---|
@@ -64,7 +64,7 @@ make floor FLOOR_GOTOOLCHAIN=go1.26.8                # the Go 1.26 floor job, wi
 ## Pull requests
 
 - A pull request brings its tests, regenerated files and documentation with it.
-- The required checks are `pr-fast` (stages 1 to 6) and `pr-title`.
+- The required checks are `pr-fast` (stages 1 to 6), `pr-full` (stages 8 and 9) and `pr-title`.
 - A design change updates the owning document in `docs/` in the same pull request.
 
 ## Reporting security issues

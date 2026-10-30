@@ -12,7 +12,7 @@ Non-goals, with owners: kinds and fields ([Configuration model](02-configuration
 
 ## Load balancing
 
-Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state, Planned (M1) for `http` Upstreams. A Route picks an `upstreams` entry per request by `weight`; the Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
+Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state, Planned (M1) for `http` Upstreams. A Route picks an `upstreams` entry per request by `weight`, under the Endpoint weight rule: an entry of weight 0 is never picked while another weighs more, and if every weight is 0 all weigh 1. When the picked entry's leg is refused before any attempt is sent (`RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`), the request picks again by weight among the entries it has not tried, each at most once, and answers with the last refusal when none is left. The Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
 
 | Algorithm | Selection | Best for |
 |---|---|---|
@@ -176,7 +176,18 @@ Streaming and WebSocket legs hold a slot for life, up to the Route `timeout`, so
 
 ## Rate limiting
 
-A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`), Planned (M1). `config.key` (CEL) partitions traffic; every `config.limits[]` entry must allow `requests` per `window`, plus its `burst`. Route limits stack on Gateway limits (pack 8.12). Limits apply per Cell, so R Regions allow R × each. Auth runs first.
+A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`), Planned (M1). `config.key` (CEL) partitions traffic; without it every request of the Policy shares one partition, a service limit. Every applied `config.limits[]` entry must allow `requests` per `window`, plus its `burst`. Route limits stack on Gateway limits (pack 8.12). Limits apply per Cell, so R Regions allow R × each. Auth runs first.
+
+These fields, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents) beside those of [Per-Node ceiling](#per-node-ceiling), shape a limit:
+
+| Field | Type; default | Rule |
+|---|---|---|
+| `config.key` | CEL string over Base; absent | The partition key; absent, or an empty result, is one partition for every request |
+| `config.limits[]` | List of 1 to 8 entries (target) | Each holds `requests`, at least 1, per `window`; two entries with equal `requests` and `window` would share one GCRA key and are RZ-CFG-005 |
+| `limits[].window` | Duration of at least 1 ms, in whole milliseconds | `window` / `requests`, the GCRA emission interval T, is at least 1 µs, so it stays above the TAT resolution; else RZ-CFG-005 |
+| `limits[].when` | CEL bool over Base; absent, the entry always applies | A false entry is skipped for the request: no local bucket, no GCRA limit and no RateLimit field |
+| `config.cost` | CEL int over Base; `1` | The tokens a request takes from every applied limit, at least 1 |
+| `config.responseHeaders` | `ietf` or `none`; `ietf` | `none` records no [RateLimit fields](#ratelimit-response-headers) for the Policy; its 429s still carry `Retry-After` |
 
 Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatReply` `clusterNodeCount`); N_serving, or N, counts serving Nodes; N_frozen, a count frozen by a Ruralz Control outage; N_countless, Nodes without a count; TAT, the GCRA theoretical arrival time per key; τ, the GCRA burst tolerance; B, the Cell-wide first-seen call budget.
 
@@ -194,22 +205,22 @@ Notation: N_published is the Node count Ruralz Control publishes (`HeartbeatRepl
 
 ### Decision path
 
-1. `when` false skips the Policy. A `config.key` runtime error applies `failureMode` without a bucket: `open` admits unmetered, `closed` returns 503 `RZ-RL-005`.
+1. `when` false skips the Policy. The Policy evaluates `config.key`, `config.cost` and each `limits[].when` once; a runtime error in any of them, or a cost below 1, applies `failureMode` without a bucket: `open` admits unmetered, `closed` returns 503 `RZ-RL-005`. Entries whose `when` is false take no part in the steps below, and a Policy left with no applied entry admits.
 2. A key whose last GCRA answer denied stays denied from a per-Node over-limit cache until its retry-after.
-3. A key with no local entry is first-seen, spending a unit of a per-Node budget all Policies share: min(500, B / N_published) per second with a count, else 200 (target), with B = 20,000 per Cell, 20% of a shard (hypothesis). Within budget it gets full buckets; past it, as OQ-traffic-management-and-resilience-20 proposes, a 10 s local-only entry (target) at the per-Node ceiling, capacity and refill alike, without GCRA.
-4. Each `limits[]` entry has a local token bucket at its per-Node ceiling; all must hold a token, else 429 `RZ-RL-001`. Local-only entries and `localOnly` Policies then admit, within N × ceiling per window.
-5. Otherwise one `EVALSHA` runs GCRA for every limit with server `TIME`, updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
-6. A failed call or open State client breaker applies `failureMode`: `open` admits within the local buckets, `closed` returns 503 `RZ-STS-<NNN>` ([Scalability](11-scalability-and-distributed-state.md)).
+3. A key with no local entry is first-seen, spending a unit of a per-Node budget all Policies share: min(500, B / N_published) per second with a count, else 200 (target), with B = 20,000 per Cell, 20% of a shard (hypothesis). Within budget it gets full buckets; past it, a 10 s local-only entry (target) in the key table's local-only segment, at the per-Node ceiling, capacity and refill alike, which decides without GCRA.
+4. Each applied `limits[]` entry has a local token bucket at its per-Node ceiling; the request takes `cost` tokens from every one of them or from none, else 429 `RZ-RL-001`, so a cost above an entry's ceiling, which never fits its bucket, is always denied there. Local-only entries and `localOnly` Policies then admit, within N_serving × ceiling per window.
+5. Otherwise one `EVALSHA` runs GCRA for every applied limit with server `TIME`, charging `cost` emission intervals and updating TATs only if all allow; a deny is 429 `RZ-RL-002`. Nodes `SCRIPT LOAD` every script at connect, reconnect and failover; `NOSCRIPT` applies `failureMode` and schedules a reload, so no request makes a second round trip (pack 8.7 rule 1).
+6. A failed or unattempted call, or an open State client breaker, applies `failureMode`: `open` admits within the local buckets, which switch to the fail-open refill of [Per-Node ceiling](#per-node-ceiling); `closed` returns 503 `RZ-STS-<NNN>` ([Scalability](11-scalability-and-distributed-state.md)).
 
-Local-only admission departs from pack 8.8, which runs GCRA for every locally admitted request. Pending OQ-traffic-management-and-resilience-20, option (c) applies: first-seen keys past the budget wait for GCRA, and only offered load bounds first-seen calls. Under option (a) they are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store.
+Two cases admit on local buckets alone, as pack 8.8 fixes: a `localOnly` Policy, and a first-seen key past the budget during its local-only entry, each at most N_serving × ceiling per window (target), even while the State Store is healthy. First-seen calls are at most min(B × N_serving / N_published, 500 × N_serving) per second per Cell, B at steady state; without a count, as in file mode, 200 × N, 200,000 at 1,000 Nodes (hypothesis), so large file-mode Clusters SHOULD run Control mode or size the State Store.
 
-A Node new from scale-out, a restart or a Zero-Downtime Upgrade starts empty and warms at its budget: 50,000 active keys take about 250 s at N_published = 100 (hypothesis). Meanwhile past-budget keys wait for GCRA under option (c), or under option (a) are admitted at the per-Node ceiling without GCRA. Handing over the key table and count is OQ-traffic-management-and-resilience-22.
+A Node new from scale-out, a restart or a Zero-Downtime Upgrade starts empty and warms at its budget: 50,000 active keys take about 250 s at N_published = 100 (hypothesis), while past-budget keys admit from local-only entries at the per-Node ceiling. In Control mode, Planned (M2), a Zero-Downtime Upgrade hands its successor the Node count (pack 8.8); handing over the key table is OQ-traffic-management-and-resilience-22.
 
 Keys are `rz:rl:<policy>:<requests>/<window>:{<SHA-256 of the key value>}`: the tag keeps a partition in one slot, so consumptive calls with equal keys share one script (pack 8.7); `PEXPIRE` at TAT − now + τ drops idle keys. A Policy on several Routes shares one counter; per-Route limits add `route.name` to `config.key`. A changed limit starts fresh GCRA state, briefly allowing `requests` + `burst`.
 
 Buckets, local-only and over-limit entries share a Node-wide 1,048,576 entries, about 64 MiB (target), in [Data plane](03-data-plane.md)'s CLOCK-evicted shards, surviving Hot Reloads. Local-only entries get their own 131,072-entry segment (target), so a key-rotation flood never evicts a key with a GCRA answer.
 
-A key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target), a full bucket plus one window's refill per Node ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); pack 8.8's N × ceiling bounds fail-open admission, not calls. A shard serves about 100,000 calls per second (hypothesis; Valkey 8 measured 1.19 million `SET`, not `EVAL`, per second, [source](https://valkey.io/blog/unlock-one-million-rps-part2/)); hotter keys, like a busy service limit's, need `localOnly`. The State client breaker is per shard per Node; GCRA takes 1 ms at p99 within a zone (hypothesis).
+A key reaches the State Store at most min(offered, 2 × N × ceiling) times per window (target), a full bucket plus one window's refill per Node ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)); pack 8.8's N × ceiling bounds fail-open admission, not calls. A shard serves about 100,000 calls per second (hypothesis; Valkey 8 measured 1.19 million `SET`, not `EVAL`, per second, [source](https://valkey.io/blog/unlock-one-million-rps-part2/)); hotter keys, like a busy service limit's, need `localOnly`, and validation warns about a constant key above that rate (RZ-CFG-043, [Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)). The State client breaker is per shard per Node; GCRA takes 1 ms at p99 within a zone (hypothesis).
 
 *Figure 3: rate-limit decision, local token bucket then State Store GCRA.*
 
@@ -217,50 +228,50 @@ A key reaches the State Store at most min(offered, 2 × N × ceiling) times per 
 flowchart TD
     req["onRequestHeaders reaches a ratelimit Policy"] --> when{"Policy when true?"}
     when -- "false" --> skip["Policy skipped"]
-    when -- "true" --> key["Evaluate config.key"]
-    key -- "runtime error" --> kfm{"failureMode on key error"}
+    when -- "true" --> key["Evaluate config.key, config.cost and each limits[].when"]
+    key -- "runtime error, or a cost below 1" --> kfm{"failureMode on a CEL error"}
     kfm -- "open" --> kskip["Policy skipped, unmetered"]
     kfm -- "closed" --> r503k["503 RZ-RL-005"]
-    key -- "key evaluated" --> olc{"Key in over-limit cache?"}
+    key -- "evaluated; no entry applies" --> ok
+    key -- "evaluated" --> olc{"Key in over-limit cache?"}
     olc -- "yes" --> deny2["429 RZ-RL-002 with Retry-After"]
     olc -- "no" --> nk{"Local entry?"}
-    nk -- "yes, or first-seen within budget" --> lb{"Every local bucket has a token?"}
-    nk -- "first-seen past budget, current (c): wait for GCRA" --> lb
-    nk -- "first-seen past budget, proposed (a) in OQ-20" --> local["Local-only entry at the per-Node ceiling, 10 s (target)"]
+    nk -- "yes, or first-seen within budget" --> lb{"Every applied bucket holds cost tokens?"}
+    nk -- "first-seen past budget" --> local["Local-only entry at the per-Node ceiling, 10 s (target)"]
     local --> lb
     lb -- "no" --> deny1["429 RZ-RL-001, no State Store call"]
     lb -- "yes" --> lo{"Local-only entry or localOnly Policy?"}
     lo -- "yes" --> ok["Admit"]
     lo -- "no" --> brk{"State client breaker open for the shard?"}
     brk -- "yes" --> fm{"failureMode on State Store failure"}
-    brk -- "no" --> gcra["GCRA for all limits in one script, server TIME"]
+    brk -- "no" --> gcra["GCRA for every applied limit in one script, server TIME"]
     gcra -- "allow" --> ok
     gcra -- "deny" --> cache["Cache the deny until retry-after"]
     cache --> deny2
     gcra -- "error, timeout or NOSCRIPT" --> fm
-    fm -- "open, default" --> admit["Admit from unfloored local buckets (target)"]
+    fm -- "open, default" --> admit["Admit from local buckets on the fail-open refill (target)"]
     fm -- "closed" --> r503["503 RZ-STS-NNN"]
 ```
 
 ### Per-Node ceiling
 
-Three `ratelimit` fields, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents) (OQ-traffic-management-and-resilience-1), govern ceilings:
+Three `ratelimit` fields, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents), govern ceilings:
 
 | Field | Type; default | Rule |
 |---|---|---|
 | `limits[].perNodeCeiling` | Integer, 1 to `requests`; unset | Each Node's bucket capacity and refill per `window` |
 | `limits[].burst` | Integer, 0 to `requests`; `requests` | τ = `burst` × `window` / `requests`: a window admits `requests` + `burst` |
-| `config.localOnly` | Boolean; `false` | Local buckets alone decide, without State Store calls, over-limit cache or first-seen budget: at most N_serving × ceiling per window, even healthy (target), for keys too hot for one shard ([Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)); departs from pack 8.8 (OQ-scalability-and-distributed-state-11) |
+| `config.localOnly` | Boolean; `false` | Local buckets alone decide, without State Store calls, over-limit cache or first-seen budget: at most N_serving × ceiling per window, even healthy (target), for keys too hot for one shard ([Scalability](11-scalability-and-distributed-state.md#distributed-rate-limits)), as pack 8.8 allows |
 
-Without `perNodeCeiling` the ceiling derives from N_published in Control mode; a Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown` ([Observability](10-observability.md)); so does file mode (pack 8.8), not degraded. OQ-traffic-management-and-resilience-16 proposes min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target) over pack 8.8's limit / N: the factor 2 absorbs uneven spread, the floor serves pinned clients.
+Without `perNodeCeiling` the ceiling derives from N_published in Control mode as min(`requests`, max(10, ceil(2 × `requests` / N_published))) (target), pack 8.8's rule: the factor 2 absorbs uneven spread, the floor serves pinned clients. A Control-mode Node without a count uses the full limit, degraded reason `node_count_unknown` ([Observability](10-observability.md)); so does file mode (pack 8.8), not degraded.
 
-The floor alone breaks the fail-open bound (10 per `1s` on 100 Nodes admits 1,000 per second), so while GCRA fails each derived-ceiling bucket holds max(1, 2 × `requests` / N_published) tokens per epoch-aligned window, without carry-over, refilled in 60 steps past 1 minute (target). A Control-mode Node without a count clamps to max(1, `requests` / 100) (target), so the Cell admits N_countless × that; OQ-traffic-management-and-resilience-19 option (c), a persisted count used flagged stale, is recommended.
+While GCRA fails, a key's buckets refill per epoch-aligned `window` instead of continuously: each window brings the key's fail-open allowance, without carry-over, released in 60 equal steps for a window past 1 minute (target). A key switches from its first failed or unattempted call, or open breaker, until its next GCRA answer; at the switch each bucket keeps the tokens it holds, at most the allowance, for the rest of the window in progress, so tokens already taken stay taken. The allowance is the ceiling, except that a derived ceiling's bucket holds max(1, 2 × `requests` / N_published) tokens, since the floor alone would break the fail-open bound (10 per `1s` on 100 Nodes admits 1,000 per second), and a Control-mode Node without a count holds max(1, `requests` / 100) (target), so the Cell admits N_countless × that. Per key and aligned window, fail-open admission is then at most N_serving × the allowance.
 
-[Control plane](04-control-plane-and-gitops.md#replica-roles) counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, increases at most 10% per minute. Nodes keep it in memory while Ruralz Control is down, unpersisted (pack 8.11). As a larger N tightens ceilings, lag is unsafe: hot keys reach GCRA N_serving / N_published times as often, and fail-open admits that multiple of 2 × limit. A lost Ruralz Control leader or Raft quorum freezes it at N_frozen while stale replicas still serve new Nodes. Autoscaled Control-mode Clusters SHOULD set `perNodeCeiling` until OQ-traffic-management-and-resilience-19 closes.
+[Control plane](04-control-plane-and-gitops.md#replica-roles) counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, increases at most 10% per minute. In Control mode, Planned (M2), a Node keeps the last count while Ruralz Control is down, persists it under `${RURALZ_DATA_DIR}`, uses it flagged stale after a restart until the next arrives, and hands it to its successor in a Zero-Downtime Upgrade (pack 8.8, 8.11), so only a Node that never received one is without a count. As a larger N tightens ceilings, lag is unsafe: hot keys reach GCRA N_serving / N_published times as often, and fail-open admits that multiple of 2 × limit. A lost Ruralz Control leader or Raft quorum freezes it at N_frozen while stale replicas still serve new Nodes, so autoscaled Control-mode Clusters SHOULD set `perNodeCeiling`.
 
 ### Service and tiered limits
 
-A service limit uses a constant `key`; a tiered limit is one Policy per Tier, guarded by `when`:
+A service limit uses a constant or absent `key`; a tiered limit is one Policy per Tier, guarded by `when`:
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -287,17 +298,33 @@ spec:
       - {requests: 10, window: 1s}
 ```
 
+One Policy can hold every Tier instead, its `limits[].when` selecting each Tier's entries. Keying anonymous clients by `net.prefix(source.ip, 32, 64)` ([Configuration model](02-configuration-model.md#limits)) gives an IPv4 client its address and an IPv6 client its /64, so rotating addresses within that prefix shares one bucket:
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-tiers}
+spec:
+  type: ratelimit
+  config:
+    key: 'consumer == null ? net.prefix(source.ip, 32, 64) : consumer.name'
+    limits:
+      - {requests: 100, window: 1s, when: 'consumer != null && consumer.tier == "gold"'}
+      - {requests: 5000, window: 1m, when: 'consumer != null && consumer.tier == "gold"'}
+      - {requests: 10, window: 1s, when: 'consumer == null || consumer.tier != "gold"'}
+```
+
 ### RateLimit response headers
 
-Ruralz Gateway will emit Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1) ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)):
+Ruralz Gateway emits Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1) ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)). Each `ratelimit` and `quota` Policy records the limits it applied to a request, and the request handler writes the fields after `onResponse`, on every response of that request, generated responses included. A limit a skipped Policy, or a `limits[].when` that was false, did not apply is not listed, nor any limit of a `ratelimit` Policy with `config.responseHeaders: none`:
 
 | Field | Content | When |
 |---|---|---|
-| `RateLimit-Policy` | Per applied limit: the Policy name as a String (`.1`, `.2` for several limits), `q` = `requests` or the quota `limit`, `w` = `window` in seconds, rounded up | 429 responses (`RZ-RL-001` to `RZ-RL-003`) |
-| `RateLimit` | The denied limit: `r` remaining, `t` seconds until it admits | Same |
-| `Retry-After` | Equal to `t`, taking precedence over `RateLimit` as the draft requires | Every 429 |
+| `RateLimit-Policy` | Per applied limit, in chain order: the Policy name as a String, suffixed `.1`, `.2` by the entry's position in `limits[]` when the Policy holds several entries; `q` = `requests` or the quota `limit`; `w` = `window` in seconds, rounded up, or the length of the current calendar month | Every response of a request with an applied limit |
+| `RateLimit` | Per applied limit whose count is known, in the same order: `r` remaining and `t` seconds until it is whole again, rounded up; on a 429, the denied limit only, `t` then being the seconds until it admits | Same |
+| `Retry-After` | Equal to the denied limit's `t`, taking precedence over `RateLimit` as the draft requires | Every 429 (`RZ-RL-001` to `RZ-RL-003`), `config.responseHeaders: none` included |
 
-`RZ-RL-001` gives `r=0` and `t` until the local bucket refills; `RZ-RL-002` the GCRA or cached retry-after; `RZ-RL-003` `r=0` and `t` to the jittered window end. `q` is the sustained rate; default `burst` allows 2 × `q` per window. `pk`, which would disclose a client address or Consumer name, `qu` and `ai.token-budget` fields are omitted. Admitted responses wait on OQ-traffic-management-and-resilience-2, `X-RateLimit-*` on OQ-traffic-management-and-resilience-3.
+On an admitted request a GCRA limit reports the remaining count and reset its script returned, a local-only entry or a `localOnly` Policy its Node's bucket, and a quota the units left in its window and the seconds to the window's end; a limit admitted without a count, unmetered or from the local buckets while the State Store fails, appears in `RateLimit-Policy` only. On a 429, `RZ-RL-001` gives `r=0` and `t` until the local bucket holds the request's `cost`; `RZ-RL-002` the GCRA or cached retry-after; `RZ-RL-003` the units left and `t` to the jittered window end. A 429 from a `responseHeaders: none` Policy carries `Retry-After` and the other Policies' `RateLimit-Policy` items, but no `RateLimit`. `q` is the sustained rate; default `burst` allows 2 × `q` per window. `pk`, which would disclose a client address or Consumer name, `qu` and `ai.token-budget` fields are omitted, and no `X-RateLimit-*` field is sent.
 
 ```text
 HTTP/1.1 429 Too Many Requests
@@ -307,16 +334,24 @@ RateLimit: "ratelimit-gold.1";r=0;t=1
 Retry-After: 1
 ```
 
+```text
+HTTP/1.1 200 OK
+RateLimit-Policy: "ratelimit-global";q=1000;w=1, "ratelimit-gold.1";q=100;w=1, "ratelimit-gold.2";q=5000;w=60
+RateLimit: "ratelimit-global";r=998;t=1, "ratelimit-gold.1";r=97;t=1, "ratelimit-gold.2";r=4980;t=60
+```
+
 ## Quotas
 
-A Quota is a long-window Consumer allowance (a Consumer quota's `limit` per `window`), checked before commit, settled asynchronously:
+A Quota is a long-window Consumer allowance (a Consumer quota's `limit` per `window`, or per UTC calendar month), checked before commit, settled asynchronously:
 
 | Unit | Policy | Admission | Settlement | Planned |
 |---|---|---|---|---|
-| `requests` | `quota` (`config.consumerQuota`, `config.key`) | `onRequestHeaders`: one atomic script reserves a unit if the window has room | `onLog`: refunds after a later Filter rejection or `RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`; cache hits are charged | Planned (M1) |
+| `requests` | `quota` (`config.consumerQuota`, `config.key`, `config.cost`) | `onRequestHeaders`: one atomic script reserves `cost` units if the window has that many left | `onLog`: refunds the reserved units when a later Filter rejected the request (`Final.RejectedAfter`), or when no attempt reached an Upstream: none was made, or every one failed to connect or to finish TLS, as for `RZ-UP-001`, `RZ-UP-002`, `RZ-UP-005`, `RZ-UP-006`, `RZ-UP-008` and a Node rejection before any attempt, such as 413 `RZ-RT-003`, 503 `RZ-RT-004`, 504 `RZ-RT-007`, `RZ-RT-014` or `RZ-RT-016`; cache hits are charged | Planned (M1) |
 | `tokens` (LLM input plus output) | `ai.token-budget` (`config.consumerQuota`) | `onRequestBody`: reserves estimated input plus output cap C (pack 8.9) | `onLog` (pack 8.9): provider-reported usage, else all of R with a degraded-state metric | Planned (M3) |
 
-Windows are fixed and epoch-aligned in UTC: `24h` resets at midnight, `720h` every 30 days. Each key and window costs one counter, `rz:qt:<consumerQuota>:<window>:<window start>:{<SHA-256 of the key value>}`, expiring a window after it closes. Policies naming one Consumer quota share its counter, charged once per request; renaming a Consumer resets usage under the default `key`. Scripts get `KEYS` for the Node clock's window and its nearer neighbor, pick by server `TIME` and tolerate skew up to half the window (target). Quotas apply per Cell; calendar months and weighted costs are OQ-traffic-management-and-resilience-10.
+`config.cost` (CEL int over Base; default `1`) is the units a request reserves, and a refund returns them; a runtime error or a cost below 1 applies `failureMode` like a `config.key` error (`closed`: 503 `RZ-RL-005`), and a cost above the window's remaining units is denied (429 `RZ-RL-003`), reserving nothing.
+
+A Consumer quota's `window` is at least 1 s, in whole seconds, else RZ-CFG-005; `calendar: month` replaces it with the UTC calendar month, which starts at 00:00 UTC on the month's first day and lasts 28 to 31 days, for `tokens` quotas too. Windows are fixed and epoch-aligned in UTC: `24h` resets at midnight, `720h` every 30 days. Each key and window costs one counter, `rz:qt:<consumerQuota>:<window>:<window start>:{<SHA-256 of the key value>}`, `<window>` being `month` for a calendar quota, expiring a window after it closes. A request charges each counter once: a later `quota` Policy whose counter, the Consumer quota, window and key value, an earlier Policy charged in the same request takes that Policy's decision without a call, and only the charging Policy refunds. Renaming a Consumer resets usage under the default `key`. Scripts get `KEYS` for the Node clock's window and its nearer neighbor, pick by server `TIME` and tolerate skew up to half the window (target), half the shorter month for a calendar quota. Quotas apply per Cell.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -329,7 +364,7 @@ spec:
       - name: primary
         hash: "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
   quotas:
-    - {name: monthly-requests, unit: requests, limit: 3000000, window: 720h}
+    - {name: monthly-requests, unit: requests, limit: 3000000, calendar: month}
     - {name: daily-tokens, unit: tokens, limit: 2000000, window: 24h}
 ---
 apiVersion: ruralz/v1alpha1
@@ -339,57 +374,70 @@ spec:
   type: quota
   config:
     consumerQuota: monthly-requests
+    cost: 'request.method == "POST" ? 5 : 1'   # a write costs five units
 ```
 
-An exhausted quota returns 429 `RZ-RL-003` with `Retry-After` at the window end plus up to 1% of it, at most 60 s (target). Nodes cache the denial, keyed with the limit, up to 60 s (target): a raised limit applies at once, refunds within 60 s, costing one script per minute per key per Node, about 17 per second at 1,000 Nodes (hypothesis). Before exhaustion each request costs one script: 20,000 per second on one key take 20% of a shard (hypothesis) unless a `ratelimit` sharing the script (pack 8.7) bounds it. A null Consumer, or one lacking the quota, gets 403 `RZ-RL-004`.
+An exhausted quota returns 429 `RZ-RL-003` with `Retry-After` at the window end plus up to 1% of it, at most 60 s (target). Nodes cache the denial with the units the window had left, keyed with the limit, up to 60 s and never past the window end (target), and deny from the cache only a request whose cost exceeds those units: a raised limit applies at once, refunds within 60 s, costing one script per minute per key per Node, about 17 per second at 1,000 Nodes (hypothesis). Before exhaustion each request costs one script: 20,000 per second on one key take 20% of a shard (hypothesis) unless a `ratelimit` sharing the script (pack 8.7) bounds it. A null Consumer, one lacking the quota, or one whose quota of that name counts `tokens`, gets 403 `RZ-RL-004`, before `config.key` and `config.cost` are evaluated.
 
 Dropped refunds only over-charge. `quota` fails open and `ai.token-budget` closed, as unmetered tokens are provider spend.
 
 ## Response caching
 
-The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeaders` after auth, authz and admission, store in `onResponse`, default `failureMode: open`, Planned (M1): an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`.
+The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeaders` after auth, authz and admission, store in `onResponse`, default `failureMode: open`, Planned (M1): an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`. Its entries live on Gateway `stateStore.cache` when the Gateway sets it, else on the main State Store connection beside the limit keys.
 
 | Rule | Behavior |
 |---|---|
-| Methods | GET, and HEAD from GET entries |
-| Layout | With U the SHA-256 of scheme, host, path and normalized query, and P that of the partition key value: a generation key `rz:rc:{<U>}:gen`, expiring 26 h after its last bump (target), and per partition a tag `{<U>:<P>}` holding `Vary` names, a fill lease and at most 8 variants (target) |
-| Storable | Explicit freshness; no `no-store`, `no-cache` (never stored at M1), `private`, `Vary: *` or `Set-Cookie`; with `Authorization`, only under `public`, `s-maxage` or `must-revalidate` |
-| Principal | `auth.*` Routes key per principal unless `config.key` replaces it (OQ-security-and-identity-25) |
-| Freshness | `s-maxage`, `max-age`, then `Expires` minus `Date` (the receipt time without one), at most 24 h, stale windows at most 1 h (target); an invalid or conflicting value reads as stale (RFC 9111 section 4.2.1); the age follows RFC 9111 section 4.2.3; hits carry `Age` and `Cache-Status` (RFC 9211) |
+| Methods | GET, and HEAD from GET entries; a request with a body, a `Content-Length` above 0 or a `Transfer-Encoding`, bypasses. Only GET and HEAD record a result in `ruralz_cache_requests_total` and the access log's `cache` field; an unsafe request, which the Policy handles only to invalidate, records none |
+| URI | U is the SHA-256 of the scheme; the host in lower case without a trailing dot, with its port when not the scheme's default; the Router's normalized path; and the query with its escapes normalized, unreserved bytes decoded and hex digits in upper case, its parameters kept in order, an empty query equal to none |
+| Partition | P is the SHA-256 of the Route name, a NUL byte and the partition value, so Routes never share entries while an invalidation by U reaches each of them. The value is `config.key`'s result; else, on a Route with an `auth.*` Policy, the request's principal (OQ-security-and-identity-25); else empty |
+| Layout | A generation key `rz:rc:{<U>}:gen` holding a 128-bit random token, and per partition a tag `{<U>:<P>}` holding `Vary` names, a fill lease and at most 8 variants (target), each entry recording the token it was written under, in the [layout](11-scalability-and-distributed-state.md#response-cache-layout) of Scalability. The Node generates a fresh token for each creation and bump of the key and passes it to the script; creation, bump and every store under the key set its TTL to 26 h (target), longer than any variant's 25 h. A lookup hits only when the generation key exists and holds the token the entry records, so a URI whose key expired or was evicted misses, and eviction of any key can cost hits but never serve an invalidated entry; a counter or a time, which could repeat once the key is gone, would not give that |
+| Storable | Explicit freshness; a final status RFC 9111 section 3 lets a shared cache store, except 206 and 304; no `no-store`, `no-cache` (never stored at M1), `private`, `Vary: *` or `Set-Cookie`; with `Authorization`, only under `public`, `s-maxage` or `must-revalidate`; never a partial (`ruralz-partial: true`) composition response |
+| Freshness | `s-maxage`, `max-age`, then `Expires` minus `Date` (the receipt time without one), at most 24 h, stale windows at most 1 h (target); an invalid or conflicting value reads as stale (RFC 9111 section 4.2.1); the age follows RFC 9111 section 4.2.3, its resident time measured on the State Store's clock; hits carry `Age` |
+| Cache-Status | On every GET or HEAD response the Policy handled, one `ruralz` member (RFC 9211) is appended to any `Cache-Status` the response carries: `hit` with `ttl`, the seconds of freshness left, negative when stale, for a hit, a stale hit, a client-validation 304 or a range answer, 206 or 416; `fwd=uri-miss`, or `fwd=vary-miss` when the URI held entries but no matching variant, for a miss; `fwd=request` when a request directive forced the Upstream path; `fwd=stale` with `fwd-status` for a revalidated or `stale-if-error` answer, adding `ttl` when stale content was served; `fwd=bypass` for a bypass; `stored` when the Node started storing the response and `collapsed` for a coalesced reuse. It never carries `key` or `detail` |
 | Stale limits | `must-revalidate`, `proxy-revalidate` and `s-maxage` (implying `proxy-revalidate`, RFC 9111 section 5.2.2.10) forbid stale (section 4.2.4), overriding RFC 5861 |
 | Request directives | `no-cache` or `max-age=0` revalidates; a larger `max-age` bounds the age a stored response may have and `min-fresh` the freshness it must have left, neither accepting a stale one without `max-stale`, which accepts staleness up to its value, or any without one (RFC 9111 section 5.2.1); a request `stale-if-error` widens that window for its request, at most 1 h (target, RFC 5861 section 4); the stale limits hold against every request directive; `no-store` bypasses; `only-if-cached` misses with 504 |
 | Revalidation | `If-None-Match` with the stored entity tag and `If-Modified-Since` with its `Last-Modified`, or its `Date` without either (RFC 9110 section 13.1.3), replacing the request's own preconditions and `Range`; a 304 whose validators select the stored response (RFC 9111 section 4.3.4), or that carries none, as the conditional request named only that response's validators, refreshes metadata (section 3.2), its `Age` and `Date` restarting the age |
-| Client validation | A GET or HEAD the stored response can serve gets a 304 from it when its `If-None-Match` lists `*` or the stored entity tag by weak comparison, or, without `If-None-Match`, its one valid `If-Modified-Since` is no earlier than the stored `Last-Modified`, else `Date`, else the receipt time (RFC 9111 section 4.3.2, RFC 9110 sections 13.1.2 and 13.1.3); `If-Match`, `If-Unmodified-Since` and `If-Range` never apply to a cache. The 304 carries the stored `Cache-Control`, `Content-Location`, `Date`, `ETag`, `Expires` and `Vary`, `Last-Modified` without an `ETag` (RFC 9110 section 15.4.5), plus `Age` and `Cache-Status` as a hit |
-| Invalidation | After commit, a non-error response to an unsafe method on a `cache` Route sets the URI's generation key to server `TIME` in microseconds, never reused, with `PEXPIRE` 26 h (target); variants live at most 25 h, so a missing key safely reads as 0. Hot-entry layers may serve the old generation 1 s longer (target) |
-| Size | From a tee, up to 128 KiB (target), within the Node buffer budget |
+| Client validation | A GET or HEAD the stored response can serve gets a 304 from it when its `If-None-Match` lists `*` or the stored entity tag by weak comparison, or, without `If-None-Match`, its one valid `If-Modified-Since` is no earlier than the stored `Last-Modified`, else `Date`, else the receipt time (RFC 9111 section 4.3.2, RFC 9110 sections 13.1.2 and 13.1.3), before any `Range` applies; `If-Match` and `If-Unmodified-Since` never apply to a cache, and `If-Range` applies only to a range. The 304 carries the stored `Cache-Control`, `Content-Location`, `Date`, `ETag`, `Expires` and `Vary`, `Last-Modified` without an `ETag` (RFC 9110 section 15.4.5), plus `Age` and `Cache-Status` as a hit |
+| Range | A GET hit with one satisfiable `bytes` range gets a 206 built from the stored complete response when it has no `If-Range`, or its `If-Range` matches: an entity tag equal to the stored one by strong comparison, or a date equal to a stored `Last-Modified` at least 1 s before the stored `Date` (RFC 9110 section 13.1.5). Several ranges, another range unit, an invalid `Range` or a failed `If-Range` get the whole 200, and a HEAD ignores `Range`. The 206 carries the stored header fields with `Content-Length` set to the part's length, `Content-Range: bytes <first>-<last>/<length>`, `Accept-Ranges: bytes`, `Age` and `Cache-Status`. An unsatisfiable range gets 416 `RZ-RT-026`, the problem document of [Data plane](03-data-plane.md#error-response-format) with `Content-Range: bytes */<length>`. On a miss a `Range` request is forwarded unchanged, never leads a coalesced flight, and its 206 is never stored |
+| Composition | Stored and served like any response; a merged response takes its freshness from the most restrictive step `Cache-Control` ([Merge rules](03-data-plane.md#merge-rules)), a partial response is never stored, and background revalidation replays the whole Route |
+| Invalidation | After the leg's final response, a 2xx or 3xx to an unsafe method, every method other than GET, HEAD, OPTIONS and TRACE, bumps the URI's generation key to a fresh token (RFC 9111 section 4.4), so no entry written under an earlier token hits again. It ignores the cache Policy's `when` and applies even when the client left before commit. Hot-entry layers may serve the old generation 1 s longer (target) |
+| Invalidating Routes | Every Route with a `cache` Policy, and every Route that could match a URI a cache Route serves: the snapshot compiler counts a Route as such unless its listeners, its hosts, or an `exact`, `prefix` or `template` path provably share no URI with each cache Route; a `regex` path or a `match.when` proves nothing. A Route without a `cache` Policy bumps on the cache Route's State Store connection with that Policy's `stateStoreTimeout`, the largest when several cache Routes overlap it |
+| Size | An entry is at most 128 KiB (target) encoded, its header blocks and saved request included, within the Node buffer budget; the tee copies at most what the encoded header blocks and saved request leave |
 
-A hit skips `onRequestBody`, so validation rejects an effective Filter Chain combining `cache` with an `onRequestBody` authz, validation, or `plugin` auth or authz Policy (`RZ-CFG` code: OQ-traffic-management-and-resilience-21).
+A hit skips `onRequestBody`, so validation rejects an effective Filter Chain combining `cache` with an `onRequestBody` authz, validation, or `plugin` auth or authz Policy (RZ-CFG-038).
 
-A lookup is one pipelined batch of two read-only calls (pack 8.7 rule 3): a `GET` of the generation key and a partition-slot script returning the variant selected by `Vary` names (cached per URI in a bounded LRU) with its generation. A hit needs matching names and generation, else the Node misses and learns the names; per-principal partitions spread over shards.
+A lookup is one pipelined batch of read-only commands (pack 8.7 rule 3): a `GET` of the generation key; an `HMGET` of the partition's `Vary` names `n` and of the variant's entry `e:<V>` and store time `t:<V>`; and `TIME` on the partition's shard. The Node computes V from the `Vary` names it last learned for the URI, kept per URI in a bounded LRU, or from no names. A hit needs the partition's names to equal those V was computed from, and the generation key to exist and hold the token the entry records, else the Node misses and learns the names; per-principal partitions spread over shards. An entry's resident time is that shard's `TIME` minus `t:<V>`, so Node clock skew never changes an age: a store records `t:<V>` as its script's `TIME` minus the time the write waited since the response arrived, which the Node passes with the write, and a refresh does the same for its 304.
 
-A store, queued post-commit (pack 8.7) with TTL of freshness plus the larger stale window, is one script: it takes the partition's fill lease (`SET NX PX`, 1 s (target)), writes only under it, and tags the variant with the lookup's generation, so a store racing an invalidation never hits; a cold miss costs up to N origin fetches (hypothesis) but one store.
+A store, queued post-commit (pack 8.7) with TTL of freshness plus the larger stale window, is one script: it takes the partition's fill lease (`SET NX PX`, 1 s (target)), writes only under it, and writes the entry under the token its lookup read, only while the generation key still holds that token, refreshing the key's TTL. When the lookup found no generation key, the script creates one with the fresh token the Node passes (`SET NX`) and writes under it, and writes nothing when a key appeared meanwhile, so a store racing an invalidation never hits; a cold miss costs up to N origin fetches (hypothesis) but one store. It saves the response as the leg delivered it, before any client `onResponse` Policy changed it, which the exchange keeps for the cache, so a hit or a coalesced reuse runs the whole client response chain, `transform.response` included ([Data plane](03-data-plane.md#short-circuit)).
 
-Generation bumps get a reserved 10% of that queue and one retry (target); a drop counts in `ruralz_state_writes_dropped_total` (`kind` `cache_invalidate`, [Observability](10-observability.md)), leaving the old variant up to 25 h (target). RFC 9111 section 4.4 invalidates after any unsafe method (OQ-traffic-management-and-resilience-11).
+Generation bumps get a reserved 10% of that queue and one retry (target); a drop counts in `ruralz_state_writes_dropped_total` (`kind` `cache_invalidate`, [Observability](10-observability.md)), leaving the old variant up to 25 h (target).
 
-The State Store holding limit keys MUST run `maxmemory-policy noeviction`, so when full it refuses writes: Rate Limits fail open and every `ai.token-budget` returns 503 Cell-wide. Until OQ-traffic-management-and-resilience-11 closes (blocking for M1), the size cap and three rules protect limits:
+The State Store holding limit keys MUST run `maxmemory-policy noeviction`, so when full it refuses writes: Rate Limits fail open and every `ai.token-budget` returns 503 Cell-wide. The size cap and rule 1 hold on either connection; rules 2 and 3, which keep cache stores from filling the shards of limit keys, hold only while entries share the main connection:
 
 1. A 64 MiB per-Node hot-entry layer keeps, by LRU, entries and generation keys read twice within 1 s, for up to 1 s (target): a hot entry or URI costs at most N reads per second, about 131 MB/s for 128 KiB at 1,000 Nodes, 10% of a 10 Gb/s shard link (hypothesis).
 2. Nodes read `INFO memory` per shard off the request path every 10 s, or 1 s above 50% of `maxmemory` (target), at most N reads per second per shard. They skip stores above 70%, and to a shard that grew over 10% of `maxmemory` between reads until growth falls under 2% (target).
 3. Between reads, each Node caps store bytes per shard at c = min(2% of `maxmemory` per 10 s / N_c, 4 MiB per second), N_c being N_published, or 1,000 without a count (target). The Cell adds at most N_serving × c × the read interval, 2% × N_serving / N_c of `maxmemory` per 10 s read, so from a read under 50% a shard stays under 100% while N_serving / N_c < 25, as for 25,000 count-less Nodes; a scale-out from 2 to 40 Nodes adds 40% (hypothesis).
 
-Where N_serving can exceed 25 × N_c, as when a Cluster may scale 25-fold during a Ruralz Control outage, operators MUST use OQ-traffic-management-and-resilience-11 option (a) or leave `cache` off; Nodes warn at startup when `cache` and a limit Policy type share a State Store. Generation keys, about 90 bytes each, bypass rules 2 and 3, as invalidations must not drop: 1,000 distinct written URIs per second hold about 8.4 GB (hypothesis). Shards MUST fit them, or `cache` goes on a safe-methods-only Route, leaving invalidation to TTLs.
+While entries share the main connection, two rules also bind operators ([Scalability](11-scalability-and-distributed-state.md#distributed-caches)): where N_serving can exceed 25 × N_c, as when a Cluster may scale 25-fold during a Ruralz Control outage, they MUST set `stateStore.cache` or leave `cache` off, and a Cell whose State Store holds `ai.token-budget` keys MUST NOT attach `cache`. Each activation of a Revision that attaches `cache` and a limit Policy type (`ratelimit`, `quota` or `ai.token-budget`) without `stateStore.cache` logs one warning. Generation keys, about 110 bytes each with their token (hypothesis), exist for every URI with entries or a write in the last 26 h; a store counts the key it creates in its own bytes, and bumps bypass rules 2 and 3, as invalidations must not drop: 1,000 distinct written URIs per second hold about 10.3 GB of them (hypothesis). Shards MUST fit them, or `cache` goes on a safe-methods-only Route, leaving invalidation to TTLs.
 
-Uncapped, 1.3 GB/s of 128 KiB misses would fill a 16 GiB shard's 30% headroom in under 4 s (hypothesis). Keys never evict and live up to 26 h (target): recovery means waiting out TTLs or purging `rz:rc:` keys with the State Store's tools. OQ-traffic-management-and-resilience-11 option (a), a separate State Store, is recommended whenever `ai.token-budget` and `cache` share a Cell.
+On a dedicated `stateStore.cache` connection rules 2 and 3 are off, so stores and generation bumps fill its deployment up to `maxmemory`. It runs `noeviction` or `volatile-ttl`: under `noeviction` a full deployment refuses writes, a refused store being skipped and a refused bump a dropped invalidation; under `volatile-ttl`, which evicts the keys nearest expiry first, an evicted entry or lease costs a hit or a duplicate fetch, and an evicted generation key turns its URI's entries into misses, never into stale hits, as no entry hits without the token it was written under. Any other policy on a connection a `cache` Policy uses raises `state_store_eviction_policy`.
 
-`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md)); rules 2 and 3 count as `memory`. The data plane counts `size_limit` when it refuses a tee, the response being known to exceed the limit, and `size_limit` or `buffer_budget` when it stops one it started; the `cache` Filter counts neither. A hit first reserves its size from `limits.maxBufferedBytes`, else bypasses.
+On the main connection, uncapped, 1.3 GB/s of 128 KiB misses would fill a 16 GiB shard's 30% headroom in under 4 s (hypothesis). Keys there never evict and live up to 26 h (target): recovery means waiting out TTLs or purging `rz:rc:` keys with the State Store's tools. `stateStore.cache` is recommended whenever `ai.token-budget` and `cache` share a Cell.
 
-A store saves the upstream request as the request Phases left it, minus upstream credentials. When it serves a stale response, under `stale-while-revalidate` or a request's `max-stale`, the Node serves it at once and queues a revalidation for four workers on a 256-entry queue that drops when full (target). A Node keeps one revalidation per partition queued or running and none for 5 s after its lease attempt, whatever the outcome, so it makes at most one lease call per partition per lease period (target). It tracks at most 4,096 such partitions, dropping new ones past that, and drops a job that waited over 5 s in the queue unrun (target), so a saturated queue does not replay against a slow Upstream long after the stale hits.
+`ruralz_cache_store_skipped_total` reasons are `size_limit`, `buffer_budget` and `memory` ([Observability](10-observability.md)); rules 2 and 3 count as `memory`. The data plane counts `size_limit` when it refuses a tee, the response being known to exceed the room the entry leaves it, and `size_limit` or `buffer_budget` when it stops one it started; the `cache` Filter counts `size_limit` only when the encoded header blocks and saved request alone pass 128 KiB, so it starts no tee. A hit first reserves its size from `limits.maxBufferedBytes`, else bypasses.
 
-A worker takes the partition's lease with a random token for the 5 s deadline (target), which bounds the replay and every lease write, so one Node revalidates, replaying the request with the stored validators through upstream-leg Policies, breaker and bulkhead. The worker sends the take, refresh and end-stale writes itself, off the request path, each with the Policy's `stateStoreTimeout` cut to the time left, since the take needs its answer and every write must land within the lease. A 304 that selects the stored response refreshes metadata under the lease when the result is still storable under the same `Vary` names with TTL left; any other full response, or a stored response without any validator, ends the stale window unstored, as the replay skipped the Route's response Phases. A 5xx or a replay without a response leaves the entry as it is, so `stale-if-error` still serves it, also while the breaker is open.
+A store saves the upstream request as the request Phases left it. A request carrying credentials, `Authorization`, `Proxy-Authorization`, `Cookie` or the `auth.api-key` field, saves none of them, and its entry is credentialed: it is never revalidated in the background, a stale hit inside `stale-while-revalidate` or a request's `max-stale` revalidating on the request path instead, with the client's own request and the stored validators, and it serves stale only under `stale-if-error`. When the Node serves any other entry stale, under `stale-while-revalidate` or a request's `max-stale`, it serves it at once and queues a revalidation for four workers on a 256-entry queue that drops when full (target). A Node keeps one revalidation per partition queued or running and none for 5 s after its lease attempt, whatever the outcome, so it makes at most one lease call per partition per lease period (target). It tracks at most 4,096 such partitions, dropping new ones past that, and drops a job that waited over 5 s in the queue unrun (target), so a saturated queue does not replay against a slow Upstream long after the stale hits.
 
-Each job that ran counts `ruralz_cache_revalidations_total` on the Route that queued it: `refreshed`, `ended`, `kept`, or `skipped` when it changed nothing (another Node held the lease, a lease call failed, or the lease no longer held its token). `ruralz_cache_revalidation_drops_total` counts the Node's drops by `reason`: `queue_full` for the full queue, `queue_wait` for the 5 s wait and `partitions_full` for the 4,096 tracked partitions ([Observability](10-observability.md)). The degraded reason `cache_revalidation_saturated` is raised while those drops exceed 10% of the revalidations offered over the last minute (target), re-checked every second, so it clears once drops stop; it raises a ticket, never a page.
+A worker takes the partition's lease with a random token for the 5 s deadline (target), which bounds the replay and every lease write, so one Node revalidates, replaying the request with the stored validators through the Replayer, whose pin, in-flight unit, deadline, trace, telemetry and CEL variables [Data plane](03-data-plane.md#upstream-layer) fixes: the Upstream's leg with its upstream-leg Policies, breaker, bulkhead and retries. The worker sends the take, refresh, replace and end-stale writes itself, off the request path, each with the Policy's `stateStoreTimeout` cut to the time left, since the take needs its answer and every write must land within the lease. On a composition Route the replay runs the whole composition, every step and the merge, as [Data plane](03-data-plane.md#upstream-layer) states, and the stored validators go on the step whose response the entry holds, the last executed step of a `sequential` or `conditional` Route; an entry without validators, such as a merged `aggregate` response, replays unconditionally. Plain and composition Routes then end alike, every write applying only while the generation key still holds the entry's token:
 
-Concurrent misses for one key on one Node, up to 4,096 keys (target), reuse the first fetch like a hit through their own response chain, if storable with matching `Vary`-selected values, and record the result `coalesced`; otherwise each fetches itself. The key is the partition's URI and partition digests plus the generation the miss's lookup read, so no miss reuses a fetch from before an invalidation, and a HEAD miss only follows, as a HEAD response has no body for GET misses. A follower waits for the leader's response headers as long as its own request lives; once the leader starts copying a storable response, a new miss leads a new flight, and the follower waits for the body at most 1 s more (target) and fetches alone as soon as the copy stops without completing, past the copy limit or the buffer budget, which the leader's tee signals at once.
+- A 304 that selects the stored response refreshes its metadata when the result is still storable under the same `Vary` names with TTL left.
+- A full response that the request-path store rules accept, storable, within the size cap and the memory rules, under the same `Vary` names, replaces the entry under the lease as the leg delivered it.
+- Any other full response, a partial one included, ends the stale window unstored.
+- A 5xx, a failed non-optional step, a replay without a response, or a response the Node generated instead of an Upstream, which the Replayer returns as an error, leaves the entry as it is, so `stale-if-error` still serves it, also while the breaker is open.
+
+Each job that ran counts `ruralz_cache_revalidations_total` on the Route that queued it: `refreshed` for a refresh or a replacement, `ended`, `kept`, or `skipped` when it changed nothing (another Node held the lease, a lease call failed, or the lease no longer held its token). `ruralz_cache_revalidation_drops_total` counts the Node's drops by `reason`: `queue_full` for the full queue, `queue_wait` for the 5 s wait and `partitions_full` for the 4,096 tracked partitions ([Observability](10-observability.md)). The degraded reason `cache_revalidation_saturated` is raised while those drops exceed 10% of the revalidations offered over the last minute (target), re-checked every second, so it clears once drops stop; it raises a ticket, never a page.
+
+Concurrent misses for one key on one Node, up to 4,096 keys (target), reuse the first fetch like a hit through their own response chain, if storable with matching `Vary`-selected values, and record the result `coalesced`; otherwise each fetches itself. The key is the partition's URI and partition digests plus the generation token the miss's lookup read, or none, so no miss reuses a fetch from before an invalidation, and a HEAD or `Range` miss only follows, as a HEAD response has no body for GET misses and a 206 is never stored. A follower waits for the leader's response headers as long as its own request lives; once the leader starts copying a storable response, a new miss leads a new flight, and the follower waits for the body at most 1 s more (target) and fetches alone as soon as the copy stops without completing, past the copy limit or the buffer budget, which the leader's tee signals at once.
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -410,14 +458,17 @@ sequenceDiagram
     participant SS as State Store
     participant UP as Upstream
     C->>N: GET /v1/catalog
-    N->>SS: one pipelined batch, generation GET and read-only variant script
-    SS-->>N: variant stale, generation current, inside stale-while-revalidate
+    N->>SS: one pipelined batch: GET of the generation key, HMGET of the variant's fields, TIME
+    SS-->>N: variant stale by the shard's TIME, its token current, inside stale-while-revalidate
     N-->>C: stale response with Age and Cache-Status
     N-)SS: take the partition lease, SET NX PX for the 5 s deadline (target)
     N-)UP: replay saved request with If-None-Match, breaker, bulkhead
     alt 304 Not Modified selecting the stored response
         UP--)N: 304
-        N-)SS: refresh entry metadata while the lease is held
+        N-)SS: refresh entry metadata while the lease and the token hold
+    else a full response the store rules accept
+        UP--)N: 200 with new content
+        N-)SS: replace the entry while the lease and the token hold
     else any other full response below 500
         UP--)N: other result
         N-)SS: end the stale window, store nothing
@@ -445,7 +496,7 @@ spec:
   timeout: 3s
 ```
 
-Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: [Data plane](03-data-plane.md#compiled-structure)); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression` (plain `upstreams`: OQ-traffic-management-and-resilience-13). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant `config.key`, and a tiered one is one `ratelimit` per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
+Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: [Data plane](03-data-plane.md#compiled-structure)); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression`, or, for plain `upstreams`, a `transform.request` `set[]` entry with target `path` ([Data plane](03-data-plane.md#transform-policies)). Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy, Planned (M2), with built-in fields under OQ-traffic-management-and-resilience-13. A service-wide Rate Limit is a `ratelimit` with a constant or absent `config.key`, and a tiered one is one `ratelimit` whose `limits[].when` select each Tier's entries, or one per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
 
 ## Overload protection
 
@@ -461,19 +512,21 @@ Every protection is a bounded resource that rejects fast: [Data plane](03-data-p
 | State Store slow or unreachable | `quota`, `cache`, `ai.token-budget` | `quota` admits unmetered; `cache` bypasses; `ai.token-budget` gives 503 `RZ-STS-<NNN>` | Open; Closed for `ai.token-budget` | `failureMode` |
 | One State Store shard failing, breaker open | Policies with keys there | `failureMode` at once, no deadline paid | Open; Closed for `ai.token-budget` | `failureMode` |
 | Hot constant key saturates a shard | `ratelimit`; co-tenant keys | Up to 2 × N × ceiling calls per window (target); above about 100,000 per second (hypothesis) every Node's shard breaker opens and co-tenants apply `failureMode`; `localOnly` makes none | Open; Closed for `ai.token-budget` | `perNodeCeiling`, `localOnly` |
-| Key-rotation flood, new keys | `ratelimit` | Option (a) (proposed): first-seen calls at most min(B × N_serving / N_published, 500 × N_serving) per second, 200 × N without a count (target), later keys local-only at N × ceiling in their own segment; option (c): only offered load bounds them | Open | OQ-traffic-management-and-resilience-20 |
-| New or restarted Node, established keys | `ratelimit` | Warms in about 250 s for 50,000 keys at 100 Nodes (hypothesis); past-budget keys wait for GCRA until OQ-traffic-management-and-resilience-20 closes, or under option (a) (proposed) admit at the per-Node ceiling | Open | OQ-traffic-management-and-resilience-20, -22 |
-| Hot URI, partition or entry | `cache`; its shard; limit keys there | Rule 1 bounds each hot key to N reads per second (hypothesis); one store per lease | Open | OQ-traffic-management-and-resilience-11 |
-| State Store out of memory | Limit scripts; cache stores | Stores skip above 70% and add at most N_serving × c per read interval (1 s above 50%): 20% per 10 s under a 10-fold count lag, 2% from 1,000 count-less Nodes; past N_serving / N_c = 25 they can overshoot (see the MUST). Generation keys: about 8.4 GB at 1,000 written URIs per second (hypothesis). Once full, limits fail open and `ai.token-budget` returns 503 Cell-wide up to 26 h (target) or until a purge | Open; Closed for `ai.token-budget` | `failureMode`; OQ-traffic-management-and-resilience-11 |
+| Key-rotation flood, new keys | `ratelimit` | First-seen calls at most min(B × N_serving / N_published, 500 × N_serving) per second, 200 × N without a count (target); later keys local-only at N × ceiling in their own segment | Open | No |
+| New or restarted Node, established keys | `ratelimit` | Warms in about 250 s for 50,000 keys at 100 Nodes (hypothesis); past-budget keys admit from local-only entries at the per-Node ceiling | Open | OQ-traffic-management-and-resilience-22 |
+| Hot URI, partition or entry | `cache`; its shard; limit keys there | Rule 1 bounds each hot key to N reads per second (hypothesis); one store per lease | Open | `stateStore.cache` |
+| State Store out of memory | Limit scripts; cache stores | Stores skip above 70% and add at most N_serving × c per read interval (1 s above 50%): 20% per 10 s under a 10-fold count lag, 2% from 1,000 count-less Nodes; past N_serving / N_c = 25 they can overshoot (see the MUST). Generation keys: about 10.3 GB at 1,000 written URIs per second (hypothesis). Once full, limits fail open and `ai.token-budget` returns 503 Cell-wide up to 26 h (target) or until a purge | Open; Closed for `ai.token-budget` | `failureMode`; `stateStore.cache` |
+| Dedicated cache connection full | `cache` | Under `noeviction` stores skip and generation bumps drop, leaving variants stale up to 25 h (target); under `volatile-ttl` evictions only cost hits, an evicted generation key turning its URI's entries into misses | Open | `stateStore.cache` sizing |
 | State Store evicts keys (not `noeviction`) | `ratelimit`, `quota`, `ai.token-budget` | Silent resets and unbounded over-admission; reason `state_store_eviction_policy` | Open | No; `noeviction` is REQUIRED |
+| Cache connection evicts under a policy other than `noeviction` or `volatile-ttl` | `cache` | Evictions only cost hits and duplicate fetches, never an invalidated entry; reason `state_store_eviction_policy` | Open | No; `noeviction` or `volatile-ttl` is REQUIRED |
 | `memory` driver, several Nodes | `ratelimit`, `quota`, `ai.token-budget` | Limits multiply by N; Nodes warn (pack 8.8), reason `state_store_memory_multi_node` | Open | Gateway `stateStore` |
 | Post-commit queue full | Post-commit writes | Drop and count; invalidations get a reserved slice, else stale up to 25 h (target) | Open | No |
 | State Store failover | `ratelimit`, `quota` | About 100 ms of lag (hypothesis) loses TATs and reservations: lag × admitted rate per key extra, 100 at 1,000 per second; about 15 s of failover (hypothesis) gets `failureMode` | Open | No |
 | State Store failover | `ai.token-budget` | Lost reservations and settlements over-spend up to lag × reserved tokens per second per key (hypothesis); 503 meanwhile | Closed | `failureMode` |
 | Region or Cell lost | `ratelimit`, `quota`, `cache` | Survivors count alone, up to R × each limit; other Cells miss invalidations | Open | No |
-| Scale-out within the count qualification window | Derived ceiling; first-seen budget; cache stores | 10 to 100 Nodes fail open at up to 20 × limit for about 34 minutes, with 50,000 first-seen calls per second under option (a) (proposed); stores add up to 20% of `maxmemory` per 10 s read (hypothesis) | Open | Declared ceiling; OQ-traffic-management-and-resilience-19 |
-| Ruralz Control unreachable, or no Node count yet (Control mode) | Derived ceiling | Last count kept in memory; a Node restarted meanwhile has none: full-limit ceiling, fail-open clamp max(1, `requests` / 100) per window, 200 first-seen calls per second (target), `node_count_unknown`; fail-open admits N_countless × the clamp, 100 per second per client on `ratelimit-free` from 100 restarted Nodes, 10 × limit (hypothesis) | Open | Declared ceiling; OQ-traffic-management-and-resilience-19 |
-| Ruralz Control leader or Raft quorum lost | Derived ceiling; cache stores | Count frozen at N_frozen while new Nodes get Revisions: fail-open admits N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out; stores add 2% × N_serving / N_frozen of `maxmemory` per 10 s read, unsafe past 25-fold (hypothesis) | Open | Declared ceiling; OQ-traffic-management-and-resilience-19 |
+| Scale-out within the count qualification window | Derived ceiling; first-seen budget; cache stores | 10 to 100 Nodes fail open at up to 20 × limit for about 34 minutes, with 50,000 first-seen calls per second; stores add up to 20% of `maxmemory` per 10 s read (hypothesis) | Open | Declared ceiling |
+| Ruralz Control unreachable, or no Node count yet (Control mode) | Derived ceiling | Last count kept in memory and persisted; a Node restarted meanwhile uses its persisted count, flagged stale, until the next arrives. A Node that never received one has a full-limit ceiling, fail-open clamp max(1, `requests` / 100) per window, 200 first-seen calls per second (target), `node_count_unknown`; fail-open admits N_countless × the clamp, 100 per second per client on `ratelimit-free` from 100 such Nodes, 10 × limit (hypothesis) | Open | Declared ceiling |
+| Ruralz Control leader or Raft quorum lost | Derived ceiling; cache stores | Count frozen at N_frozen while new Nodes get Revisions: fail-open admits N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out; stores add 2% × N_serving / N_frozen of `maxmemory` per 10 s read, unsafe past 25-fold (hypothesis) | Open | Declared ceiling |
 | Nodes lost | Derived ceiling | Large decreases publish at once ([Control plane](04-control-plane-and-gitops.md#replica-roles)); keys under-admit meanwhile | Closed | No |
 | Endpoint or zone refusing connections or black-holed: new dials | Load balancing | Dials fail at once or at 1 s (target), retry elsewhere and eject past the cap; two zones hold about 500 of 1,024 slots (hypothesis) | Open | `retries`, `healthCheck` |
 | Zone lost, black-holed: pooled HTTP/2 connections | Load balancing | Suspect in about 1 s; the 5 s ping close resets streams, which retry, and ejects (target); two zones at 1,000 per second hold about 500 slots (hypothesis) | Open; Closed for non-idempotent methods (502 `RZ-UP-004`) | `retryOn`, `healthCheck` |
@@ -488,7 +541,7 @@ Every protection is a bounded resource that rejects fast: [Data plane](03-data-p
 | Upstream fails after commit | Streaming | End the stream with `RZ-UP-009` | Closed | No |
 | CEL error in `hashKey`, `retryOn` or `failureWhen` | Upstream | Random Endpoint; no retry; counted as failure | Open for `hashKey`, else Closed | No |
 | CEL error in `Policy.spec.when` | Any Policy | `closed` runs the Policy; `open` skips it ([Configuration model](02-configuration-model.md)) | Per `failureMode` | `failureMode` |
-| CEL error in a `config.key` | `ratelimit`, `quota`; `cache` | Admit unmetered; bypass the cache | Open | `failureMode` (closed: 503 `RZ-RL-005`); not for `cache` (Configuration model) |
+| CEL error in a `config.key`, `config.cost` or `limits[].when`, or a cost below 1 | `ratelimit`, `quota`; `cache` (`config.key` only) | Admit unmetered; bypass the cache | Open | `failureMode` (closed: 503 `RZ-RL-005`); not for `cache` (Configuration model) |
 
 ### Error codes this document owns
 
@@ -497,6 +550,8 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 1. The leg or Route deadline expired, or the final attempt hit `perTryTimeout`: 504 `RZ-UP-003`.
 2. A retry ran and the last attempt ended in a connect, tls or reset error: 502 `RZ-UP-007`, naming that kind.
 3. Otherwise the last error kind: `RZ-UP-001` connect, `RZ-UP-002` tls, `RZ-UP-004` reset.
+
+An attempt that ends because the client's streamed body passed `limits.maxRequestBodyBytes` is no Upstream failure: the leg ends without retry, neither the breaker nor passive ejection counts it, and the client gets 413 `RZ-RT-003` ([Streaming](03-data-plane.md#streaming)). An Upstream's non-2xx result fails a merged or non-final composition step with `RZ-UP-011`, while a final step that merges nothing passes its result through whatever its status ([Failures and partial responses](03-data-plane.md#failures-and-partial-responses)).
 
 | Code | Status | Meaning |
 |---|---|---|
@@ -515,32 +570,21 @@ Pack 8.6 assigns `UP` and `RL` here ([body format](03-data-plane.md#error-respon
 | RZ-RL-002 | 429 | Denied by GCRA or the over-limit cache |
 | RZ-RL-003 | 429 | Consumer quota exhausted |
 | RZ-RL-004 | 403 | Consumer missing or lacks the named quota |
-| RZ-RL-005 | 503 | `config.key` CEL error under `failureMode: closed` |
+| RZ-RL-005 | 503 | A `config.key`, `config.cost` or `limits[].when` CEL error, or a cost below 1, under `failureMode: closed` |
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-traffic-management-and-resilience-1 | Will the Configuration model register the [Per-Node ceiling](#per-node-ceiling) fields? | (a) As authored (current); (b) renamed | configuration-model | No; pack 8.8's amendment is OQ-scalability-and-distributed-state-11 |
-| OQ-traffic-management-and-resilience-2 | How do admitted responses get RateLimit fields? | (a) `onResponse` on both types; (b) 429 only; (c) Data plane appends them | configuration-model | Yes, header contract (M1) |
-| OQ-traffic-management-and-resilience-3 | Should header output be selectable? | (a) `config.responseHeaders`; (b) `ietf` only; (c) also `X-RateLimit-*` | traffic-management-and-resilience | No |
-| OQ-traffic-management-and-resilience-4 | Should one `ratelimit` hold per-Tier limits? | (a) `config.limits[].when`; (b) a `tiers` map; (c) one Policy per Tier (current) | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-5 | Which fields set backoff, retry budget, hedging and breaker guards? | (a) Proposed: `retries.backoff`, `budget`, `hedgeDelay` (M4); `circuitBreaker.failureRatio`, `minimumLegs` (M1), `halfOpenSuccesses`; (b) fixed values, hedging awaiting `hedgeDelay` | configuration-model | Yes, breaker `minimumLegs` (M1); hedging (M4) |
 | OQ-traffic-management-and-resilience-6 | Are the Deadlines defaults right; which timeouts are fields; should gRPC use keepalive despite grpc-go ping enforcement? | (a) As proposed, no gRPC keepalive; (b) no default retries; (c) per-protocol Route timeouts (recommended); any with (d) `Upstream.spec.connectTimeout`, `tls.handshakeTimeout`, `healthCheck.pingTimeout`, `healthCheck.stallTimeout`, (e) gRPC keepalive after a grpc-go research row | configuration-model | Yes, canonical form (M1) |
 | OQ-traffic-management-and-resilience-7 | Are the ejection cap and panic threshold fields? | (a) `healthCheck.passive.maxEjectionPercent`, a panic percentage; (b) fixed (current) | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-8 | Should balancing prefer same-zone Endpoints and ramp new ones? | (a) `loadBalancing.locality`, `slowStart`; (b) slow start; (c) neither | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-9 | 1,000 Nodes refreshing 200 Upstreams send about 13,300 DNS queries per second (hypothesis); tune or relay? | (a) `discovery.refreshInterval`; (b) fixed (current); (c) Control Stream relay | configuration-model | No |
-| OQ-traffic-management-and-resilience-10 | Do Quotas need calendar windows and weighted costs? | (a) `calendar: month`, `config.cost`; (b) cost; (c) fixed windows (current) | configuration-model | No |
-| OQ-traffic-management-and-resilience-11 | How is the Response Cache isolated from limit keys; must all unsafe methods invalidate; does `s-maxage` forbid stale? | (a) A separate State Store (recommended beside `ai.token-budget`); (b) a per-Policy entry cap; (c) interim rules and a declared Node count as fields, a TTL cap, a purge; any with `s-maxage` as `proxy-revalidate` (current) | configuration-model | Yes, Response Cache (M1) |
 | OQ-traffic-management-and-resilience-12 | How is mirroring declared? | (a) `Route.spec.mirror`, Planned (M2); (b) a fire-and-forget step; (c) a Plugin | configuration-model | No |
-| OQ-traffic-management-and-resilience-13 | How are redirects and plain `upstreams` rewrites declared? | (a) `Route.spec.redirect`, `upstreams[].pathRewrite`; (b) `plugin`, composition `path` (current) | configuration-model | Yes, built-in redirects (M2) |
+| OQ-traffic-management-and-resilience-13 | How are Route-issued redirects declared? | (a) `Route.spec.redirect`; (b) a `plugin` Policy (current) | configuration-model | Yes, built-in redirects (M2) |
 | OQ-traffic-management-and-resilience-14 | Should shedding honor Tier priority? | (a) Tier-ordered; (b) adaptive concurrency; (c) the Node in-flight ceiling only | data-plane | No |
 | OQ-traffic-management-and-resilience-15 | Which hash does `ring-hash` use? | (a) Standard library; (b) third party, after a Tech stack row | tech-stack-and-libraries | No |
-| OQ-traffic-management-and-resilience-16 | Which ceiling derivation and fail-open refill replace pack 8.8's limit / N? | (a) limit / N; (b) 2× headroom, floor 10, step refill per aligned window (recommended); (c) declared multiplier | scalability-and-distributed-state | Yes, pack 8.8 amendment (M1) |
 | OQ-traffic-management-and-resilience-17 | How is a percentage-sticky split declared? | (a) A hash key on `upstreams`; (b) a CEL hash; (c) a cookie-setting Plugin | configuration-model | No |
-| OQ-traffic-management-and-resilience-18 | Should keys aggregate IPv6 sources to a prefix? | (a) A CEL /64 function; (b) a `config` prefix length; (c) no (current) | traffic-management-and-resilience | No |
-| OQ-traffic-management-and-resilience-19 | Which Node count do derived ceilings and the first-seen budget use; what does a Node without one do? | (a) `clusterNodeCount` and declared ceilings; without a count, full limit, 200 first-seen calls per second (current); (b) counts from first ACKs, raised at once, lowered slowly; (c) handover and persistence under `${RURALZ_DATA_DIR}` (pack 8.11 amendment; recommended); (d) a 60 s hold for small decreases (target) | control-plane-and-gitops, with scalability-and-distributed-state | Yes, cross-document amendment (M1) |
-| OQ-traffic-management-and-resilience-20 | May first-seen keys past the budget skip GCRA while the State Store is healthy? | (a) Local-only entries at the per-Node ceiling in their own segment (proposed); (b) 429 `RZ-RL-001`; (c) wait for GCRA (conforming until closed) | scalability-and-distributed-state | Yes, pack 8.8 amendment (M1) |
-| OQ-traffic-management-and-resilience-21 | How does `cache` coexist with `onRequestBody` authz, validation or Plugin auth? | (a) Reject with a new `RZ-CFG` code (proposed); (b) bypass lookups, degraded | configuration-model | Yes, Response Cache (M1) |
-| OQ-traffic-management-and-resilience-22 | Should the upgrade handover pass the rate-limit key table and Node count? | (a) Both; (b) the count only; (c) neither (current) | zero-downtime-upgrades-and-hot-reload | No |
+| OQ-traffic-management-and-resilience-22 | Should the upgrade handover also pass the rate-limit key table, beside the Node count pack 8.8 hands over? | (a) Yes; (b) the count only (current) | zero-downtime-upgrades-and-hot-reload | No |
 | OQ-traffic-management-and-resilience-23 | How is the 256 MiB balancer budget (target) reported and sized? | (a) A warning and a new `RZ-CFG` code when static Endpoints exceed half; (b) a warning; any with (c) a Gateway `limits` field in Data plane's Node memory sum | data-plane | No |

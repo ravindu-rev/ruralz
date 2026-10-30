@@ -97,6 +97,8 @@ Rows are Planned in their component's milestone. "Traffic" means request handlin
 | FC-20 | Bad Revision | Canary Nodes of one Cluster; all Nodes of a file-mode source | Gates fail: `rolled-back` or `paused` per `autoRollback` | Deterministic NACK; 5xx gate | As FC-18 |
 | FC-21 | Secret provider (`vault`, `kubernetes`) or Kubernetes API down | Restarting and new Nodes using them; `kubernetes` discovery | Running Nodes keep values; cold starts stay not ready; discovery keeps its last set | `/readyz` reason; `ruralz_upstream_degraded_info` | Recovery; TLS keys and `stateStore.url` on `file` or `env` |
 
+The nightly Chaos job verifies each row as its component's milestone arrives, asserting its Behavior and Detection columns ([Drills and failure rows](../engineering/03-testing-and-quality-strategy.md#drills-and-failure-rows)). In M1 these are FC-1, FC-3 for Nodes and the State Store, FC-10 to FC-13, FC-16, FC-19 and the file-mode half of FC-20: FC-1, FC-3, FC-10, FC-11, FC-12 and FC-13 on the runs of CE-1, GD-2, CE-4, GD-4, CE-5 and CE-6, and FC-16, FC-19 and FC-20 as drills of their own.
+
 ## Degraded modes
 
 Every degraded mode is a metric (P10, SG-8) named by [Observability](../architecture/10-observability.md); [Control plane](../architecture/04-control-plane-and-gitops.md#behavior-during-a-ruralz-control-outage) and [Scalability](../architecture/11-scalability-and-distributed-state.md#consistency-and-accuracy-bounds) win on conflict.
@@ -166,7 +168,7 @@ Recovery point (RPO) and time (RTO) objectives bound lost data and time to recov
 | Control Store and every backup lost | Rollout history, audit log, users, Enrollments | Configuration: none, Git holds it (target); records: all | Zero request errors with declared ceilings or OQ-high-availability-and-disaster-recovery-9 (a) (target); otherwise [hold step 0](#holding-deliveries-during-recovery) | 8 hours or less, re-enrollment excluded (target) |
 | Re-enrollment of every Node | Enrollment identities | None (target) | One zone's capacity drains at a time (target); with derived ceilings, also [hold step 0](#holding-deliveries-during-recovery) | 30 minutes or less for 10,000 Nodes (target), below |
 | State Store primary lost | Writes within replication lag | Lag, 1 s or less (target) | `failureMode` for 15 s or less (target) | Not affected (target) |
-| State Store deployment lost | Every counter and cache entry | All, unless persistence is on (target) | `failureMode` until rebuilt, 30 minutes or less (target), plus a zonal Drain if `stateStore.url` changes | Not affected (target) |
+| State Store deployment lost | Every counter and cache entry | All, unless persistence is on (target) | `failureMode` until rebuilt, 30 minutes or less (target), plus a zonal Drain if a `stateStore.url` from an `env` secret changes | Not affected (target) |
 | Bad Revision in Control mode | None | None (target) | Canary bake or 200-request sample, then a revert within three ACK timeouts per Node (target) | Not affected (target) |
 
 ```text
@@ -228,7 +230,7 @@ Runbooks are Planned per component: Ruralz Control Planned (M2), relays and mult
 
 A Rollout to a Cluster with no connected Nodes has an empty plan and completes at once ([Rollout plan](../architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates)): the promoted digest advances, `promotion.from` counts it `complete`, and returning Nodes activate the Revision without a canary. A restored or rebuilt deployment renders the tracked branch head, possibly untested: without `requireApproval` its plans complete, and with it each Environment holds one record, for the head. Until OQ-high-availability-and-disaster-recovery-3 decides, restores and rebuilds run this hold before any Node connects:
 
-0. After a rebuild or list-less restore, until OQ-high-availability-and-disaster-recovery-9 (a) ships, check each Cluster using derived ceilings: keys above 25% of a shard (hypothesis) should use `config.localOnly` (proposed, OQ-scalability-and-distributed-state-11). Otherwise, before its Nodes reconnect or re-enroll, shift its weight to other Cells, or accept the bound below and watch State client breakers.
+0. After a rebuild or list-less restore, until OQ-high-availability-and-disaster-recovery-9 (a) ships, check each Cluster using derived ceilings: keys above 25% of a shard (hypothesis) should use `config.localOnly`. Otherwise, before its Nodes reconnect or re-enroll, shift its weight to other Cells, or accept the bound below and watch State client breakers.
 1. Find each Cluster's served commit with `ruralz bundle diff` against sample Nodes in every zone, passing each candidate's own `control/environments.yaml` (rebuild step 4); after a restore, start from restored assignments' digests.
 2. Push a recovery branch at that commit, plus a commit setting `promotion.requireApproval: true` on every Environment with `promotion.from` (no digest changes), and set Ruralz Control's `git.branch` (process configuration) to it; until then, run the replica without a Git source. A root Environment, without `promotion.from`, cannot be gated; the branch alone pins what it renders.
 3. In `promotion.from` order, approve records at or before each Environment's served commit; they complete empty. If Environments serve different commits, advance the branch through them, oldest first, ending at the root Environments' served commit, since their plans complete at whatever it names. Final promoted digests MUST equal served digests. If an Environment's Clusters serve different commits, or a restored Rollout is still `canary`, `progressing` or `paused`, pause it, approve nothing and escalate: aligning needs a delivery, and a stale restored assignment would re-deliver an older Revision.
@@ -371,7 +373,7 @@ Use when a Cell's State Store deployment is lost, corrupted or configured with e
    Clients          a client limit above 10 × N_serving                       (target)
    ```
 
-4. Prefer a replacement at the same `stateStore.url` value (same DNS name or service), so no secret changes. Otherwise use the new-Cell row of [upgrades](02-zero-downtime-upgrades-and-hot-reload.md#state-store-upgrades), or change the value and Drain Nodes zone by zone for every provider until OQ-zero-downtime-upgrades-and-hot-reload-9 decides rotation behavior.
+4. Prefer a replacement at the same `stateStore.url` value (same DNS name or service), so no secret changes. Otherwise use the new-Cell row of [upgrades](02-zero-downtime-upgrades-and-hot-reload.md#state-store-upgrades), or rotate the value: Nodes open a client to a rotated `file` secret's URL at once, and from M2 to a `kubernetes` or `vault` one ([State client](../architecture/11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)), while an `env` value changes only with a Drain and restart, zone by zone.
 5. Nodes redial with full jitter, base 100 ms, cap 5 s (target), run `SCRIPT LOAD` and close breakers after 3 successful probes (target).
 6. Expect empty counters (one extra limit per open window, Quota windows up to 720 h (target)) and cold caches: watch origin and provider load.
 7. Restore geo weight, then confirm `ruralz_state_writes_dropped_total` returns to baseline.
@@ -384,15 +386,15 @@ Use when a Cell's State Store deployment is lost, corrupted or configured with e
 
 ## Game days
 
-Game days rehearse runbooks on staging Clusters under open-loop load; the [Chaos job](../architecture/11-scalability-and-distributed-state.md#chaos-experiments) automates CE experiments (tooling: OQ-scalability-and-distributed-state-10). Each runs quarterly (target), GD-9 monthly (target), and gates its milestone.
+Game days rehearse runbooks under open-loop load. Each runs as an automated drill in the nightly [Chaos job](../engineering/03-testing-and-quality-strategy.md#drills-and-failure-rows) from its milestone, on the process harness, and that drill gates the milestone. Human game days rehearse the same runbooks on a staging Cluster quarterly (target), GD-9 monthly (target), once a staging environment exists.
 
 | ID | Experiment | Fault injected | Pass criteria | Milestone |
 |---|---|---|---|---|
-| GD-1 | Node loss | SIGKILL one Node at 50% load (target), CE-1; on Kubernetes, power off a host | Errors only on its in-flight requests; no Quota under-charge; replacement ready 30 s after pod release (target) | Planned (M1) |
-| GD-2 | Zone loss | Black-hole one zone's Nodes and State Store primary | Survivors under 80% CPU (target); State Store `failureMode` 15 s or less (target) | Planned (M1) |
-| GD-3 | State Store outage | Black-hole for 60 s (target), CE-4 | Admission within fail-open bounds; `closed` Token Budgets get `RZ-STS-001`, then `RZ-STS-003` | Planned (M1) |
-| GD-4 | State Store partition | Cut half the Nodes from the State Store | Cut-off Nodes within fail-open ceiling rows, connected ones within the healthy GCRA row (target) | Planned (M1) |
-| GD-5 | State Store rebuild | Delete the deployment, run the runbook | Traffic RTO met; no `state_store_eviction_policy` reason afterward | Planned (M1) |
+| GD-1 | Node loss | SIGKILL one Node at 50% load (target), CE-1, then restart it at once, three times: with its data directory, with a wiped one, and with an unreadable Bundle, so it boots Last-Known-Good; on Kubernetes, Planned (M2), power off a host | Errors only on its in-flight requests; no Quota under-charge; each restart ready within 30 s of its start (target), admitting at most one extra ceiling per key (FC-1); on Kubernetes, the replacement ready 30 s after pod release (target) | Planned (M1) |
+| GD-2 | Zone loss | Black-hole one zone's Nodes and State Store primary, in two runs: SIGSTOP of zone a's Nodes and primary, and fault proxies black-holing every path into zone a; Nodes at 53% of their `GOMAXPROCS` before the fault | Survivors under 80% CPU (target), gating on RH-1; State Store `failureMode` 15 s or less (target) | Planned (M1) |
+| GD-3 | State Store outage | Black-hole for 60 s (target), CE-4 | Admission within fail-open bounds; `closed` `ratelimit` and `quota` Policies get `RZ-STS-001`, then `RZ-STS-003`, as `closed` Token Budgets do from M3 | Planned (M1) |
+| GD-4 | State Store partition | Cut half the Nodes from the State Store: black-holed for 60 s, then refused for 60 s (target) | Per key, admissions the L4 balancer attributes to cut-off Nodes stay within the declared-ceiling or file-mode fail-open rows, and the connected Nodes' within the healthy GCRA row (target) | Planned (M1) |
+| GD-5 | State Store rebuild | Delete the deployment with its data, keep it gone 60 s (target), then run the runbook: a `noeviction` replacement at the same URL; then rotate a `file` secret's URL to a second replacement in place, and change an `env` URL by a zone-by-zone Drain and restart | Traffic RTO met: `failureMode` throughout the outage, every Node serving GCRA within 10 s of the replacement accepting connections (target); counters start empty; `ruralz_state_writes_dropped_total` returns to baseline; no `state_store_eviction_policy` reason afterward | Planned (M1) |
 | GD-6 | Leader loss | Kill the leader mid-Rollout, CE-7 | Zero request errors; the Rollout resumes | Planned (M2) |
 | GD-7 | Quorum loss with restarts | Remove quorum, restart 10% of Nodes (target), CE-8 | Restarts boot Last-Known-Good within 30 s (target) | Planned (M2) |
 | GD-8 | Replica replacement | Delete one voter's volume | Replaced with no quorum loss | Planned (M2) |
@@ -418,5 +420,3 @@ Game days rehearse runbooks on staging Clusters under open-loop load; the [Chaos
 | OQ-high-availability-and-disaster-recovery-8 | May a newer binary minor restore an older backup? | (a) Same minor only (proposed); (b) N restores N-1, then finalize | release-versioning-and-compatibility | No |
 | OQ-high-availability-and-disaster-recovery-9 | Should a restored or rebuilt deployment withhold or seed `clusterNodeCount` until qualification catches up? | (a) Withhold, so Nodes keep their last count (proposed); (b) seed from `Hello` and heartbeats; (c) as written | control-plane-and-gitops | Yes, for Planned (M2) restore and GD-10 |
 | OQ-high-availability-and-disaster-recovery-10 | May a restore drill sign with a drill-only root no production Node trusts? | (a) Yes (proposed); (b) offline root each drill | control-plane-and-gitops | No |
-
-Dependency: OQ-zero-downtime-upgrades-and-hot-reload-9 (GD-5).

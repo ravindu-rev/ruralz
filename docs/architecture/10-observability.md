@@ -39,7 +39,7 @@ At most one collection is in flight per process. The OTLP periodic reader and ev
 
 ### Telemetry pipeline
 
-A Node pushes OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set; otherwise `/metrics` on 9901 still serves metrics, logs go to stdout as JSON lines, and trace context propagates without spans. OTLP across TB-12 MUST use TLS ([System overview](01-system-overview.md)) until OQ-security-and-identity-29 rewords TB-12; an `https` collector is verified with `telemetry.otlp.tls`, or against system roots without it ([Configuration model](02-configuration-model.md#gateway)). A cleartext endpoint, same-host included, breaks TB-12: the Node still exports, reports a cleartext `telemetry` hop and raises `cleartext_hop` (loopback exception: OQ-observability-20). Ruralz Control takes OTLP settings from process configuration (OQ-observability-11) and serves `/metrics` on 9902. Spans and logs pass through Ruralz bounded queues that never block, counting `queue_full`; a worker calls the SDK exporter, counting `export_error` per record of a failed batch.
+A Node pushes OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set; otherwise `/metrics` on 9901 still serves metrics, logs go to stdout as JSON lines, and trace context propagates without spans. OTLP across TB-12 MUST use TLS ([System overview](01-system-overview.md)) until OQ-security-and-identity-29 rewords TB-12; an `https` collector is verified with `telemetry.otlp.tls`, or against system roots without it ([Configuration model](02-configuration-model.md#gateway)). A cleartext endpoint, same-host included, breaks TB-12: the Node still exports, reports a cleartext `telemetry` hop and raises `cleartext_hop` (loopback exception: OQ-observability-20). Ruralz Control takes OTLP settings from process configuration (OQ-observability-11) and serves `/metrics` on 9902. Spans and logs pass through Ruralz bounded queues that never block, counting `queue_full`; a worker calls the SDK exporter, counting `export_error` per record of a failed batch. Log records reach stdout and the OTLP log queue independently, so a blocked stdout never stops OTLP log export and a failing collector never stops stdout ([Process logs](#process-logs)).
 
 Spans, metrics and logs share one OTLP/gRPC connection. Metrics are pushed every 15 s (target) from the collection `/metrics` reads. The log queue holds at most 8,192 records and 4 MiB (target) and exports batches of 512 records, or what it holds every 1 s (target). One export attempt is bounded by 10 s and retried from 1 s up to 5 s apart for up to 10 s (target). When one signal's exports have failed continuously for longer than one push interval, the Node raises `telemetry_export_failing`, logging each failing signal at WARN at most once per interval; the reason clears when every failing signal has exported again. An activation that changes the endpoint or `telemetry.otlp.tls` builds the new connection off the request path, swaps it in and closes the old one within 5 s (target), the telemetry flush bound of the [Drain timeline](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults); other activations keep the connection. The SDK reads no `OTEL_*` variable ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) and reports its own errors as rate-limited WARN records instead of on stderr.
 
@@ -150,11 +150,11 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_auth_upstream_refresh_failures_total` | Counter | failures | `policy` | Token fetches |
 | `ruralz_auth_basic_refusals_total` | Counter | refusals | `cause` | queue, create, delay, source: `auth.basic` attempts the Node-wide throttle refused before any hash ([Pre-authentication throttling](08-security-and-identity.md#pre-authentication-throttling)) |
 | `ruralz_security_cleartext_hops` | Gauge | hops | `hop` | client, upstream, state_store, telemetry, admin |
-| `ruralz_ratelimit_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny_local, deny_global, fail_open ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) |
-| `ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy` | Local keys evicted |
-| `ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open |
-| `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error, coalesced (a miss that reused a concurrent miss's fetch) |
-| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory ([Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)) |
+| `ruralz_ratelimit_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny_local, deny_global, fail_open, fail_closed (503 under `closed`), allow_local (admitted by a local-only entry or a `localOnly` Policy, without GCRA) ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) |
+| `ruralz_ratelimit_bucket_evictions_total` | Counter | entries | `policy`, `segment` | Local keys evicted, by key-table segment: main (keys with buckets or a GCRA answer), local_only (first-seen keys past the budget) |
+| `ruralz_quota_decisions_total` | Counter | decisions | `policy`, `result` | allow, deny, no_quota, fail_open, fail_closed (503 under `closed`); a Policy that takes an earlier Policy's decision for a counter already charged counts that decision |
+| `ruralz_cache_requests_total` | Counter | requests | `route`, `result` | hit, miss, bypass, stale, stale_error, coalesced (a miss that reused a concurrent miss's fetch); GET and HEAD requests only, a range answer (206, or 416 `RZ-RT-026`) or client-validation 304 counting as hit |
+| `ruralz_cache_store_skipped_total` | Counter | stores | `policy`, `reason` | size_limit, buffer_budget, memory ([Traffic management and resilience](09-traffic-management-and-resilience.md#response-caching)); size_limit also when an entry's header blocks and saved request alone pass 128 KiB (target) |
 | `ruralz_cache_revalidations_total` | Counter | revalidations | `route`, `result` | refreshed, ended, kept, skipped: background revalidations by outcome, on the Route that queued them |
 | `ruralz_cache_revalidation_drops_total` | Counter | revalidations | `reason` | queue_full, queue_wait, partitions_full: background revalidations the Node dropped for its full queue, a queue wait or its tracked-partition cap |
 | `ruralz_upstream_attempts_total` | Counter | attempts | `upstream`, `status_class`, `error` | none, connect, timeout, reset, tls; attempts the caller canceled are not counted; a bulkhead wait that expired counts as timeout |
@@ -171,6 +171,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_state_calls_total` | Counter | calls | `op`, `result` | ok, error, timeout, skipped |
 | `ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; post-commit writes dropped: a full class, an open breaker, a failed invalidation retry, the Drain flush |
 | `ruralz_state_write_queue_items` | Gauge | items | none | Queue depth |
+| `ruralz_state_inflight_calls` | Gauge | calls | none | State Store calls in flight, at most 8,192 per Node (target) ([Scalability](11-scalability-and-distributed-state.md#per-node-limits)) |
 | `ruralz_plugin_call_duration_seconds`, `ruralz_plugin_call_overhead_seconds` | Histogram, fast | seconds | `policy`, `phase` | Whole call; host time around the guest call, SLI of SLO-GW-4 |
 | `ruralz_plugin_pool_wait_seconds` | Histogram, fast | seconds | `policy` | Instance wait |
 | `ruralz_plugin_failures_total` | Counter | failures | `policy`, `code` | Traps, limits, denials |
@@ -181,7 +182,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_ingress_paused_partitions` | Gauge | partitions | `route`, `protocol` | Paused by poison messages |
 | `ruralz_ingress_hold_expiries_total` | Counter | holds | `route`, `protocol` | Backpressure holds that ended so `AckWait` redelivers |
 | `ruralz_config_revision_info` | Gauge | info | `revision`, `role` | active, lkg |
-| `ruralz_config_activations_total` | Counter | activations | `result`, `code` | activated, rejected |
+| `ruralz_config_activations_total` | Counter | activations | `result`, `code` | activated, rejected; a rejected file-mode load counts once with its first diagnostic's code, parse and schema stages included, and a load that renders the active digest counts nothing |
 | `ruralz_config_activation_duration_seconds` | Histogram, control | seconds | `stage`, `size_class` | SLI of SLO-GW-6 |
 | `ruralz_config_retired_snapshots` | Gauge | snapshots | none | Pinned retired |
 | `ruralz_snapshot_retirement_ended_total` | Counter | requests | none | Ended by `RZ-RT-014` |
@@ -191,9 +192,11 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` | Gauge | seconds | none | Since Control Stream loss; revocation mark age |
 | `ruralz_node_control_stream_reconnects_total` | Counter | reconnects | `result` | success, failure |
 | `ruralz_runtime_goroutines`, `ruralz_runtime_heap_bytes`, `ruralz_runtime_gc_cycles_total` | Gauge; Counter for cycles | goroutines, bytes, cycles | none | Live goroutines, live heap, GC cycles |
+| `ruralz_runtime_gc_cpu_seconds_total`, `ruralz_runtime_allocations_total` | Counter | seconds, objects | none | GC CPU time (`/cpu/classes/gc/total:cpu-seconds`) and heap allocations (`/gc/heap/allocs:objects`), for the GC share of [Performance budgets](12-performance-budgets-and-benchmarking.md#resources-per-core) and its GOGC rule |
 | `ruralz_telemetry_spans_total`, `ruralz_telemetry_spans_dropped_total` | Counter | spans | `reason` when dropped | Offered to export; queue_full, export_error |
 | `ruralz_telemetry_traces_unsampled_total` | Counter | traces | `reason` | rate_cap_root, rate_cap_parent |
 | `ruralz_telemetry_logs_total`, `ruralz_telemetry_logs_dropped_total` | Counter | records | `stream`; `reason` when dropped | access, process; queue_full, export_error |
+| `ruralz_telemetry_access_log_cel_errors_total` | Counter | errors | none | `Gateway.spec.telemetry.accessLog.when` runtime errors; each still writes its entry |
 | `ruralz_telemetry_folded_label_sets` | Gauge | label sets | `instrument` | Folded into `_overflow` |
 | `ruralz_telemetry_series` | Gauge | series | `state` | live, retiring |
 | `ruralz_tap_events_dropped_total` | Counter | events | none | Slow `/tap` subscribers |
@@ -231,7 +234,7 @@ Reasons are Planned (M1) unless tagged.
 | `state_store_memory_multi_node` | `memory` in a multi-Node Cluster (pack 8.8); Planned (M2) |
 | `state_store_unauthenticated` | A loopback `stateStore.url` carries no credentials; a non-loopback one is rejected with RZ-CFG-042 ([Security and identity](08-security-and-identity.md#transport-security)) |
 | `state_store_breaker_open` | The State client breaker is open |
-| `state_store_eviction_policy` | The State Store is not `noeviction` |
+| `state_store_eviction_policy` | The State Store a `ratelimit` or `quota` Policy uses is not `noeviction`, or a `stateStore.cache` connection a `cache` Policy uses runs neither `noeviction` nor `volatile-ttl` |
 | `semantic_cache_unsupported` | No vector commands; Planned (M3) |
 | `upstream_panic`, `discovery_stale` | An Upstream is in panic mode; keeps its last Endpoint set |
 | `balancer_budget` | An Upstream fell back to weighted `random` at the 256 MiB balancer budget (target) |
@@ -321,11 +324,13 @@ gRPC, WebSocket and SSE sessions (Planned (M3)) produce one server span per call
 
 ### Process logs
 
-Both binaries log through `log/slog` as JSON lines on stdout and, with an OTLP endpoint, as OTLP logs through the bridge and a bounded processor that drops with a counter. `RURALZ_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) never changes a Revision (pack 2). Records carry time, level, component, `node.id` or replica, the active Revision, trace and span IDs, and error codes. Changing the level live is OQ-observability-6.
+Both binaries log through `log/slog` as JSON lines on stdout and, with an OTLP endpoint, as OTLP logs through the bridge and a bounded processor that drops with a counter. No request goroutine writes stdout: process records wait in a queue of at most 4,096 records and 1 MiB (target), access records in theirs ([Access logs](#access-logs)), and one worker writes both streams to stdout in 64 KiB batches. The bridge takes each record when it is queued, never after its stdout write, so a blocked stdout loses only stdout lines: a full queue drops records with `queue_full` and a failed write counts `export_error`, while OTLP export goes on and output resumes when stdout is read again. Each sink counts a record it loses once, so `ruralz_telemetry_logs_dropped_total` carries a `sink` label, `stdout` or `otlp`, beside `stream` and `reason`, and each sink's losses show apart. `http.Server` error-log lines pass at most 10 per second (target). `RURALZ_LOG_LEVEL` (`debug`, `info`, `warn`, `error`; default `info`) never changes a Revision (pack 2). Records carry time, level, component, `node.id` or replica, the active Revision, trace and span IDs, and error codes. Changing the level live is OQ-observability-6.
 
 ### Access logs
 
-A Node writes one access log record per request in `onLog`, or per session at close; `Gateway.spec.telemetry.accessLog.when` (CEL over the base variables, `response`, `upstream` and `duration`) selects them, and a runtime error writes the entry. Without it every request is logged, possibly tens of MB per second per Node (hypothesis), so busy Nodes SHOULD set an errors-only `when`. Destination, format and sampling are OQ-observability-3.
+A Node writes one access log record per request in `onLog`, or per session at close; `Gateway.spec.telemetry.accessLog.when` (CEL over the base variables, `response`, `upstream` and `duration`) selects them, and a runtime error writes the entry and counts in `ruralz_telemetry_access_log_cel_errors_total`, which the request handler records. Without it every request is logged, possibly tens of MB per second per Node (hypothesis), so busy Nodes SHOULD set an errors-only `when`. Destination, format and sampling are OQ-observability-3.
+
+Pre-routing responses run no Filter Chain. `RZ-RT-001`, `RZ-RT-002`, `RZ-RT-006` and `RZ-RT-017` still get a record, selected by the pinned snapshot's `when`, and a `/tap` event; 503 `RZ-RT-005`, decided before any snapshot is pinned, gets neither, so overload adds no log work. Every pre-routing response counts in `ruralz_http_listener_requests_total`, `ruralz_http_node_responses_total` and, under `route="_unmatched"`, `ruralz_http_requests_total`.
 
 The request goroutine evaluates `when` and copies every field, truncated, into a pooled record buffer for a worker to encode; a record MUST NOT reference request memory, so a queued record never keeps a header block alive. A record is at most 4 KiB (target), with fields past that cut and flagged in `truncated`. The queue is bounded twice (target): at most 8,192 records, and each record reserves its actual size from a 4 MiB byte budget released after encoding; when either is exhausted the record drops with reason `queue_full`.
 
@@ -339,12 +344,12 @@ The request goroutine evaluates `when` and copies every field, truncated, into a
 | `status`, `code` | Final status, gRPC status or WebSocket close code; the `RZ` code |
 | `duration`, `request_bytes`, `response_bytes` | Total time or session lifetime; body bytes |
 | `gateway_duration`, `upstream_duration`, `state_store_duration` | Gateway-added time; upstream I/O; State Store round trips |
-| `client_address` | `source.ip` after trusted-proxy handling; masking is OQ-observability-7 |
-| `user_agent`, `tls_version` | `User-Agent` cut at 256 bytes (target), flagged in `truncated`; TLS version |
+| `client_address` | `source.ip` after trusted-proxy handling, the address without a port, empty when unknown; masking is OQ-observability-7 |
+| `user_agent`, `tls_version` | `User-Agent` cut at 256 bytes (target), flagged in `truncated`; TLS version `1.2` or `1.3`, as CEL `source.tlsVersion`, empty on cleartext |
 | `consumer`, `tier`, `auth_method` | When authenticated |
-| `upstream`, `endpoint`, `attempts` | Last upstream leg |
+| `upstream`, `endpoint`, `attempts` | Last upstream leg; for a composition, the last step in list order that ran |
 | `short_circuit`, `failure_modes` | Policy and Phase that responded (among composition steps, the first in request order); undecided Policies with `failureMode` applied, upstream-leg Policies included, at most 8 (target), a longer list flagged in `truncated` |
-| `cache` | Response Cache or Semantic Cache result the cache Policy recorded: for `cache`, the `result` of `ruralz_cache_requests_total`; empty when none ran |
+| `cache` | Response Cache or Semantic Cache result the cache Policy recorded: for `cache`, the `result` of `ruralz_cache_requests_total`; empty when none ran, and for a method other than GET and HEAD |
 | `messages_in`, `messages_out` | Session message counts |
 | `ai` | AI fields ([AI observability](#ai-observability)), at most 1 KiB (target) |
 
@@ -415,7 +420,7 @@ An SLO is a production objective; a Performance Budget is the lab ceiling on the
 | SLO-GW-2 | `ruralz_http_gateway_duration_seconds` bucket `le="0.001"` / `_count` | 99% (target) | SM-4 (1 ms p99, target) |
 | SLO-GW-3 | Same metric, bucket `le="0.00015"` / `_count` | 50% (target) | SM-5 (150 µs p50, target) |
 | SLO-GW-4 | `ruralz_plugin_call_overhead_seconds` bucket `le="0.00005"` / `_count` | 99% (target) | SM-6 (50 µs p99, target), same metric |
-| SLO-GW-5 | `ruralz_state_call_duration_seconds{op="gcra"}` bucket `le="0.001"` / `_count`, `script_multi` excluded | 99% (hypothesis) | System overview same-zone GCRA seed (1 ms p99, hypothesis) |
+| SLO-GW-5 | `ruralz_state_call_duration_seconds{op="gcra",zone="same"}` bucket `le="0.001"` / `_count`, `script_multi` excluded; `cross` and `unknown` calls fall outside it ([State client](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)) | 99% (hypothesis) | System overview same-zone GCRA seed (1 ms p99, hypothesis) |
 | SLO-GW-6 | `ruralz_config_activation_duration_seconds{stage="compile", size_class!="gt10000"}` bucket `le="2"` / `_count` | 99% (target) | System overview seed: 10,000 Routes in 2 s on one core (target) |
 | SLO-GW-7 | 1 − dropped / produced, summing the `ruralz_telemetry_spans_*` and `ruralz_telemetry_logs_*` counters | 99.9% (target) | Proposed here; without OTLP, logs only |
 | SLO-AI-1 | 1 − M / (`ruralz_ai_settlements_total` + M), M being `ruralz_ai_usage_missing_total{reason=~"none_reported\|interrupted\|oversized"}`, both summed over `provider` and `model` | 99% (hypothesis) | Proposed here |
@@ -548,20 +553,20 @@ The audit export uses OpenTelemetry logs, with the Control Store's committed aud
 
 ### Overhead per signal
 
-Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Memory rows are live heap above the 89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit.
+Budgets are per request, defaults minus telemetry off, on the reference hardware of [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), access-logging every request. Telemetry off sets no `telemetry.otlp`, `traceSampling: 0` and `accessLog.when: "false"`; metric recording has no switch, so the Metrics row's CPU comes from a component benchmark that measures it per request ([Scenarios](12-performance-budgets-and-benchmarking.md#scenarios)). Memory rows are live heap above the 89 MiB idle RSS budget (target) in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md#memory-budget). The M1 benchmarks run at the default `GOGC=100` without `GOMEMLIMIT`, where the heap target is twice the live heap, so RSS above idle is at most twice each row (hypothesis); Performance budgets checks that these seeds fit.
 
 | Signal | CPU per request | Allocations per request | Memory per Node |
 |---|---|---|---|
 | Metrics | 2 µs or less (target) | 0 (target) | 24 MiB or less live heap (target) |
 | Tracing, unsampled | 1 µs or less (target) | 2 or fewer (target) | None (target) |
-| Tracing, sampled trace of 15 spans | 30 µs or less, export excluded (target) | 60 or fewer (target) | 8,192-span queue, 8 MiB or less (target) |
+| Tracing, sampled trace of 15 spans | 30 µs or less, export excluded (target) | 90 or fewer: 6 per span, the OpenTelemetry SDK's 4 and at most 2 of Ruralz's (target) | 8,192-span queue, 8 MiB or less (target) |
 | Access log, logged request | 2 µs or less at p99, `when` included (target) | 8 or fewer (target) | 8,192 records and a 4 MiB byte budget (target) |
 | Process logs at `info` | None (target) | 0 (target) | 1 MiB or less (target) |
 | `/tap`, no subscriber | Under 10 ns (target) | 0 (target) | None (target) |
 | `/tap`, one subscriber | 2 µs or less per event (target) | 1 per event (target) | 1 MiB each, at most 4 (target) |
 | All telemetry at defaults | 5% or less of Node CPU at half saturation (target) | Within the performance budget (target) | 40 MiB or less live heap, up to 80 MiB RSS, no `/tap` subscriber (target) |
 
-Estimates, each checked by an M1 benchmark (hypothesis): 15 metric operations in the SM-4 scenario and 40 for 10 Filters; 4 allocations per span; 8 for the example `when`. Sampled traces average 0.01 × 30 µs = 0.3 µs per request and at most 1,500 × 30 µs, 4.5% of one core, at both caps (target); the span queue then holds 0.36 s (hypothesis), so longer Collector stalls burn SLO-GW-7. Worker encoding and export count toward the 5% row (hypothesis).
+Estimates, each checked by an M1 benchmark (hypothesis): 15 metric operations in the SM-4 scenario and 40 for 10 Filters; 6 allocations per span, 4 of them the SDK's; 8 for the example `when`. Sampled traces average 0.01 × 30 µs = 0.3 µs per request and at most 1,500 × 30 µs, 4.5% of one core, at both caps (target); the span queue then holds 0.36 s (hypothesis), so longer Collector stalls burn SLO-GW-7. Worker encoding and export count toward the 5% row (hypothesis).
 
 Metrics memory and contention are checked by an M1 benchmark at 4 P and 32 P that drives one hot Route through the five Gateway Policies of the Configuration model worked example, so every request records into the same Route, Upstream and Gateway Policy label sets. It assumes 120 bytes per counter or gauge series and 300 per histogram label set, 64 × S and 192 × S more when sharded, and a pooled collection of 120 bytes per counter or gauge point and 300 per histogram point (hypothesis). At the Node limit of 125,000 series, half histogram buckets, aggregates take about 8.3 MiB and the collection about 8.3 MiB (hypothesis). At S = 8 the sharded sets add at most 5.4 MiB: 0.6 MiB listener and enumeration, 0.9 MiB Gateway Policies, 3.9 MiB for 1,000 Routes and 1,000 Upstreams at 2 KiB each (hypothesis); at S = 4 they add half. Four scrape buffers add 0.25 MiB, so Metrics is about 22.2 MiB of live heap and All telemetry about 35.2 MiB (hypothesis).
 
@@ -573,7 +578,7 @@ A label set only retired or closing snapshots reference is retiring; with K = 2 
 
 Folding never carries accumulated values. A folded label set's series end: they leave the export, so OTLP and Prometheus staleness close them, and only records that arrive after the fold go to `_overflow`. The same rule applies when a Hot Reload moves a live label set past an admission limit. `rate()`, `increase()` and `sum(rate(...))` over a family therefore never show a jump of events that did not happen in the window. Every family that can fold exports its `_overflow` label set (every resource label `_overflow`) at 0 from its first admission, so its first late record is not lost to `increase()`.
 
-A CI test of 1,000 Hot Reloads, each renaming every Route, MUST keep `ruralz_telemetry_series{state="retiring"}` within 25,000 (target), fold only retiring sets, never raise an `_overflow` series by a folded set's accumulated value, return to the single-Revision count once old snapshots are freed, and see at most 2 `ruralz_config_revision_info` series.
+A CI test of 1,000 Hot Reloads, each renaming every Route, MUST keep `ruralz_telemetry_series{state="retiring"}` within 25,000 (target), fold only retiring sets, never raise an `_overflow` series by a folded set's accumulated value, return to the single-Revision count once old snapshots are freed, and see at most 2 `ruralz_config_revision_info` series. It runs in stage 8, in `test/integration/telemetry`, on the controllable-clock test build. Its Revisions hold enough Routes that three old Revisions exceed the 25,000 ceiling, so folding happens: at a few points of the run, slow requests pin successive Revisions until two retired Revisions and a closing one hold label sets at once, then end, releasing them. The test awaits each of the 1,000 activations before writing the next Revision, since the loader keeps only the latest pending one.
 
 For 1,000 Routes, 300 Upstreams, 300 Policy and Phase pairs, 50 Plugin Policies and 100 AI model label sets, the worst case per Node is about 66,400 series (hypothesis):
 

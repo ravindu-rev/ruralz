@@ -91,13 +91,13 @@ flowchart LR
 - Bad, because Ruralz alone maintains block scalars, folding, flow edge cases, tabs, positions and messages, with no external users or advisory channel, and keeps the suite runner, the differential and the fuzz targets current.
 - Bad, because YAML that libyaml-based tools accept can fail here, such as a closing bracket at its key's column or `"a"#c`; the differential's list of deviation classes names each case.
 - Good, because one node budget for all of a load's files, which scales with the resource limit, bounds its trees however many files hold them, while one file may use all of it: a rendered one-file Bundle of 20,000 resources may average 200 nodes each (target).
-- Bad, because peak loader memory at the default size and depth limits is a hypothesis until the hostile-input fixtures measure it.
+- Bad, because a whole load at the default limits may grow the heap by up to 1,040 MiB (target), memory a Node keeps free for its configuration pipeline.
 - Bad, because two schema views and seven custom keywords must stay in step, and apiVersion migration drops comments.
 
 ### Confirmation
 
 - **Loader conformance suite**, Planned (M1): a fixture per rejection (RZ-CFG-001 to RZ-CFG-004), an alias-expansion fixture, and plain scalars `yes`, `on`, `0777`, `0b1`, `1_000` and `2026-09-23`: `0777` MUST decode as 777 raw or substituted into an integer field and stay "0777" substituted into a string field; the rest are strings.
-- **Hostile input**, Planned (M1): loader fuzzing, plus size, nesting and node-count fixtures that MUST fail with RZ-CFG-001 without a crash; an input of up to 1 MiB parses within 256 MiB of heap growth and 2 s (target).
+- **Hostile input**, Planned (M1): loader fuzzing, plus size, nesting and node-count fixtures that MUST fail with RZ-CFG-001 without a crash; an input of up to 1 MiB parses within 256 MiB of heap growth and 2 s (target). Whole-load fixtures at the 64 MiB source limit, the 20,000-resource limit and the 4,000,000-node budget, one load at each and one at all three together, MUST each grow the heap by at most 1,040 MiB (target) through stages A to E, and one node, resource or byte past each limit MUST fail with RZ-CFG-001. The tests assert heap growth only; the 2 s is checked by the nightly fuzz job, never by a plain test run.
 - **Upstream suites**, Planned (M1): the pinned YAML Test Suite against the Ruralz parser, failing only on a checked-in list whose every entry is a profile refusal, and the pinned JSON-Schema-Test-Suite's required draft 2020-12 tests (optional excluded, except used formats) against `jsonschema/v6`, with zero failures. Other failures or regressions fail CI.
 - **Differential**, Planned (M1): over the YAML Test Suite, the fuzz seeds and generated streams, the parser and `go.yaml.in/yaml/v3` accept and refuse the same inputs and read the same trees, except inputs in a checked-in list of deviation classes, each with witnesses on which the two still differ; `FuzzYAMLv3Differential` searches for more.
 - **JSON subset fixtures**, Planned (M1): tab indentation, `\/` and surrogate `\u` escapes MUST yield the digest of their YAML twins.
@@ -156,4 +156,4 @@ flowchart LR
 - Owning document: [Configuration model](../architecture/02-configuration-model.md#restricted-yaml-profile).
 - Evidence: the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog).
 - Related decisions: [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
-- Open elsewhere: OQ-configuration-model-10 and OQ-configuration-model-2.
+- Open elsewhere: OQ-configuration-model-2.

@@ -81,7 +81,7 @@ flowchart LR
 | T7 | Rogue enrollment | TB-5 | [Enrollment](#enrollment) |
 | T8 | Sandbox escape, over-grant, credential harvesting | TB-2 | [Plugin sandbox](#plugin-sandbox) |
 | T9 | Secret leakage; spoofed or compromised secret provider | All | [Secrets](#secrets) rule 2; verified TLS; least-privilege provider access |
-| T10 | State Store eavesdropping or tampering (poisoned caches, reset limits), cross-user hits | TB-4 | Required credentials, TLS when configured, principal in cache keys; entry MAC ([Secrets](#secrets) rule 9), not on counters |
+| T10 | State Store eavesdropping or tampering (poisoned caches, reset limits), cross-user hits | TB-4 | Required credentials, TLS when configured, principal in cache keys; entry MAC ([Secrets](#secrets) rule 9), not on counters; a cache entry never stores a request's `Authorization`, `Proxy-Authorization`, `Cookie` or API-key field, and an entry stored from a request with one is never replayed ([Response caching](09-traffic-management-and-resilience.md#response-caching)) |
 | T11 | Stolen session, insider change | TB-6 | [RBAC](#operator-identity-sso-and-rbac), approvals, audit |
 | T12 | Resource exhaustion | TB-1 | [Request hardening](#request-hardening) |
 | T13 | Cross-tenant leakage via Semantic Cache, Prompt Cache or provider resources | TB-1, TB-3 | Planned (M3): principal in cache keys; OQ-ai-llm-gateway-19 answer |
@@ -207,7 +207,7 @@ Per pack section 3, this document authors these schemas, all Planned (M1) and re
 |---|---|---|
 | `auth.basic` | `config` | No fields; reads `Authorization: Basic`: no field or another scheme is RZ-AUTH-001, a malformed Basic value RZ-AUTH-002 |
 | `auth.mtls` | `config.caCertificate` | Required `SecretValue`: PEM bundle of the client CAs this Policy trusts, rotated by watch like listener certificates |
-| `auth.mtls` | `config.subjects` | Optional `set`; each rule holds exactly one of `subject` (RFC 4514 name, exact: RDNs last to first; short names CN, L, ST, O, OU, C, STREET, DC, UID; any other type as `<dotted OID>=#<lower-case hex of the BER value>`) or `uriSan` (exact, for example a SPIFFE ID). Empty admits any verified leaf; a leaf matching no rule is RZ-AUTH-002 |
+| `auth.mtls` | `config.subjects` | Optional `set`; each rule holds exactly one of `subject` (RFC 4514 name, exact: RDNs last to first; short names CN, L, ST, O, OU, C, STREET, DC, UID; any other type as `<dotted OID>=#<lower-case hex of the BER value>`) or `uriSan` (exact, for example a SPIFFE ID), a non-empty string; a rule with both, neither or an empty value is RZ-CFG-005 at stage F. An empty set admits any verified leaf; a leaf matching no rule is RZ-AUTH-002 |
 | `auth.mtls` | `config.crl` | Optional `SecretValue`: PEM CRLs for those CAs, each signed by a `config.caCertificate` certificate (else RZ-CFG-026, or a failed rotation that keeps the last value), watched; a listed serial revokes the leaf or intermediate that CA issued, RZ-AUTH-004. Past `nextUpdate`, the last CRL stays enforced and the Node reports a degraded state |
 | `Consumer` | `credentials.basic` | `map` keyed by `username`; each entry holds `hash` and `iterations` |
 | `Consumer` | `credentials.basic[].hash` | `pbkdf2-sha256:<salt>:<key>`, base64url of a 16-byte random salt and a 32-byte PBKDF2-HMAC-SHA-256 key; T19 applies as to key hashes |
@@ -388,7 +388,7 @@ Components MUST follow rules 1 to 9, Planned (M1) on Nodes and the CLI, the Rura
 6. Every Node connection for the Bundle (`jwksUrl`, `tokenUrl`, `baseUrl`, Endpoints, discovery results) refuses 0.0.0.0/8, ::/128, 127.0.0.0/8, ::1, 169.254.0.0/16, fe80::/10 and fd00:ec2::254, IPv4-mapped and NAT64 forms included, at connect time and on each redirect hop, unless `RURALZ_FETCH_ALLOW`, comma-separated addresses and CIDRs (an unparsable entry refuses start), holds them. It never follows `https` to `http` or a `tokenUrl` redirect, and ignores proxy variables unless the list holds `env-proxy`.
 7. Adding a `secretRef` or changing a secret's destination has diff impact `security`.
 8. Each `secretRef` use has one static destination, and a reference with two is RZ-CFG-041 in every binary ([Secret-to-destination binding](02-configuration-model.md#secret-to-destination-binding)); the State Store dialer dials only its URL's hosts and the servers their cluster or sentinels announce, the State Store's own members, which promotions and new shards add without a Revision.
-9. With `RURALZ_STATE_STORE_MAC_KEY_FILE` set (an absolute path outside the secret root to a regular file owned by the effective user or root, with no group or other permission bits, read at start), every opaque entry Nodes share through the State Store, Response Cache entries in M1, carries an HMAC-SHA-256 tag over key, field and value; a missing or wrong tag reads as a miss. The key MUST hold at least 32 bytes after one final LF or CR LF is removed; generate it as text, such as `openssl rand -hex 32`, since a binary key ending in 0x0A loses that byte. Counters carry no tag, as State Store scripts cannot compute one; a new key turns entries into misses.
+9. With `RURALZ_STATE_STORE_MAC_KEY_FILE` set (an absolute path outside the secret root to a regular file owned by the effective user or root, with no group or other permission bits, read at start), every opaque entry Nodes share through the State Store, Response Cache entries in M1, carries an HMAC-SHA-256 tag over key, field and value; a missing or wrong tag reads as a miss. Every stored entry records whether it carries a tag, so a Node without the key reads a tagged entry as a miss too, and a Cell's keyed and key-less Nodes never serve each other's entries. The key MUST hold at least 32 bytes after one final LF or CR LF is removed; generate it as text, such as `openssl rand -hex 32`, since a binary key ending in 0x0A loses that byte. Counters carry no tag, as State Store scripts cannot compute one; a new key turns entries into misses.
 
 *Figure 3: secret resolution through `secretRef` on activation and rotation.*
 
@@ -422,11 +422,11 @@ These controls are always on and Planned (M1) unless noted ([System overview](01
 
 | Concern | Control |
 |---|---|
-| Oversized requests | RZ-RT-002 over `limits.maxRequestHeaderBytes`; RZ-RT-003 over `maxRequestBodyBytes`, counted decoded |
-| Header floods | 256 fields (target), RZ-RT-002, counted after the parse `maxRequestHeaderBytes` bounds; Go 1.27 adds `Server.MaxHeaderValueCount` ([source](https://go.dev/doc/go1.27)) (OQ-security-and-identity-20) |
+| Oversized requests | RZ-RT-002 over `limits.maxRequestHeaderBytes`, counted as RFC 9113's field-list size for every protocol, the request target included ([Data plane](03-data-plane.md#listeners-and-protocols)); RZ-RT-003 over `maxRequestBodyBytes`, counted decoded, also when a streamed body passes it while an attempt sends it |
+| Header floods | 256 field lines (target), RZ-RT-002, counted after the parse `maxRequestHeaderBytes` bounds, pseudo-header fields excluded and a joined `Cookie` as one; Go 1.27 adds `Server.MaxHeaderValueCount` ([source](https://go.dev/doc/go1.27)) (OQ-security-and-identity-20) |
 | Slow clients | Header-read and idle timeouts (OQ-security-and-identity-17) |
 | Request smuggling | Conflicting framing never forwarded, 400 RZ-RT-017 when the handler detects it ([Data plane](03-data-plane.md#listeners-and-protocols)); hop-by-hop headers removed |
-| Path confusion | One normalized path for Router, CEL, `authz.*` and upstream; only a later `transform.request` rewrites it. `%00`, raw or encoded backslashes, other control bytes and invalid escapes are 400 RZ-RT-017 |
+| Path confusion | One normalized path for Router, CEL, `authz.*` and upstream; only a later `transform.request` `set[]` entry with target `path` rewrites it, under the same hardening, a result it refuses being the Policy's cannot decide ([Transform Policies](03-data-plane.md#transform-policies)). `%00`, raw or encoded backslashes, other control bytes and invalid escapes are 400 RZ-RT-017 |
 | Credential forwarding | `auth.api-key` and `auth.basic` strip their credential; `auth.jwt` forwards it |
 | gRPC | Planned (M3): connect-go `WithRequestGate` authenticates before decompression ([source](https://github.com/connectrpc/connect-go/releases/tag/v1.21.0)) |
 | Browser protections | `cors`; security headers in a non-overridable Gateway `headers` Policy |
@@ -526,7 +526,7 @@ Proposed (OQ-security-and-identity-26): `ruralz bundle push` adds signed Environ
 
 ### Admin ports
 
-Ports 9901 and 9902 bind all interfaces for kubelet probes (OQ-system-overview-6), and every path but `/healthz` and `/readyz` needs a credential on every interface, loopback included, because a Pod's containers share loopback. Three process settings, never Bundle fields and each an absolute path, hold the admin credentials (TB-9), Planned (M1):
+Ports 9901 and 9902 bind all interfaces for kubelet probes (OQ-system-overview-6), 9901 binding loopback only under `RURALZ_BIND_LOOPBACK`, and every path but `/healthz` and `/readyz` needs a credential on every interface, loopback included, because a Pod's containers share loopback. Three process settings, never Bundle fields and each an absolute path, hold the admin credentials (TB-9), Planned (M1):
 
 | Setting | Holds | Admits |
 |---|---|---|

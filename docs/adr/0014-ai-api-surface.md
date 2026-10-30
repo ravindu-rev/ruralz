@@ -88,7 +88,7 @@ flowchart LR
 - **Token Budget property test**, Planned (M3): reservation, per-attempt settlement and the overshoot bound hold ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
 - **SM-10 scale job**, Planned (M3): the [AI provider mock](../engineering/03-testing-and-quality-strategy.md#ai-provider-mock) drops usage on some streams, and settlement MUST charge all of R.
 - **Fuzzing**, Planned (M3): per-dialect stream parsers extract the fixture's final usage or report it missing ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **Validation**, Planned (M3): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, [Error codes](../architecture/02-configuration-model.md#error-codes)).
+- **Validation**, Planned (M1): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, stage K, [Error codes](../architecture/02-configuration-model.md#error-codes)), before the AI gateway ships, so Bundles written for M3 validate the same way in every release; the configuration conformance suite holds its negative fixture.
 - **Amendment trigger**: a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR.
 
 ## Pros and cons of the options

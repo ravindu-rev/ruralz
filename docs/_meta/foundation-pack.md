@@ -40,30 +40,33 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | Isolated blast-radius unit | **Cell** | one Cluster and its State Store in one Region, optionally with a regional Ruralz Control (section 8.13) | "shard", "partition" |
 | Persisted boot configuration | **Last-Known-Good** | `${RURALZ_DATA_DIR}/lkg/` (section 8.2) | "fallback config", "cached config" |
 | Default ports | `ruralzd`: **8080** HTTP, **8443** TLS (+ UDP 8443 for HTTP/3, Planned (M3)), **9901** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`, `/config/dump`, `/tap`). `ruralz-control`: **8090** REST API + Console, **8091** Control Stream (mTLS, Nodes dial), **8092** Raft peer transport (mTLS), **9902** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`). Details in section 8.4 | None | None |
-| Env vars | `RURALZ_*` process settings, listed under Process settings below; none changes a Revision | None | None |
+| Env vars | `RURALZ_*` process settings, listed under Process settings below; none changes a Revision. `RURALZ_*` also names script, test and tool inputs, such as `RURALZ_QUICKSTART_*` and `RURALZ_TEST_*`, which never reach a Node and are not process settings | None | None |
 | Metrics | `ruralz_<component>_<name>_<unit>` (e.g., `ruralz_http_request_duration_seconds`; counters end in `_total`); OTel semantic conventions for HTTP and `gen_ai.*` | None | None |
 | Trace spans | `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` | None | None |
 | Error codes | `RZ-<AREA>-<NNN>`; areas `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`, with meanings and registry owners in section 8.6 | None | None |
 | Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | None | None |
 | ADRs | `ADR-NNNN`, files `docs/adr/NNNN-<slug>.md` | None | None |
 | Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | None | "TBD", "TODO" |
-| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`; features whose design is complete in these docs are still tagged `Planned (Mx)` until implemented | "v1", "v2", "phase 2", "GA" as a milestone |
+| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
 
 **Process settings.** A Node reads them once at start, so a change needs a restart or a Zero-Downtime Upgrade.
 
 | Setting | Meaning |
 |---|---|
 | `RURALZ_CONFIG` | Configuration source of a file-mode Node |
-| `RURALZ_DATA_DIR` | Directory of the Node's durable state (section 8.11) |
+| `RURALZ_DATA_DIR` | Directory of the Node's durable state (section 8.11); default `/var/lib/ruralz`, which is also the default `--data-dir` of `ruralz node drain` |
 | `RURALZ_LOG_LEVEL` | Process log level |
 | `RURALZ_STATE_STORE_URL` | Fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning), and the conventional `secretRef` name with `provider: env` |
-| `RURALZ_ADMIN_TOKEN_FILE` | File holding the operator token, accepted on every admin path of 9901 |
+| `RURALZ_ADMIN_TOKEN_FILE` | File holding the operator token, accepted on every admin path of 9901; also the `ruralz` CLI's default `--admin-token-file` |
 | `RURALZ_ADMIN_METRICS_TOKEN_FILE` | File holding a token accepted on `/metrics` only |
 | `RURALZ_ADMIN_TLS_DIR` | Certificate and key the admin port serves TLS with; its client CA also admits client certificates |
+| `RURALZ_ADMIN_URL` | Read by the `ruralz` CLI only, never by a Node: the default `--admin`, a Node's admin base URL, of the commands that call a Node's admin port |
+| `RURALZ_BIND_LOOPBACK` | `true` or `false`, default `false`: binds every client listener and the admin port to loopback, 127.0.0.1 and ::1, instead of every interface; `ruralz dev run` and the quickstart set it, and any other value refuses start |
 | `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the Enrollment token file or Vault credential |
 | `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
 | `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
-| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; rotating the key needs a restart and turns existing entries into misses |
+| `RURALZ_ZONE` | The Node's failure-zone name, an operator-set token of 1 to 63 characters from `[a-z0-9-]`, default empty; any other value refuses start. The State client compares it with the zones of `stateStore.zones` and `stateStore.cache.zones` to label each call `same`, `cross` or `unknown` |
+| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; every stored entry records whether it is tagged, so a Node without the key reads a tagged entry as a miss; rotating the key needs a restart and turns existing entries into misses |
 
 ## 3. Resource model (fixed kinds)
 
@@ -207,15 +210,15 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 | Endpoint | Meaning |
 |---|---|
 | `ruralzd` `/healthz` | The process responds |
-| `ruralzd` `/readyz` | 200 only when an active validated Revision is loaded, every `secretRef` it uses has resolved, listeners are bound and the Node is not draining. It never fails because the Control Stream is lost or the Node is detached, for any duration, since that would pull every Node during a control-plane incident (an opt-in staleness limit is OQ-system-overview-13). A Node with no usable configuration stays not ready |
+| `ruralzd` `/readyz` | 200 only when an active validated Revision is loaded, every `secretRef` it uses has resolved, listeners are bound and the Node is not draining. It never fails because the Control Stream is lost or the Node is detached, for any duration, since that would pull every Node during a control-plane incident (an opt-in staleness limit is OQ-system-overview-13). A Node with no usable configuration stays not ready; while no Revision is active, the reasons name the unresolved `secretRef` values and unbound listeners of the boot load being retried, and once one is active a newer Revision that fails never changes readiness |
 | `ruralz-control` `/healthz`, `/readyz` on 9902 | Semantics owned by Control plane and GitOps |
 
 ### 8.6 Error-code areas
 
 | Area | Meaning | Registry owner |
 |---|---|---|
-| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040); RZ-CFG-001 to RZ-CFG-042 in M1 | configuration-model |
-| `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation and cache-only rejections, request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
+| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045 in M1 | configuration-model |
+| `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation rejections, Response Cache rejections (`only-if-cached` misses, unsatisfiable ranges), request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |
 | `RL` | Rate Limit and Quota decisions (429; 403 for a missing Consumer quota) | traffic-management-and-resilience |
@@ -231,10 +234,10 @@ A rejection uses `STS` when a State Store call failed or timed out, `PLG` when a
 1. Before the response is committed, each Policy makes at most one blocking State Store round trip per request.
 2. A call's timeout is the smaller of the Policy's `stateStoreTimeout` (default: Gateway `spec.stateStore.timeout`) and the time left in the per-request deadline (the Route's largest `stateStoreTimeout`). After it expires, remaining Policies apply `failureMode` without waiting; an open State client breaker skips calls entirely.
 3. Consumptive calls (GCRA, Quota check, Token Budget reservation) run in chain order and stop at the first deny: one script when their keys share a hash slot, otherwise sequential round trips. Read-only calls that depend on no earlier Filter MAY share one pipelined batch.
-4. Post-commit writes (Response Cache and Semantic Cache stores, Quota and Token Budget settlement) are asynchronous, pass through a bounded per-Node queue and are dropped with a counter when it is full; they never delay a response. The queue keeps one bounded class per kind of write, so a full class drops only its own writes and Plugin writes never displace settlement (OQ-scalability-and-distributed-state-11 (a)).
+4. Post-commit writes (Response Cache and Semantic Cache stores, Quota and Token Budget settlement) are asynchronous, pass through a bounded per-Node queue and are dropped with a counter when it is full; they never delay a response. The queue keeps one bounded class per kind of write, so a full class drops only its own writes and Plugin writes never displace settlement.
 5. `onChunk` never calls the State Store.
 6. Any other remote call before commit, such as a Semantic Cache embedding call to an `AIProvider`, is declared on the Policy with a timeout and `failureMode`.
-7. Plugin State Store keys, Planned (M2), live under `rzplg:<Environment name>:`, apart from every built-in key (OQ-scalability-and-distributed-state-11 (a)).
+7. Plugin State Store keys, Planned (M2), live under `rzplg:<Environment name>:`, apart from every built-in key.
 
 Accuracy bounds for dropped writes belong to Scalability and distributed state.
 
@@ -242,10 +245,10 @@ Accuracy bounds for dropped writes belong to Scalability and distributed state.
 
 N_serving is the number of serving Nodes of a Cell, and N_published the Node count Ruralz Control publishes for the Cluster.
 
-- Each Node runs a local token bucket per key at a **per-Node ceiling**: declared on the Policy (`limits[].perNodeCeiling`, authored by Traffic management and resilience), or derived as min(limit, max(10, ceil(2 × limit / N_published))) (target), with 2× headroom for uneven spread and a floor for pinned clients (OQ-traffic-management-and-resilience-16 (b)); never learned from peers. With neither (file mode without a declared ceiling, or a Control-mode Node without a count), the ceiling equals the full limit.
-- Requests the local bucket denies never reach the State Store; each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit. Two cases admit on local buckets alone: a Policy with `config.localOnly: true`, for keys too hot for one shard, and a first-seen key past the per-Node first-seen budget, which gets a 10 s local-only entry (target) at the per-Node ceiling in its own segment of the key table (OQ-traffic-management-and-resilience-20 (a)). Both admit at most N_serving × per-Node ceiling per window, even while the State Store is healthy (target; OQ-scalability-and-distributed-state-11 (a)). Leased allowances instead of per-request GCRA are OQ-system-overview-15.
+- Each Node runs a local token bucket per key at a **per-Node ceiling**: declared on the Policy (`limits[].perNodeCeiling`, authored by Traffic management and resilience), or derived as min(limit, max(10, ceil(2 × limit / N_published))) (target), with 2× headroom for uneven spread and a floor for pinned clients; never learned from peers. With neither (file mode without a declared ceiling, or a Control-mode Node without a count), the ceiling equals the full limit.
+- Requests the local bucket denies never reach the State Store; each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit. Two cases admit on local buckets alone: a Policy with `config.localOnly: true`, for keys too hot for one shard, and a first-seen key past the per-Node first-seen budget, which gets a 10 s local-only entry (target) at the per-Node ceiling in its own segment of the key table. Both admit at most N_serving × per-Node ceiling per window, even while the State Store is healthy (target). Leased allowances instead of per-request GCRA are OQ-system-overview-15.
 - Fail-open over-admission bound: while the State Store is failing, admission per key is at most N_serving × per-Node ceiling per window (target; Scalability and distributed state owns the bound). A derived ceiling then allows max(1, 2 × limit / N_published) per epoch-aligned window, without carry-over and refilled in 60 steps past one minute (target), so its floor never multiplies admission; a Control-mode Node without a count allows max(1, limit / 100) (target).
-- Node count (OQ-traffic-management-and-resilience-19 (c)): in Control mode, Planned (M2), a Node persists the last published count under `${RURALZ_DATA_DIR}` (section 8.11) and hands it to its successor in a Zero-Downtime Upgrade; a count read back after a restart is used, flagged stale, until the next one arrives. File mode, Planned (M1), has no count: ceilings equal the full limit, the first-seen budget is 200 keys per second per Node (target), and the Node is not degraded.
+- Node count: in Control mode, Planned (M2), a Node persists the last published count under `${RURALZ_DATA_DIR}` (section 8.11) and hands it to its successor in a Zero-Downtime Upgrade; a count read back after a restart is used, flagged stale, until the next one arrives. File mode, Planned (M1), has no count: ceilings equal the full limit, the first-seen budget is 200 keys per second per Node (target), and the Node is not degraded.
 - `failureMode` defaults to `open` and is configurable per Policy. With the `memory` driver every limit multiplies by the Node count, and a Node warns when its Cluster reports more than one Node.
 
 ### 8.9 Token Budgets (ADR-0014)
@@ -284,7 +287,7 @@ A Node persists only the following under `${RURALZ_DATA_DIR}`; all other shared 
 | Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only; encrypted secret persistence is OQ-configuration-model-15 |
 | Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts and compiled modules; deleting them costs only warm-up |
 | Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015), Planned (M1) |
-| Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (OQ-traffic-management-and-resilience-19 (c), section 8.8); Control mode, Planned (M2) |
+| Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (section 8.8); Control mode, Planned (M2) |
 
 - Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good, `holder.json` and the Node count, and holds the Control Stream for its `node.id` (ADR-0015 handover).
 - Enrollment is one-time and off the request path; file mode needs none. In Control mode, a Node without Last-Known-Good stays not ready until it enrolls and receives its first Revision from Ruralz Control; seeding from an OCI-published Revision during an outage is OQ-system-overview-12.
@@ -320,7 +323,7 @@ The trust policy (trusted identities or keys) lives in Ruralz Control's configur
 
 ## 9. CLI command registry
 
-Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, `test`. `docs/reference/01-cli-and-api-surface.md` MUST list every command below; it MAY add verbs and flags under these nouns, and a new noun needs the owner's decision. `ruralz version` and `ruralz completion` are the only commands outside the noun-verb form. Flags proposed in OQ-configuration-model-10 belong to the CLI document.
+Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, `test`. `docs/reference/01-cli-and-api-surface.md` MUST list every command below; it MAY add verbs and flags under these nouns, and a new noun needs the owner's decision. `ruralz version` and `ruralz completion` are the only commands outside the noun-verb form. The CLI document defines every flag.
 
 | Command | Purpose | Planned |
 |---|---|---|

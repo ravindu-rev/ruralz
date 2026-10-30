@@ -32,7 +32,7 @@ Writing rules for every file under `docs/`.
 - Claims about external libraries, standards, licenses and releases cite their source inline: `([source](https://...))`.
 - Documents describe only Ruralz, on its own terms, and never name or compare competing gateway products. Libraries, standards and provider APIs Ruralz builds on may be named.
 - Dates are ISO `YYYY-MM-DD`.
-- Feature availability tags: `Planned (Mx)` where `Mx` is `M0`..`M5`, or `Not planned` with a reason; never `Supported`, `Implemented` or `Shipped`.
+- Feature availability tags: `Planned (Mx)` where `Mx` is `M0`..`M5`, or `Not planned` with a reason; never `Supported`, `Implemented` or `Shipped`. A `Planned (Mx)` tag stays until milestone Mx exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its text states it as the design, and the Feature Catalog records the release that shipped it.
 
 ## 5. Terminology and naming
 

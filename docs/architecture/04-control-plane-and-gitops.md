@@ -134,7 +134,7 @@ The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-1
 |---|---|---|
 | `RURALZ_CONFIG=ruralz-control://HOST:8091` | Control mode and the address Nodes dial, a replica or relay | Control |
 | `RURALZ_CONFIG=oci://REPOSITORY:TAG` or `oci://REPOSITORY@sha256:<64 hex>` | A signed OCI Revision: a tag is polled with jitter and pulled by digest, a digest is pinned | File |
-| `RURALZ_CONFIG` as a path | A rendered Bundle directory | File |
+| `RURALZ_CONFIG` as a path | A source Bundle directory, rendered with the process environment and no overlay, or a rendered one-file Bundle ([Rendered Bundle](02-configuration-model.md#rendered-bundle)) | File |
 | `RURALZ_ENROLLMENT_TOKEN_FILE` | The `ruralz node token` output; ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity | Control |
 | `RURALZ_TRUST_POLICY_FILE` | The OCI Revision and Plugin trust policies; unset means an empty policy, so `enforce` rejects every signed pull | File |
 | `RURALZ_REGISTRY_AUTH_FILE` | Registry credentials in the container credential file format, each sent only to its host (OQ-wasm-plugin-system-6, option (a)); mirrors absorb fan-out | Both |

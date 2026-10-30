@@ -109,7 +109,7 @@ flowchart TB
     ss["State Store: memory or redis"]
     git["Git repository"]
     oci["OCI registry"]
-    dir["Rendered Bundle directory"]
+    dir["Bundle directory, source or rendered"]
     lis --> rt --> fc --> upl
     fc <--> wasm
     fc -->|"stateful Policies"| ss

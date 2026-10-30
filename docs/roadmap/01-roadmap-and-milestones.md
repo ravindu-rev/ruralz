@@ -34,7 +34,7 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 |---|---|
 | Ruralz Gateway | `ruralzd` Nodes; client listeners: HTTP/1.1 and h2c on 8080 TCP, HTTP/2 over TLS on 8443 TCP, HTTP/2 settings, deadlines, other servers (admin); REST, and plain HTTP for any other content (Multi-protocol "Anything else"); Router match and header handling; Filter Chain executor; Upstream layer; error format; load shedding; admin 9901 (TB-9): `/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`, `/debug/snapshots`, `/debug/upstreams`, `/config/dump`, `/tap` |
 | Configuration | `Gateway`, `Route`, `Upstream`, `Policy`, `Consumer`, and `Environment` for CLI renders; YAML 1.2 parser, JSON Schema validator; Bundle merge; restricted profile; env substitution, overlay merge; CLI verbs without `--env` when no Environment exists; `secretRef` `env` and `file`; canonicalization, Revision digest; golden corpus; Go test that meta-validates both schema files and `examples/`; JSON subset fixtures; loader conformance suite; hostile-input and upstream test suites; body buffering |
-| CEL | Expressions: CEL module, compile and cost estimator in all CEL places: `Route.spec.match.when`, `Policy.spec.when`, `Route.spec.composition.steps[].pathExpression`, `Route.spec.composition.steps[].when`, `Upstream.spec.retries.retryOn`, `Upstream.spec.circuitBreaker.failureWhen`, `Upstream.spec.loadBalancing.hashKey`, `Gateway.spec.telemetry.accessLog.when`, `authz.cel` `config.rule`, `ratelimit`, `quota` and `cache` `config.key`, `headers` `valueExpression` |
+| CEL | Expressions: CEL module, compile and cost estimator in all CEL places: `Route.spec.match.when`, `Policy.spec.when`, `Route.spec.composition.steps[].pathExpression`, `Route.spec.composition.steps[].when`, `Upstream.spec.retries.retryOn`, `Upstream.spec.circuitBreaker.failureWhen`, `Upstream.spec.loadBalancing.hashKey`, `Gateway.spec.telemetry.accessLog.when`, `authz.cel` `config.rule`, `ratelimit`, `quota` and `cache` `config.key`, `ratelimit` and `quota` `config.cost`, `ratelimit` `config.limits[].when`, `headers` `valueExpression`, `transform.request` and `transform.response` `config.body` and `config.set[].valueExpression` |
 | CLI | `ruralz bundle` verbs `validate`, `render` (`--api-version` conversion MUST yield the same Revision), `diff` from directory, file or admin URL, `build`; `ruralz dev` verbs `run`, `tap`; `ruralz node` verbs `drain`, `dump`; `ruralz version`, `ruralz completion`; `--env` and `--environments FILE` (local `Environment` files); CLI framework; declarative config and GitOps CLI |
 | Lifecycle | File mode: topology T2 watching a rendered directory; Hot Reload, Last-Known-Good, Zero-Downtime Upgrade and Drain; topologies T1 development single binary, T5 VM with systemd in file mode |
 | Security | `auth.jwt` (JWT, OpenID Connect, OAuth2; JOSE library), `auth.api-key` (removal in file mode), `auth.basic`, `auth.mtls`, `authz.cel` (Security Policies Engine, first part), `authz.ip`, `auth.upstream-oauth2` (client credentials), `cors`; TLS to IdP JWKS endpoint (TB-10), Upstreams, State Store, OTLP (TB-3, TB-4, TB-12; `AIProvider` from M3); digest checks on every Revision and Plugin artifact; redaction unit tests; secret leak tests |
@@ -46,13 +46,15 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 
 ### M1 exit criteria
 
-1. Release `0.1.0` ships `ruralzd` and `ruralz` for every production platform, with 100% of artifacts signed (target), per SM-12.
-2. On RH-1 in S2 at half saturation, gateway-added latency is 1 ms or less at p99 and 150 µs or less at p50 (target), per SM-4 and SM-5.
-3. S1 reaches 50,000 rps or more on 4 vCPU (target), per PB-4; a Hot Reload of 5,000 Routes takes 500 ms or less (target), per PB-7.
+1. Release `0.1.0` ships `ruralzd` and `ruralz` for every production platform, with 100% of artifacts signed (target), per SM-12. It waits for criteria 2 and 3: no maintainer skips its Benchmarks release gate.
+2. On RH-1 in S2 at half saturation, gateway-added latency is 1 ms or less at p99 and 150 µs or less at p50 (target), per SM-4 and SM-5, in the release-run records of the `0.1.0` commit.
+3. S1 reaches 50,000 rps or more on 4 vCPU (target), per PB-4; a Hot Reload of 5,000 Routes takes 500 ms or less (target), per PB-7; both in the release-run records of the `0.1.0` commit.
 4. The scripted quickstart reaches a first proxied request in 10 minutes or less (target), per SM-7.
 5. The golden corpus is byte-exact; conformance passes 100% of cases for shipped features (target); no fuzz crasher is open; every M1 command in pack section 9 has an end-to-end test; CE-1 to CE-6, CE-12, CE-15, CE-16 and GD-1 to GD-5 pass.
 6. The Feature Catalog gives 100% of rows a milestone or a reasoned `Not planned` (target), per SM-2, and 100% of rows tagged Planned (M1) are implemented (target), per SM-3.
-7. Every Open question blocking an M1 feature is closed: every row whose Blocking column names M1; OQ-traffic-management-and-resilience-5 and OQ-scalability-and-distributed-state-3 close only their M1 parts (breaker `minimumLegs`; Response Cache).
+7. Every Open question blocking an M1 feature is closed: every row whose Blocking column names M1; OQ-traffic-management-and-resilience-5 closes only its M1 part (breaker `minimumLegs`).
+
+Release `0.1.0` completes the exit: its first candidate, `v0.1.0-rc.1`, is tagged only once criteria 2 to 7 hold and `t5-systemd.yml` has passed ([Release runbook](../engineering/04-release-versioning-and-compatibility.md#release-runbook)).
 
 ## M2 WASM and Control with GitOps
 
@@ -108,7 +110,7 @@ Currency budgets are unscheduled until OQ-ai-llm-gateway-7 is decided; M3 offers
 3. Gateway-added time to first token is 1 ms or less at p99 (target), per PB-12; S6 carries 1,000 streams at 100 chunks per second on 1.2 vCPU or less (target).
 4. S7 reaches 30,000 rps or more (target); protocol conformance passes 100% of cases (target) for gRPC, GraphQL, WebSocket, SSE and HTTP/3.
 5. Chaos tests pass the LLM provider throttling failure row, with CE-13, CE-14, GD-12 and AI provider mock 429 case.
-6. The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, OQ-system-overview-5 with OQ-multi-protocol-3, OQ-scalability-and-distributed-state-3 (Semantic Cache part), OQ-testing-and-quality-strategy-6 and -7, OQ-capacity-planning-1, and OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment).
+6. The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, OQ-system-overview-5 with OQ-multi-protocol-3, OQ-testing-and-quality-strategy-6 and -7, OQ-capacity-planning-1, and OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment).
 7. 100% of Feature Catalog rows tagged Planned (M3) are implemented (target), per SM-3.
 
 Measured and published at exit, not gating: SM-14 (hypothesis).
@@ -217,4 +219,3 @@ Contributors sign off under the DCO.
 |---|---|---|---|---|
 | OQ-roadmap-and-milestones-2 | Should milestones carry dates, which the vision Summary places here? | (a) Relative order only (current), amending the vision; (b) target quarters; (c) dates per release only | ruralz-core | No |
 | OQ-roadmap-and-milestones-3 | Should M3 exit per track (AI, gRPC and GraphQL, WebSocket and SSE, HTTP/3)? | (a) One exit (current); (b) per-track exits, amending pack section 2; (c) HTTP/3 to M4 | ruralz-core | No |
-| OQ-roadmap-and-milestones-4 | How do documents show capabilities whose code has landed, while every `Planned (Mx)` tag names a milestone? | (a) Keep every tag until its milestone exits and its release ships, then change them in one pass (proposed); (b) An `Implemented (Mx)` tag in the style guide and pack section 2; (c) Track status only in the Feature Catalog | ruralz-core | No |
