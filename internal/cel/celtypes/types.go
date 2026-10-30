@@ -246,10 +246,10 @@ func objectFields(k objKind) []fieldSpec {
 	switch k {
 	case kindRequest:
 		return []fieldSpec{
-			reqMethod:     {"method", ftString},
-			reqScheme:     {"scheme", ftString},
-			reqHost:       {"host", ftString},
-			reqPath:       {"path", ftString},
+			reqMethod:        {"method", ftString},
+			reqScheme:        {"scheme", ftString},
+			reqHost:          {"host", ftString},
+			reqPath:          {"path", ftString},
 			reqPathParams:    {"pathParams", ftStringMap},
 			reqRawPathParams: {"rawPathParams", ftStringMap},
 			reqQuery:         {"query", ftStringMap},

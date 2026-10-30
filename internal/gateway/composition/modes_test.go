@@ -303,7 +303,9 @@ func TestGatedFinalPassthrough(t *testing.T) {
 // a step that is not JSON as null.
 func TestStepBodyNotJSONReadsNull(t *testing.T) {
 	f := newFixture(t, "a", "b")
-	f.leg("a").fn = answer(func() *snapshot.UpstreamResponse { return respWith(200, http.Header{"Content-Type": {"text/plain"}}, "plain") })
+	f.leg("a").fn = answer(func() *snapshot.UpstreamResponse {
+		return respWith(200, http.Header{"Content-Type": {"text/plain"}}, "plain")
+	})
 	b := v1alpha1.CompositionStep{Name: "b", Upstream: "b", Path: "/b", When: `steps.a.body == null`}
 	comp := f.compile(composition(v1alpha1.CompositionModeSequential, stepTo("a", "a", "/a"), b))
 	resp, err := f.forward(comp)
