@@ -120,6 +120,10 @@ func TestLoopbackRun(t *testing.T) {
 	}
 	head := Build{Ruralzd: set.Ruralzd, Ruralz: set.Ruralz, Commit: commit, Version: binaries.DefaultVersion, Toolchain: tc}
 	p := Loopback(work)
+	// Its own Bundle names no file secret and every port is free: private
+	// paths keep it apart from a concurrent run of the scenario Bundles on
+	// the profile's fixed secret root.
+	p.SecretRoot, p.TLSDir = filepath.Join(work, "secrets"), filepath.Join(work, "tls")
 	port := func() string { return "127.0.0.1:" + strconv.Itoa(freePort(t)) }
 	p.Services = Services{Mock: port(), IdP: port(), Sink: port(), StateStore: port(), FaultProxy: port(), EchoPort: freePort(t)}
 	p.AdminPort = freePort(t)

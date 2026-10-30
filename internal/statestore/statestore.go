@@ -828,20 +828,32 @@ type Deps struct {
 
 // InFlight is the Node-wide ceiling on State Store calls in flight
 // (Limits.InFlight, 8,192): a call holds one slot from its send until its
-// reply or a connection reset, not until its caller's timeout. It is safe
-// for concurrent use.
+// reply or a connection reset, not until its caller's timeout. The slots
+// in use are the ruralz_state_inflight_calls gauge
+// (docs/architecture/10-observability.md "Ruralz Gateway metrics"), which
+// O2 reads for its plateau at the ceiling
+// (docs/architecture/12-performance-budgets-and-benchmarking.md
+// "Scenarios"): a taken slot adds one to it and a released slot takes one
+// away, so it never drifts from Len. It is safe for concurrent use.
 type InFlight struct {
 	n     atomic.Int64
 	limit int64
+	// gauge is ruralz_state_inflight_calls; nil without metrics.
+	gauge emit.Gauge
 }
 
-// NewInFlight returns a ceiling of limit slots; limit 0 or below takes
-// DefaultLimits().InFlight.
-func NewInFlight(limit int) *InFlight {
+// NewInFlight returns a ceiling of limit slots whose use the InFlight
+// gauge of m reports; limit 0 or below takes DefaultLimits().InFlight, and
+// a nil m, or one without that gauge, reports nothing.
+func NewInFlight(limit int, m *emit.StateMetrics) *InFlight {
 	if limit <= 0 {
 		limit = DefaultLimits().InFlight
 	}
-	return &InFlight{limit: int64(limit)}
+	g := &InFlight{limit: int64(limit)}
+	if m != nil {
+		g.gauge = m.InFlight
+	}
+	return g
 }
 
 // TryAcquire takes a slot; false means the ceiling is full and the call is
@@ -853,13 +865,25 @@ func (g *InFlight) TryAcquire() bool {
 			return false
 		}
 		if g.n.CompareAndSwap(n, n+1) {
+			if g.gauge != nil {
+				g.gauge.Add(0, 1)
+			}
 			return true
 		}
 	}
 }
 
-// Release returns a slot TryAcquire took.
-func (g *InFlight) Release() { g.n.Add(-1) }
+// Release returns a slot TryAcquire took. The gauge drops before the slot
+// is free, as TryAcquire raises it only after taking one, so the gauge
+// counts each slot within the time the slot is held and never reads above
+// the ceiling: a release that freed the slot first let another call take
+// it while the gauge still counted the old one, reading one above.
+func (g *InFlight) Release() {
+	if g.gauge != nil {
+		g.gauge.Add(0, -1)
+	}
+	g.n.Add(-1)
+}
 
 // Len returns the slots in use.
 func (g *InFlight) Len() int { return int(g.n.Load()) }

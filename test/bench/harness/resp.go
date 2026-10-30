@@ -19,12 +19,38 @@ import (
 
 // ValkeyInfo is what the State Store breakdown reads of INFO (PBB "Result
 // record", G1): the main thread's CPU seconds and EVALSHA's total
-// microseconds.
+// microseconds, and the connected clients the connection counts of G1 and
+// O2 read.
 type ValkeyInfo struct {
-	MainThreadCPU float64
-	EvalshaMicros float64
-	At            time.Time
+	MainThreadCPU    float64
+	EvalshaMicros    float64
+	ConnectedClients int64
+	At               time.Time
 }
+
+// InfoClient reads a State Store's INFO counters over one TLS connection
+// as the run's ACL user, for a driver that samples them itself (G1).
+type InfoClient struct{ c *infoClient }
+
+// DialInfo connects to addr over TLS verified by caPEM and authenticates
+// as user.
+func DialInfo(ctx context.Context, addr string, caPEM []byte, user, password string) (*InfoClient, error) {
+	c, err := dialInfo(ctx, addr, caPEM, user, password)
+	if err != nil {
+		return nil, err
+	}
+	return &InfoClient{c: c}, nil
+}
+
+// Info reads INFO clients, cpu and commandstats, stamped with the time.
+func (c *InfoClient) Info() (ValkeyInfo, error) {
+	v, err := c.c.info()
+	v.At = time.Now()
+	return v, err
+}
+
+// Close closes the connection.
+func (c *InfoClient) Close() error { return c.c.Close() }
 
 // infoClient queries INFO over one TLS connection as the run's ACL user.
 type infoClient struct {
@@ -102,8 +128,12 @@ func readReply(r *bufio.Reader) (string, error) {
 	}
 }
 
-// info reads INFO cpu and commandstats.
+// info reads INFO clients, cpu and commandstats.
 func (c *infoClient) info() (ValkeyInfo, error) {
+	clients, err := c.do("INFO", "clients")
+	if err != nil {
+		return ValkeyInfo{}, err
+	}
 	cpu, err := c.do("INFO", "cpu")
 	if err != nil {
 		return ValkeyInfo{}, err
@@ -112,13 +142,13 @@ func (c *infoClient) info() (ValkeyInfo, error) {
 	if err != nil {
 		return ValkeyInfo{}, err
 	}
-	return ParseValkeyInfo(cpu + "\n" + stats), nil
+	return ParseValkeyInfo(clients + "\n" + cpu + "\n" + stats), nil
 }
 
 func (c *infoClient) Close() error { return c.conn.Close() }
 
-// ParseValkeyInfo reads used_cpu_sys_main_thread, used_cpu_user_main_thread
-// and cmdstat_evalsha's usec from INFO text.
+// ParseValkeyInfo reads used_cpu_sys_main_thread, used_cpu_user_main_thread,
+// cmdstat_evalsha's usec and connected_clients from INFO text.
 func ParseValkeyInfo(text string) ValkeyInfo {
 	var v ValkeyInfo
 	for line := range strings.SplitSeq(text, "\n") {
@@ -127,6 +157,10 @@ func ParseValkeyInfo(text string) ValkeyInfo {
 			continue
 		}
 		switch k {
+		case "connected_clients":
+			if n, err := strconv.ParseInt(val, 10, 64); err == nil {
+				v.ConnectedClients = n
+			}
 		case "used_cpu_sys_main_thread", "used_cpu_user_main_thread":
 			if f, err := strconv.ParseFloat(val, 64); err == nil {
 				v.MainThreadCPU += f

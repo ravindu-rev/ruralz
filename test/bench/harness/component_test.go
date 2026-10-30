@@ -6,9 +6,12 @@ package harness
 import (
 	"encoding/json"
 	"os"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/test/bench/gen"
 	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
@@ -34,11 +37,16 @@ func TestComponentWorker(t *testing.T) {
 }
 
 // TestComponents runs every component benchmark briefly: each sets up,
-// times every call into its histogram and measures its CPU.
+// times every call into its histogram, across its goroutines when it has
+// several, and measures its CPU.
 func TestComponents(t *testing.T) {
 	for _, c := range Components() {
 		t.Run(c.Name, func(t *testing.T) {
-			res, err := RunComponent(t.Context(), c.Name, 1000)
+			calls := c.TestCalls
+			if calls == 0 {
+				calls = 1000
+			}
+			res, err := RunComponent(t.Context(), c.Name, calls)
 			if err != nil {
 				t.Fatalf("RunComponent(%q) = %v", c.Name, err)
 			}
@@ -46,14 +54,11 @@ func TestComponents(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if res.Calls != 1000 || h.Count() != 1000 {
-				t.Errorf("RunComponent(%q) timed %d calls into %d samples, want 1000", c.Name, res.Calls, h.Count())
+			if res.Calls != calls || h.Count() != uint64(calls) {
+				t.Errorf("RunComponent(%q) timed %d calls into %d samples, want %d", c.Name, res.Calls, h.Count(), calls)
 			}
 			if res.CPUSeconds < 0 || res.WallSeconds <= 0 {
 				t.Errorf("RunComponent(%q) CPU %v s over %v s", c.Name, res.CPUSeconds, res.WallSeconds)
-			}
-			if len(c.Budgets) == 0 {
-				t.Errorf("component %q ties no target", c.Name)
 			}
 		})
 	}
@@ -63,8 +68,10 @@ func TestComponents(t *testing.T) {
 }
 
 // TestComponentTargets checks the targets the documents tie to the
-// component benchmarks: CEL under 2 µs at p99, the RZ-RT-005 rejection's
-// 16 µs mean CPU.
+// component benchmarks, CEL under 2 µs at p99 and the RZ-RT-005
+// rejection's 16 µs mean CPU, and that the others carry none: their
+// values are reported and gated by the 5% rule only (PBB "Regression
+// policy and gates").
 func TestComponentTargets(t *testing.T) {
 	for _, c := range Components() {
 		for _, b := range c.Budgets {
@@ -86,5 +93,38 @@ func TestComponentTargets(t *testing.T) {
 	r := Budget{ID: "x", Value: "v", Kind: MaxMeanCPU, Limit: float64(16 * time.Microsecond)}.Evaluate(m)
 	if r.Verdict != "fail" || r.Result != "17.0µs" {
 		t.Errorf("mean CPU 17µs against 16µs = %+v, want a failure", r)
+	}
+}
+
+// TestM1Components checks the component benchmarks the M1 benchmark
+// scenarios add (PBB "Suite layers"): a loader compile rung per ladder
+// size, auth.jwt per algorithm, token bucket shards, metric aggregates at
+// 4 P and 32 P and metric recording per request, none with a target.
+func TestM1Components(t *testing.T) {
+	want := []string{"token-bucket-shards", "metric-aggregates-4p", "metric-aggregates-32p", "metric-recording"}
+	for _, r := range gen.Sizes() {
+		want = append(want, "loader-"+strconv.Itoa(r))
+	}
+	for _, a := range jwtAlgs() {
+		want = append(want, "jwt-"+strings.ToLower(string(a)))
+	}
+	for _, name := range want {
+		c, ok := FindComponent(name)
+		if !ok {
+			t.Errorf("no component %s", name)
+			continue
+		}
+		if len(c.Budgets) != 0 {
+			t.Errorf("%s carries targets %v the documents do not tie to it", name, c.Budgets)
+		}
+	}
+	for _, c := range []struct {
+		name          string
+		parallel, cpu int
+	}{{"metric-aggregates-4p", 4, 4}, {"metric-aggregates-32p", 32, 32}} {
+		got, _ := FindComponent(c.name)
+		if got.Parallel != c.parallel || got.Procs != c.cpu {
+			t.Errorf("%s runs %d goroutines at GOMAXPROCS %d, want %d at %d", c.name, got.Parallel, got.Procs, c.parallel, c.cpu)
+		}
 	}
 }

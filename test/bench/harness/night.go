@@ -88,6 +88,15 @@ func (n *Night) Run(ctx context.Context) (*NightResult, error) {
 	return &NightResult{Outcomes: n.outcomes, Failures: append(n.failures, more...), Next: next}, nil
 }
 
+// Check runs the pre-run host checks before a driver's scenario, with the
+// night's checker, which keeps each host's previous facts; a failure wraps
+// ErrHostCheck, which stops the job.
+func (n *Night) Check(ctx context.Context, sc Scenario) error { return n.checker.Check(ctx, sc) }
+
+// Rerun spends the night's reserve on one re-run of a driver's invalid
+// single run, as for a scenario's; false when the reserve is spent.
+func (n *Night) Rerun() bool { return n.rerun() }
+
 // rerun spends the reserve on one re-run of an invalid single run.
 func (n *Night) rerun() bool {
 	cost := n.Warmup + n.Duration

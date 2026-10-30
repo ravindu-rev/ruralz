@@ -23,7 +23,7 @@ Authority: `docs/engineering/02-repository-layout-and-conventions.md` sections "
 ## Makefile and scripts
 
 - Every Makefile, script and workflow starts with `# Copyright <creation year> Revington` and `# SPDX-License-Identifier: Apache-2.0` (after the `#!/usr/bin/env bash` line in scripts). Scripts use `set -euo pipefail`; the Makefile uses `SHELL := bash` with `-eu -o pipefail`.
-- One CI stage calls one make target: `hygiene` (1), `lint` (2), `generate` (3), `build` and `floor` (4), `test` (5), `supply-chain` (6), `integration` (8), `gates` (9), `e2e` and `quickstart` (10), `nightly` with `NIGHTLY_JOB=fuzz|chaos|latency` (11), `release-dry-run`, `release` and `release-gates` (12). Keep new work inside those targets.
+- One CI stage calls one make target: `hygiene` (1), `lint` (2), `generate` (3), `build` and `floor` (4), `test` (5), `supply-chain` (6), `integration` (8), `gates` (9), `e2e` and `quickstart` (10), `nightly` with `NIGHTLY_JOB=fuzz|chaos|functional|latency` (11), `release-dry-run`, `release` and `release-gates` (12). Keep new work inside those targets.
 - Build tools never enter `go.mod`. They are pinned, checksum-verified binaries installed into `bin/` by `scripts/install-tools.sh`, which pins only linux and darwin, so `make tools` fails on Windows: say so instead of working around it.
 - `scripts/ci-changes.sh` sets the path filters; a docs-only change runs only hygiene and supply-chain, so no Go test runs on it in CI.
 - `scripts/ci-approvals.sh perf-override` accepts the stage 9 gate failures when a maintainer applies the `perf-override` label.

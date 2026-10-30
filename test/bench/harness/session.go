@@ -279,16 +279,36 @@ type Session struct {
 	// Facts are the gateway host's facts for the records.
 	Facts lab.HostFacts
 	Rec   *Recorder
+	// OpenFiles is the open-file limit of the processes the session starts
+	// on its own host, the Node's among them; 0 where it is unknown.
+	OpenFiles uint64
 }
 
-// NewSession builds labhost, copies the load tools to the load host and
-// reads the gateway host's facts.
+// CheckOpenFiles returns an error when a run whose processes on the
+// harness's host each need need open files exceeds OpenFiles, so a host
+// whose limit is too low fails with its cause instead of with the dial
+// errors and open breakers of a starved Node.
+func (s *Session) CheckOpenFiles(run string, need int) error {
+	if s.OpenFiles == 0 || need <= 0 || s.OpenFiles >= uint64(need) {
+		return nil
+	}
+	return fmt.Errorf("harness: %s needs %d open files per process and this host allows %d: raise the hard limit (LimitNOFILE, ulimit -Hn)", run, need, s.OpenFiles)
+}
+
+// NewSession builds labhost, copies the load tools to the load host,
+// reads the gateway host's facts and gives the processes it starts on its
+// own host its open-file limit (InheritOpenFiles).
 func NewSession(ctx context.Context, p *Profile, st Settings, repoRoot, work string) (*Session, error) {
 	s := &Session{
 		Profile: p, Settings: st, RepoRoot: repoRoot, Work: work,
 		Labhost: filepath.Join(work, "labhost"), Tools: map[Tool]string{}, ToolVersions: map[Tool]string{},
 		Rec: &Recorder{Dir: st.Records},
 	}
+	files, err := InheritOpenFiles()
+	if err != nil {
+		return nil, err
+	}
+	s.OpenFiles = files
 	if err := BuildLabhost(ctx, repoRoot, s.Labhost); err != nil {
 		return nil, err
 	}

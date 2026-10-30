@@ -75,6 +75,13 @@ type RunSpec struct {
 	// Sample is the Node sampling interval; default one tenth of the
 	// measured length, at least 1 s and at most 10 s.
 	Sample time.Duration
+	// Node adds to the Node's settings beyond NodeEnv: Last-Known-Good
+	// starts and scope properties.
+	Node NodeSpec
+	// Criteria are a driver's pass criteria, judged on the outcome before
+	// its record is written (every field but Path set) and added to the
+	// record's budget results.
+	Criteria func(*RunOutcome) []benchrecord.BudgetResult
 }
 
 // RunOutcome is what one run measured.
@@ -89,13 +96,16 @@ type RunOutcome struct {
 	MeasureStart, MeasureEnd time.Time
 	// ErrorRate is the share of offered requests that failed.
 	ErrorRate float64
-	// samples are the Node samples of the run.
-	samples []nodeSample
+	// Load is the load tool's result: offered and achieved counts, the
+	// statuses, the RZ codes of problem documents and the outcomes.
+	Load *lab.LoadResult
+	// Samples are the Node samples of the run, warm-up included.
+	Samples []NodeSample
 }
 
-// stage is a prepared run: the lab services and the Node serving the
-// Revision, which a ladder or a soak keeps across its steps.
-type stage struct {
+// Stage is a prepared run: the lab services and the Node serving the
+// Revision, which a ladder, a soak or a driver keeps across its steps.
+type Stage struct {
 	lab  *Lab
 	node *Node
 	pki  *RunPKI
@@ -103,28 +113,71 @@ type stage struct {
 	done []func()
 	// started is when the Node started.
 	started time.Time
+	// ns is the Node's settings: StartNode keeps its binary, State Store
+	// URL and environment.
+	ns NodeSpec
 }
 
-func (st *stage) close() {
+func (st *Stage) close() {
 	for i := len(st.done) - 1; i >= 0; i-- {
 		st.done[i]()
 	}
+	st.done = nil
 }
 
-// nodeSample is one sample of the Node during a run.
-type nodeSample struct {
-	at      time.Time
-	usage   proc.Usage
-	rss     int64
-	metrics promtext.Set
-	valkey  *ValkeyInfo
-	err     error
+// Close stops the stage's Node and lab services, the State Store last.
+func (st *Stage) Close() { st.close() }
+
+// StartNode stops the stage's Node and starts another on the same lab
+// services, with the first Node's binary, State Store URL and environment
+// and ns's source, data directory and readiness settings: R1's cold starts
+// from rendered YAML, from no Revision and from Last-Known-Good.
+func (st *Stage) StartNode(ctx context.Context, ns NodeSpec) (*Node, error) {
+	if err := st.node.Stop(context.WithoutCancel(ctx)); err != nil {
+		return nil, err
+	}
+	next := st.ns
+	next.Rendered, next.KeepData, next.NoRevision = ns.Rendered, ns.KeepData, ns.NoRevision
+	if len(ns.Env) > 0 {
+		next.Env = append(append([]string{}, st.ns.Env...), ns.Env...)
+	}
+	n, err := StartNode(ctx, st.lab.p, next)
+	if err != nil {
+		return nil, err
+	}
+	st.node = n
+	return n, nil
+}
+
+// Lab returns the stage's lab services.
+func (st *Stage) Lab() *Lab { return st.lab }
+
+// Node returns the Node serving the stage's Revision.
+func (st *Stage) Node() *Node { return st.node }
+
+// PKI returns the stage's run PKI.
+func (st *Stage) PKI() *RunPKI { return st.pki }
+
+// Defer adds f to what Close runs, before what the stage added earlier.
+func (st *Stage) Defer(f func()) { st.done = append(st.done, f) }
+
+// NodeSample is one sample of the Node during a run: its CPU, its RSS, a
+// scrape of its metrics and, with a State Store, Valkey's INFO counters.
+type NodeSample struct {
+	At      time.Time
+	Usage   proc.Usage
+	RSS     int64
+	Metrics promtext.Set
+	Valkey  *ValkeyInfo
+	// Err is why the sample is incomplete; its other fields are then not
+	// to be read.
+	Err error
 }
 
 // sampler samples the Node every interval until stopped.
 type sampler struct {
 	mu      sync.Mutex
-	samples []nodeSample
+	samples []NodeSample
 	stop    chan struct{}
 	done    sync.WaitGroup
 }
@@ -132,16 +185,16 @@ type sampler struct {
 func startSampler(ctx context.Context, n *Node, every time.Duration, info func() (*ValkeyInfo, error)) *sampler {
 	s := &sampler{stop: make(chan struct{})}
 	take := func() {
-		smp := nodeSample{at: time.Now()}
-		smp.usage, smp.err = n.Usage()
-		if smp.err == nil {
-			smp.rss, smp.err = n.RSS()
+		smp := NodeSample{At: time.Now()}
+		smp.Usage, smp.Err = n.Usage()
+		if smp.Err == nil {
+			smp.RSS, smp.Err = n.RSS()
 		}
-		if smp.err == nil {
-			smp.metrics, smp.err = n.Scrape(ctx)
+		if smp.Err == nil {
+			smp.Metrics, smp.Err = n.Scrape(ctx)
 		}
-		if smp.err == nil && info != nil {
-			smp.valkey, smp.err = info()
+		if smp.Err == nil && info != nil {
+			smp.Valkey, smp.Err = info()
 		}
 		s.mu.Lock()
 		s.samples = append(s.samples, smp)
@@ -166,7 +219,7 @@ func startSampler(ctx context.Context, n *Node, every time.Duration, info func()
 	return s
 }
 
-func (s *sampler) finish() []nodeSample {
+func (s *sampler) finish() []NodeSample {
 	close(s.stop)
 	s.done.Wait()
 	s.mu.Lock()
@@ -177,10 +230,10 @@ func (s *sampler) finish() []nodeSample {
 // window picks the samples bracketing [start, end): the first at or after
 // start and the last at or before end, or the nearest outside when fewer
 // than two fall inside.
-func window(samples []nodeSample, start, end time.Time) (a, b *nodeSample, err error) {
-	var ok []nodeSample
+func window(samples []NodeSample, start, end time.Time) (a, b *NodeSample, err error) {
+	var ok []NodeSample
 	for _, s := range samples {
-		if s.err == nil {
+		if s.Err == nil {
 			ok = append(ok, s)
 		}
 	}
@@ -189,10 +242,10 @@ func window(samples []nodeSample, start, end time.Time) (a, b *nodeSample, err e
 	}
 	ai, bi := -1, -1
 	for i, s := range ok {
-		if ai < 0 && !s.at.Before(start) {
+		if ai < 0 && !s.At.Before(start) {
 			ai = i
 		}
-		if !s.at.After(end) {
+		if !s.At.After(end) {
 			bi = i
 		}
 	}
@@ -200,12 +253,12 @@ func window(samples []nodeSample, start, end time.Time) (a, b *nodeSample, err e
 		// Too short for two samples inside: bracket it from outside.
 		ai, bi = 0, len(ok)-1
 		for i, s := range ok {
-			if !s.at.After(start) {
+			if !s.At.After(start) {
 				ai = i
 			}
 		}
 		for i := len(ok) - 1; i >= 0; i-- {
-			if !ok[i].at.Before(end) {
+			if !ok[i].At.Before(end) {
 				bi = i
 			}
 		}
@@ -217,28 +270,28 @@ func window(samples []nodeSample, start, end time.Time) (a, b *nodeSample, err e
 }
 
 // windowMeasures computes the resource measures between two samples.
-func windowMeasures(a, b *nodeSample, metricBudgets []Budget) (Measures, int64, map[string]promtext.Histogram) {
+func windowMeasures(a, b *NodeSample, metricBudgets []Budget) (Measures, int64, map[string]promtext.Histogram) {
 	var m Measures
-	requests := promtext.Delta(a.metrics, b.metrics, "ruralz_http_requests_total", nil)
-	cpu := (b.usage.UserCPU + b.usage.SysCPU) - (a.usage.UserCPU + a.usage.SysCPU)
+	requests := promtext.Delta(a.Metrics, b.Metrics, "ruralz_http_requests_total", nil)
+	cpu := (b.Usage.UserCPU + b.Usage.SysCPU) - (a.Usage.UserCPU + a.Usage.SysCPU)
 	if requests > 0 {
 		m.CPUPerRequest = time.Duration(float64(cpu) / requests)
 	}
-	gc := promtext.Delta(a.metrics, b.metrics, "ruralz_runtime_gc_cpu_seconds_total", nil)
+	gc := promtext.Delta(a.Metrics, b.Metrics, "ruralz_runtime_gc_cpu_seconds_total", nil)
 	if cpu > 0 {
 		m.GCShare = math.Min(math.Max(gc/cpu.Seconds(), 0), 1)
 	}
-	m.RSSLoad = b.rss
+	m.RSSLoad = b.RSS
 	hists := map[string]promtext.Histogram{}
 	for _, bg := range metricBudgets {
 		if bg.Kind != MetricP99 {
 			continue
 		}
-		after, err1 := b.metrics.Histogram(bg.Metric, promtext.Labels(bg.Labels))
+		after, err1 := b.Metrics.Histogram(bg.Metric, promtext.Labels(bg.Labels))
 		if err1 != nil {
 			continue
 		}
-		before, err2 := a.metrics.Histogram(bg.Metric, promtext.Labels(bg.Labels))
+		before, err2 := a.Metrics.Histogram(bg.Metric, promtext.Labels(bg.Labels))
 		if err2 != nil {
 			before = promtext.Histogram{}
 		}
@@ -277,16 +330,33 @@ func (s *Session) Run(ctx context.Context, spec RunSpec) (*RunOutcome, error) {
 	return s.measure(ctx, st, spec)
 }
 
+// Prepare makes a run's PKI, starts its lab services and the Node, and
+// checks the Node serves the Revision, for a driver that acts on the stage
+// between or during measured phases (Measure); the caller closes it.
+func (s *Session) Prepare(ctx context.Context, spec RunSpec) (*Stage, error) {
+	return s.prepare(ctx, spec)
+}
+
+// Measure offers spec's workload on a prepared stage, the warm-up and the
+// measured phase, and writes the run's record; a negative spec.Warmup
+// measures at once.
+func (s *Session) Measure(ctx context.Context, st *Stage, spec RunSpec) (*RunOutcome, error) {
+	if spec.Warmup == 0 {
+		spec.Warmup = Warmup
+	}
+	return s.measure(ctx, st, spec)
+}
+
 // prepare makes the run's PKI, starts its lab services and the Node, and
 // checks the Node serves the Revision.
-func (s *Session) prepare(ctx context.Context, spec RunSpec) (st *stage, err error) {
+func (s *Session) prepare(ctx context.Context, spec RunSpec) (st *Stage, err error) {
 	p := s.Profile
 	sc := spec.Scenario
 	dir := filepath.Join(s.Work, "runs", sc.ID, spec.Name)
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return nil, err
 	}
-	st = &stage{}
+	st = &Stage{}
 	defer func() {
 		if err != nil {
 			st.close()
@@ -312,13 +382,21 @@ func (s *Session) prepare(ctx context.Context, spec RunSpec) (st *stage, err err
 		}
 	}
 	st.started = time.Now().UTC().Truncate(time.Millisecond)
-	if st.node, err = StartNode(ctx, p, NodeSpec{Binary: spec.Build.Ruralzd, Rendered: spec.Revision.Rendered, StateStoreURL: storeURL, Env: spec.NodeEnv}); err != nil {
+	ns := spec.Node
+	ns.Binary, ns.StateStoreURL = spec.Build.Ruralzd, storeURL
+	if ns.Rendered == "" {
+		ns.Rendered = spec.Revision.Rendered
+	}
+	ns.Env = append(append([]string{}, spec.NodeEnv...), spec.Node.Env...)
+	if st.node, err = StartNode(ctx, p, ns); err != nil {
 		return st, fmt.Errorf("%w: %s %s: the Node did not start on Revision %s: %w", ErrRefused, sc.ID, spec.Name, spec.Revision.Rev, err)
 	}
-	node := st.node
-	st.done = append(st.done, func() { _ = node.Stop(context.WithoutCancel(ctx)) })
-	if rev, rerr := node.Revision(ctx); rerr != nil || rev != spec.Revision.Rev {
-		return st, fmt.Errorf("%w: %s %s: the Node serves %q, want %s: %v", ErrRefused, sc.ID, spec.Name, rev, spec.Revision.Rev, rerr)
+	st.ns = ns
+	st.done = append(st.done, func() { _ = st.node.Stop(context.WithoutCancel(ctx)) })
+	if !ns.NoRevision {
+		if rev, rerr := st.node.Revision(ctx); rerr != nil || rev != spec.Revision.Rev {
+			return st, fmt.Errorf("%w: %s %s: the Node serves %q, want %s: %v", ErrRefused, sc.ID, spec.Name, rev, spec.Revision.Rev, rerr)
+		}
 	}
 	if sc.StateStore {
 		ca, rerr := os.ReadFile(st.pki.Path(FileCA)) //nolint:gosec // G304: the run's own CA file
@@ -340,7 +418,7 @@ func (s *Session) prepare(ctx context.Context, spec RunSpec) (st *stage, err err
 }
 
 // measure offers the workload on a prepared stage and writes the record.
-func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOutcome, error) {
+func (s *Session) measure(ctx context.Context, st *Stage, spec RunSpec) (*RunOutcome, error) {
 	sc := spec.Scenario
 	w := sc.Workload
 	warm, dur := max(spec.Warmup, 0), spec.Duration
@@ -380,7 +458,7 @@ func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOut
 	if loadErr != nil {
 		return nil, loadErr
 	}
-	out := &RunOutcome{samples: samples}
+	out := &RunOutcome{Samples: samples, Load: res}
 	var reasons []string
 	mockResp, err := l.Mock.Do(lab.Request{Op: lab.OpStats})
 	if err != nil {
@@ -413,8 +491,8 @@ func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOut
 	}
 	if len(samples) > 0 {
 		first, last := samples[0], samples[len(samples)-1]
-		if first.err == nil && last.err == nil {
-			drops = int64(promtext.Delta(first.metrics, last.metrics, "ruralz_telemetry_logs_dropped_total", nil))
+		if first.Err == nil && last.Err == nil {
+			drops = int64(promtext.Delta(first.Metrics, last.Metrics, "ruralz_telemetry_logs_dropped_total", nil))
 		}
 	}
 	a, b, werr := window(samples, res.MeasureStart, res.MeasureEnd)
@@ -424,7 +502,7 @@ func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOut
 		reasons = append(reasons, "resources: "+werr.Error())
 	} else {
 		m, requests, out.Metrics = windowMeasures(a, b, sc.Budgets)
-		m.RSSLoad = maxRSS(samples, res.MeasureStart, res.MeasureEnd, b.rss)
+		m.RSSLoad = maxRSS(samples, res.MeasureStart, res.MeasureEnd, b.RSS)
 	}
 	m.External, m.Internal = ext, internal
 	var profileFiles []string
@@ -505,15 +583,15 @@ func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOut
 		CPUProfileFiles: profileFiles,
 	}
 	if b != nil {
-		rec.Resources.LiveHeapBytes = int64(b.metrics.Sum("ruralz_runtime_heap_bytes", nil))
+		rec.Resources.LiveHeapBytes = int64(b.Metrics.Sum("ruralz_runtime_heap_bytes", nil))
 		if requests > 0 {
-			rec.Resources.AllocsPerOp = promtext.Delta(a.metrics, b.metrics, "ruralz_runtime_allocations_total", nil) / float64(requests)
+			rec.Resources.AllocsPerOp = promtext.Delta(a.Metrics, b.Metrics, "ruralz_runtime_allocations_total", nil) / float64(requests)
 		}
-		if a.valkey != nil && b.valkey != nil {
-			secs := b.valkey.At.Sub(a.valkey.At).Seconds()
+		if a.Valkey != nil && b.Valkey != nil {
+			secs := b.Valkey.At.Sub(a.Valkey.At).Seconds()
 			if secs > 0 {
-				rec.Resources.StateStoreCPUShare = math.Min(math.Max((b.valkey.MainThreadCPU-a.valkey.MainThreadCPU)/secs, 0), 1)
-				rec.Resources.EvalshaMicrosPerSecond = math.Max((b.valkey.EvalshaMicros-a.valkey.EvalshaMicros)/secs, 0)
+				rec.Resources.StateStoreCPUShare = math.Min(math.Max((b.Valkey.MainThreadCPU-a.Valkey.MainThreadCPU)/secs, 0), 1)
+				rec.Resources.EvalshaMicrosPerSecond = math.Max((b.Valkey.EvalshaMicros-a.Valkey.EvalshaMicros)/secs, 0)
 			}
 		}
 	}
@@ -526,12 +604,16 @@ func (s *Session) measure(ctx context.Context, st *stage, spec RunSpec) (*RunOut
 	}
 	m.Saturation = 0
 	rec.Budgets = EvaluateAll(sc.Budgets, &m)
+	out.Record, out.Measures, out.Valid, out.ErrorRate = rec, m, len(reasons) == 0, res.ErrorRate
+	out.MeasureStart, out.MeasureEnd = res.MeasureStart, res.MeasureEnd
+	if spec.Criteria != nil {
+		rec.Budgets = append(rec.Budgets, spec.Criteria(out)...)
+	}
 	path, err := s.Rec.Write(spec.Name, rec)
 	if err != nil {
 		return nil, err
 	}
-	out.Record, out.Path, out.Measures, out.Valid, out.ErrorRate = rec, path, m, len(reasons) == 0, res.ErrorRate
-	out.MeasureStart, out.MeasureEnd = res.MeasureStart, res.MeasureEnd
+	out.Path = path
 	return out, nil
 }
 
@@ -638,11 +720,11 @@ func waitExported(ctx context.Context, sink *Proc) error {
 }
 
 // maxRSS returns the highest RSS sampled in [start, end], or def.
-func maxRSS(samples []nodeSample, start, end time.Time, def int64) int64 {
+func maxRSS(samples []NodeSample, start, end time.Time, def int64) int64 {
 	v := def
 	for _, s := range samples {
-		if s.err == nil && !s.at.Before(start) && !s.at.After(end) {
-			v = max(v, s.rss)
+		if s.Err == nil && !s.At.Before(start) && !s.At.After(end) {
+			v = max(v, s.RSS)
 		}
 	}
 	return v
@@ -660,6 +742,13 @@ func (s *Session) commandLine(w Workload) string {
 		return fmt.Sprintf("labhost loadgen rate=%s connections=%d streams=%d protocol=%s tokens=%d keyHeader=%s %s %s",
 			strconv.FormatFloat(w.Rate, 'f', -1, 64), w.Connections, w.Streams, w.Protocol, w.Tokens, w.KeyHeader, w.Method, target)
 	}
+}
+
+// BaseRecord returns a record of kind for sc with the Identity and
+// Environment of spec's run started at started, for a driver that writes
+// records of its own (Recorder.Write).
+func (s *Session) BaseRecord(sc Scenario, spec RunSpec, started time.Time, kind string) *benchrecord.Record {
+	return s.baseRecord(sc, spec, started, kind)
 }
 
 // baseRecord fills Identity and Environment.

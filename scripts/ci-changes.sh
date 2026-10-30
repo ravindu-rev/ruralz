@@ -17,10 +17,11 @@
 #                 test/conformance/config/ (a golden regeneration touches only
 #                 fixtures, whose digests are checked on the floor, darwin
 #                 and windows jobs), test/bench/ (the scenario Bundles and
-#                 their pinned digests), or the documents the examples tests
-#                 read: the configuration model (example Bundles, Worked
-#                 example, diagnostics) and Deployment topologies (the
-#                 quickstart Bundle)
+#                 their pinned digests), or the documents the tests read:
+#                 the configuration model (example Bundles, Worked
+#                 example, diagnostics), Deployment topologies (the
+#                 quickstart Bundle) and Performance budgets (the S2
+#                 Bundle block, which test/bench/scenarios/s2 equals)
 #   integration=  stage 8: the pr-full filter and every merge queue run
 #   gates=        stage 9: Go changes, or the alloc/op gate list
 #                 test/bench/allocgate.json
@@ -63,7 +64,7 @@ fi
 go=false; generate=false; test=false; integration=false
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/' && go=true
 any '^(pkg|api|internal/gen|internal/tool|internal/telemetry/catalog|internal/testkit/benchrecord|sdk|deploy/crds|deploy/grafana)/|^test/bench/record\.schema\.json$|^buf(\.gen)?\.yaml$|^go\.mod$' && generate=true
-{ [[ $go == true ]] || any '^examples/|^test/conformance/config/|^test/bench/|^docs/architecture/02-configuration-model\.md$|^docs/operations/01-deployment-topologies\.md$'; } && test=true
+{ [[ $go == true ]] || any '^examples/|^test/conformance/config/|^test/bench/|^docs/architecture/02-configuration-model\.md$|^docs/architecture/12-performance-budgets-and-benchmarking\.md$|^docs/operations/01-deployment-topologies\.md$'; } && test=true
 gates=$go
 any '^test/bench/allocgate\.json$' && gates=true
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/|^(api|examples|test|deploy)/|^internal/tool/' && integration=true

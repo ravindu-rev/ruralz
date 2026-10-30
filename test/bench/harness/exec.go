@@ -55,10 +55,18 @@ func (r *Runner) sshArgs() []string {
 }
 
 // Argv returns the local command line that runs argv on the host, in a
-// scope on cpus when the profile asks for scopes and cpus is set.
-func (r *Runner) Argv(argv []string, cpus string) []string {
-	if r.p.Scope && cpus != "" {
-		argv = append([]string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", "AllowedCPUs=" + cpus, "--"}, argv...)
+// scope on cpus when the profile asks for scopes and cpus is set; props
+// are further scope properties, such as the GOMEMLIMIT run's MemoryMax.
+func (r *Runner) Argv(argv []string, cpus string, props ...string) []string {
+	if r.p.Scope && (cpus != "" || len(props) > 0) {
+		scope := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect"}
+		if cpus != "" {
+			scope = append(scope, "-p", "AllowedCPUs="+cpus)
+		}
+		for _, p := range props {
+			scope = append(scope, "-p", p)
+		}
+		argv = append(append(scope, "--"), argv...)
 	}
 	if !r.Remote() {
 		return argv
@@ -120,12 +128,13 @@ func (r *Runner) Put(ctx context.Context, src, dst string, mode os.FileMode) err
 // stdout through a lab.Client.
 type Proc struct {
 	*lab.Client
-	name  string
-	cmd   *exec.Cmd
-	stdin io.WriteCloser
-	errb  *tail
-	done  chan struct{}
-	err   error
+	name   string
+	cmd    *exec.Cmd
+	stdin  io.WriteCloser
+	stdout *os.File
+	errb   *tail
+	done   chan struct{}
+	err    error
 }
 
 // Start starts argv on the host as a lab service, in a scope on cpus, and
@@ -137,16 +146,27 @@ func (r *Runner) Start(ctx context.Context, name string, argv []string, cpus str
 	if err != nil {
 		return nil, err
 	}
-	stdout, err := cmd.StdoutPipe()
+	// The service's stdout is a pipe the harness owns, read past the
+	// process's exit: Wait closes the pipe StdoutPipe makes as soon as the
+	// process exits, which cut the final response Stop reads after closing
+	// stdin, and before the ready line was read it would cut that too.
+	stdout, w, err := os.Pipe()
 	if err != nil {
+		_ = stdin.Close()
 		return nil, err
 	}
-	p := &Proc{name: name, cmd: cmd, stdin: stdin, errb: &tail{max: 64 << 10}, done: make(chan struct{})}
+	p := &Proc{name: name, cmd: cmd, stdin: stdin, stdout: stdout, errb: &tail{max: 64 << 10}, done: make(chan struct{})}
+	cmd.Stdout = w
 	cmd.Stderr = p.errb
 	cmd.WaitDelay = stopGrace
-	if err := cmd.Start(); err != nil {
+	err = cmd.Start()
+	// The service holds its own copy of the write end.
+	_ = w.Close()
+	if err != nil {
+		_ = stdout.Close()
 		return nil, fmt.Errorf("harness: start %s on %s: %w", name, r.role, err)
 	}
+	// The reader hands the ready line's outcome to Start alone.
 	ready := make(chan error, 1)
 	go func() { // owned by the Proc: it ends with the process
 		c, err := lab.NewClient(stdin, stdout)
@@ -157,13 +177,11 @@ func (r *Runner) Start(ctx context.Context, name string, argv []string, cpus str
 		}
 	}()
 	go func() { // owned by the Proc: Stop waits for done
-		<-ready
 		p.err = cmd.Wait()
 		close(p.done)
 	}()
 	select {
 	case err := <-ready:
-		ready <- err // for the waiter
 		if err != nil {
 			_ = p.Kill()
 			return nil, fmt.Errorf("harness: %s on %s: %w: %s", name, r.role, err, p.errb.String())
@@ -182,6 +200,9 @@ func (p *Proc) Stop() (lab.Response, error) {
 	var last lab.Response
 	var lerr error
 	if p.Client != nil {
+		// A service that neither answers nor exits gives up its final
+		// response after the grace period.
+		_ = p.stdout.SetReadDeadline(time.Now().Add(stopGrace))
 		last, lerr = p.Last()
 	}
 	select {
@@ -190,6 +211,7 @@ func (p *Proc) Stop() (lab.Response, error) {
 		_ = p.cmd.Process.Kill()
 		<-p.done
 	}
+	_ = p.stdout.Close()
 	if p.err != nil && !errors.Is(p.err, exec.ErrWaitDelay) {
 		return last, fmt.Errorf("harness: %s: %w: %s", p.name, p.err, p.errb.String())
 	}
@@ -206,6 +228,8 @@ func (p *Proc) Kill() error {
 	case <-p.done:
 	case <-time.After(stopGrace):
 	}
+	// Closing the read end also ends a reader still draining it.
+	_ = p.stdout.Close()
 	return nil
 }
 

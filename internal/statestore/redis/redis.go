@@ -206,7 +206,7 @@ func New(ctx context.Context, cfg statestore.Config, deps statestore.Deps, opts 
 	}
 	gate := deps.InFlight
 	if gate == nil {
-		gate = statestore.NewInFlight(lim.InFlight)
+		gate = statestore.NewInFlight(lim.InFlight, deps.Metrics)
 	}
 	probe := cfg.DefaultTimeout
 	if probe <= 0 {

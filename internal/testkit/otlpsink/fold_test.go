@@ -120,6 +120,70 @@ func TestFoldWindows(t *testing.T) {
 	}
 }
 
+// TestFilteredFoldWindow checks that a filtered window folds only the
+// records whose attribute is present and not empty, as O2 folds the access
+// records of skipped requests, which carry failure_modes, while an
+// unfiltered window over the same span folds every record.
+func TestFilteredFoldWindow(t *testing.T) {
+	s := start(t, Config{Fold: accessFold()})
+	base := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
+	if err := s.AddFilteredWindow("skipped", base, base.Add(10*time.Second), "failure_modes"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AddWindow("all", base, base.Add(10*time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	str := func(k, v string) *commonpb.KeyValue {
+		return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v}}}
+	}
+	arr := func(k string, vs ...string) *commonpb.KeyValue {
+		a := &commonpb.ArrayValue{}
+		for _, v := range vs {
+			a.Values = append(a.Values, &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v}})
+		}
+		return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_ArrayValue{ArrayValue: a}}}
+	}
+	kvs := func(k string, n int) *commonpb.KeyValue {
+		l := &commonpb.KeyValueList{}
+		for range n {
+			l.Values = append(l.Values, str("policy", "ratelimit-bench"))
+		}
+		return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_KvlistValue{KvlistValue: l}}}
+	}
+	cc := dial(t, s, nil)
+	ctx := ctxTimeout(t, 10*time.Second)
+	at := func(i int) time.Time { return base.Add(time.Duration(i) * 100 * time.Millisecond) }
+	if _, err := collogs.NewLogsServiceClient(cc).Export(ctx, logReq("gw",
+		accessAt(at(1), dbl("gateway_duration", 0.001), arr("failure_modes", "ratelimit-bench")),  // folded
+		accessAt(at(2), dbl("gateway_duration", 0.002), str("failure_modes", "open")),             // folded
+		accessAt(at(3), dbl("gateway_duration", 0.003), kvs("failure_modes", 1)),                  // folded
+		accessAt(at(4), dbl("gateway_duration", 0.004), i64("failure_modes", 1)),                  // folded: a scalar
+		accessAt(at(5), dbl("gateway_duration", 0.005), arr("failure_modes")),                     // empty array
+		accessAt(at(6), dbl("gateway_duration", 0.006), str("failure_modes", "")),                 // empty string
+		accessAt(at(7), dbl("gateway_duration", 0.007), kvs("failure_modes", 0)),                  // empty list
+		accessAt(at(8), dbl("gateway_duration", 0.008), &commonpb.KeyValue{Key: "failure_modes"}), // no value
+		accessAt(at(9), dbl("gateway_duration", 0.009)),                                           // absent
+	)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WaitFolded(ctx, at(9)); err != nil {
+		t.Fatal(err)
+	}
+	skipped, err := s.Window("skipped")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped.Count != 4 || skipped.Histogram.Count() != 4 {
+		t.Errorf("skipped window folded %d (%d in the histogram), want 4", skipped.Count, skipped.Histogram.Count())
+	}
+	if got := skipped.Histogram.Max(); got < 4*time.Millisecond || got > 4*time.Millisecond+10*time.Microsecond {
+		t.Errorf("skipped window max = %v, want the 4 ms record", got)
+	}
+	if all, _ := s.Window("all"); all.Count != 9 {
+		t.Errorf("unfiltered window folded %d, want all 9", all.Count)
+	}
+}
+
 // TestFoldWindowRules checks AddWindow's refusals and the errors of a sink
 // without Fold.
 func TestFoldWindowRules(t *testing.T) {

@@ -10,7 +10,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -25,10 +27,11 @@ const (
 const usage = `usage: labhost <command> [flags]
 
 commands:
-  mock        the mock Upstream (-listen, -cert, -key, -body-size, -delay)
+  mock        the mock Upstream (-listen, -cert, -key, -body-size, -delay, -header)
   sink        the OTLP sink folding gateway_duration (-listen, -cert, -key)
   idp         the mock IdP (-listen, -cert, -key, -issuer, -keys)
-  faultproxy  the fault proxy (-listen, -upstream, -mean, -stddev)
+  faultproxy  the fault proxy (-listen, -upstream, -mean, -stddev, -pass-first)
+  conns       held client connections (-kind, -target, -count, -rate, -ca, -server-name, -host, -path, -header-bytes, -timeout)
   echo        the TCP echo of the round-trip check (-listen)
   run         a supervised child that stops with the session (-ready ADDR -- COMMAND ARGS...)
   loadgen     one load generator run: a LoadSpec line on stdin, a LoadResult line on stdout
@@ -56,8 +59,17 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 	case "mock":
 		body := fs.Int64("body-size", 1024, "response body size in bytes")
 		delay := fs.Duration("delay", 0, "delay before every response")
+		header := http.Header{}
+		fs.Func("header", "a response header \"Name: value\" added to every response (repeatable)", func(v string) error {
+			name, value, ok := strings.Cut(v, ":")
+			if !ok || strings.TrimSpace(name) == "" {
+				return fmt.Errorf("header %q is not \"Name: value\"", v)
+			}
+			header.Add(strings.TrimSpace(name), strings.TrimSpace(value))
+			return nil
+		})
 		svc = func() (Service, error) {
-			return StartMock(ctx, MockConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, BodySize: *body, Delay: *delay})
+			return StartMock(ctx, MockConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, BodySize: *body, Delay: *delay, Header: header})
 		}
 	case "sink":
 		svc = func() (Service, error) {
@@ -73,11 +85,25 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		upstream := fs.String("upstream", "", "upstream address")
 		mean := fs.Duration("mean", 0, "mean delay each way")
 		stddev := fs.Duration("stddev", 0, "delay standard deviation")
+		passFirst := fs.Bool("pass-first", false, "forward unchanged until a mode request switches to the delay")
 		svc = func() (Service, error) {
-			return StartProxy(ctx, ProxyConfig{Listen: *listen, Upstream: *upstream, Mean: *mean, StdDev: *stddev})
+			return StartProxy(ctx, ProxyConfig{Listen: *listen, Upstream: *upstream, Mean: *mean, StdDev: *stddev, PassFirst: *passFirst})
 		}
 	case "echo":
 		svc = func() (Service, error) { return StartEcho(ctx, *listen) }
+	case "conns":
+		var c ConnsConfig
+		fs.StringVar(&c.Kind, "kind", "", "connection kind: idle-http1, idle-h2, stall-h2c or slow-header")
+		fs.StringVar(&c.Target, "target", "", "the Node listener (host:port)")
+		fs.IntVar(&c.Count, "count", 0, "connections to open")
+		fs.Float64Var(&c.Rate, "rate", 0, "connection attempts per second (0: all at once)")
+		fs.StringVar(&c.CAFile, "ca", "", "CA file verifying the TLS listener")
+		fs.StringVar(&c.ServerName, "server-name", "", "TLS server name")
+		fs.StringVar(&c.Host, "host", "", "request host")
+		fs.StringVar(&c.Path, "path", "", "request path")
+		fs.IntVar(&c.HeaderBytes, "header-bytes", 0, "slow-header field size")
+		fs.DurationVar(&c.Timeout, "timeout", 0, "per-connection setup bound")
+		svc = func() (Service, error) { return StartConns(ctx, c) }
 	case "run":
 		readyAddr := fs.String("ready", "", "TCP address the child serves on")
 		if err := fs.Parse(rest); err != nil {

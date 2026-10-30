@@ -86,6 +86,9 @@ FUZZ_SHARDS ?= 0
 FUZZ_REPORT ?= $(DIST)/fuzz/report.json
 CHAOS_SCALE ?= reduced
 CHAOS_TIMEOUT ?= 170m
+# The Functional job: the benchmark functional variants on the loopback
+# profile, whose fixed ports allow one package at a time (-p 1).
+FUNCTIONAL_TIMEOUT ?= 110m
 # The Latency and soak jobs: BENCH_PROFILE names the host profile
 # inventory of deploy/benchhost (empty: the loopback profile),
 # BENCH_STATE the rotation state read from the bench-records branch,
@@ -165,7 +168,7 @@ OVERRIDE_FLAG = $(if $(GATES_OVERRIDE),-override)
 has_tests = $(shell find $(1) -name '*_test.go' -print -quit 2>/dev/null)
 
 .PHONY: help tools hygiene lint fmt generate build test floor supply-chain \
-	integration gates e2e quickstart nightly fuzz chaos chaos-scale bench-latency soak \
+	integration gates e2e quickstart nightly fuzz chaos chaos-scale bench-functional bench-latency soak \
 	t5 image-checks release-dry-run release release-image release-package release-gates clean
 
 help: ## List targets
@@ -314,12 +317,13 @@ quickstart: ## Stage 10 SM-7: examples/quickstart/quickstart.sh from an archive 
 	fi; \
 	echo "quickstart: first proxied request after $$secs s (limit $(QUICKSTART_MAX_SECONDS) s)"
 
-nightly: ## Stage 11: one nightly job, NIGHTLY_JOB=fuzz|chaos|latency
+nightly: ## Stage 11: one nightly job, NIGHTLY_JOB=fuzz|chaos|functional|latency
 	@case "$(NIGHTLY_JOB)" in \
 		fuzz) $(MAKE) --no-print-directory fuzz ;; \
 		chaos) $(MAKE) --no-print-directory chaos CHAOS_SCALE=nightly ;; \
+		functional) $(MAKE) --no-print-directory bench-functional ;; \
 		latency) $(MAKE) --no-print-directory bench-latency ;; \
-		*) echo "nightly: set NIGHTLY_JOB to fuzz, chaos or latency" >&2; exit 2 ;; \
+		*) echo "nightly: set NIGHTLY_JOB to fuzz, chaos, functional or latency" >&2; exit 2 ;; \
 	esac
 
 fuzz: ## Stage 11 Fuzz job: each Fuzz target for FUZZTIME (15m); FUZZ_SHARD=I runs shard I of eight targets
@@ -336,6 +340,13 @@ endif
 
 chaos-scale: ## Chaos at target scale on RH-1 (CE-5 at 100 Nodes, CE-12, CE-15), run by chaos-scale.yml
 	$(MAKE) --no-print-directory chaos CHAOS_SCALE=target
+
+bench-functional: ## Stage 11 Functional job: every M1 benchmark scenario and constants run at reduced scale on loopback (tag e2e, test/bench/functional)
+ifeq ($(call has_tests,test/bench/functional),)
+	@echo "bench-functional: skip: test/bench/functional has no suite yet"
+else
+	go test -tags e2e -p 1 -timeout $(FUNCTIONAL_TIMEOUT) $(TEST_FLAGS) ./test/bench/functional/...
+endif
 
 bench-latency: ## Stage 11 Latency job on RH-1: macro scenarios, budgets, gates and records (tag e2e, test/bench/harness)
 ifeq ($(call has_tests,test/bench/harness),)

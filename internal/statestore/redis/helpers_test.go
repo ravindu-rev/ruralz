@@ -267,7 +267,7 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 		}
 	}
 	lim := fillLimits(o.limits)
-	f.gate = statestore.NewInFlight(lim.InFlight)
+	f.gate = statestore.NewInFlight(lim.InFlight, nil)
 	if o.opts.Rand == nil {
 		o.opts.Rand = lowRand
 	}

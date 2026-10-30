@@ -42,8 +42,8 @@ type KeySpec struct {
 	PerKey uint64 `json:"perKey,omitempty"`
 }
 
-// source returns the loadgen key source.
-func (k KeySpec) source() (loadgen.KeySource, error) {
+// Source returns the loadgen key source.
+func (k KeySpec) Source() (loadgen.KeySource, error) {
 	switch k.Kind {
 	case KeysCycle:
 		return loadgen.Cycle(k.Prefix, k.N)
@@ -127,6 +127,13 @@ type LoadSpec struct {
 	Count []string `json:"count,omitempty"`
 	// Timeout bounds each request; 0 is loadgen's 30 s.
 	Timeout time.Duration `json:"timeoutNs,omitempty"`
+	// MaxInFlight bounds the requests in flight; 0 is loadgen's 4,096. O1
+	// raises it to its 120 connections of 250 streams.
+	MaxInFlight int `json:"maxInFlight,omitempty"`
+	// GCRA, when set, calls GCRA through the State client instead of
+	// sending HTTP requests (G1); URL, Method and Protocol are then unused
+	// and Keys names each call's key.
+	GCRA *GCRASpec `json:"gcra,omitempty"`
 }
 
 // LoadResult is a run's outcome.
@@ -180,6 +187,9 @@ func RunLoad(ctx context.Context, s LoadSpec) (*LoadResult, error) {
 	default:
 		return nil, fmt.Errorf("lab: unknown tool %q", s.Tool)
 	}
+	if s.GCRA != nil {
+		return runGCRA(ctx, s)
+	}
 	cfg := loadgen.HTTPConfig{
 		URL: s.URL, Method: s.Method, Host: s.Host, Header: http.Header(s.Header),
 		Connections: s.Connections, StreamsPerConn: s.Streams, KeyHeader: s.KeyHeader,
@@ -203,7 +213,7 @@ func RunLoad(ctx context.Context, s LoadSpec) (*LoadResult, error) {
 	}
 	res := &LoadResult{KeyDistribution: "none"}
 	if s.Keys != nil {
-		src, err := s.Keys.source()
+		src, err := s.Keys.Source()
 		if err != nil {
 			return nil, err
 		}
@@ -222,7 +232,37 @@ func RunLoad(ctx context.Context, s LoadSpec) (*LoadResult, error) {
 		return nil, err
 	}
 	defer func() { _ = target.Close() }()
-	lc := loadgen.Config{Rate: s.Rate, Warmup: s.Warmup, Duration: s.Duration, Timeout: s.Timeout}
+	lc := loadgen.Config{Rate: s.Rate, Warmup: s.Warmup, Duration: s.Duration, Timeout: s.Timeout, MaxInFlight: s.MaxInFlight}
+	if s.Settle {
+		lc.Settle = loadgen.BenchmarkSettle()
+	}
+	cpu := newCPUMeter()
+	r, err := loadgen.Run(ctx, target, lc)
+	res.Process = cpu.stats()
+	if err != nil {
+		return nil, err
+	}
+	fillResult(res, r, s.Count)
+	return res, nil
+}
+
+// runGCRA runs a GCRA load: the State client calls of s.GCRA on the keys
+// of s.Keys at s.Rate.
+func runGCRA(ctx context.Context, s LoadSpec) (*LoadResult, error) {
+	if s.Keys == nil {
+		return nil, errors.New("lab: gcra: a GCRA load needs keys")
+	}
+	src, err := s.Keys.Source()
+	if err != nil {
+		return nil, err
+	}
+	target, err := newGCRATarget(ctx, *s.GCRA, s.CA, src)
+	if err != nil {
+		return nil, err
+	}
+	defer target.close(context.WithoutCancel(ctx))
+	res := &LoadResult{KeyCardinality: src.Cardinality(), KeyDistribution: src.Distribution()}
+	lc := loadgen.Config{Rate: s.Rate, Warmup: s.Warmup, Duration: s.Duration, Timeout: s.Timeout, MaxInFlight: s.MaxInFlight}
 	if s.Settle {
 		lc.Settle = loadgen.BenchmarkSettle()
 	}

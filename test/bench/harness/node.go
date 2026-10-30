@@ -39,6 +39,9 @@ const (
 	nodeReadyTimeout = 2 * time.Minute
 	// nodeStopTimeout bounds the drain after SIGTERM.
 	nodeStopTimeout = 2 * time.Minute
+	// drainGrace is how long the first SIGTERM's Drain runs before the
+	// second jumps it to its deadline.
+	drainGrace = time.Second
 )
 
 // NodeSpec starts one ruralzd on the gateway host.
@@ -52,6 +55,16 @@ type NodeSpec struct {
 	StateStoreURL string
 	// Env is added last: a GOMEMLIMIT run sets GOMEMLIMIT.
 	Env []string
+	// KeepData keeps RURALZ_DATA_DIR from the Node before, so R1's cold
+	// start from Last-Known-Good boots what the previous Node activated.
+	KeepData bool
+	// ScopeProperties are further properties of the Node's scope, such as
+	// the GOMEMLIMIT run's MemoryMax; the loopback profile has no scopes.
+	ScopeProperties []string
+	// NoRevision starts a Node whose source holds no Revision yet, such as
+	// an empty directory R1 activates its first Revision into: StartNode
+	// then waits for /healthz instead of /readyz.
+	NoRevision bool
 }
 
 // Node is a running ruralzd.
@@ -68,6 +81,12 @@ type Node struct {
 	client   *http.Client
 	cgroup   string
 	env      []string
+	data     string
+	// started is just before the process started, ready when /readyz
+	// first answered 200: R1's cold start.
+	started, ready time.Time
+	// peak is the scope's memory.peak, open since the last ResetPeak.
+	peak *os.File
 }
 
 // randomToken returns a fresh admin token.
@@ -86,15 +105,17 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 	g := p.Hosts[RoleGateway]
 	dir := filepath.Join(g.Dir, "node")
 	data := filepath.Join(dir, "data")
-	if err := os.RemoveAll(data); err != nil {
-		return nil, err
+	if !s.KeepData {
+		if err := os.RemoveAll(data); err != nil {
+			return nil, err
+		}
 	}
 	for _, d := range []string{data, p.SecretRoot} {
 		if err := os.MkdirAll(d, 0o700); err != nil {
 			return nil, err
 		}
 	}
-	n := &Node{p: p, done: make(chan struct{}), errb: &tail{max: 64 << 10}, client: &http.Client{Timeout: 2 * time.Minute}}
+	n := &Node{p: p, data: data, done: make(chan struct{}), errb: &tail{max: 64 << 10}, client: &http.Client{Timeout: 2 * time.Minute}}
 	var err error
 	if n.token, err = randomToken(); err != nil {
 		return nil, err
@@ -129,12 +150,13 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 		env = append(env, "RURALZ_STATE_STORE_URL="+s.StateStoreURL)
 	}
 	n.env = append(env, s.Env...)
-	argv := p.Runner(RoleGateway).Argv([]string{s.Binary}, g.CPUs)
+	argv := p.Runner(RoleGateway).Argv([]string{s.Binary}, g.CPUs, s.ScopeProperties...)
 	n.cmd = exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the harness starts the binary it built
 	n.cmd.Env = n.env
 	n.cmd.Stdout, n.cmd.Stderr = io.Discard, n.errb
 	n.cmd.Cancel = func() error { return n.cmd.Process.Signal(syscall.SIGTERM) }
 	n.cmd.WaitDelay = nodeStopTimeout
+	n.started = time.Now()
 	if err := n.cmd.Start(); err != nil {
 		return nil, fmt.Errorf("harness: start ruralzd: %w", err)
 	}
@@ -144,7 +166,11 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 	}()
 	n.pid = n.cmd.Process.Pid
 	n.adminURL = "http://127.0.0.1:" + strconv.Itoa(p.adminPort())
-	if err := n.waitReady(ctx); err != nil {
+	wait := n.waitReady
+	if s.NoRevision {
+		wait = n.waitHealthy
+	}
+	if err := wait(ctx); err != nil {
 		_ = n.Stop(context.WithoutCancel(ctx))
 		return nil, err
 	}
@@ -156,7 +182,11 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 	return n, nil
 }
 
-// waitReady polls /readyz until it answers 200.
+// readyPoll is the /readyz poll interval: fine enough to time R1's cold
+// starts, whose smallest budget is 200 ms (target).
+const readyPoll = 5 * time.Millisecond
+
+// waitReady polls /readyz until it answers 200 and records when.
 func (n *Node) waitReady(ctx context.Context) error {
 	deadline := time.Now().Add(nodeReadyTimeout)
 	var last string
@@ -175,6 +205,7 @@ func (n *Node) waitReady(ctx context.Context) error {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
+				n.ready = time.Now()
 				return nil
 			}
 			last = fmt.Sprintf("%d %s", resp.StatusCode, b)
@@ -184,10 +215,167 @@ func (n *Node) waitReady(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(readyPoll):
 		}
 	}
 	return fmt.Errorf("harness: ruralzd not ready within %v; last /readyz: %s; stderr: %s", nodeReadyTimeout, last, n.errb.String())
+}
+
+// waitHealthy polls /healthz until it answers 200.
+func (n *Node) waitHealthy(ctx context.Context) error {
+	deadline := time.Now().Add(nodeReadyTimeout)
+	for time.Now().Before(deadline) {
+		select {
+		case <-n.done:
+			return fmt.Errorf("harness: ruralzd exited before it answered /healthz (%v): %s", n.err, n.errb.String())
+		default:
+		}
+		if code, _, err := n.open(ctx, "/healthz"); err == nil && code == http.StatusOK {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(readyPoll):
+		}
+	}
+	return fmt.Errorf("harness: ruralzd did not answer /healthz within %v: %s", nodeReadyTimeout, n.errb.String())
+}
+
+// open issues an unauthenticated admin GET (/healthz, /readyz) and returns
+// its status and body.
+func (n *Node) open(ctx context.Context, path string) (int, []byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, n.adminURL+path, nil)
+	if err != nil {
+		return 0, nil, err
+	}
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	return resp.StatusCode, b, err
+}
+
+// WaitRevision polls /readyz until it answers 200 naming rev
+// (rev-<12 hex>), within limit, and returns when it first did: R1's
+// activation of a replaced source.
+func (n *Node) WaitRevision(ctx context.Context, rev string, limit time.Duration) (time.Time, error) {
+	deadline := time.Now().Add(limit)
+	var last string
+	for time.Now().Before(deadline) {
+		if n.Exited() {
+			return time.Time{}, fmt.Errorf("harness: ruralzd exited (%v): %s", n.err, n.errb.String())
+		}
+		code, b, err := n.open(ctx, "/readyz")
+		if err == nil && code == http.StatusOK {
+			var doc adminapi.Readyz
+			if json.Unmarshal(b, &doc) == nil && doc.Revision == rev {
+				return time.Now(), nil
+			}
+		}
+		last = fmt.Sprintf("%d %s %v", code, b, err)
+		select {
+		case <-ctx.Done():
+			return time.Time{}, ctx.Err()
+		case <-time.After(readyPoll):
+		}
+	}
+	return time.Time{}, fmt.Errorf("harness: ruralzd did not serve %s within %v; last /readyz: %s", rev, limit, last)
+}
+
+// HeapAlloc returns the Node's live heap after a forced collection: the
+// HeapAlloc total of /debug/pprof/heap?gc=1&debug=1 (PBB "Startup and
+// reload time by configuration size", snapshot live heap).
+func (n *Node) HeapAlloc(ctx context.Context) (int64, error) {
+	b, err := n.admin(ctx, "/debug/pprof/heap?gc=1&debug=1", n.token)
+	if err != nil {
+		return 0, err
+	}
+	return ParseHeapAlloc(b)
+}
+
+// ParseHeapAlloc reads the "# HeapAlloc = N" line of a debug=1 heap
+// profile.
+func ParseHeapAlloc(b []byte) (int64, error) {
+	for line := range strings.SplitSeq(string(b), "\n") {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "# HeapAlloc = "); ok {
+			n, err := strconv.ParseInt(strings.TrimSpace(v), 10, 64)
+			if err != nil {
+				return 0, fmt.Errorf("harness: heap profile HeapAlloc %q: %w", v, err)
+			}
+			return n, nil
+		}
+	}
+	return 0, errors.New("harness: the heap profile has no HeapAlloc total")
+}
+
+// ResetPeak starts a new peak memory measurement: it resets the scope's
+// cgroup v2 memory.peak, which tracks the peak from the reset for reads
+// through the file descriptor that wrote it, so the Node keeps that
+// descriptor until the next reset; without a scope it resets the process's
+// VmHWM through /proc/<pid>/clear_refs (PBB "Startup and reload time by
+// configuration size", peak configuration memory).
+func (n *Node) ResetPeak() error {
+	if n.cgroup == "" {
+		return os.WriteFile(filepath.Join("/proc", strconv.Itoa(n.pid), "clear_refs"), []byte("5\n"), 0o600)
+	}
+	if n.peak != nil {
+		_ = n.peak.Close()
+		n.peak = nil
+	}
+	f, err := os.OpenFile(filepath.Join("/sys/fs/cgroup", n.cgroup, "memory.peak"), os.O_RDWR, 0) //nolint:gosec // G304: a cgroup file of the Node's scope
+	if err != nil {
+		return err
+	}
+	if _, err := f.WriteString("reset\n"); err != nil {
+		_ = f.Close()
+		return err
+	}
+	n.peak = f
+	return nil
+}
+
+// Peak returns the peak memory since ResetPeak: the scope's memory.peak,
+// or the process's VmHWM.
+func (n *Node) Peak() (int64, error) {
+	if n.cgroup != "" {
+		if n.peak == nil {
+			return 0, errors.New("harness: Peak before ResetPeak")
+		}
+		b := make([]byte, 64)
+		k, err := n.peak.ReadAt(b, 0)
+		if err != nil && !errors.Is(err, io.EOF) {
+			return 0, err
+		}
+		return strconv.ParseInt(strings.TrimSpace(string(b[:k])), 10, 64)
+	}
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(n.pid), "status")) //nolint:gosec // G304: procfs
+	if err != nil {
+		return 0, err
+	}
+	return ParseVmHWM(b)
+}
+
+// ParseVmHWM reads VmHWM, in bytes, from /proc/<pid>/status.
+func ParseVmHWM(b []byte) (int64, error) {
+	for line := range strings.SplitSeq(string(b), "\n") {
+		v, ok := strings.CutPrefix(line, "VmHWM:")
+		if !ok {
+			continue
+		}
+		f := strings.Fields(v)
+		if len(f) != 2 || f[1] != "kB" {
+			return 0, fmt.Errorf("harness: VmHWM %q", v)
+		}
+		kb, err := strconv.ParseInt(f[0], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+		return kb << 10, nil
+	}
+	return 0, errors.New("harness: no VmHWM in the process status")
 }
 
 // PID returns the Node's process ID.
@@ -224,6 +412,31 @@ func (n *Node) admin(ctx context.Context, path, token string) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// Admin issues an admin GET of path with the operator token, such as R1's
+// heap totals after a forced collection (/debug/pprof/heap?gc=1).
+func (n *Node) Admin(ctx context.Context, path string) ([]byte, error) {
+	return n.admin(ctx, path, n.token)
+}
+
+// Signal sends sig to the Node: SIGHUP loads its source at once, a Hot
+// Reload of a replaced file.
+func (n *Node) Signal(sig os.Signal) error {
+	if n.Exited() {
+		return fmt.Errorf("harness: ruralzd exited (%v): %s", n.err, n.errb.String())
+	}
+	return n.cmd.Process.Signal(sig)
+}
+
+// Started returns when the Node process started; Ready when /readyz first
+// answered 200.
+func (n *Node) Started() time.Time { return n.started }
+
+// Ready returns when /readyz first answered 200.
+func (n *Node) Ready() time.Time { return n.ready }
+
+// DataDir returns the Node's RURALZ_DATA_DIR.
+func (n *Node) DataDir() string { return n.data }
 
 // Scrape reads the Node's metrics.
 func (n *Node) Scrape(ctx context.Context) (promtext.Set, error) {
@@ -273,15 +486,31 @@ func (n *Node) RSS() (int64, error) {
 
 // Stop sends SIGTERM and waits for the drain, then SIGKILL.
 func (n *Node) Stop(ctx context.Context) error {
+	if n.peak != nil {
+		_ = n.peak.Close()
+		n.peak = nil
+	}
 	if n.Exited() {
 		return nil
 	}
+	// A run's measurement is over when its Node stops, so the Drain's
+	// 10 s jitter window only delays the next run: a second SIGTERM after
+	// drainGrace jumps the Drain to its deadline (docs/architecture/03-data-plane.md
+	// "Sources, Last-Known-Good and Drain").
 	_ = n.cmd.Process.Signal(syscall.SIGTERM)
 	select {
 	case <-n.done:
-	case <-time.After(nodeStopTimeout):
-		_ = n.cmd.Process.Kill()
-		<-n.done
+	case <-time.After(drainGrace):
+		_ = n.cmd.Process.Signal(syscall.SIGTERM)
+		select {
+		case <-n.done:
+		case <-time.After(nodeStopTimeout):
+			_ = n.cmd.Process.Kill()
+			<-n.done
+		case <-ctx.Done():
+			_ = n.cmd.Process.Kill()
+			<-n.done
+		}
 	case <-ctx.Done():
 		_ = n.cmd.Process.Kill()
 		<-n.done

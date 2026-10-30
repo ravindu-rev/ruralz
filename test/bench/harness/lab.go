@@ -49,6 +49,8 @@ type Lab struct {
 	keys    *lab.KeyFile
 
 	Mock, Sink, IdP, Valkey, Proxy *Proc
+	// extra are the further mocks StartMock started.
+	extra []*Proc
 	// StateStorePassword is the run's Valkey ACL password.
 	StateStorePassword string
 }
@@ -94,18 +96,26 @@ func (l *Lab) remoteKeys() string { return filepath.Join(l.p.Hosts[RoleUpstream]
 
 func (l *Lab) tls(name string) string { return filepath.Join(l.p.TLSDir, name) }
 
+// mockArgv returns the mock's command line on listen for w.
+func (l *Lab) mockArgv(listen string, w Workload) []string {
+	body := w.BodySize
+	if body <= 0 {
+		body = 1024
+	}
+	argv := []string{l.bins[RoleUpstream], "mock", "-listen", listen, "-body-size", strconv.FormatInt(body, 10), "-delay", w.MockDelay.String()}
+	for _, h := range w.MockHeader {
+		argv = append(argv, "-header", h)
+	}
+	return argv
+}
+
 // StartUpstream starts the mock Upstream on RH-1U's measured cpuset and
 // the OTLP sink and the mock IdP on its auxiliary one.
 func (l *Lab) StartUpstream(ctx context.Context, w Workload) error {
 	up := l.p.Runner(RoleUpstream)
 	h := l.p.Hosts[RoleUpstream]
 	var err error
-	body := w.BodySize
-	if body <= 0 {
-		body = 1024
-	}
-	if l.Mock, err = up.Start(ctx, "mock", []string{l.bins[RoleUpstream], "mock", "-listen", l.p.Services.Mock,
-		"-body-size", strconv.FormatInt(body, 10), "-delay", w.MockDelay.String()}, h.CPUs); err != nil {
+	if l.Mock, err = up.Start(ctx, "mock", l.mockArgv(l.p.Services.Mock, w), h.CPUs); err != nil {
 		return err
 	}
 	if l.Sink, err = up.Start(ctx, "sink", []string{l.bins[RoleUpstream], "sink", "-listen", l.p.Services.Sink,
@@ -117,6 +127,59 @@ func (l *Lab) StartUpstream(ctx context.Context, w Workload) error {
 		return err
 	}
 	return nil
+}
+
+// StartMock starts a further mock Upstream on listen, on RH-1U's measured
+// cpuset with w's mock settings, such as R1's second mock port; Close stops
+// it with the others.
+func (l *Lab) StartMock(ctx context.Context, name, listen string, w Workload) (*Proc, error) {
+	p, err := l.p.Runner(RoleUpstream).Start(ctx, name, l.mockArgv(listen, w), l.p.Hosts[RoleUpstream].CPUs)
+	if err != nil {
+		return nil, err
+	}
+	l.extra = append(l.extra, p)
+	return p, nil
+}
+
+// StartConns starts the conns service on RH-1L's measured cpuset: C1's
+// idle connections, C2's handshake burst, and the pre-routing writes and
+// slow-header flood of the constants runs, which come from harness
+// drivers rather than a load tool (PBB "Open-loop load and coordinated
+// omission"); Close stops it with the others, closing its connections.
+// A CAFile set in c is replaced by the run CA's path on the load host.
+func (l *Lab) StartConns(ctx context.Context, name string, c lab.ConnsConfig) (*Proc, error) {
+	if c.CAFile != "" {
+		c.CAFile = l.tls(FileCA)
+	}
+	argv := append([]string{l.bins[RoleLoad], "conns"}, lab.ConnsArgs(c)...)
+	p, err := l.p.Runner(RoleLoad).Start(ctx, name, argv, l.p.Hosts[RoleLoad].CPUs)
+	if err != nil {
+		return nil, err
+	}
+	l.extra = append(l.extra, p)
+	return p, nil
+}
+
+// ProxyMode switches the fault proxy between lab.ProxyDelay and
+// lab.ProxyPass.
+func (l *Lab) ProxyMode(mode string) error {
+	if l.Proxy == nil {
+		return errors.New("harness: the run has no fault proxy")
+	}
+	_, err := l.Proxy.Do(lab.Request{Op: lab.OpMode, Name: mode})
+	return err
+}
+
+// SinkMode switches the OTLP sink between lab.SinkStall and
+// lab.SinkAccept.
+func (l *Lab) SinkMode(mode string) error {
+	_, err := l.Sink.Do(lab.Request{Op: lab.OpMode, Name: mode})
+	return err
+}
+
+// CA returns the run CA's PEM, for a client the harness runs itself.
+func (l *Lab) CA() ([]byte, error) {
+	return os.ReadFile(l.pki.Path(FileCA)) //nolint:gosec // G304: the run's own CA file
 }
 
 // ValkeyArgs returns the State Store server's arguments (PBB "Reference
@@ -152,8 +215,12 @@ func (l *Lab) StartStateStore(ctx context.Context, s Scenario) (string, error) {
 	}
 	addr := l.p.Services.StateStore
 	if s.Proxy != nil {
-		if l.Proxy, err = ss.Start(ctx, "faultproxy", []string{l.bins[RoleStateStore], "faultproxy", "-listen", l.p.Services.FaultProxy,
-			"-upstream", l.p.Services.StateStore, "-mean", s.Proxy.Mean.String(), "-stddev", s.Proxy.StdDev.String()}, h.AuxCPUs); err != nil {
+		argv := []string{l.bins[RoleStateStore], "faultproxy", "-listen", l.p.Services.FaultProxy,
+			"-upstream", l.p.Services.StateStore, "-mean", s.Proxy.Mean.String(), "-stddev", s.Proxy.StdDev.String()}
+		if s.Proxy.PassFirst {
+			argv = append(argv, "-pass-first")
+		}
+		if l.Proxy, err = ss.Start(ctx, "faultproxy", argv, h.AuxCPUs); err != nil {
 			return "", err
 		}
 		addr = l.p.Services.FaultProxy
@@ -167,6 +234,7 @@ func (l *Lab) LoadSpec(w Workload, target string, warmup, duration time.Duration
 	spec := lab.LoadSpec{
 		Method: w.Method, Protocol: w.Protocol, Connections: w.Connections, Streams: w.Streams,
 		Rate: w.Rate, Warmup: warmup, Duration: duration, Settle: settle, KeyHeader: w.KeyHeader, Keys: w.Keys, Count: w.Count,
+		MaxInFlight: w.MaxInFlight, Header: w.Header,
 	}
 	if w.Protocol == "h2" {
 		scheme = "https"
@@ -218,7 +286,7 @@ func (l *Lab) Reset() error {
 
 func (l *Lab) procs() []*Proc {
 	var out []*Proc
-	for _, p := range []*Proc{l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy} {
+	for _, p := range append([]*Proc{l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy}, l.extra...) {
 		if p != nil {
 			out = append(out, p)
 		}
@@ -229,7 +297,8 @@ func (l *Lab) procs() []*Proc {
 // Close stops every service, the State Store last.
 func (l *Lab) Close() error {
 	var errs []error
-	for _, p := range []*Proc{l.Proxy, l.Mock, l.IdP, l.Sink, l.Valkey} {
+	stop := append(append([]*Proc{l.Proxy}, l.extra...), l.Mock, l.IdP, l.Sink, l.Valkey)
+	for _, p := range stop {
 		if p == nil {
 			continue
 		}
@@ -237,6 +306,6 @@ func (l *Lab) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy = nil, nil, nil, nil, nil
+	l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy, l.extra = nil, nil, nil, nil, nil, nil
 	return errors.Join(errs...)
 }

@@ -38,6 +38,11 @@ const (
 	OpResult = "result"
 	// OpRemove drops sink window Name.
 	OpRemove = "remove"
+	// OpMode switches a service's mode: the sink's answer to exports, Name
+	// "stall" holding every export until the next "accept", so the Node's
+	// telemetry queues fill (the constants runs' queue bounds); the fault
+	// proxy between "pass" and its configured "delay" (O2).
+	OpMode = "mode"
 )
 
 // Request is one command line on a service's standard input.
@@ -46,6 +51,9 @@ type Request struct {
 	Name  string    `json:"name,omitempty"`
 	Start time.Time `json:"start,omitzero"`
 	End   time.Time `json:"end,omitzero"`
+	// Where, on a sink window, folds only the access records whose
+	// attribute of that name is present and not empty (failure_modes).
+	Where string `json:"where,omitempty"`
 }
 
 // Ready is the first line a service writes: what it serves on.
@@ -70,6 +78,7 @@ type Response struct {
 	Sink    *SinkStats   `json:"sink,omitempty"`
 	Window  *Window      `json:"window,omitempty"`
 	Proxy   *ProxyStats  `json:"proxy,omitempty"`
+	Conns   *ConnsStats  `json:"conns,omitempty"`
 }
 
 // ProcessStats is a process's CPU over a wall-clock interval.

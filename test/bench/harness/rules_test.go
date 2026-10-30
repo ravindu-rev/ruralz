@@ -345,12 +345,12 @@ func TestWindowSamples(t *testing.T) {
 		}
 		return s
 	}
-	mk := func(sec int, cpu time.Duration, requests, gc float64) nodeSample {
-		return nodeSample{at: t0.Add(time.Duration(sec) * time.Second), usage: usageOf(cpu), rss: int64(sec), metrics: set(requests, gc, requests*14)}
+	mk := func(sec int, cpu time.Duration, requests, gc float64) NodeSample {
+		return NodeSample{At: t0.Add(time.Duration(sec) * time.Second), Usage: usageOf(cpu), RSS: int64(sec), Metrics: set(requests, gc, requests*14)}
 	}
-	samples := []nodeSample{mk(0, 0, 0, 0), mk(10, time.Second, 1000, 0.01), mk(20, 3*time.Second, 21000, 0.21), mk(30, 4*time.Second, 22000, 0.25)}
+	samples := []NodeSample{mk(0, 0, 0, 0), mk(10, time.Second, 1000, 0.01), mk(20, 3*time.Second, 21000, 0.21), mk(30, 4*time.Second, 22000, 0.25)}
 	a, b, err := window(samples, t0.Add(5*time.Second), t0.Add(25*time.Second))
-	if err != nil || !a.at.Equal(t0.Add(10*time.Second)) || !b.at.Equal(t0.Add(20*time.Second)) {
+	if err != nil || !a.At.Equal(t0.Add(10*time.Second)) || !b.At.Equal(t0.Add(20*time.Second)) {
 		t.Fatalf("window = %v, %v, %v", a, b, err)
 	}
 	m, requests, _ := windowMeasures(a, b, nil)
@@ -358,7 +358,7 @@ func TestWindowSamples(t *testing.T) {
 		t.Errorf("measures = %+v over %d requests", m, requests)
 	}
 	a, b, err = window(samples, t0.Add(12*time.Second), t0.Add(14*time.Second))
-	if err != nil || !a.at.Equal(t0.Add(10*time.Second)) || !b.at.Equal(t0.Add(20*time.Second)) {
+	if err != nil || !a.At.Equal(t0.Add(10*time.Second)) || !b.At.Equal(t0.Add(20*time.Second)) {
 		t.Errorf("a short window brackets from outside: %v, %v, %v", a, b, err)
 	}
 	if _, _, err := window(samples[:1], t0, t0.Add(time.Second)); err == nil {

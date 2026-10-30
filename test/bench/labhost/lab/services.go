@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,12 @@ func serverTLS(certFile, keyFile string) (*tls.Config, error) {
 	return &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12}, nil
 }
 
+// Sink modes of OpMode.
+const (
+	SinkStall  = "stall"
+	SinkAccept = "accept"
+)
+
 // MockConfig configures the mock Upstream.
 type MockConfig struct {
 	// Listen is the listen address.
@@ -57,6 +64,9 @@ type MockConfig struct {
 	BodySize int64
 	// Delay is waited before every response, O1a's 1 s.
 	Delay time.Duration
+	// Header is added to every response, such as the Cache-Control the
+	// cache key flood's entries need.
+	Header http.Header
 }
 
 // MockStats are the mock's counters since the last reset.
@@ -88,7 +98,7 @@ func StartMock(ctx context.Context, c MockConfig) (*Mock, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := mockup.Behavior{BodySize: c.BodySize}
+	b := mockup.Behavior{BodySize: c.BodySize, Header: c.Header}
 	if c.Delay > 0 {
 		b.Delay = mockup.Fixed(c.Delay)
 	}
@@ -199,7 +209,7 @@ func (s *Sink) Ready() Ready { return ready("sink", s.s.Addr()) }
 func (s *Sink) Handle(ctx context.Context, r Request) Response {
 	switch r.Op {
 	case OpWindow:
-		if err := s.s.AddWindow(r.Name, r.Start, r.End); err != nil {
+		if err := s.s.AddFilteredWindow(r.Name, r.Start, r.End, r.Where); err != nil {
 			return failed(err)
 		}
 		return Response{OK: true}
@@ -221,6 +231,20 @@ func (s *Sink) Handle(ctx context.Context, r Request) Response {
 		return Response{OK: true, Window: &Window{Count: w.Count, Missing: w.Missing, Histogram: EncodeHistogram(w.Histogram)}}
 	case OpRemove:
 		s.s.RemoveWindow(r.Name)
+		return Response{OK: true}
+	case OpMode:
+		var m otlpsink.Mode
+		switch r.Name {
+		case SinkStall:
+			m = otlpsink.Stall{}
+		case SinkAccept:
+			m = otlpsink.Accept{}
+		default:
+			return failed(fmt.Errorf("lab: sink mode %q is not %s or %s", r.Name, SinkStall, SinkAccept))
+		}
+		if err := s.s.SetMode(m); err != nil {
+			return failed(err)
+		}
 		return Response{OK: true}
 	case OpReset:
 		s.cpu.reset()
@@ -370,7 +394,17 @@ func (i *IdP) Close() error { return i.s.Close() }
 type ProxyConfig struct {
 	Listen, Upstream string
 	Mean, StdDev     time.Duration
+	// PassFirst forwards unchanged until an OpMode request names
+	// ProxyDelay, so connection setup, a TLS handshake's round trips
+	// included, is not delayed: O2's replies are.
+	PassFirst bool
 }
+
+// Fault proxy modes of OpMode.
+const (
+	ProxyDelay = "delay"
+	ProxyPass  = "pass"
+)
 
 // ProxyStats are the fault proxy's counters.
 type ProxyStats struct {
@@ -380,21 +414,26 @@ type ProxyStats struct {
 
 // Proxy is the fault proxy service.
 type Proxy struct {
-	p   *faultproxy.Proxy
-	cpu *cpuMeter
+	p     *faultproxy.Proxy
+	delay faultproxy.Mode
+	cpu   *cpuMeter
 }
 
 // StartProxy starts the fault proxy.
 func StartProxy(ctx context.Context, c ProxyConfig) (*Proxy, error) {
-	var mode faultproxy.Mode = faultproxy.Pass{}
+	var delay faultproxy.Mode = faultproxy.Pass{}
 	if c.Mean > 0 || c.StdDev > 0 {
-		mode = faultproxy.Delay{Mean: c.Mean, StdDev: c.StdDev}
+		delay = faultproxy.Delay{Mean: c.Mean, StdDev: c.StdDev}
+	}
+	mode := delay
+	if c.PassFirst {
+		mode = faultproxy.Pass{}
 	}
 	p, err := faultproxy.Start(ctx, faultproxy.Config{Listen: c.Listen, Upstream: c.Upstream, Mode: mode})
 	if err != nil {
 		return nil, err
 	}
-	return &Proxy{p: p, cpu: newCPUMeter()}, nil
+	return &Proxy{p: p, delay: delay, cpu: newCPUMeter()}, nil
 }
 
 // Ready describes the proxy.
@@ -409,6 +448,20 @@ func (p *Proxy) Handle(_ context.Context, r Request) Response {
 	case OpStats:
 		st := p.p.Stats()
 		return Response{OK: true, Process: p.cpu.stats(), Proxy: &ProxyStats{Connections: st.Accepted, Open: st.Active}}
+	case OpMode:
+		var m faultproxy.Mode
+		switch r.Name {
+		case ProxyDelay:
+			m = p.delay
+		case ProxyPass:
+			m = faultproxy.Pass{}
+		default:
+			return failed(fmt.Errorf("lab: fault proxy mode %q is not %s or %s", r.Name, ProxyDelay, ProxyPass))
+		}
+		if err := p.p.SetMode(m); err != nil {
+			return failed(err)
+		}
+		return Response{OK: true}
 	default:
 		return unknown(r)
 	}

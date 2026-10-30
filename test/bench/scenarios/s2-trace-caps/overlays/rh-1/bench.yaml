@@ -1,0 +1,22 @@
+# S2 at both trace caps on the rh-1 profile: the lab hosts by their bench.example names, which
+# deploy/benchhost resolves on every host, under the secret root
+# /var/lib/ruralz-bench/secrets.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  telemetry:
+    otlp:
+      tls:
+        caCertificate: {secretRef: {provider: file, name: /var/lib/ruralz-bench/secrets/tls/ca.pem}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example:8443/.well-known/jwks.json

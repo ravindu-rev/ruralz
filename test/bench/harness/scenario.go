@@ -47,14 +47,27 @@ type Workload struct {
 	Tokens int
 	// Count names the RZ codes that count as achieved (RZ-RT-005 in O1).
 	Count []string
-	// BodySize and MockDelay set the mock Upstream.
-	BodySize  int64
-	MockDelay time.Duration
+	// BodySize and MockDelay set the mock Upstream; MockHeader adds
+	// "Name: value" response headers to every mock response.
+	BodySize   int64
+	MockDelay  time.Duration
+	MockHeader []string
+	// MaxInFlight bounds the generator's requests in flight; 0 is
+	// loadgen's 4,096, and O1 raises it to its 120 connections of 250
+	// streams.
+	MaxInFlight int
+	// Header adds fixed request headers, such as the constants runs'
+	// x-api-key.
+	Header map[string][]string
 }
 
 // Delay is a normal delay distribution each way through the fault proxy.
 type Delay struct {
 	Mean, StdDev time.Duration
+	// PassFirst starts the proxy forwarding unchanged until the driver
+	// switches it to the delay (Lab.ProxyMode), so the Node's connection
+	// setup is not delayed and only later replies are: O2.
+	PassFirst bool
 }
 
 // String returns the record's injected delay distribution.

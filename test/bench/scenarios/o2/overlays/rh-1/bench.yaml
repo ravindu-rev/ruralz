@@ -1,0 +1,17 @@
+# O2 on the rh-1 profile: the lab hosts by their bench.example names, which
+# deploy/benchhost resolves on every host, under the secret root
+# /var/lib/ruralz-bench/secrets.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  telemetry:
+    otlp:
+      tls:
+        caCertificate: {secretRef: {provider: file, name: /var/lib/ruralz-bench/secrets/tls/ca.pem}}
+  stateStore:
+    tls:
+      caCertificate: {secretRef: {provider: file, name: /var/lib/ruralz-bench/secrets/tls/ca.pem}}
+    zones:                           # the fault proxy's host is in lab-a: calls count as zone="same"
+      - {host: "statestore.bench.example", zone: lab-a}

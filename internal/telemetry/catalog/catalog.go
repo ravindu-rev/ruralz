@@ -141,6 +141,7 @@ const (
 	StateOpsTotal                       = "ruralz_state_ops_total"
 	StateWritesDroppedTotal             = "ruralz_state_writes_dropped_total"
 	StateWriteQueueItems                = "ruralz_state_write_queue_items"
+	StateInflightCalls                  = "ruralz_state_inflight_calls"
 	ConfigRevisionInfo                  = "ruralz_config_revision_info"
 	ConfigActivationsTotal              = "ruralz_config_activations_total"
 	ConfigActivationDurationSeconds     = "ruralz_config_activation_duration_seconds"
@@ -282,6 +283,7 @@ func Families() []Family {
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []Label{{Name: "kind", Values: Ops()}}, ClassListener, true},
 		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []Label{{Name: "kind", Values: WriteKinds()}}, ClassListener, false},
 		{StateWriteQueueItems, Gauge, BoundsNone, "{items}", nil, ClassListener, false},
+		{StateInflightCalls, Gauge, BoundsNone, "{calls}", nil, ClassListener, false},
 		{ConfigRevisionInfo, Gauge, BoundsNone, "1", []Label{{Name: "revision"}, {Name: "role", Values: []string{"active", "lkg"}}}, ClassListener, false},
 		{ConfigActivationsTotal, Counter, BoundsNone, "{activations}", []Label{{Name: "result", Values: []string{"activated", "rejected"}}, code}, ClassListener, false},
 		{ConfigActivationDurationSeconds, Histogram, BoundsControl, "s", []Label{{Name: "stage", Values: []string{"verify", "plugin_compile", "compile", "swap", "total"}}, {Name: "size_class", Values: []string{"le1000", "le10000", "gt10000"}}}, ClassListener, false},

@@ -196,7 +196,7 @@ func (s *Session) Soak(ctx context.Context, ss SoakSpec) (*benchrecord.Record, e
 	if err != nil {
 		return nil, err
 	}
-	so := SoakDrift(soakPoints(out.samples, out.MeasureStart, d), d)
+	so := SoakDrift(soakPoints(out.Samples, out.MeasureStart, d), d)
 	rec := s.baseRecord(sc, RunSpec{Build: ss.Build, Revision: ss.Revision}, time.Now().UTC().Truncate(time.Millisecond), benchrecord.KindSummary)
 	rec.Load = out.Record.Load
 	rec.Latency = benchrecord.Latency{External: out.Record.Latency.External, Internal: out.Record.Latency.Internal, HistogramFiles: []string{}}
@@ -219,14 +219,14 @@ func (s *Session) Soak(ctx context.Context, ss SoakSpec) (*benchrecord.Record, e
 
 // soakPoints converts the samples of the measured window [start,
 // start+d] to soak points.
-func soakPoints(samples []nodeSample, start time.Time, d time.Duration) []SoakPoint {
+func soakPoints(samples []NodeSample, start time.Time, d time.Duration) []SoakPoint {
 	var points []SoakPoint
 	for _, smp := range samples {
-		at := smp.at.Sub(start)
-		if smp.err != nil || at < 0 || at > d {
+		at := smp.At.Sub(start)
+		if smp.Err != nil || at < 0 || at > d {
 			continue
 		}
-		points = append(points, SoakPoint{At: at, RSS: smp.rss, Goroutines: int64(smp.metrics.Sum("ruralz_runtime_goroutines", promtext.Labels(nil)))})
+		points = append(points, SoakPoint{At: at, RSS: smp.RSS, Goroutines: int64(smp.Metrics.Sum("ruralz_runtime_goroutines", promtext.Labels(nil)))})
 	}
 	return points
 }

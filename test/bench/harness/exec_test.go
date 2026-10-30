@@ -8,7 +8,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
@@ -52,6 +54,43 @@ func TestRunnerStartAndStop(t *testing.T) {
 	t.Setenv("HARNESS_TEST_LABHOST", "nonexistent")
 	if _, err := p.Runner(RoleUpstream).Start(t.Context(), "bad", helperArgv(), ""); err == nil || !strings.Contains(err.Error(), "bad") {
 		t.Errorf("a service that never becomes ready = %v", err)
+	}
+}
+
+// TestRunnerStartReturnsOnReady starts lab services many at a time: each
+// Start returns once its ready line is read, and each Stop reads the final
+// response. The process waiter and Start once received the ready line's
+// outcome from one channel, so under scheduling pressure the waiter could
+// take it first and leave Start waiting until its context ended, which
+// hung a smoke run; and Wait closed the pipe StdoutPipe made as soon as
+// the service exited, cutting the final response Stop was reading.
+func TestRunnerStartReturnsOnReady(t *testing.T) {
+	p := Loopback(t.TempDir())
+	t.Setenv("HARNESS_TEST_LABHOST", "echo -listen 127.0.0.1:0")
+	for round := range 4 {
+		var wg sync.WaitGroup
+		errs := make(chan error, 32)
+		for range 32 {
+			wg.Go(func() {
+				// The context bounds the process's life, so it ends after
+				// Stop.
+				ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)
+				defer cancel()
+				proc, err := p.Runner(RoleUpstream).Start(ctx, "echo", helperArgv(), "")
+				if err != nil {
+					errs <- err
+					return
+				}
+				if _, err := proc.Stop(); err != nil {
+					errs <- err
+				}
+			})
+		}
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Fatalf("round %d: %v", round+1, err)
+		}
 	}
 }
 

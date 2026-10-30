@@ -61,6 +61,7 @@ func (d *Driver) options() rueidis.ClientOption {
 	opt.AlwaysPipelining = true
 	opt.AlwaysRESP2 = false
 	opt.PipelineMultiplex = multiplexOf(d.lim.PipelinedPerShard)
+	opt.RingScaleEachConn = ringScaleOf(d.lim.InFlight, d.lim.PipelinedPerShard)
 	opt.BlockingPoolSize = max(d.lim.DedicatedPerShard, 1)
 	switch d.topo {
 	case statestore.TopologyCluster:
@@ -82,6 +83,22 @@ func (d *Driver) options() rueidis.ClientOption {
 		opt.ForceSingleClient = true
 	}
 	return opt
+}
+
+// ringScaleOf returns the rueidis RingScaleEachConn that lets the
+// pipelined connections of one shard hold the Node's in-flight ceiling:
+// each connection's ring takes 2^scale commands and a put into a full ring
+// waits for a slot whatever the call's deadline, so with rueidis's default
+// of 2^10 the 2 pipelined connections of a shard held 2,048 of the 8,192
+// calls in flight and the rest blocked until they timed out
+// (docs/architecture/11-scalability-and-distributed-state.md "Per-Node
+// limits"). The scale is log2 of the ceiling over the shard's
+// 2^PipelineMultiplex connections, rounded up, and never below rueidis's
+// default.
+func ringScaleOf(inFlight, pipelined int) int {
+	pipes := 1 << multiplexOf(pipelined)
+	per := (max(inFlight, 1) + pipes - 1) / pipes
+	return max(bits.Len(uint(per-1)), rueidis.DefaultRingScale)
 }
 
 // multiplexOf returns the rueidis PipelineMultiplex of n pipelined

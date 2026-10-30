@@ -358,6 +358,7 @@ func (r *Registry) buildNode() error {
 		n.State.WritesDropped[k] = counter(catalog.StateWritesDroppedTotal, k)
 	}
 	n.State.QueueItems = gauge(catalog.StateWriteQueueItems, 0)
+	n.State.InFlight = gauge(catalog.StateInflightCalls, 0)
 	act := r.nodeGroup(catalog.ConfigActivationsTotal)
 	n.Config.Activated = act.shared.counter(0)
 	n.Config.Rejected = &codeH{t: act.code.table}

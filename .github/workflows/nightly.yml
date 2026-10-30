@@ -3,12 +3,16 @@
 #
 # nightly: CI stage 11
 # (docs/engineering/03-testing-and-quality-strategy.md, "Test pyramid"),
-# four parallel jobs, the longest 3 hours (target):
+# parallel jobs, the longest 3 hours (target):
 #   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
 #            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
 #            artifact and restored the next night.
 #   Chaos    every M1 chaos experiment, failure row and drill against at
 #            least 10 Nodes (CHAOS_SCALE=nightly).
+#   Functional  the benchmark functional variants: every M1 scenario and
+#            constants run at reduced scale on the loopback profile with
+#            the release build, asserting only criteria that hold on any
+#            hardware.
 #   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine.
 #            Until RH-1 is registered and the repository variable
 #            RH1_PROVISIONED=true is set, the job fails with an explicit
@@ -227,6 +231,33 @@ jobs:
           redis-server --version
       - run: make nightly NIGHTLY_JOB=chaos
 
+  functional:
+    name: 11. Functional
+    # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the State Store process
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
+      - name: Functional
+        run: |
+          # O1's 20,000 in-flight requests and O2's 12,000 client
+          # connections need tens of thousands of descriptors per process.
+          ulimit -n "$(ulimit -Hn)"
+          echo "open-file limit: $(ulimit -n)"
+          make nightly NIGHTLY_JOB=functional
+
   latency:
     name: 11. Latency
     # The self-hosted RH-1 runner runs only jobs of protected branches
@@ -378,7 +409,7 @@ jobs:
 
   issues:
     name: Nightly issues
-    needs: [fuzz-plan, fuzz, chaos, latency, records, supply-chain]
+    needs: [fuzz-plan, fuzz, chaos, functional, latency, records, supply-chain]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:

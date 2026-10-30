@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -89,6 +90,71 @@ func TestPreRoutingLimit(t *testing.T) {
 	}
 	if v := abortOf(func() { p.Do(nil, func() {}) }); v != nil {
 		t.Fatalf("a write after the flood panicked: %v", v)
+	}
+}
+
+// blockingFlusher is a ResponseWriter whose flush blocks until release
+// closes, as net/http's does for a client that never reads, such as an
+// HTTP/2 client with a zero stream window, until the write deadline ends
+// the stream.
+type blockingFlusher struct {
+	*httptest.ResponseRecorder
+	events  chan<- bool
+	release <-chan struct{}
+}
+
+// FlushError is the flush http.ResponseController calls: it reports true
+// on events, then blocks.
+func (b *blockingFlusher) FlushError() error {
+	b.events <- true
+	<-b.release
+	return os.ErrDeadlineExceeded
+}
+
+// TestPreRoutingHoldsSlotWhileFlushing holds 2,000 pre-routing responses
+// whose small bodies net/http buffered and whose flush blocks on clients
+// that never read: each keeps its slot until the flush ends, so the
+// 2,001st aborts without writing. Do released the slot when the write
+// returned, before any flush, so 2,500 such clients all got a response
+// written at once.
+func TestPreRoutingHoldsSlotWhileFlushing(t *testing.T) {
+	p := NewPreRouting(DefaultPreRouting, clocktest.New(epoch()))
+	release := make(chan struct{})
+	// Each response reports true when its flush blocks and false when Do
+	// returned.
+	events := make(chan bool, 2*DefaultPreRouting)
+	var done sync.WaitGroup
+	defer done.Wait()
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	defer unblock()
+	for range DefaultPreRouting {
+		done.Go(func() {
+			w := &blockingFlusher{ResponseRecorder: httptest.NewRecorder(), events: events, release: release}
+			p.Do(http.NewResponseController(w), func() {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"status":404}`))
+			})
+			events <- false
+		})
+	}
+	for range DefaultPreRouting {
+		if flushing := <-events; !flushing {
+			t.Fatal("a pre-routing response left Do without flushing to its client")
+		}
+	}
+	if p.InUse() != DefaultPreRouting {
+		t.Fatalf("InUse = %d with every flush blocked, want %d", p.InUse(), DefaultPreRouting)
+	}
+	rec := httptest.NewRecorder()
+	v := abortOf(func() { p.Do(http.NewResponseController(rec), func() { rec.WriteHeader(http.StatusNotFound) }) })
+	if err, _ := v.(error); !errors.Is(err, http.ErrAbortHandler) {
+		t.Fatalf("the 2,001st response panicked with %v, want http.ErrAbortHandler", v)
+	}
+	unblock()
+	done.Wait()
+	if p.InUse() != 0 {
+		t.Fatalf("InUse = %d after the flushes ended", p.InUse())
 	}
 }
 

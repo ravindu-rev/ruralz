@@ -80,9 +80,54 @@ func TestLoopbackProfile(t *testing.T) {
 	if p.HardwareProfile() != "loopback" || p.Scope || p.Checks {
 		t.Errorf("loopback = %+v: no scopes, no host checks", p)
 	}
+	// The scenario overlays name TLS files under the fixed secret root, so
+	// the loopback profile never roots it in its run directory.
+	if p.SecretRoot != LoopbackSecretRoot || p.TLSDir != LoopbackTLSDir || !strings.HasPrefix(p.TLSDir, p.SecretRoot+"/") {
+		t.Errorf("loopback secret root %q and TLS directory %q, want the fixed %q and %q", p.SecretRoot, p.TLSDir, LoopbackSecretRoot, LoopbackTLSDir)
+	}
+	if p.Services != func() Services { s := LoopbackServices(); s.StateStoreServer = p.Services.StateStoreServer; return s }() {
+		t.Errorf("loopback services = %+v, want the fixed LoopbackServices", p.Services)
+	}
 	for _, r := range Roles() {
 		if p.Runner(r).Remote() {
 			t.Errorf("loopback %s is remote", r)
+		}
+	}
+}
+
+// TestLocalStateStoreServer covers the loopback profile's State Store
+// server: RURALZ_TEST_REDIS_SERVER first, then valkey-server, then
+// redis-server on PATH, else the pinned image through docker ("").
+func TestLocalStateStoreServer(t *testing.T) {
+	onPath := func(names ...string) func(string) (string, error) {
+		return func(name string) (string, error) {
+			if slices.Contains(names, name) {
+				return "/usr/bin/" + name, nil
+			}
+			return "", os.ErrNotExist
+		}
+	}
+	env := func(v string) func(string) string {
+		return func(k string) string {
+			if k == EnvStateStoreServer {
+				return v
+			}
+			return ""
+		}
+	}
+	for _, c := range []struct {
+		name string
+		env  string
+		path []string
+		want string
+	}{
+		{"variable", "/opt/valkey/bin/valkey-server", []string{"valkey-server", "redis-server"}, "/opt/valkey/bin/valkey-server"},
+		{"valkey first", "", []string{"valkey-server", "redis-server"}, "/usr/bin/valkey-server"},
+		{"redis", "", []string{"redis-server"}, "/usr/bin/redis-server"},
+		{"docker", "", nil, ""},
+	} {
+		if got := LocalStateStoreServer(env(c.env), onPath(c.path...)); got != c.want {
+			t.Errorf("%s: LocalStateStoreServer = %q, want %q", c.name, got, c.want)
 		}
 	}
 }
@@ -106,6 +151,15 @@ func TestRunnerArgv(t *testing.T) {
 	}
 	if got := p.Runner(RoleGateway).Argv([]string{"ruralzd"}, ""); !slices.Equal(got, []string{"ruralzd"}) {
 		t.Errorf("no cpuset = %q, want no scope", got)
+	}
+	// The GOMEMLIMIT run's container: a scope property beside the cpuset.
+	got = p.Runner(RoleGateway).Argv([]string{"ruralzd"}, "2-5", "MemoryMax=2560M")
+	want2 := []string{"systemd-run", "--user", "--scope", "--quiet", "--collect", "-p", "AllowedCPUs=2-5", "-p", "MemoryMax=2560M", "--", "ruralzd"}
+	if !slices.Equal(got, want2) {
+		t.Errorf("scope with MemoryMax = %q, want %q", got, want2)
+	}
+	if got := p.Runner(RoleGateway).Argv([]string{"ruralzd"}, "", "MemoryMax=2560M"); !slices.Contains(got, "MemoryMax=2560M") || slices.Contains(got, "AllowedCPUs=") {
+		t.Errorf("scope without a cpuset = %q, want MemoryMax alone", got)
 	}
 }
 

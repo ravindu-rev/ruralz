@@ -1,0 +1,62 @@
+# O2's functional variant (test/bench/functional): O2's Bundle with
+# ratelimit-bench's stateStoreTimeout at 4 s, so a fault proxy delaying
+# every State Store reply 3 s at a lower rate fills the Node's 8,192 State
+# Store calls in flight on one loopback host without a timeout, and the
+# excess is skipped (docs/architecture/12-performance-budgets-and-benchmarking.md
+# "Suite layers"). Its numbers are never budget results.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: redis
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+  policies:
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:
+    maxConnections: 65536
+    maxPendingRequests: 1024
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  stateStoreTimeout: 4s            # above the variant's 3 s injected delay
+  config:
+    key: 'request.headers["x-bench-key"]'   # the generator cycles 100,000 values uniformly (target)
+    limits: [{requests: 20000, window: 1s}] # under 25,000/s per key (target); never denies at the offered rate

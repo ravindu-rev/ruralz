@@ -18,8 +18,9 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 )
 
-// MaxFoldWindows bounds the windows a Sink folds into at once.
-const MaxFoldWindows = 64
+// MaxFoldWindows bounds the windows a Sink folds into at once: a run's
+// 64 and as many filtered ones a driver adds.
+const MaxFoldWindows = 128
 
 // Fold makes a Sink fold one duration attribute of one log event into
 // latency histograms as the records arrive, instead of keeping them: the
@@ -71,9 +72,12 @@ var errNoFold = errors.New("otlpsink: the sink folds no attribute (Config.Fold i
 // window is one registered fold window.
 type window struct {
 	start, end time.Time
-	h          *loadgen.Histogram
-	count      int64
-	missing    int64
+	// where, when set, folds only the records whose attribute of that
+	// name is present and not empty (AddFilteredWindow).
+	where   string
+	h       *loadgen.Histogram
+	count   int64
+	missing int64
 }
 
 // folder folds the configured event's records into the windows.
@@ -151,6 +155,9 @@ func (f *folder) foldLocked(lr *logspb.LogRecord) {
 			continue
 		}
 		in = true
+		if w.where != "" && !nonEmptyAttr(lr, w.where) {
+			continue
+		}
 		if !ok {
 			w.missing++
 			continue
@@ -160,6 +167,27 @@ func (f *folder) foldLocked(lr *logspb.LogRecord) {
 	}
 	if !in {
 		f.stats.Outside++
+	}
+}
+
+// nonEmptyAttr reports whether attribute key is present and not empty: a
+// non-empty string, array or key-value list, or any other value.
+func nonEmptyAttr(lr *logspb.LogRecord, key string) bool {
+	v, ok := Attr(lr.GetAttributes(), key)
+	if !ok || v == nil {
+		return false
+	}
+	switch x := v.GetValue().(type) {
+	case nil:
+		return false
+	case *commonpb.AnyValue_StringValue:
+		return x.StringValue != ""
+	case *commonpb.AnyValue_ArrayValue:
+		return len(x.ArrayValue.GetValues()) > 0
+	case *commonpb.AnyValue_KvlistValue:
+		return len(x.KvlistValue.GetValues()) > 0
+	default:
+		return true
 	}
 }
 
@@ -188,6 +216,14 @@ func durationAttr(lr *logspb.LogRecord, key string) (time.Duration, bool) {
 // [start, end). It fails without Config.Fold, for a name in use, an empty
 // window or more than MaxFoldWindows windows.
 func (s *Sink) AddWindow(name string, start, end time.Time) error {
+	return s.AddFilteredWindow(name, start, end, "")
+}
+
+// AddFilteredWindow is AddWindow folding only the records whose attribute
+// where is present and not empty, such as the access records of requests
+// that applied a failureMode (failure_modes); an empty where folds every
+// record.
+func (s *Sink) AddFilteredWindow(name string, start, end time.Time, where string) error {
 	if s.fold == nil {
 		return errNoFold
 	}
@@ -207,7 +243,7 @@ func (s *Sink) AddWindow(name string, start, end time.Time) error {
 	if len(f.windows) >= MaxFoldWindows {
 		return fmt.Errorf("otlpsink: at most %d fold windows", MaxFoldWindows)
 	}
-	f.windows[name] = &window{start: start, end: end, h: h}
+	f.windows[name] = &window{start: start, end: end, where: where, h: h}
 	return nil
 }
 

@@ -468,6 +468,8 @@ ruralz_state_writes_dropped_total{kind="cache_set"} 0 start=0s
 ruralz_state_writes_dropped_total{kind="cache_invalidate"} 0 start=0s
 # ruralz_state_write_queue_items gauge {items}
 ruralz_state_write_queue_items{} 0 start=0s
+# ruralz_state_inflight_calls gauge {calls}
+ruralz_state_inflight_calls{} 0 start=0s
 # ruralz_config_revision_info gauge 1
 ruralz_config_revision_info{revision="rev-0123456789ab",role="active"} 1 start=1s
 # ruralz_config_activations_total counter {activations} monotonic=true cumulative=true
@@ -568,7 +570,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
 # ruralz_telemetry_series gauge {series}
-ruralz_telemetry_series{state="live"} 1558 start=0s
+ruralz_telemetry_series{state="live"} 1559 start=0s
 ruralz_telemetry_series{state="retiring"} 10 start=0s
 # ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
 ruralz_tap_events_dropped_total{} 0 start=0s

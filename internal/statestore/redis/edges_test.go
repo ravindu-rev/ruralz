@@ -270,6 +270,30 @@ func TestShardRegistryBound(t *testing.T) {
 	}
 }
 
+// TestRingScaleOf checks that a shard's pipelined connections hold the
+// Node's whole in-flight ceiling: with rueidis's default ring of 1,024
+// commands per connection, the 2 pipelined connections of a shard held
+// 2,048 of the 8,192 calls in flight and the rest blocked in the full
+// ring past their timeout, so O2's calls never plateaued at 8,192.
+func TestRingScaleOf(t *testing.T) {
+	for _, c := range []struct{ inFlight, pipelined, want int }{
+		{8192, 2, 12}, {8192, 1, 13}, {8192, 4, 11}, {8192, 3, 12}, {1000, 2, 10}, {0, 2, 10}, {100000, 2, 16},
+	} {
+		got := ringScaleOf(c.inFlight, c.pipelined)
+		if got != c.want {
+			t.Errorf("ringScaleOf(%d, %d) = %d, want %d", c.inFlight, c.pipelined, got, c.want)
+		}
+		if pipes := 1 << multiplexOf(c.pipelined); pipes<<got < c.inFlight {
+			t.Errorf("ringScaleOf(%d, %d) = %d: %d connections of 2^%d slots hold fewer calls than the ceiling", c.inFlight, c.pipelined, got, pipes, got)
+		}
+	}
+	d := Driver{lim: statestore.DefaultLimits(), ep: endpoint{opt: rueidis.ClientOption{InitAddress: []string{"127.0.0.1:6379"}}}}
+	opt := d.options()
+	if pipes := 1 << opt.PipelineMultiplex; pipes<<opt.RingScaleEachConn < statestore.DefaultLimits().InFlight {
+		t.Errorf("options() rings hold %d calls per shard, under the %d in flight", pipes<<opt.RingScaleEachConn, statestore.DefaultLimits().InFlight)
+	}
+}
+
 // TestMultiplexOf checks the pipelined connections per shard: rueidis
 // opens 2^PipelineMultiplex.
 func TestMultiplexOf(t *testing.T) {

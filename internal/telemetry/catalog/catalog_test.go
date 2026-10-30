@@ -100,6 +100,7 @@ func m1Families() []family {
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []string{"kind=" + singleOps}, L, true},
 		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []string{"kind=refund|cache_set|cache_invalidate"}, L, false},
 		{StateWriteQueueItems, Gauge, BoundsNone, "{items}", nil, L, false},
+		{StateInflightCalls, Gauge, BoundsNone, "{calls}", nil, L, false},
 		{ConfigRevisionInfo, Gauge, BoundsNone, "1", []string{"revision", "role=active|lkg"}, L, false},
 		{ConfigActivationsTotal, Counter, BoundsNone, "{activations}", []string{"result=activated|rejected", "code!"}, L, false},
 		{ConfigActivationDurationSeconds, Histogram, BoundsControl, "s", []string{"stage=verify|plugin_compile|compile|swap|total", "size_class=le1000|le10000|gt10000"}, L, false},

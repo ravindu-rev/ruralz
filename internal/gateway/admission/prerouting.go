@@ -46,8 +46,13 @@ func (p *PreRouting) InUse() int64 { return max(0, p.n.Load()) }
 
 // Do writes one pre-routing response: it takes a slot, sets the write
 // deadline to now plus PreRoutingWriteTimeout through rc (a writer that
-// does not support deadlines is written without one), calls write and
-// releases the slot, even when write panics. At the limit it calls
+// does not support deadlines is written without one), calls write,
+// flushes the response through rc and releases the slot, even when write
+// panics. The flush holds the slot until the client took the response or
+// the deadline ended it: net/http buffers a small response and would
+// otherwise send it only after the handler returns, so a client that
+// never reads, such as an HTTP/2 client with a zero stream window, blocked
+// the handler outside the bound. At the limit it calls
 // panic(http.ErrAbortHandler) without calling write: net/http then aborts
 // the response silently (the HTTP/1.1 connection closes, the HTTP/2 stream
 // resets) and logs nothing.
@@ -61,4 +66,10 @@ func (p *PreRouting) Do(rc *http.ResponseController, write func()) {
 		_ = rc.SetWriteDeadline(p.clk.Now().Add(PreRoutingWriteTimeout))
 	}
 	write()
+	if rc != nil {
+		// A failed flush, the deadline's or a closed connection's, leaves
+		// nothing more to write; ErrNotSupported leaves the response to
+		// net/http's own flush.
+		_ = rc.Flush()
+	}
 }

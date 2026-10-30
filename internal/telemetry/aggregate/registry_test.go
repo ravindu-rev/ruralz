@@ -159,6 +159,9 @@ func TestStateMetricsIndexes(t *testing.T) {
 		st.WritesDropped[k].Add(3, uint64(1000+k))
 	}
 	st.QueueItems.Set(7)
+	st.InFlight.Add(0, 3)
+	st.InFlight.Add(1, 2)
+	st.InFlight.Add(0, -1)
 	pts := collectNow(t, r, clk)
 	for op, opName := range catalog.Ops() {
 		for res, resName := range results {
@@ -187,6 +190,10 @@ func TestStateMetricsIndexes(t *testing.T) {
 	}
 	if got := mustGet(t, pts, catalog.StateWriteQueueItems+"{}").value; got != 7 {
 		t.Errorf("queue items = %v", got)
+	}
+	// ruralz_state_inflight_calls is unstriped: Adds on any stripe sum.
+	if got := mustGet(t, pts, catalog.StateInflightCalls+"{}").value; got != 4 {
+		t.Errorf("in-flight calls = %v, want 4", got)
 	}
 }
 

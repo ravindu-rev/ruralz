@@ -38,7 +38,8 @@
 // the sentinels, in the client's HELLO, and its database is the
 // primary's; sentinels get no script load. The primary is one shard
 // whatever its address. Commands always go through the auto-pipelined connections
-// (2 per shard, rueidis PipelineMultiplex 1); up to 8 dedicated
+// (2 per shard, rueidis PipelineMultiplex 1), whose rings together hold
+// the Node's 8,192 calls in flight (ringScaleOf); up to 8 dedicated
 // connections per shard open lazily and no M1 call uses one. Client-side
 // caching and retries are off: no call makes a second round trip, and a
 // cluster command follows at most MaxRedirects MOVED or ASK replies.

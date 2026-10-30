@@ -501,8 +501,9 @@ func New(ctx context.Context, cfg Config) *Manager {
 		deps.Limits = statestore.DefaultLimits()
 	}
 	if deps.InFlight == nil {
-		// One ceiling for the Node: every driver shares it.
-		deps.InFlight = statestore.NewInFlight(deps.Limits.InFlight)
+		// One ceiling for the Node: every driver shares it, and its use is
+		// the Node's ruralz_state_inflight_calls.
+		deps.InFlight = statestore.NewInFlight(deps.Limits.InFlight, deps.Metrics)
 	}
 	every := cfg.StatusInterval
 	if every <= 0 {

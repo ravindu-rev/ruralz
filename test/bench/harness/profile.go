@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -114,19 +115,50 @@ type Services struct {
 	StateStoreServer string `json:"stateStoreServer,omitempty"`
 }
 
+// Fixed paths of the loopback profile: the scenario Bundles' loopback
+// overlays name the run's listener key pair under this secret root and its
+// CA under the TLS directory inside it, so the profile's Revision digests
+// stay equal across runs (PBB "Scenarios"). Like the profile's fixed
+// ports, they let one loopback run at a time use a host.
+const (
+	LoopbackSecretRoot = "/tmp/ruralz-bench/secrets"
+	LoopbackTLSDir     = LoopbackSecretRoot + "/tls"
+)
+
+// EnvStateStoreServer names the valkey-server or redis-server executable
+// the loopback profile supervises, as the State Store suites read it.
+const EnvStateStoreServer = "RURALZ_TEST_REDIS_SERVER"
+
 // Loopback returns the loopback profile rooted at dir: every role on the
 // harness's own host, its processes started without scopes, no host
-// checks.
+// checks, the fixed secret root and TLS directory, and the State Store
+// server that LocalStateStoreServer finds.
 func Loopback(dir string) *Profile {
 	p := &Profile{
 		Name: ProfileLoopback, Hosts: map[Role]Host{},
-		SecretRoot: filepath.Join(dir, "secrets"), TLSDir: filepath.Join(dir, "tls"), GOMAXPROCS: 0,
+		SecretRoot: LoopbackSecretRoot, TLSDir: LoopbackTLSDir, GOMAXPROCS: 0,
 	}
 	for _, r := range Roles() {
 		p.Hosts[r] = Host{Address: "127.0.0.1", Dir: filepath.Join(dir, "hosts", string(r))}
 	}
 	p.Services = LoopbackServices()
+	p.Services.StateStoreServer = LocalStateStoreServer(os.Getenv, exec.LookPath)
 	return p
+}
+
+// LocalStateStoreServer returns the State Store server a loopback run
+// supervises: EnvStateStoreServer, else valkey-server or redis-server on
+// PATH, else "", which runs the pinned Valkey 9 image with docker.
+func LocalStateStoreServer(getenv func(string) string, lookPath func(string) (string, error)) string {
+	if v := getenv(EnvStateStoreServer); v != "" {
+		return v
+	}
+	for _, name := range []string{"valkey-server", "redis-server"} {
+		if p, err := lookPath(name); err == nil {
+			return p
+		}
+	}
+	return ""
 }
 
 // LoopbackServices are the loopback profile's fixed service addresses,

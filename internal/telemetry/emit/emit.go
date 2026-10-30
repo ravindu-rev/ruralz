@@ -348,6 +348,10 @@ type StateMetrics struct {
 	Ops           [NumStateOps]Counter // by kind (single-operation ops)
 	WritesDropped [NumWriteKinds]Counter
 	QueueItems    Gauge
+	// InFlight is ruralz_state_inflight_calls: the State Store calls
+	// holding a slot of the Node's in-flight ceiling (statestore.InFlight),
+	// added to as a call takes its slot and subtracted from as it frees it.
+	InFlight Gauge
 }
 
 // ConfigMetrics are the configuration and snapshot handles.

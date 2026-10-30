@@ -15,7 +15,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/cel"
@@ -39,10 +41,20 @@ const (
 // timed into an HdrHistogram inside ruralzd's cpuset.
 type Component struct {
 	Name string
-	// Calls are timed per run, after Warm untimed calls.
+	// Calls are timed per run, after Warm untimed calls, spread evenly
+	// over Parallel goroutines (1 when 0) that call at once, under
+	// GOMAXPROCS Procs (the worker's when 0): the metric aggregates at
+	// 4 P and 32 P.
 	Calls, Warm int
-	// Setup returns the call.
-	Setup func(ctx context.Context) (func() error, error)
+	Parallel    int
+	Procs       int
+	// TestCalls is the timed calls of the package's own quick run; 0 is
+	// 1,000. The loader ladder's larger rungs, whose one call takes
+	// seconds, time one.
+	TestCalls int
+	// Setup returns the call, which takes its goroutine's index below
+	// workers, and a function releasing what it holds (nil for none).
+	Setup func(ctx context.Context, workers int) (call func(worker int) error, release func(), err error)
 	// Budgets are the targets the documents tie to the benchmark; other
 	// per-stage values are reported.
 	Budgets []Budget
@@ -56,7 +68,7 @@ func celBudget() Budget {
 
 // Components returns the component benchmarks.
 func Components() []Component {
-	return []Component{
+	return append([]Component{
 		{Name: "cel-match", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
 			Setup: celCall(expr.PlaceRouteMatchWhen, `request.headers["x-tenant"] == "acme"`, true)},
 		{Name: "cel-key-header", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
@@ -66,7 +78,7 @@ func Components() []Component {
 		{Name: "rz-rt-005-rejection", Calls: 200_000, Warm: 20_000, Setup: rejectionCall, Budgets: []Budget{{
 			ID: "rz-rt-005-mean-cpu", Value: "<= 16µs mean CPU (target)", Kind: MaxMeanCPU, Limit: float64(16 * time.Microsecond),
 		}}},
-	}
+	}, m1Components()...)
 }
 
 // FindComponent returns the component name.
@@ -93,34 +105,34 @@ func benchVars() *expr.Vars {
 
 // celCall compiles src at place under the example input caps and returns
 // one evaluation.
-func celCall(place expr.PlaceID, src string, isBool bool) func(context.Context) (func() error, error) {
-	return func(ctx context.Context) (func() error, error) {
+func celCall(place expr.PlaceID, src string, isBool bool) func(context.Context, int) (func(int) error, func(), error) {
+	return func(ctx context.Context, _ int) (func(int) error, func(), error) {
 		c, err := cel.New()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		caps := expr.InputCaps{RequestHeaderBytes: 64 << 10, ClaimsBytes: 64 << 10}
 		prg, iss := c.NewBuilder(nil, caps).Compile(expr.Site{Place: place}, src)
 		if prg == nil {
-			return nil, fmt.Errorf("harness: compile %q: %v", src, iss)
+			return nil, nil, fmt.Errorf("harness: compile %q: %v", src, iss)
 		}
 		v := benchVars()
 		if isBool {
-			return func() error { _, err := prg.EvalBool(ctx, v); return err }, nil
+			return func(int) error { _, err := prg.EvalBool(ctx, v); return err }, nil, nil
 		}
-		return func() error { _, err := prg.EvalString(ctx, v); return err }, nil
+		return func(int) error { _, err := prg.EvalString(ctx, v); return err }, nil, nil
 	}
 }
 
 // rejectionCall is the RZ-RT-005 rejection's work: decode an S1 request's
 // header block, fail the admission check of a full ceiling and write the
 // 503 problem response.
-func rejectionCall(context.Context) (func() error, error) {
+func rejectionCall(context.Context, int) (func(int) error, func(), error) {
 	raw := []byte("GET /bench/1k HTTP/1.1\r\nHost: gateway.bench.example\r\nUser-Agent: oha/1.16.0\r\nAccept: */*\r\n\r\n")
 	units := admission.NewUnits(0)
 	w := &discard{h: http.Header{}}
 	br := bufio.NewReader(bytes.NewReader(raw))
-	return func() error {
+	return func(int) error {
 		br.Reset(bytes.NewReader(raw))
 		req, err := http.ReadRequest(br)
 		if err != nil {
@@ -132,7 +144,7 @@ func rejectionCall(context.Context) (func() error, error) {
 		clear(w.h)
 		problem.Write(w, problem.New(admission.CodeFull, req.Header.Get("traceparent")), nil)
 		return nil
-	}, nil
+	}, nil, nil
 }
 
 type discard struct{ h http.Header }
@@ -164,31 +176,61 @@ func RunComponent(ctx context.Context, name string, calls int) (*ComponentResult
 	if calls > 0 {
 		c.Calls, c.Warm = calls, calls/10
 	}
-	call, err := c.Setup(ctx)
+	if c.Procs > 0 {
+		defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(c.Procs))
+	}
+	workers := max(c.Parallel, 1)
+	call, release, err := c.Setup(ctx, workers)
 	if err != nil {
 		return nil, err
 	}
-	for range c.Warm {
-		if err := call(); err != nil {
+	if release != nil {
+		defer release()
+	}
+	for i := range c.Warm {
+		if err := call(i % workers); err != nil {
 			return nil, err
 		}
 	}
-	h, err := loadgen.NewHistogram(loadgen.DefaultLowest, loadgen.DefaultHighest, loadgen.DefaultDigits)
-	if err != nil {
-		return nil, err
+	hs := make([]*loadgen.Histogram, workers)
+	for i := range hs {
+		if hs[i], err = loadgen.NewHistogram(loadgen.DefaultLowest, loadgen.DefaultHighest, loadgen.DefaultDigits); err != nil {
+			return nil, err
+		}
 	}
+	errs := make([]error, workers)
 	before, _ := proc.SampleProc("/proc", os.Getpid())
 	start := time.Now()
-	for range c.Calls {
-		t0 := time.Now()
-		err := call()
-		h.Record(time.Since(t0))
-		if err != nil {
+	var wg sync.WaitGroup
+	for w := range workers {
+		n := c.Calls / workers
+		if w < c.Calls%workers {
+			n++
+		}
+		wg.Go(func() {
+			for range n {
+				t0 := time.Now()
+				err := call(w)
+				hs[w].Record(time.Since(t0))
+				if err != nil {
+					errs[w] = err
+					return
+				}
+			}
+		})
+	}
+	wg.Wait()
+	wall := time.Since(start)
+	after, _ := proc.SampleProc("/proc", os.Getpid())
+	if err := errors.Join(errs...); err != nil {
+		return nil, err
+	}
+	h := hs[0]
+	for _, o := range hs[1:] {
+		if err := h.Merge(o); err != nil {
 			return nil, err
 		}
 	}
-	wall := time.Since(start)
-	after, _ := proc.SampleProc("/proc", os.Getpid())
 	return &ComponentResult{
 		Name: name, Calls: c.Calls, Histogram: lab.EncodeHistogram(h),
 		CPUSeconds: ((after.UserCPU + after.SysCPU) - (before.UserCPU + before.SysCPU)).Seconds(), WallSeconds: wall.Seconds(),

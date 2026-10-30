@@ -1,0 +1,81 @@
+# O1's functional variant (test/bench/functional): S3's Bundle, the one
+# O1 loads on RH-1, with 30 s Upstream and Route timeouts, so a mock delay
+# of 10 s at a tenth of O1a's rate fills the Node's 20,000 in-flight units
+# on one loopback host and the excess gets RZ-RT-005
+# (docs/architecture/12-performance-budgets-and-benchmarking.md "Suite
+# layers"). Its numbers are never budget results.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+    - name: https
+      protocol: https
+      port: 8443
+      tls:
+        certificates:
+          - name: bench
+            certificate: {secretRef: {provider: file, name: /etc/ruralz/bench/listener.crt}}
+            privateKey: {secretRef: {provider: file, name: /etc/ruralz/bench/listener.key}}
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: memory
+  policies:
+    - name: jwt-bench
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:
+    maxConnections: 65536
+    maxPendingRequests: 1024
+  timeout: 30s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 30s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example/.well-known/jwks.json
+        audiences: [bench]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  config:
+    key: 'request.headers["x-bench-key"]'
+    limits: [{requests: 20000, window: 1s}]
