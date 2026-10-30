@@ -561,10 +561,17 @@ func (f *fakeFactory) Build(ctx context.Context, env filter.BuildEnv) (filter.Fi
 	f.mu.Lock()
 	f.envs = append(f.envs, env)
 	b := f.behave[name]
-	if b.share && f.shared[name] != nil {
-		flt := f.shared[name]
-		f.mu.Unlock()
-		return flt, nil
+	if b.share {
+		// The compiler builds a Policy's attachments concurrently, so the
+		// lookup and the store of the shared Filter hold one lock.
+		defer f.mu.Unlock()
+		if f.shared[name] == nil {
+			if f.shared == nil {
+				f.shared = map[string]filter.Filter{}
+			}
+			f.shared[name] = f.newLocked(name, env.Scope, b)
+		}
+		return f.shared[name], nil
 	}
 	f.mu.Unlock()
 	switch {
@@ -584,27 +591,24 @@ func (f *fakeFactory) Build(ctx context.Context, env filter.BuildEnv) (filter.Fi
 	case b.plain:
 		return plainFilter{}, nil
 	}
-	base := &fakeFilter{policy: name, scope: env.Scope, closePanics: b.closePanics}
 	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.newLocked(name, env.Scope, b), nil
+}
+
+// newLocked records and returns a new fake Filter of f's type for Policy
+// name; f.mu is held.
+func (f *fakeFactory) newLocked(name string, scope phase.Scope, b behavior) filter.Filter {
+	base := &fakeFilter{policy: name, scope: scope, closePanics: b.closePanics}
 	f.built = append(f.built, base)
-	f.mu.Unlock()
-	var flt filter.Filter = base
 	switch f.typ {
 	case v1alpha1.PolicyTypeCache:
-		flt = &cacheFilter{fakeFilter: base}
+		return &cacheFilter{fakeFilter: base}
 	case v1alpha1.PolicyTypeRateLimit, v1alpha1.PolicyTypeQuota:
-		flt = &limitFilter{fakeFilter: base}
+		return &limitFilter{fakeFilter: base}
 	default:
+		return base
 	}
-	if b.share {
-		f.mu.Lock()
-		if f.shared == nil {
-			f.shared = map[string]filter.Filter{}
-		}
-		f.shared[name] = flt
-		f.mu.Unlock()
-	}
-	return flt, nil
 }
 
 // envsOf returns the BuildEnvs of Policy name, every one for "".
