@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"net/http"
+	"reflect"
 	"slices"
 	"sync"
 	"testing"
@@ -252,7 +253,7 @@ func TestPutDropsRequestState(t *testing.T) {
 	if len(x.rateLimits) != 0 || x.resp.set || x.resp.header != nil || x.gated || x.bodyDec.ready.Load() {
 		t.Error("Put kept rate limits, the response or the body view")
 	}
-	if x.vars != (expr.Vars{}) || x.out != (snapshot.Outbound{}) {
+	if x.vars != (expr.Vars{}) || !reflect.ValueOf(x.out).IsZero() {
 		t.Error("Put kept the activation or the Outbound")
 	}
 	f.pool.Put(x) // a second Put does nothing
