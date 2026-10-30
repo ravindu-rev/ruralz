@@ -58,14 +58,14 @@ func marshalExpected(e expectedDoc) ([]byte, error) {
 func entryName() *regexp.Regexp { return regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`) }
 
 // TestGolden checks the golden corpus: the newest entry of each example
-// holds its files under examples/ (with -update, a changed example becomes
-// a new entry), every entry has the layout, and every entry, rendered
-// without --env and for each Environment of its environments.yaml at each
-// schema level this release renders, reproduces its level's outputs byte
-// for byte, on every path. A JSON twin renders to its Bundle's digests and
-// canonical bytes, a rendered Bundle loads back to its digest and renders
-// to its own bytes on every path, and the Node's file-mode load of the
-// Bundle reports the CLI's diagnostics and digest.
+// holds its Bundle's files under examples/ (with -update, a changed
+// example becomes a new entry), every entry has the layout, and every
+// entry, rendered without --env and for each Environment of its
+// environments.yaml at each schema level this release renders, reproduces
+// its level's outputs byte for byte, on every path. A JSON twin renders to
+// its Bundle's digests and canonical bytes, a rendered Bundle loads back
+// to its digest and renders to its own bytes on every path, and the Node's
+// file-mode load of the Bundle reports the CLI's diagnostics and digest.
 func TestGolden(t *testing.T) {
 	s := mustSuite(t)
 	held := map[string]bool{}
@@ -511,13 +511,17 @@ func exampleBundles(t testing.TB, s *suite) []string {
 }
 
 // exampleFiles returns what an example entry holds for example x: bundle/
-// the files of examples/x, environments.yaml that of examples/control, and
-// for the example Bundle its JSON twin.
+// the Bundle's files of examples/x, its configuration and .ruralzignore
+// files (isExampleFile), so a file beside them such as the quickstart's
+// quickstart.sh is no input; environments.yaml that of examples/control;
+// and for the example Bundle its JSON twin.
 func exampleFiles(t *testing.T, s *suite, x string) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}
 	for name, data := range readTree(t, s.path(examplesDir+"/"+x)) {
-		out[corpus.BundleDir+"/"+name] = data
+		if isExampleFile(name) {
+			out[corpus.BundleDir+"/"+name] = data
+		}
 	}
 	env, err := os.ReadFile(s.path(examplesDir + "/" + controlDir + "/" + environmentsName))
 	if err != nil {

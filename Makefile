@@ -249,24 +249,23 @@ else
 	go test -tags e2e -timeout $(E2E_TIMEOUT) $(TEST_FLAGS) ./test/e2e/...
 endif
 
+# The macOS runners' make is GNU Make 3.81, which ignores .SHELLFLAGS, so
+# the recipe takes the script's status from PIPESTATUS instead of pipefail.
 quickstart: ## Stage 10 SM-7: examples/quickstart/quickstart.sh from an archive to a first proxied request within QUICKSTART_MAX_SECONDS
-ifeq ($(wildcard examples/quickstart/quickstart.sh),)
-	@echo "quickstart: skip: examples/quickstart/quickstart.sh is not present yet"
-else
 	archive="$${RURALZ_QUICKSTART_ARCHIVE:-}"; \
 	if [[ -z "$$archive" ]]; then \
 		archive=$$(compgen -G '$(RELEASE_DIR)/ruralzd_*_$(HOST_OS)_$(HOST_ARCH).tar.gz' | head -n 1 || true); \
 	fi; \
 	if [[ -n "$$archive" ]]; then echo "quickstart: archive $$archive"; else echo "quickstart: no local archive; the script downloads the release"; fi; \
 	log=$$(mktemp); trap 'rm -f "$$log"' EXIT; \
-	RURALZ_QUICKSTART_ARCHIVE="$$archive" bash examples/quickstart/quickstart.sh 2>&1 | tee "$$log"; \
+	set +e; RURALZ_QUICKSTART_ARCHIVE="$$archive" bash examples/quickstart/quickstart.sh 2>&1 | tee "$$log"; rc=$${PIPESTATUS[0]}; set -e; \
+	if [[ $$rc -ne 0 ]]; then echo "quickstart: examples/quickstart/quickstart.sh exited $$rc" >&2; exit "$$rc"; fi; \
 	secs=$$(sed -nE 's/.*first proxied request after ([0-9]+([.][0-9]+)?) s.*/\1/p' "$$log" | tail -n 1); \
 	if [[ -z "$$secs" ]]; then echo "quickstart: the script did not report 'first proxied request after <seconds> s'" >&2; exit 1; fi; \
 	if awk -v s="$$secs" -v m=$(QUICKSTART_MAX_SECONDS) 'BEGIN { exit !(s > m) }'; then \
 		echo "quickstart: first proxied request after $$secs s, above $(QUICKSTART_MAX_SECONDS) s (SM-7)" >&2; exit 1; \
 	fi; \
 	echo "quickstart: first proxied request after $$secs s (limit $(QUICKSTART_MAX_SECONDS) s)"
-endif
 
 nightly: ## Stage 11: one nightly job, NIGHTLY_JOB=fuzz|chaos|latency
 	@case "$(NIGHTLY_JOB)" in \

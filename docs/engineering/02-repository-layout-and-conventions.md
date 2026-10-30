@@ -91,7 +91,7 @@ github.com/ravindu-rev/ruralz
 ├── console/                     Ruralz Console TypeScript source
 ├── deploy/                      container/, systemd/, grafana/, benchhost/; helm/ chart, crds/ (generated)
 ├── test/                        conformance/, integration/, property/, e2e/, compose/, t5/, chaos/,
-│                                bench/, fixtures/
+│                                bench/, quickstart/, fixtures/
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
 ├── scripts/                     install-tools.sh and CI helper scripts
@@ -157,7 +157,7 @@ test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/han
       statestore/statestoretest{,/redisserver,/respproxy}
       testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus}
       testkit/{mockup,mockidp,otlpsink,l4lb,loadgen,topology}
-      test/{conformance/config,conformance/protocol,property,e2e,chaos,chaos/gameday,compose,t5}
+      test/{conformance/config,conformance/protocol,property,e2e,chaos,chaos/gameday,compose,t5,quickstart}
       test/integration/{cel,telemetry,security,statestore}    test/bench/{harness,scenarios,gen,functional,labhost}
 tool  tool/{repocheck,commitcheck,depgate,schemagen,telemetrygen,benchgate,sizegate,fuzzplan}
       tool/{releasekit,releasegate}    tool/modpin (temporary module pins, removed within M1)
