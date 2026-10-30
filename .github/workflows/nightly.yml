@@ -23,9 +23,12 @@
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
 # A failure opens a nightly-failure issue (a fuzz crasher opens a
 # fuzz-crasher issue with the failing input) and blocks the next release.
-# release.yml re-runs it on the tagged commit through workflow_call and
-# grants actions: read and issues: write; nightly has no path filters, so
-# `all` changes nothing.
+# release.yml re-runs it on the tagged commit through workflow_call with
+# rotation-all and, once a release exists, the previous release's verified
+# linux/amd64 ruralzd (baseline-artifact, an artifact of the release run,
+# and baseline-version), and grants contents: write (the records job),
+# actions: read and issues: write; nightly has no path filters, so `all`
+# changes nothing.
 name: nightly
 
 on:
@@ -67,6 +70,14 @@ on:
         description: Run every slot of the benchmark rotation without the 3-hour limit (release)
         type: boolean
         default: false
+      baseline-artifact:
+        description: Artifact of the calling run holding the previous release's verified linux/amd64 ruralzd, the release comparisons' baseline; empty judges absolute budgets only
+        type: string
+        default: ""
+      baseline-version:
+        description: The previous release's version without its v, with baseline-artifact
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -264,12 +275,30 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
+      - name: The previous release's ruralzd
+        if: inputs.baseline-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.baseline-artifact }}
+          path: ${{ runner.temp }}/baseline
       - name: Latency
         env:
           BENCH_ROTATION_ALL: ${{ inputs.rotation-all && 'true' || 'false' }}
           BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json
+          BASELINE_ARTIFACT: ${{ inputs.baseline-artifact }}
+          BASELINE_VERSION: ${{ inputs.baseline-version }}
         run: |
           if [[ -f .bench-records/state.json ]]; then export BENCH_STATE="$PWD/.bench-records/state.json"; fi
+          if [[ -n "$BASELINE_ARTIFACT" ]]; then
+            # The version reaches the harness only through the
+            # environment; it must be a release version.
+            if [[ ! "$BASELINE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error title=Invalid baseline-version::baseline-version must be X.Y.Z with baseline-artifact"
+              exit 2
+            fi
+            chmod +x "$RUNNER_TEMP/baseline/ruralzd"
+            export BENCH_BASELINE_RURALZD="$RUNNER_TEMP/baseline/ruralzd" BENCH_BASELINE_VERSION="$BASELINE_VERSION"
+          fi
           make nightly NIGHTLY_JOB=latency
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -278,6 +307,8 @@ jobs:
           path: dist/bench/
           if-no-files-found: ignore
           retention-days: 90
+          # A re-run of the job replaces its records.
+          overwrite: true
 
   records:
     name: 11. Benchmark records

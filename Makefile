@@ -116,20 +116,38 @@ PREVIOUS_IMAGE ?=
 export IMAGE PREVIOUS_IMAGE
 IMAGE_CHECKS_TIMEOUT ?= 60m
 # Stage 12. NOTICES_DIR receives depgate's per-artifact NOTICE and
-# THIRD_PARTY_LICENSES, which the archives and the image ship. An empty
-# NOTES_FROM starts the notes at the newest vX.Y.Z tag before NOTES_TO,
-# never a release candidate's, or at the repository root for the first
-# release (root names it too); SKIPPED_GATES names the
-# ruralz.skippedgates.v1 file that internal/tool/releasegate writes
-# (empty: no gate skipped). The notes inputs
-# can come from workflow inputs, so recipes read them from the
-# environment.
+# THIRD_PARTY_LICENSES, which the archives and the image ship; IMAGE_DIR
+# the image build's OCI layout and SBOM_DIR Syft's scan of each platform
+# image. RELEASE_PART=image runs steps 1 and 2 (binaries, notices, image)
+# and RELEASE_PART=package steps 3 to 5 on what an image part left in
+# dist/, as the image and package jobs of release-build.yml do; empty runs
+# every step. An empty NOTES_FROM starts the notes at the newest vX.Y.Z tag
+# before NOTES_TO, never a release candidate's, or at the repository root
+# for the first release (root names it too). SKIPPED_GATES names the
+# ruralz.skippedgates.v1 file that release-gates writes and the notes read
+# (empty: no gate skipped). release-gates decides the gates of RELEASE_TAG
+# (default $GITHUB_REF_NAME) from the jobs of the release run RELEASE_RUN
+# (default $GITHUB_RUN_ID), and checks the commits of RELEASE_RANGE
+# (empty: since the newest vX.Y.Z tag before the commit, or after
+# fc3a100 for the first release). These inputs can come from workflow
+# inputs, so recipes read them from the environment.
 RELEASE_DIR ?= $(DIST)/release
 NOTICES_DIR ?= $(DIST)/notices
+IMAGE_DIR ?= $(DIST)/image
+SBOM_DIR ?= $(DIST)/sbom
+IMAGE_REPOSITORY := ghcr.io/ravindu-rev/ruralzd
+IMAGE_PLATFORMS := linux/amd64 linux/arm64
+# The newest commit without a sign-off: the first release's DCO and
+# Deprecated footer checks start after it.
+FIRST_SIGNED_BASE := fc3a1009d6c59cf5f78c18ee8b05901451003383
+RELEASE_PART ?=
 NOTES_FROM ?=
 NOTES_TO ?= HEAD
 SKIPPED_GATES ?=
-export NOTES_FROM NOTES_TO SKIPPED_GATES
+RELEASE_TAG ?= $(GITHUB_REF_NAME)
+RELEASE_RUN ?= $(GITHUB_RUN_ID)
+RELEASE_RANGE ?=
+export NOTES_FROM NOTES_TO SKIPPED_GATES RELEASE_TAG RELEASE_RUN RELEASE_RANGE
 RELEASEGATE_FLAGS ?=
 QUICKSTART_MAX_SECONDS ?= 600
 
@@ -148,7 +166,7 @@ has_tests = $(shell find $(1) -name '*_test.go' -print -quit 2>/dev/null)
 
 .PHONY: help tools hygiene lint fmt generate build test floor supply-chain \
 	integration gates e2e quickstart nightly fuzz chaos chaos-scale bench-latency soak \
-	t5 image-checks release-dry-run release release-gates clean
+	t5 image-checks release-dry-run release release-image release-package release-gates clean
 
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -367,54 +385,135 @@ else
 		go test -tags compose -p 1 -timeout $(IMAGE_CHECKS_TIMEOUT) $(TEST_FLAGS) ./test/compose/...
 endif
 
-# Stage 12 tooling is called with:
-#   depgate -notices DIR       the stage 6 gates, then each artifact's NOTICE and
-#                              THIRD_PARTY_LICENSES in DIR/<binary>_<os>_<arch>/
-#   releasekit package   -dist DIR -notices DIR -out DIR -version V -commit C
-#                              archives, schema assets, release-manifest.json
-#   releasekit checksums -dir DIR   SHA256SUMS over the archives and schema files
-#   releasekit notes     -version V [-from REF] -to REF -budgets DIR -skipped FILE -out FILE
-#   releasekit verify    -manifest FILE   the release audit of the directory
+# Stage 12 (docs/engineering/04-release-versioning-and-compatibility.md,
+# "Packaging and audit"), in two parts that release-dry-run and release
+# run in order, or one of them with RELEASE_PART:
+#   image    the binaries of every release platform (ruralzd also for
+#            darwin, development only); depgate -notices DIR, the stage 6
+#            gates, then each artifact's NOTICE and THIRD_PARTY_LICENSES in
+#            DIR/<binary>_<os>_<arch>/; then, when Docker is present, the
+#            ruralzd image for linux/amd64 and linux/arm64 from
+#            deploy/container/Dockerfile with SOURCE_DATE_EPOCH at the commit
+#            time, timestamps rewritten and BuildKit's provenance and SBOM
+#            off, into the OCI layout IMAGE_DIR, which releasekit image
+#            checks. release also pushes it untagged by digest, checks that
+#            the registry holds the layout's index digest and signs that
+#            digest with cosign (keyless, the OIDC identity of
+#            release-build.yml). Without Docker the dry run records no image.
+#   package  releasekit package (archives, schema files, the benchmark
+#            records archive of BENCH_RECORDS, release-manifest.json with
+#            the image digests); Syft's SBOM of each archive and scan of
+#            each platform image, which releasekit sbom merges into the
+#            image SBOM; releasekit notes, releasekit checksums, releasekit
+#            verify of the directory and the image, and sha256sum -c.
+#            release then signs SHA256SUMS with cosign and audits again.
 # Before package, $(DIST)/<os>_<arch>/ holds ruralzd for linux/amd64,
 # linux/arm64, darwin/arm64 and darwin/amd64 (development only), ruralz
 # for those and windows/amd64 (ruralz.exe), and ruralz-control for linux,
-# which is the M2 stub: package archives no ruralz-control until M2. The
-# image (deploy/container/Dockerfile) builds from the repository root
-# once the dry run left the linux binaries and NOTICES_DIR.
-release-dry-run: build ## Stage 12 without signing, attesting or publishing: notices, archives, SBOMs, checksums, notes, verified manifest
+# which is the M2 stub: package archives no ruralz-control until M2.
+release_parts = $(if $(RELEASE_PART),release-$(RELEASE_PART),release-image release-package)
+
+release-dry-run: ## Stage 12 without signing: binaries, notices, image (with Docker), archives, SBOMs, notes, checksums, audit; RELEASE_PART=image|package runs one part
+	case "$(RELEASE_PART)" in "" | image | package) ;; *) echo "release: RELEASE_PART=$(RELEASE_PART) is not image or package" >&2; exit 2 ;; esac
+	$(MAKE) --no-print-directory -j1 $(release_parts) RELEASE_MODE=dry-run
+
+release: ## Stage 12: the dry run's steps with the image pushed untagged by digest, cosign signing the image digest and SHA256SUMS, and a second audit; RELEASE_PART as for release-dry-run
+	case "$(RELEASE_PART)" in "" | image | package) ;; *) echo "release: RELEASE_PART=$(RELEASE_PART) is not image or package" >&2; exit 2 ;; esac
+	$(MAKE) --no-print-directory -j1 $(release_parts) RELEASE_MODE=release
+
+# Steps 1 and 2 of stage 12; run through release-dry-run or release.
+release-image: build
 	for p in $(SERVER_DEV_PLATFORMS); do \
 		os=$${p%/*}; arch=$${p#*/}; out=$(DIST)/$${os}_$${arch}/ruralzd; \
 		echo "build $$out (development only)"; \
 		CGO_ENABLED=0 GOOS=$$os GOARCH=$$arch go build -trimpath -ldflags '$(LDFLAGS)' -o $$out ./cmd/ruralzd; \
 	done
-	bash scripts/install-tools.sh syft
-	rm -rf $(RELEASE_DIR) $(NOTICES_DIR)
+	rm -rf $(NOTICES_DIR) $(IMAGE_DIR) $(DIST)/image-metadata.json
 	go run ./internal/tool/depgate -notices $(NOTICES_DIR)
-	go run ./internal/tool/releasekit package -dist $(DIST) -notices $(NOTICES_DIR) -out $(RELEASE_DIR) -version $(VERSION) -commit $(COMMIT)
-	for a in $(RELEASE_DIR)/*.tar.gz $(RELEASE_DIR)/*.zip; do \
-		[[ -e $$a ]] || continue; \
-		$(SYFT) scan "file:$$a" -q -o "cyclonedx-json@1.7=$$a.cdx.json"; \
-	done
-	go run ./internal/tool/releasekit checksums -dir $(RELEASE_DIR)
-	go run ./internal/tool/releasekit notes -version $(VERSION) -from "$$NOTES_FROM" -to "$$NOTES_TO" -budgets $(BENCH_RECORDS) -skipped "$$SKIPPED_GATES" -out $(RELEASE_DIR)/NOTES.md
-	go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json
-	cd $(RELEASE_DIR) && sha256sum -c --quiet SHA256SUMS
+	if ! docker info >/dev/null 2>&1 || ! docker buildx version >/dev/null 2>&1; then \
+		if [[ "$(RELEASE_MODE)" == release ]]; then echo "release: no Docker daemon or buildx: the release pushes its image" >&2; exit 1; fi; \
+		echo "release-dry-run: skip the image: no Docker daemon or buildx, so no image is recorded, which package refuses for a release or candidate"; \
+		exit 0; \
+	fi; \
+	epoch=$$(git log -1 --format=%ct $(COMMIT)); \
+	builder=; \
+	if [[ $$(docker buildx inspect 2>/dev/null | awk '/^Driver:/ { print $$2; exit }') == docker ]]; then \
+		docker buildx inspect ruralz-release >/dev/null 2>&1 || docker buildx create --name ruralz-release --driver docker-container >/dev/null; \
+		builder="--builder ruralz-release"; \
+	fi; \
+	outputs=(--output "type=oci,dest=$(IMAGE_DIR),tar=false,rewrite-timestamp=true"); \
+	if [[ "$(RELEASE_MODE)" == release ]]; then \
+		outputs+=(--output "type=image,name=$(IMAGE_REPOSITORY),push-by-digest=true,name-canonical=true,push=true,oci-mediatypes=true,rewrite-timestamp=true"); \
+	fi; \
+	platforms=$$(tr ' ' , <<<"$(IMAGE_PLATFORMS)"); \
+	echo "image: building $(IMAGE_REPOSITORY) $(VERSION) for $$platforms at SOURCE_DATE_EPOCH=$$epoch"; \
+	docker buildx build $$builder --file deploy/container/Dockerfile --target ruralzd \
+		--platform "$$platforms" --provenance=false --sbom=false \
+		--build-arg SOURCE_DATE_EPOCH=$$epoch --build-arg VERSION=$(VERSION) --build-arg COMMIT=$(COMMIT) \
+		--metadata-file $(DIST)/image-metadata.json "$${outputs[@]}" .; \
+	if [[ "$(RELEASE_MODE)" != release ]]; then \
+		echo "image: $(IMAGE_REPOSITORY)@$$(go run ./internal/tool/releasekit image -dir $(IMAGE_DIR))"; \
+		exit 0; \
+	fi; \
+	digest=$$(go run ./internal/tool/releasekit image -dir $(IMAGE_DIR) -metadata $(DIST)/image-metadata.json); \
+	docker buildx imagetools inspect "$(IMAGE_REPOSITORY)@$$digest" >/dev/null; \
+	echo "image: pushed $(IMAGE_REPOSITORY)@$$digest untagged"; \
+	bash scripts/install-tools.sh cosign; \
+	$(COSIGN) sign --yes "$(IMAGE_REPOSITORY)@$$digest"
 
-release: release-dry-run ## Stage 12: the dry run, then keyless signing of SHA256SUMS (OIDC in release-build.yml) and a second audit
-	if [[ ! -f $(RELEASE_DIR)/SHA256SUMS ]]; then \
-		echo "release: skip signing: $(RELEASE_DIR)/SHA256SUMS is not present"; \
-	else \
+# Steps 3 to 5 of stage 12; run through release-dry-run or release.
+release-package:
+	bash scripts/install-tools.sh syft
+	rm -rf $(RELEASE_DIR) $(SBOM_DIR)
+	image=; if [[ -f $(IMAGE_DIR)/index.json ]]; then image=$(IMAGE_DIR); fi; \
+	go run ./internal/tool/releasekit package -dist $(DIST) -notices $(NOTICES_DIR) -out $(RELEASE_DIR) \
+		-version $(VERSION) -commit $(COMMIT) -bench $(BENCH_RECORDS) $${image:+-image "$$image"}
+	export SYFT_CHECK_FOR_APP_UPDATE=false; \
+	for a in $(RELEASE_DIR)/*.tar.gz $(RELEASE_DIR)/*.zip; do \
+		[[ -e $$a && $$a != *_bench.tar.gz ]] || continue; \
+		$(SYFT) scan "file:$$a" -q -o "cyclonedx-json@1.7=$$a.cdx.json"; \
+	done; \
+	if [[ -f $(IMAGE_DIR)/index.json ]]; then \
+		mkdir -p $(SBOM_DIR); \
+		for p in $(IMAGE_PLATFORMS); do \
+			$(SYFT) scan "oci-dir:$(IMAGE_DIR)" --platform "$$p" -q -o "cyclonedx-json@1.7=$(SBOM_DIR)/$${p/\//_}.cdx.json"; \
+		done; \
+		go run ./internal/tool/releasekit sbom -manifest $(RELEASE_DIR)/release-manifest.json -scans $(SBOM_DIR); \
+	fi
+	go run ./internal/tool/releasekit notes -version $(VERSION) -from "$$NOTES_FROM" -to "$$NOTES_TO" -budgets $(BENCH_RECORDS) \
+		-skipped "$$SKIPPED_GATES" -manifest $(RELEASE_DIR)/release-manifest.json -out $(RELEASE_DIR)/NOTES.md
+	go run ./internal/tool/releasekit checksums -dir $(RELEASE_DIR)
+	image=; if [[ -f $(IMAGE_DIR)/index.json ]]; then image=$(IMAGE_DIR); fi; \
+	go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json $${image:+-image "$$image"}
+	cd $(RELEASE_DIR) && sha256sum -c --quiet SHA256SUMS
+	if [[ "$(RELEASE_MODE)" == release ]]; then \
 		bash scripts/install-tools.sh cosign; \
 		$(COSIGN) sign-blob --yes --bundle $(RELEASE_DIR)/SHA256SUMS.sigstore.json $(RELEASE_DIR)/SHA256SUMS; \
-		go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json; \
+		image=; if [[ -f $(IMAGE_DIR)/index.json ]]; then image=$(IMAGE_DIR); fi; \
+		go run ./internal/tool/releasekit verify -manifest $(RELEASE_DIR)/release-manifest.json $${image:+-image "$$image"}; \
 	fi
 
-release-gates: ## Stage 12 release gates on the candidate commit (internal/tool/releasegate)
-ifeq ($(wildcard internal/tool/releasegate/*.go),)
-	@echo "release-gates: skip: internal/tool/releasegate is not present yet"
-else
-	go run ./internal/tool/releasegate $(RELEASEGATE_FLAGS)
-endif
+# Every check runs even after another fails, and the recipe exits with
+# the highest status: 1 findings, 2 a tool or API error. releasegate runs
+# first, so the tag's tracking issue records every gate's outcome.
+release-gates: ## Stage 12 gates: releasegate on the release run (tracking issue, skips, SKIPPED_GATES), the no-license-check scan, depgate G2 and G3, commitcheck dco and deprecations since the previous release
+	tools=$$(mktemp -d); trap 'rm -rf "$$tools"' EXIT; \
+	go build -o "$$tools/" ./internal/tool/releasegate ./internal/tool/repocheck ./internal/tool/depgate ./internal/tool/commitcheck || exit 2; \
+	rc=0; \
+	worst() { if (( $$1 > rc )); then rc=$$1; fi; }; \
+	"$$tools/releasegate" gates -tag "$$RELEASE_TAG" -commit "$(COMMIT)" -run "$$RELEASE_RUN" -records $(BENCH_RECORDS) \
+		-skipped "$$SKIPPED_GATES" $(SUMMARY_FLAG) $(RELEASEGATE_FLAGS) || worst $$?; \
+	"$$tools/repocheck" || worst $$?; \
+	"$$tools/depgate" || worst $$?; \
+	range="$$RELEASE_RANGE"; \
+	if [[ -z "$$range" ]]; then \
+		prev=$$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude 'v*-*' "$(COMMIT)^" 2>/dev/null || true); \
+		range="$${prev:-$(FIRST_SIGNED_BASE)}..$(COMMIT)"; \
+	fi; \
+	echo "release-gates: commit checks over $$range"; \
+	"$$tools/commitcheck" dco -range "$$range" || worst $$?; \
+	"$$tools/commitcheck" deprecations -range "$$range" || worst $$?; \
+	exit $$rc
 
 clean: ## Remove build output
 	rm -rf $(DIST)

@@ -1,0 +1,503 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# release: CI stage 12 on every v* tag
+# (docs/engineering/04-release-versioning-and-compatibility.md, "Release
+# pipeline"; docs/engineering/03-testing-and-quality-strategy.md, "Release
+# gates"). The tag check stops any tag that is not a signed annotated
+# vX.Y.Z or vX.Y.Z-rc.N tag on the run's commit, signed with a key a
+# maintainer registered. Then:
+#   1. Re-run   pr-fast, pr-full (alloc/op against the previous release),
+#               main, nightly (every benchmark slot, against the previous
+#               release's verified linux/amd64 ruralzd) and t5-systemd on
+#               the tagged commit, path filters off, and the release-only
+#               S2 soak on rh-1, whose records a records job commits to the
+#               bench-records branch.
+#   2. Gates    make release-gates: internal/tool/releasegate decides the
+#               release gates from the run's jobs, the nightly-failure and
+#               fuzz-crasher issues and the benchmark records, applies the
+#               skips recorded on the tag's tracking issue and writes the
+#               ruralz.skippedgates.v1 file; the no-license-check scan,
+#               depgate G2 and G3 and the commit checks rerun.
+#   3. Build    release-build.yml: archives, image, SBOMs, notes,
+#               checksums, signatures and attestations.
+#   4. Verify   image-checks.yml (the Compose suite and the air-gapped
+#               start on the image digest) and release-verify.yml.
+#   5. Publish  in the release Environment, after the owner's approval: a
+#               draft GitHub Release of the release directory whose
+#               uploaded digests match SHA256SUMS, published (a candidate
+#               as a pre-release, a release marked latest only when it is
+#               the highest X.Y.Z), then the image digest tagged X.Y.Z and
+#               X.Y, or X.Y.Z-rc.N; then the quickstart's download path on
+#               its four platforms, whose failure opens or updates a
+#               nightly-failure issue.
+# Besides the soak records job, only the publish job holds contents: write.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  tag:
+    name: 12. Tag check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.tag.outputs.version }}
+      prerelease: ${{ steps.tag.outputs.prerelease }}
+      previous: ${{ steps.tag.outputs.previous }}
+      previous-version: ${{ steps.tag.outputs.previous-version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: go run ./internal/tool/releasegate tag -tag "$TAG" -commit "$SHA" -outputs "$GITHUB_OUTPUT"
+
+  baseline:
+    name: 12. Benchmark baseline
+    needs: tag
+    if: needs.tag.outputs.previous != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PREVIOUS: ${{ needs.tag.outputs.previous }}
+      PREVIOUS_VERSION: ${{ needs.tag.outputs.previous-version }}
+    steps:
+      - name: The pinned cosign installer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /scripts/install-tools.sh
+          sparse-checkout-cone-mode: false
+      - run: TOOLS_BIN="$RUNNER_TEMP/tools" bash scripts/install-tools.sh cosign
+      - name: Download and verify the previous release's linux/amd64 ruralzd
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          dir="$RUNNER_TEMP/previous"
+          archive="ruralzd_${PREVIOUS_VERSION}_linux_amd64.tar.gz"
+          gh release download "$PREVIOUS" --repo "$REPO" --dir "$dir" \
+            --pattern "$archive" --pattern SHA256SUMS --pattern SHA256SUMS.sigstore.json
+          cd "$dir"
+          "$RUNNER_TEMP/tools/cosign" verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "https://github.com/$REPO/.github/workflows/release-build.yml@refs/tags/$PREVIOUS" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com
+          if [[ $(grep -c "  $archive\$" SHA256SUMS) -ne 1 ]]; then
+            echo "::error title=Baseline::SHA256SUMS of $PREVIOUS does not list $archive once"
+            exit 1
+          fi
+          sha256sum --ignore-missing --strict -c SHA256SUMS
+          mkdir -p "$RUNNER_TEMP/baseline"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/baseline" ruralzd
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-baseline
+          path: ${{ runner.temp }}/baseline/ruralzd
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  pr-fast:
+    name: pr-fast
+    needs: tag
+    uses: ./.github/workflows/pr-fast.yml
+    with:
+      all: true
+    permissions:
+      contents: read
+
+  pr-full:
+    name: pr-full
+    needs: tag
+    uses: ./.github/workflows/pr-full.yml
+    with:
+      all: true
+      bench-base: ${{ needs.tag.outputs.previous }}
+    permissions:
+      contents: read
+      issues: read
+      pull-requests: read
+
+  main:
+    name: main
+    needs: tag
+    uses: ./.github/workflows/main.yml
+    with:
+      all: true
+    permissions:
+      contents: read
+
+  nightly:
+    name: nightly
+    needs: [tag, baseline]
+    # Without a previous release the baseline job is skipped and the
+    # comparisons are judged on absolute budgets only.
+    if: always() && needs.tag.result == 'success' && (needs.baseline.result == 'success' || needs.baseline.result == 'skipped')
+    uses: ./.github/workflows/nightly.yml
+    with:
+      all: true
+      rotation-all: true
+      baseline-artifact: ${{ needs.tag.outputs.previous != '' && 'bench-baseline' || '' }}
+      baseline-version: ${{ needs.tag.outputs.previous-version }}
+    permissions:
+      contents: write
+      actions: read
+      issues: write
+
+  t5-systemd:
+    name: t5-systemd
+    needs: tag
+    uses: ./.github/workflows/t5-systemd.yml
+    with:
+      all: true
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+
+  soak:
+    name: 12. Soak
+    needs: [tag, nightly]
+    # After the Latency job, whatever its outcome, so the gates read both
+    # jobs' records; the rh-1 concurrency group never runs two rh-1 jobs
+    # at once.
+    if: always() && needs.tag.result == 'success'
+    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    concurrency:
+      group: rh-1
+      cancel-in-progress: false
+    timeout-minutes: 180
+    steps:
+      - name: RH-1 check
+        if: vars.RH1_PROVISIONED != 'true'
+        run: |
+          echo "::error title=RH-1 not provisioned::The release soak runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: S2 at half saturation for 2 hours
+        env:
+          BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json
+        run: make soak
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-records-soak
+          path: dist/bench/
+          if-no-files-found: ignore
+          retention-days: 90
+          overwrite: true
+
+  soak-records:
+    name: 12. Soak records
+    needs: soak
+    # Records of a failed soak publish too: they never advance a baseline.
+    if: always() && needs.soak.result != 'skipped' && needs.soak.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bench-records-soak
+          path: ${{ runner.temp }}/bench
+      - name: Commit to bench-records
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          src="$RUNNER_TEMP/bench"
+          if [[ -z "$(find "$src" -name '*.json' -print -quit)" ]]; then
+            echo "the soak wrote no records"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/branch"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git init -q "$dir"
+          cd "$dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "$SERVER/$REPO.git"
+          # nightly's records job of this run may push first: retry on a
+          # newer branch head.
+          for attempt in 1 2 3; do
+            if git -c http.extraheader="$auth" fetch -q --depth=1 origin bench-records; then
+              git checkout -q -B bench-records FETCH_HEAD
+            else
+              git checkout -q --orphan bench-records
+            fi
+            day=$(date -u +%Y-%m-%d)
+            mkdir -p "records/$day-$RUN_ID"
+            cp -R "$src"/. "records/$day-$RUN_ID/"
+            git add -A
+            git commit -q -m "bench: soak records of release run $RUN_ID at $SHA"
+            if git -c http.extraheader="$auth" push -q origin bench-records; then
+              exit 0
+            fi
+            echo "push attempt $attempt failed; refetching bench-records"
+            git checkout -q --detach
+            git branch -q -D bench-records
+          done
+          exit 1
+
+  gates:
+    name: 12. Release gates
+    needs: [tag, pr-fast, pr-full, main, nightly, t5-systemd, soak]
+    if: always() && needs.tag.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The commit checks read the commits since the previous release
+          # tag; the seed check of closed fuzz-crasher issues reads the tree.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: The Latency and soak records
+        # A job that wrote no records leaves none; releasegate reports it.
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: bench-records*
+          merge-multiple: true
+          path: ${{ runner.temp }}/bench
+      - name: Release gates
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_RUN: ${{ github.run_id }}
+          BENCH_RECORDS: ${{ runner.temp }}/bench
+          SKIPPED_GATES: ${{ runner.temp }}/skipped/skipped-gates.json
+        run: |
+          mkdir -p "$RUNNER_TEMP/skipped"
+          make release-gates
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: skipped-gates
+          path: ${{ runner.temp }}/skipped/skipped-gates.json
+          if-no-files-found: error
+          retention-days: 90
+          overwrite: true
+
+  build:
+    name: 12. Build
+    needs: [tag, gates]
+    uses: ./.github/workflows/release-build.yml
+    with:
+      version: ${{ needs.tag.outputs.version }}
+      bench-artifacts: bench-records*
+      skipped-artifact: skipped-gates
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+
+  image-checks:
+    name: image-checks
+    needs: [tag, build]
+    uses: ./.github/workflows/image-checks.yml
+    with:
+      image: ghcr.io/ravindu-rev/ruralzd@${{ needs.build.outputs.digest }}
+      release-artifact: ${{ needs.build.outputs.release-artifact }}
+    permissions:
+      contents: read
+      packages: read
+      actions: read
+      issues: write
+
+  verify:
+    name: release-verify
+    needs: [tag, build]
+    uses: ./.github/workflows/release-verify.yml
+    with:
+      tag: ${{ github.ref_name }}
+      release-artifact: ${{ needs.build.outputs.release-artifact }}
+      bench-artifacts: bench-records*
+      skipped-artifact: skipped-gates
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+      actions: read
+      issues: write
+
+  publish:
+    name: 12. Publish
+    needs: [tag, build, image-checks, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: release
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.tag.outputs.version }}
+      PRERELEASE: ${{ needs.tag.outputs.prerelease }}
+      DIGEST: ${{ needs.build.outputs.digest }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.release-artifact }}
+          path: ${{ runner.temp }}/release
+      - name: The image's version tag is absent
+        run: go run ./internal/tool/releasegate image -check -tag "$TAG" -digest "$DIGEST"
+      - name: Draft release with every file of the release directory
+        run: |
+          state=$(gh release view "$TAG" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo absent)
+          case "$state" in
+            published)
+              echo "$TAG is published already: a re-run only tags the image"
+              echo "PUBLISHED=true" >>"$GITHUB_ENV"
+              exit 0 ;;
+            draft)
+              # A draft of a failed attempt: start again from the release
+              # directory.
+              gh release delete "$TAG" --yes ;;
+          esac
+          flags=(--draft --verify-tag --latest=false --title "Ruralz $VERSION" --notes-file "$RUNNER_TEMP/release/NOTES.md")
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+          gh release create "$TAG" "${flags[@]}"
+          gh release upload "$TAG" "$RUNNER_TEMP"/release/*
+      - name: The uploaded assets match SHA256SUMS
+        if: env.PUBLISHED != 'true'
+        run: |
+          dir="$RUNNER_TEMP/uploaded"
+          gh release download "$TAG" --dir "$dir"
+          cd "$dir"
+          sha256sum --strict -c SHA256SUMS
+          diff <(ls -A "$RUNNER_TEMP/release" | sort) <(ls -A . | sort)
+          cmp SHA256SUMS "$RUNNER_TEMP/release/SHA256SUMS"
+          cmp SHA256SUMS.sigstore.json "$RUNNER_TEMP/release/SHA256SUMS.sigstore.json"
+      - name: Publish
+        if: env.PUBLISHED != 'true'
+        run: |
+          latest=$(go run ./internal/tool/releasegate latest -tag "$TAG")
+          flags=(--draft=false --latest="$latest")
+          if [[ "$PRERELEASE" == true ]]; then flags+=(--prerelease); fi
+          gh release edit "$TAG" "${flags[@]}"
+          echo "published $TAG (latest: $latest)"
+      - name: Tag the verified image
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+        run: go run ./internal/tool/releasegate image -tag "$TAG" -digest "$DIGEST"
+
+  quickstart:
+    name: 12. Quickstart ${{ matrix.os }}/${{ matrix.arch }}
+    needs: [tag, publish]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, arch: amd64, runner: ubuntu-latest}
+          - {os: linux, arch: arm64, runner: ubuntu-24.04-arm}
+          - {os: darwin, arch: arm64, runner: macos-latest}
+          - {os: darwin, arch: amd64, runner: macos-15-intel}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /examples/quickstart/
+            /Makefile
+          sparse-checkout-cone-mode: false
+      - name: make quickstart from the published release
+        env:
+          RURALZ_QUICKSTART_ARCHIVE: ""
+          RURALZ_QUICKSTART_VERSION: ${{ needs.tag.outputs.version }}
+        run: make quickstart
+
+  issues:
+    name: 12. Release issues
+    needs: [tag, quickstart]
+    if: always() && needs.quickstart.result == 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+
+          # upsert <title> <body file>: comment on the open nightly-failure
+          # issue with this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$1\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$2"
+            else
+              gh issue create --label nightly-failure --title "$1" --body-file "$2"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r job; do
+              if [[ ! "$job" =~ ^12\.\ Quickstart\  ]]; then
+                continue
+              fi
+              printf 'The release quickstart job "%s" failed after publishing %s in %s. The download path of the published release must work; this blocks the next release.\n' \
+                "$job" "$TAG" "$RUN_URL" >"$body"
+              upsert "nightly failure: $job" "$body"
+            done

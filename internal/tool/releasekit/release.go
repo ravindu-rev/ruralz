@@ -127,20 +127,63 @@ type imagePlan struct {
 	// Tags are the tags to push; empty for a version that is neither a
 	// release nor a release candidate.
 	Tags []string `json:"tags"`
+	// SBOM names the image SBOM, one CycloneDX document whose subject is
+	// the image index.
+	SBOM string `json:"sbom"`
+	// Digest is the image index digest the build recorded and Manifests
+	// each platform's manifest digest, in Platforms order; both are empty
+	// when the build recorded no image (a development dry run without
+	// Docker).
+	Digest    string             `json:"digest"`
+	Manifests []platformManifest `json:"manifests"`
 }
 
-// images lists the container images of a release: ruralzd for linux/amd64
-// and linux/arm64. The ruralz-control image is Planned (M2).
+// platformManifest is one platform's manifest digest of an image index.
+type platformManifest struct {
+	Platform string `json:"platform"`
+	Digest   string `json:"digest"`
+}
+
+// recorded reports whether the build recorded the image.
+func (p imagePlan) recorded() bool { return p.Digest != "" }
+
+// imagePlatforms are the platforms of the ruralzd image, in the order the
+// manifest lists their manifest digests.
+func imagePlatforms() []string { return []string{"linux/amd64", "linux/arm64"} }
+
+// images lists the container images of a release, without the digests a
+// build records: ruralzd for linux/amd64 and linux/arm64. The
+// ruralz-control image is Planned (M2).
 func images(version string) []imagePlan {
 	return []imagePlan{{
 		Repository: imageRegistry + "/ruralzd",
 		Binary:     "ruralzd",
 		Dockerfile: "deploy/container/Dockerfile",
 		Target:     "ruralzd",
-		Platforms:  []string{"linux/amd64", "linux/arm64"},
+		Platforms:  imagePlatforms(),
 		Tags:       imageTags(version),
+		SBOM:       imageSBOMName(version),
+		Manifests:  []platformManifest{},
 	}}
 }
+
+// imageSBOMName is the image SBOM of a release:
+// ruralzd_<version>_image.cdx.json.
+func imageSBOMName(version string) string {
+	return fmt.Sprintf("ruralzd_%s_image%s", version, sbomSuffix)
+}
+
+// withDigests returns the plan with the digests an image build recorded.
+func (p imagePlan) withDigests(index string, manifests []platformManifest) imagePlan {
+	p.Digest, p.Manifests = index, manifests
+	return p
+}
+
+// benchArchiveName is the benchmark records archive of a release:
+// ruralz_<version>_bench.tar.gz
+// (docs/architecture/12-performance-budgets-and-benchmarking.md,
+// "Publication").
+func benchArchiveName(version string) string { return "ruralz_" + version + "_bench.tar.gz" }
 
 // Version kinds.
 const (

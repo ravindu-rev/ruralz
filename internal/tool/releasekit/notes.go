@@ -43,6 +43,10 @@ func notesTitle(version string) string { return "# Ruralz " + version }
 // notesOptions are the flags of `releasekit notes`.
 type notesOptions struct {
 	root, version, from, to, budgets, skipped, out string
+	// manifest is the release directory's release-manifest.json, whose
+	// image digests the verification steps name; empty lists the
+	// artifacts without digests.
+	manifest string
 }
 
 // commit is one commit of the release range.
@@ -150,6 +154,8 @@ type notesInput struct {
 	Skipped  []skippedGate
 	Archives []artifact
 	Images   []imagePlan
+	// Bench names the benchmark records archive.
+	Bench string
 }
 
 // classify sorts the commits of the range into the notes sections:
@@ -198,6 +204,26 @@ func escapeMarkdown(s string) string {
 	return b.String()
 }
 
+// codeSpan renders s as a Markdown code span, where backslash escapes do
+// not apply: the fence is one backtick longer than the longest run of
+// backticks in s, with a space inside it when s starts or ends with one.
+func codeSpan(s string) string {
+	longest, run := 0, 0
+	for _, r := range s {
+		if r == '`' {
+			run++
+			longest = max(longest, run)
+		} else {
+			run = 0
+		}
+	}
+	fence := strings.Repeat("`", longest+1)
+	if strings.HasPrefix(s, "`") || strings.HasSuffix(s, "`") {
+		s = " " + s + " "
+	}
+	return fence + s + fence
+}
+
 // short is the 12-character form of a commit.
 func short(hash string) string {
 	if len(hash) > 12 {
@@ -232,7 +258,7 @@ func renderNotes(in notesInput) string {
 	kind := map[string]string{kindRelease: "Release", kindCandidate: "Release candidate", kindDev: "Development build"}[versionKind(in.Version)]
 	from := "the first commit"
 	if in.From != "" {
-		from = "`" + escapeMarkdown(in.From) + "`"
+		from = codeSpan(in.From)
 	}
 	fmt.Fprintf(&b, "%s %s of Ruralz, built from commit [`%s`](%s/commit/%s); changes since %s.\n",
 		kind, in.Version, short(in.Commit), repoURL, in.Commit, from)
@@ -247,20 +273,25 @@ func renderNotes(in notesInput) string {
 		fmt.Fprintf(&b, "| `%s` | %s/%s | %s |\n", a.archiveName(in.Version), a.OS, a.Arch, support)
 	}
 	b.WriteString("\nEach archive holds the binary, `LICENSE`, `NOTICE`, `README.md` and its own `THIRD_PARTY_LICENSES`; " +
-		"linux `ruralzd` archives add `deploy/systemd/`. `SHA256SUMS` covers every archive, the JSON Schema files " +
-		"`ruralz-<apiVersion>-authoring.schema.json` and `ruralz-<apiVersion>-rendered.schema.json`, and " +
-		"`" + manifestName + "`, which lists every archive's members and digests; " +
-		"each archive's CycloneDX 1.7 SBOM is `<archive>.cdx.json`.\n\n")
+		"linux `ruralzd` archives add `deploy/systemd/`. Each archive's CycloneDX 1.7 SBOM is `<archive>.cdx.json`. " +
+		codeSpan(in.Bench) + " holds the `ruralz.bench.v1` records, raw histograms and CPU profiles of the release's Latency and soak jobs. " +
+		"`SHA256SUMS`, signed as `" + signatureName + "`, covers every other file of the release: the archives and their SBOMs, the image SBOM, " +
+		"the JSON Schema files `ruralz-<apiVersion>-authoring.schema.json` and `ruralz-<apiVersion>-rendered.schema.json`, " +
+		"`" + manifestName + "`, which lists every archive's members and digests and the image digests, `" + notesName + "` and the benchmark records.\n\n")
 	for _, img := range in.Images {
+		digest := ""
+		if img.recorded() {
+			digest = fmt.Sprintf(" The image index is %s; its SBOM is %s.", codeSpan(img.Repository+"@"+img.Digest), codeSpan(img.SBOM))
+		}
 		if len(img.Tags) == 0 {
-			fmt.Fprintf(&b, "Image `%s`: no tag is published for a development build.\n", img.Repository)
+			fmt.Fprintf(&b, "Image `%s`: no tag is published for a development build.%s\n", img.Repository, digest)
 			continue
 		}
 		var tags []string
 		for _, t := range img.Tags {
 			tags = append(tags, "`"+img.Repository+":"+t+"`")
 		}
-		fmt.Fprintf(&b, "Image %s for %s; deployments should pin it by digest.\n", strings.Join(tags, " and "), strings.Join(img.Platforms, " and "))
+		fmt.Fprintf(&b, "Image %s for %s; deployments should pin it by digest.%s\n", strings.Join(tags, " and "), strings.Join(img.Platforms, " and "), digest)
 	}
 
 	for _, s := range []struct {
@@ -293,13 +324,28 @@ func renderNotes(in notesInput) string {
 	if len(in.Skipped) == 0 {
 		b.WriteString("None: no maintainer skipped a release gate.\n")
 	} else {
-		b.WriteString("| Gate | Skipped by | Role | Reason |\n|---|---|---|---|\n")
+		b.WriteString("A maintainer skipped these [release gates](" + repoURL + "/blob/" + tagOf(in) +
+			"/docs/engineering/03-testing-and-quality-strategy.md#release-gates), each with the reason below.\n\n")
+		b.WriteString("| Gate | Evidence | Skipped by | Role | Reason |\n|---|---|---|---|---|\n")
+		evidence := map[string]string{}
+		for _, row := range releaseGateRows() {
+			evidence[row[0]] = row[1]
+		}
 		for _, g := range in.Skipped {
-			fmt.Fprintf(&b, "| %s | @%s | %s | %s |\n", escapeMarkdown(g.Gate), escapeMarkdown(g.By), g.Role,
+			fmt.Fprintf(&b, "| %s | %s | @%s | %s | %s |\n", escapeMarkdown(g.Gate), escapeMarkdown(evidence[g.Gate]), escapeMarkdown(g.By), g.Role,
 				escapeMarkdown(strings.Join(strings.Fields(g.Reason), " ")))
 		}
 	}
 	return b.String()
+}
+
+// tagOf is the release tag of a release or candidate, else the commit, for
+// links into the repository as it was released.
+func tagOf(in notesInput) string {
+	if versionKind(in.Version) == kindDev {
+		return in.Commit
+	}
+	return "v" + in.Version
 }
 
 // writeBudgets renders every budget with its pooled result from the
@@ -339,32 +385,74 @@ func writeBudgets(b *strings.Builder, records []benchRecord, commit string) {
 	}
 }
 
+// signerWorkflow is the reusable workflow whose OIDC identity signs every
+// artifact and attestation, as gh attestation verify names it.
+const signerWorkflow = "ravindu-rev/ruralz/.github/workflows/release-build.yml"
+
+// sbomPredicate is the predicate type of the CycloneDX SBOM attestations.
+const sbomPredicate = "https://cyclonedx.org/bom"
+
+// cosign2Flag is the flag cosign 2.x needs to read the Sigstore bundles
+// cosign 3 writes, for SHA256SUMS and for the image's OCI referrers.
+// release-verify.yml runs every command of the Verification section's sh
+// blocks with cosign 3.x, except the blocks that pass this flag, which
+// are the 2.x variants.
+const cosign2Flag = "--new-bundle-format"
+
 // writeVerification renders how to verify the signatures, checksums,
-// provenance and SBOM attestations. cosign below 3.1.3 on 3.x, or 2.6.5
-// on 2.x, has a verification bypass (GHSA-fx35-mq7g-6g98).
+// provenance and SBOM attestations, as commands release-verify.yml runs
+// verbatim (cosign2Flag). cosign below 3.1.3 on 3.x, or 2.6.5 on 2.x, has a
+// verification bypass (GHSA-fx35-mq7g-6g98).
 func writeVerification(b *strings.Builder, in notesInput) {
 	identity := signerIdentity + in.Version
 	archive := ""
 	if len(in.Archives) > 0 {
 		archive = in.Archives[0].archiveName(in.Version)
 	}
-	b.WriteString("Every artifact is signed keylessly with Sigstore by the release workflow and logged in Rekor. " +
-		"Verify with cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98).\n\n")
-	b.WriteString("1. Check the signature of `SHA256SUMS`, then the files you downloaded:\n\n")
-	b.WriteString("   ```sh\n")
-	fmt.Fprintf(b, "   cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \\\n     --certificate-identity %s \\\n     --certificate-oidc-issuer %s\n", identity, oidcIssuer)
-	b.WriteString("   sha256sum --ignore-missing -c SHA256SUMS\n   ```\n\n")
-	b.WriteString("2. Check an archive's SLSA Build Level 3 provenance and SBOM attestations:\n\n")
-	b.WriteString("   ```sh\n")
-	fmt.Fprintf(b, "   gh attestation verify %s --repo ravindu-rev/ruralz\n", archive)
-	b.WriteString("   ```\n\n")
-	b.WriteString("3. Check an image by digest: its signature, then its provenance and SBOM attestations:\n\n")
-	b.WriteString("   ```sh\n")
-	for _, img := range in.Images {
-		fmt.Fprintf(b, "   cosign verify %s@sha256:<digest> \\\n     --certificate-identity %s \\\n     --certificate-oidc-issuer %s\n", img.Repository, identity, oidcIssuer)
-		fmt.Fprintf(b, "   gh attestation verify oci://%s@sha256:<digest> --repo ravindu-rev/ruralz\n", img.Repository)
+	signer := fmt.Sprintf(" \\\n     --certificate-identity %s \\\n     --certificate-oidc-issuer %s\n", identity, oidcIssuer)
+	attest := func(subject, predicate string) {
+		fmt.Fprintf(b, "   gh attestation verify %s --repo ravindu-rev/ruralz \\\n     --signer-workflow %s", subject, signerWorkflow)
+		if predicate != "" {
+			fmt.Fprintf(b, " \\\n     --predicate-type %s", predicate)
+		}
+		b.WriteString("\n")
 	}
-	b.WriteString("   ```\n")
+	b.WriteString("Every artifact is signed keylessly with Sigstore by the reusable workflow `release-build.yml` at `refs/tags/v" + in.Version +
+		"` and logged in Rekor; its SLSA Build Level 3 provenance and CycloneDX SBOMs are GitHub artifact attestations of the same workflow. " +
+		"Verify with the GitHub CLI and cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98).\n\n")
+	b.WriteString("1. Check the signature of `SHA256SUMS`, then the files you downloaded (on macOS, `shasum -a 256 --ignore-missing -c SHA256SUMS`):\n\n")
+	b.WriteString("   ```sh\n")
+	b.WriteString("   cosign verify-blob SHA256SUMS --bundle " + signatureName + signer)
+	b.WriteString("   sha256sum --ignore-missing -c SHA256SUMS\n   ```\n\n")
+	b.WriteString("   cosign 2.x reads the Sigstore bundle only with `" + cosign2Flag + "`:\n\n")
+	b.WriteString("   ```sh\n")
+	b.WriteString("   cosign verify-blob SHA256SUMS --bundle " + signatureName + " " + cosign2Flag + signer)
+	b.WriteString("   ```\n\n")
+	b.WriteString("2. Check an archive's provenance, then its SBOM attestation:\n\n")
+	b.WriteString("   ```sh\n")
+	attest(archive, "")
+	attest(archive, sbomPredicate)
+	b.WriteString("   ```\n\n")
+	for _, img := range in.Images {
+		if !img.recorded() {
+			b.WriteString("3. This build recorded no image.\n\n")
+			continue
+		}
+		ref := img.Repository + "@" + img.Digest
+		b.WriteString("3. Check the image by digest: its signature, then its provenance and SBOM attestations:\n\n")
+		b.WriteString("   ```sh\n")
+		b.WriteString("   cosign verify " + ref + signer)
+		attest("oci://"+ref, "")
+		attest("oci://"+ref, sbomPredicate)
+		b.WriteString("   ```\n\n")
+		b.WriteString("   cosign 2.x reads the image's signature only with `" + cosign2Flag + "`:\n\n")
+		b.WriteString("   ```sh\n")
+		b.WriteString("   cosign verify " + ref + " " + cosign2Flag + signer)
+		b.WriteString("   ```\n\n")
+	}
+	b.WriteString("macOS sets a quarantine flag on a file a browser downloads, which stops an unnotarized binary; " +
+		"Sigstore signs the release instead of Apple notarization. After the checks above, clear the flag from the unpacked binary with " +
+		"`xattr -d com.apple.quarantine ruralzd` (or `ruralz`). A download with `curl` never carries the flag.\n")
 }
 
 // schemaNotes summarizes the schema, Plugin ABI and Control Stream changes
@@ -507,7 +595,17 @@ func runNotes(ctx context.Context, o notesOptions, git gitRunner) error {
 	if err != nil {
 		return err
 	}
-	in := notesInput{Version: o.version, Commit: toCommit, Archives: artifacts(), Images: images(o.version)}
+	in := notesInput{Version: o.version, Commit: toCommit, Archives: artifacts(), Images: images(o.version), Bench: benchArchiveName(o.version)}
+	if o.manifest != "" {
+		m, err := readManifest(o.manifest)
+		if err != nil {
+			return err
+		}
+		if m.Version != o.version || m.Commit != toCommit {
+			return fmt.Errorf("%s describes %s at %s, not %s at %s", o.manifest, m.Version, m.Commit, o.version, toCommit)
+		}
+		in.Images, in.Bench = m.Images, m.Bench.Name
+	}
 	if fromCommit != "" {
 		in.From = o.from
 	}

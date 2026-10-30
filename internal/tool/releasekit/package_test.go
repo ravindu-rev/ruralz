@@ -5,7 +5,9 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -223,5 +225,127 @@ func TestPackageInputErrors(t *testing.T) {
 				t.Errorf("err = %v, want an error containing %q", err, c.want)
 			}
 		})
+	}
+}
+
+// TestPackageImage: the manifest records the image layout's index digest
+// and each platform's manifest digest in plan order; a release or
+// candidate without an image is refused, a development build may lack
+// one, and a layout that is not the plan's image is a finding.
+func TestPackageImage(t *testing.T) {
+	fx := newFixture(t, "0.1.0")
+	img, err := readImage(fx.image)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := runPackage(t.Context(), fx.options(), fx.pkgDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := images("0.1.0")[0].withDigests(img.Digest, img.Manifests)
+	if len(m.Images) != 1 || !slices.Equal(m.Images[0].Tags, want.Tags) || m.Images[0].Digest != want.Digest ||
+		!slices.Equal(m.Images[0].Manifests, want.Manifests) || m.Images[0].SBOM != "ruralzd_0.1.0_image.cdx.json" {
+		t.Errorf("image plan = %+v, want %+v", m.Images, want)
+	}
+
+	for _, version := range []string{"0.1.0", "0.1.0-rc.1"} {
+		nf := newFixture(t, version)
+		nf.image = ""
+		_, err := runPackage(t.Context(), nf.options(), nf.pkgDeps())
+		var fe *findingsError
+		if !errors.As(err, &fe) || !hasFinding(fe.findings, "has no image: build it with Docker") {
+			t.Errorf("%s without an image: %v, want a finding", version, err)
+		}
+	}
+	dev := newFixture(t, "0.0.0-dev")
+	dev.image = ""
+	dm, err := runPackage(t.Context(), dev.options(), dev.pkgDeps())
+	if err != nil || dm.Images[0].recorded() || len(dm.Images[0].Manifests) != 0 {
+		t.Errorf("a development build without an image: %+v, %v", dm, err)
+	}
+
+	bad := newFixture(t, "0.1.0")
+	bad.image = filepath.Join(t.TempDir(), "one")
+	writeImageLayout(t, bad.image, []*imageSpec{bad.fixtureImageSpec(t, "linux/arm64")})
+	_, err = runPackage(t.Context(), bad.options(), bad.pkgDeps())
+	var fe *findingsError
+	if !errors.As(err, &fe) || !hasFinding(fe.findings, "holds the platforms [linux/arm64]") {
+		t.Errorf("a one-platform image: %v, want a finding", err)
+	}
+	writeFile(t, filepath.Join(bad.image, "index.json"), "not JSON")
+	if _, err := runPackage(t.Context(), bad.options(), bad.pkgDeps()); !errors.As(err, &fe) || !hasFinding(fe.findings, "index.json") {
+		t.Errorf("an unreadable layout: %v, want a finding", err)
+	}
+}
+
+// TestPackageBench: the records archive holds every ruralz.bench.v1 record
+// with the histograms and CPU profiles it names, laid out like the
+// release archives, and leaves the rotation state out; no records give an
+// empty archive; a stray file or a named file that is missing or outside
+// the records is an error.
+func TestPackageBench(t *testing.T) {
+	fx := newFixture(t, "0.1.0")
+	m, err := runPackage(t.Context(), fx.options(), fx.pkgDeps())
+	if err != nil {
+		t.Fatal(err)
+	}
+	data := readBack(t, filepath.Join(fx.out, m.Bench.Name))
+	if m.Bench.Name != "ruralz_0.1.0_bench.tar.gz" || m.Bench.Records != 3 || m.Bench.Size != int64(len(data)) || m.Bench.SHA256 != sha256Hex(data) {
+		t.Errorf("bench = %+v", m.Bench)
+	}
+	members, gz, err := readTarGz(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var paths []string
+	for _, s := range members {
+		paths = append(paths, s.Path)
+		want := fs.FileMode(modeFile)
+		if s.Dir {
+			want = modeDir
+		}
+		if s.Mode != want || !s.ModTime.Equal(fixtureTime()) || s.UID != 0 || s.Uname != "" {
+			t.Errorf("%s: mode %04o, time %v, owner %d %q", s.Path, s.Mode, s.ModTime, s.UID, s.Uname)
+		}
+	}
+	wantPaths := []string{"S1/", "S1/run-1.json", "S2/", "S2/run-1-head.cpu.pprof", "S2/run-1-head.hlog", "S2/run-1-head.json", "S2/summary-comparison.json"}
+	if !slices.Equal(paths, wantPaths) || gz.Name != "" || !gz.ModTime.IsZero() {
+		t.Errorf("members %v, gzip %+v; want %v", paths, gz, wantPaths)
+	}
+
+	for _, dir := range []string{"", filepath.Join(t.TempDir(), "absent"), t.TempDir()} {
+		ef := newFixture(t, "0.1.0")
+		ef.bench = dir
+		em, err := runPackage(t.Context(), ef.options(), ef.pkgDeps())
+		if err != nil {
+			t.Fatal(err)
+		}
+		members, _, err := readTarGz(readBack(t, filepath.Join(ef.out, em.Bench.Name)))
+		if err != nil || len(members) != 0 || em.Bench.Records != 0 {
+			t.Errorf("records %q: %d members, %d records, %v; want an empty archive", dir, len(members), em.Bench.Records, err)
+		}
+	}
+
+	cases := map[string]func(t *testing.T, dir string){
+		"stray file": func(t *testing.T, dir string) { writeFile(t, filepath.Join(dir, "S2", "notes.txt"), "x") },
+		"missing histogram": func(_ *testing.T, dir string) {
+			_ = os.Remove(filepath.Join(dir, "S2", "run-1-head.hlog"))
+		},
+		"named file outside": func(t *testing.T, dir string) {
+			data, err := json.Marshal(benchRecordJSON("S1", "macro", "0.1.0", []string{"../../etc/passwd"}, []string{}, nil))
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(dir, "S1", "run-1.json"), string(data))
+		},
+	}
+	for name, change := range cases {
+		bf := newFixture(t, "0.1.0")
+		change(t, bf.bench)
+		_, err := runPackage(t.Context(), bf.options(), bf.pkgDeps())
+		var fe *findingsError
+		if err == nil || errors.As(err, &fe) || !strings.Contains(err.Error(), "benchmark records") {
+			t.Errorf("%s: %v, want a benchmark records error", name, err)
+		}
 	}
 }

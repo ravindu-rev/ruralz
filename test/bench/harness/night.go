@@ -5,6 +5,7 @@ package harness
 
 import (
 	"context"
+	"debug/buildinfo"
 	"errors"
 	"fmt"
 	"math"
@@ -40,8 +41,11 @@ type Night struct {
 	checker   *HostChecker
 	reserve   time.Duration
 	baselines map[string]*Build
-	workers   map[string]string
-	headBin   string
+	// release is the previous release's ruralzd, a release run's
+	// baseline, read once.
+	release *Build
+	workers map[string]string
+	headBin string
 	// s1 is the night's pooled S1 head external p99, for the cross-check.
 	s1       time.Duration
 	outcomes map[string]Outcome
@@ -106,7 +110,14 @@ func (n *Night) baseline(ctx context.Context, key string) (*Build, error) {
 		if st.BaselineRuralzd == "" {
 			return nil, nil
 		}
-		return &Build{Ruralzd: st.BaselineRuralzd, Commit: n.Head.Commit, Version: st.BaselineVersion, Toolchain: "release " + st.BaselineVersion}, nil
+		if n.release == nil {
+			b, err := ReleaseBuild(st.BaselineRuralzd, st.BaselineVersion)
+			if err != nil {
+				return nil, err
+			}
+			n.release = b
+		}
+		return n.release, nil
 	}
 	commit, ok := n.State.Baselines[key]
 	if !ok {
@@ -130,6 +141,36 @@ func (n *Night) baseline(ctx context.Context, key string) (*Build, error) {
 	}
 	n.baselines[commit] = &b
 	return &b, nil
+}
+
+// ReleaseBuild describes the previous release's verified ruralzd, the
+// baseline of a release run, from the binary's Go build information: the
+// commit it was built from and its toolchain, so the baseline runs and the
+// comparison record the previous release, not the head. The binary must
+// be the release version: its module version is the release tag.
+func ReleaseBuild(bin, version string) (*Build, error) {
+	info, err := buildinfo.ReadFile(bin)
+	if err != nil {
+		return nil, fmt.Errorf("harness: the baseline ruralzd %s: %w", bin, err)
+	}
+	return releaseBuildOf(bin, version, info)
+}
+
+// releaseBuildOf is ReleaseBuild over read build information.
+func releaseBuildOf(bin, version string, info *buildinfo.BuildInfo) (*Build, error) {
+	rev := ""
+	for _, s := range info.Settings {
+		if s.Key == "vcs.revision" {
+			rev = s.Value
+		}
+	}
+	if !commitPattern().MatchString(rev) {
+		return nil, fmt.Errorf("harness: the baseline ruralzd %s records no commit (vcs.revision %q): it is no release build", bin, rev)
+	}
+	if info.Main.Version != "v"+version {
+		return nil, fmt.Errorf("harness: the baseline ruralzd %s is module version %q, not the release v%s", bin, info.Main.Version, version)
+	}
+	return &Build{Ruralzd: bin, Commit: rev, Version: version, Toolchain: info.GoVersion}, nil
 }
 
 // item runs one item.

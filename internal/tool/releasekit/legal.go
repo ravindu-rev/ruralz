@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 )
 
@@ -113,24 +114,31 @@ func sbomProblems(file string, bi *buildinfo.BuildInfo) ([]string, error) {
 		out = append(out, fmt.Sprintf("SBOM %s is %s %s, want CycloneDX %s", name, doc.BOMFormat, doc.SpecVersion, cycloneDXVersion))
 	}
 	purls := map[string]bool{}
-	var walk func([]cdxComponent)
-	walk = func(cs []cdxComponent) {
-		for _, c := range cs {
-			if c.Purl != "" {
-				purls[normalizePurl(c.Purl)] = true
-			}
-			walk(c.Components)
-		}
-	}
-	walk(doc.Components)
+	collectPurls(doc.Components, purls)
 	for _, d := range bi.Deps {
-		ok := purls[golangPurl(d.Path, d.Version)]
-		if d.Replace != nil {
-			ok = ok || purls[golangPurl(d.Replace.Path, d.Replace.Version)] || purls[golangPurl(d.Path, d.Replace.Version)]
-		}
-		if !ok {
+		if !hasModule(purls, d) {
 			out = append(out, fmt.Sprintf("SBOM %s lacks %s %s, which the binary links", name, d.Path, d.Version))
 		}
 	}
 	return out, nil
+}
+
+// collectPurls adds the normalized package URL of every component of the
+// tree to purls.
+func collectPurls(cs []cdxComponent, purls map[string]bool) {
+	for _, c := range cs {
+		if c.Purl != "" {
+			purls[normalizePurl(c.Purl)] = true
+		}
+		collectPurls(c.Components, purls)
+	}
+}
+
+// hasModule reports whether purls name the linked module d: its
+// pkg:golang package URL at its version, or at its replacement's.
+func hasModule(purls map[string]bool, d *debug.Module) bool {
+	if purls[golangPurl(d.Path, d.Version)] {
+		return true
+	}
+	return d.Replace != nil && (purls[golangPurl(d.Replace.Path, d.Replace.Version)] || purls[golangPurl(d.Path, d.Replace.Version)])
 }

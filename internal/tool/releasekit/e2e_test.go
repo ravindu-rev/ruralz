@@ -28,12 +28,13 @@ func goIn(t *testing.T, dir string, env []string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestReleaseFromRepository runs the stage 12 tooling on this repository:
-// release-flag binaries of three artifacts (one of each executable
-// format), depgate's notices, package, checksums, notes, an SBOM per
-// archive as Syft writes one, and the audit, which finds nothing. It
-// proves depgate and releasekit agree on the notices and that the real
-// deploy/systemd/ files ship.
+// TestReleaseFromRepository runs the stage 12 tooling on this repository
+// in the order of make release-dry-run without Docker: release-flag
+// binaries of three artifacts (one of each executable format), depgate's
+// notices, package, an SBOM per archive as Syft writes one, notes,
+// checksums and the audit, which finds nothing. It proves depgate and
+// releasekit agree on the notices and that the real deploy/systemd/ files
+// ship.
 func TestReleaseFromRepository(t *testing.T) {
 	if testing.Short() {
 		t.Skip("builds release binaries")
@@ -70,15 +71,10 @@ func TestReleaseFromRepository(t *testing.T) {
 	goIn(t, root, nil, "run", "./internal/tool/depgate", "-C", root, "-notices", notices)
 	toolchain := goIn(t, root, nil, "env", "GOVERSION")
 
-	m, err := runPackage(t.Context(), packageOptions{root: root, dist: dist, notices: notices, out: out, version: version, commit: commit},
+	// A development dry run without Docker records no image.
+	m, err := runPackage(t.Context(), packageOptions{root: root, dist: dist, notices: notices, out: out, version: version, commit: commit, bench: filepath.Join(base, "bench")},
 		packageDeps{git: runGit, facts: readBuildFacts, toolchain: toolchain, artifacts: arts})
 	if err != nil {
-		t.Fatal(err)
-	}
-	if findings, err := runChecksums(out); err != nil || len(findings) > 0 {
-		t.Fatalf("checksums: %q %v", findings, err)
-	}
-	if err := runNotes(t.Context(), notesOptions{root: root, version: version, from: rootRef, to: commit, out: filepath.Join(out, notesName)}, runGit); err != nil {
 		t.Fatal(err)
 	}
 	for i, info := range m.Archives {
@@ -87,6 +83,12 @@ func TestReleaseFromRepository(t *testing.T) {
 			t.Fatal(err)
 		}
 		writeFile(t, filepath.Join(out, info.SBOM), sbomFor(facts.Info.Deps))
+	}
+	if err := runNotes(t.Context(), notesOptions{root: root, version: version, from: rootRef, to: commit, manifest: filepath.Join(out, manifestName), out: filepath.Join(out, notesName)}, runGit); err != nil {
+		t.Fatal(err)
+	}
+	if findings, err := runChecksums(out); err != nil || len(findings) > 0 {
+		t.Fatalf("checksums: %q %v", findings, err)
 	}
 	findings, err := runVerify(verifyOptions{root: root, manifest: filepath.Join(out, manifestName)},
 		verifyDeps{facts: readBuildFacts, toolchain: toolchain, artifacts: arts})

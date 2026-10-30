@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"debug/buildinfo"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,8 @@ type verifyOptions struct {
 	root string
 	// manifest is the release directory's release-manifest.json.
 	manifest string
+	// image is the OCI image layout of the image the manifest records.
+	image string
 }
 
 // verifyDeps replace what verify reads besides files in tests.
@@ -42,11 +45,22 @@ func (a *audit) add(format string, args ...any) {
 	a.findings = append(a.findings, fmt.Sprintf(format, args...))
 }
 
+// archived is what the audit read from one linux ruralzd archive, which the
+// image of the same architecture must carry: the binary, its build
+// information and the archive's NOTICE and THIRD_PARTY_LICENSES.
+type archived struct {
+	binary, notice, thirdParty []byte
+	info                       *buildinfo.BuildInfo
+}
+
 // runVerify audits a release directory against its manifest and the
-// repository (the ADR-0002 release audit of archives): the manifest's
-// fields, every archive's bytes, members, timestamps, legal files and
-// binary build, every SBOM, the schema assets, SHA256SUMS, the notes and
-// the image plan, and no stray file. It returns the findings.
+// repository (the ADR-0002 release audit of archives,
+// docs/engineering/04-release-versioning-and-compatibility.md, "Packaging
+// and audit"): the manifest's fields, every archive's bytes, members,
+// timestamps, legal files and binary build, every SBOM, the schema
+// assets, the benchmark records archive, the image plan with its digests
+// and, per platform, the image itself, SHA256SUMS, the notes, the
+// signature when present, and no stray file. It returns the findings.
 func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 	m, manifestData, err := loadManifest(o.manifest)
 	if err != nil {
@@ -90,9 +104,7 @@ func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 		a.add("manifest names checksums %q, signature %q and notes %q, want %q, %q and %q",
 			m.Checksums, m.Signature, m.Notes, checksumsName, signatureName, notesName)
 	}
-	if want := images(m.Version); !reflect.DeepEqual(m.Images, want) {
-		a.add("manifest image plan %s, want %s", jsonText(m.Images), jsonText(want))
-	}
+	planOK := verifyImagePlan(&a, m)
 
 	// Every archive the release must have, and no other.
 	var wantNames, gotNames []string
@@ -105,63 +117,56 @@ func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 	if !slices.Equal(gotNames, wantNames) {
 		a.add("manifest archives %v, want %v", gotNames, wantNames)
 	}
+	linux := map[string]archived{}
 	for _, info := range m.Archives {
 		i := slices.Index(wantNames, info.Name)
 		if i < 0 {
 			continue
 		}
-		if err := verifyArchive(&a, dir, info, arts[i], m, mtime, toolchain, repo, d); err != nil {
+		got, err := verifyArchive(&a, dir, info, arts[i], m, mtime, toolchain, repo, d)
+		if err != nil {
 			return nil, err
+		}
+		if got != nil && arts[i].Binary == "ruralzd" && arts[i].OS == "linux" {
+			linux[arts[i].OS+"/"+arts[i].Arch] = *got
 		}
 	}
 
 	// Schema assets: byte copies of every file under api/schema/ruralz/.
-	sources, err := schemaSources(o.root)
+	if err := verifySchemas(&a, dir, o.root, m); err != nil {
+		return nil, err
+	}
+
+	// The benchmark records archive.
+	if err := verifyBench(&a, dir, m, mtime); err != nil {
+		return nil, err
+	}
+
+	// The image, per platform, and its SBOM.
+	switch {
+	case !planOK:
+	case m.Images[0].recorded():
+		if err := verifyImage(&a, dir, o.image, m, repo, linux); err != nil {
+			return nil, err
+		}
+	case o.image != "":
+		a.add("the manifest records no image, but -image names the layout %s", o.image)
+	}
+
+	// SHA256SUMS over every other file of the directory.
+	want, sumFindings, err := checksumLines(dir, m, manifestData)
 	if err != nil {
 		return nil, err
 	}
-	var wantSchemas, gotSchemas []string
-	for _, s := range sources {
-		wantSchemas = append(wantSchemas, s[0]+" "+s[1])
-	}
-	for _, s := range m.Schemas {
-		gotSchemas = append(gotSchemas, s.Name+" "+s.Source)
-	}
-	if !slices.Equal(gotSchemas, wantSchemas) {
-		a.add("manifest schemas %v, want %v", gotSchemas, wantSchemas)
-	}
-	for _, s := range m.Schemas {
-		// Only expected names and sources are read, so a manifest cannot
-		// point the audit outside the release directory.
-		if !slices.Contains(wantSchemas, s.Name+" "+s.Source) {
-			continue
-		}
-		data, err := os.ReadFile(filepath.Join(dir, s.Name)) //nolint:gosec // An expected schema asset of the release directory.
-		if err != nil {
-			a.add("schema %s: %v", s.Name, err)
-			continue
-		}
-		if int64(len(data)) != s.Size || sha256Hex(data) != s.SHA256 {
-			a.add("schema %s does not match its manifest size and SHA-256", s.Name)
-		}
-		src, err := os.ReadFile(filepath.Join(o.root, filepath.FromSlash(s.Source)))
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(data, src) {
-			a.add("schema %s is not a byte copy of %s", s.Name, s.Source)
-		}
-	}
-
-	// SHA256SUMS over the archives and schema files.
+	a.findings = append(a.findings, sumFindings...)
 	sums, err := os.ReadFile(filepath.Join(dir, checksumsName)) //nolint:gosec // A file of the release directory.
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 		a.add("%s is missing (releasekit checksums)", checksumsName)
 	case err != nil:
 		return nil, err
-	case !bytes.Equal(sums, checksumsText(m, sha256Hex(manifestData))):
-		a.add("%s does not list exactly the archives, the schema files and %s with their SHA-256", checksumsName, manifestName)
+	case !bytes.Equal(sums, want):
+		a.add("%s does not list exactly every other file of the release directory with its SHA-256", checksumsName)
 	}
 
 	// The release notes.
@@ -192,28 +197,131 @@ func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 	}
 
 	// Nothing else.
-	allowed := []string{manifestName, checksumsName, signatureName, notesName}
-	for _, info := range m.Archives {
-		allowed = append(allowed, info.Name, info.SBOM)
-	}
-	for _, s := range m.Schemas {
-		allowed = append(allowed, s.Name)
-	}
-	entries, err := os.ReadDir(dir)
+	stray, err := strayFiles(dir, m)
 	if err != nil {
 		return nil, err
 	}
-	for _, e := range entries {
-		if !slices.Contains(allowed, e.Name()) || !e.Type().IsRegular() {
-			a.add("unexpected %s in the release directory", e.Name())
-		}
-	}
+	a.findings = append(a.findings, stray...)
 	return a.findings, nil
 }
 
+// verifyImagePlan checks the manifest's image plan against images(): the
+// same images with the digests a build recorded, which a release or
+// candidate must have. It reports whether the plan is fit for the image
+// audit.
+func verifyImagePlan(a *audit, m *manifest) bool {
+	want := images(m.Version)
+	if len(m.Images) != len(want) {
+		a.add("manifest image plan %s, want %s", jsonText(m.Images), jsonText(want))
+		return false
+	}
+	got := m.Images[0]
+	if bare := got.withDigests("", []platformManifest{}); !reflect.DeepEqual(bare, want[0]) {
+		a.add("manifest image plan %s, want %s with the image digests", jsonText(m.Images), jsonText(want))
+		return false
+	}
+	if !got.recorded() {
+		if len(got.Manifests) > 0 {
+			a.add("manifest image plan lists platform manifests %s without an index digest", jsonText(got.Manifests))
+			return false
+		}
+		if k := versionKind(m.Version); k != kindDev {
+			a.add("the %s %s records no image: a release or candidate ships its image", k, m.Version)
+		}
+		return true
+	}
+	ok := true
+	if !digestPattern().MatchString(got.Digest) {
+		a.add("manifest image index digest %q is not sha256:<64 hex>", got.Digest)
+		ok = false
+	}
+	var platforms []string
+	for _, pm := range got.Manifests {
+		platforms = append(platforms, pm.Platform)
+		if !digestPattern().MatchString(pm.Digest) {
+			a.add("manifest %s image digest %q is not sha256:<64 hex>", pm.Platform, pm.Digest)
+			ok = false
+		}
+	}
+	if !slices.Equal(platforms, got.Platforms) {
+		a.add("manifest image digests are for %v, want one per platform %v in that order", platforms, got.Platforms)
+		ok = false
+	}
+	return ok
+}
+
+// verifySchemas checks the schema assets: exactly a byte copy of every
+// file under api/schema/ruralz/, as the manifest lists them.
+func verifySchemas(a *audit, dir, root string, m *manifest) error {
+	sources, err := schemaSources(root)
+	if err != nil {
+		return err
+	}
+	var wantSchemas, gotSchemas []string
+	for _, s := range sources {
+		wantSchemas = append(wantSchemas, s[0]+" "+s[1])
+	}
+	for _, s := range m.Schemas {
+		gotSchemas = append(gotSchemas, s.Name+" "+s.Source)
+	}
+	if !slices.Equal(gotSchemas, wantSchemas) {
+		a.add("manifest schemas %v, want %v", gotSchemas, wantSchemas)
+	}
+	for _, s := range m.Schemas {
+		// Only expected names and sources are read, so a manifest cannot
+		// point the audit outside the release directory.
+		if !slices.Contains(wantSchemas, s.Name+" "+s.Source) {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, s.Name)) //nolint:gosec // An expected schema asset of the release directory.
+		if err != nil {
+			a.add("schema %s: %v", s.Name, err)
+			continue
+		}
+		if int64(len(data)) != s.Size || sha256Hex(data) != s.SHA256 {
+			a.add("schema %s does not match its manifest size and SHA-256", s.Name)
+		}
+		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.Source)))
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(data, src) {
+			a.add("schema %s is not a byte copy of %s", s.Name, s.Source)
+		}
+	}
+	return nil
+}
+
+// verifyLayout checks an archive's deterministic layout: sorted unique
+// paths, files and directories only, the commit time, owner and group 0
+// without names. It returns the paths in stored order.
+func verifyLayout(a *audit, name string, members []stored, mtime time.Time) []string {
+	var paths []string
+	for _, s := range members {
+		paths = append(paths, s.Path)
+		switch {
+		case !s.Regular && !s.Dir:
+			a.add("%s: %s is neither a file nor a directory", name, s.Path)
+		case s.Dir != s.isDir():
+			a.add("%s: %s has a type its path does not show", name, s.Path)
+		}
+		if !mtime.IsZero() && !s.ModTime.Equal(mtime) {
+			a.add("%s: %s is dated %s, want the commit time %s", name, s.Path, s.ModTime.UTC().Format(time.RFC3339), mtime.Format(time.RFC3339))
+		}
+		if s.UID != 0 || s.GID != 0 || s.Uname != "" || s.Gname != "" {
+			a.add("%s: %s has owner %d:%d (%q:%q), want 0:0 without names", name, s.Path, s.UID, s.GID, s.Uname, s.Gname)
+		}
+	}
+	if !slices.IsSorted(paths) || len(slices.Compact(slices.Clone(paths))) != len(paths) {
+		a.add("%s: members are not sorted and unique: %v", name, paths)
+	}
+	return paths
+}
+
 // verifyArchive audits one archive against its manifest entry, the
-// artifact registry and the repository.
-func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *manifest, mtime time.Time, toolchain string, repo repoFiles, d verifyDeps) error {
+// artifact registry and the repository. It returns what a linux ruralzd
+// archive's image must carry, or nil when the archive is unreadable.
+func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *manifest, mtime time.Time, toolchain string, repo repoFiles, d verifyDeps) (*archived, error) {
 	name := info.Name
 	if info.Binary != art.Binary || info.OS != art.OS || info.Arch != art.Arch || info.Support != art.Support || info.SBOM != name+sbomSuffix {
 		a.add("%s: manifest says %s %s/%s %s with SBOM %s, want %s %s/%s %s with SBOM %s", name,
@@ -222,10 +330,10 @@ func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *mani
 	data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // An archive of the release directory named by the manifest.
 	if errors.Is(err, fs.ErrNotExist) {
 		a.add("%s is missing", name)
-		return nil
+		return nil, nil
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if int64(len(data)) != info.Size || sha256Hex(data) != info.SHA256 {
 		a.add("%s does not match its manifest size and SHA-256", name)
@@ -243,31 +351,13 @@ func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *mani
 	}
 	if err != nil {
 		a.add("%s: unreadable archive: %v", name, err)
-		return nil
+		return nil, nil
 	}
 
-	// Deterministic layout: sorted unique paths, files and directories
-	// only, the commit time, owner and group 0 without names.
+	paths := verifyLayout(a, name, members, mtime)
 	var got []entryInfo
-	var paths []string
 	for _, s := range members {
-		paths = append(paths, s.Path)
-		switch {
-		case !s.Regular && !s.Dir:
-			a.add("%s: %s is neither a file nor a directory", name, s.Path)
-		case s.Dir != s.isDir():
-			a.add("%s: %s has a type its path does not show", name, s.Path)
-		}
-		if !mtime.IsZero() && !s.ModTime.Equal(mtime) {
-			a.add("%s: %s is dated %s, want the commit time %s", name, s.Path, s.ModTime.UTC().Format(time.RFC3339), mtime.Format(time.RFC3339))
-		}
-		if s.UID != 0 || s.GID != 0 || s.Uname != "" || s.Gname != "" {
-			a.add("%s: %s has owner %d:%d (%q:%q), want 0:0 without names", name, s.Path, s.UID, s.GID, s.Uname, s.Gname)
-		}
 		got = append(got, entryOf(s.member))
-	}
-	if !slices.IsSorted(paths) || len(slices.Compact(slices.Clone(paths))) != len(paths) {
-		a.add("%s: members are not sorted and unique: %v", name, paths)
 	}
 	if !reflect.DeepEqual(got, info.Entries) {
 		a.add("%s: members differ from the manifest", name)
@@ -303,12 +393,12 @@ func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *mani
 
 	bin, ok := byPath[art.executable()]
 	if !ok {
-		return nil
+		return nil, nil
 	}
 	facts, err := d.facts(bin.Data)
 	if err != nil {
 		a.add("%s: %s: %v", name, art.executable(), err)
-		return nil
+		return &archived{binary: bin.Data, notice: byPath[noticeMember].Data, thirdParty: byPath[thirdPartyMember].Data}, nil
 	}
 	for _, p := range buildProblems(facts, art, m.Version, m.Commit, toolchain) {
 		a.add("%s: %s", name, p)
@@ -318,32 +408,47 @@ func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *mani
 	}
 	problems, err := sbomProblems(filepath.Join(dir, name+sbomSuffix), facts.Info)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, p := range problems {
 		a.add("%s: %s", name, p)
 	}
-	return nil
+	return &archived{binary: bin.Data, notice: byPath[noticeMember].Data, thirdParty: byPath[thirdPartyMember].Data, info: facts.Info}, nil
 }
 
-// checksumsText renders SHA256SUMS in `sha256sum` format: one
-// "<hex>  <name>" line per archive, schema file and the manifest, whose
-// digest manifestSum is, sorted by name.
-func checksumsText(m *manifest, manifestSum string) []byte {
-	type line struct{ name, sum string }
-	lines := []line{{manifestName, manifestSum}}
-	for _, info := range m.Archives {
-		lines = append(lines, line{info.Name, info.SHA256})
+// verifyBench audits the benchmark records archive: its name, size and
+// digest, the deterministic layout of every archive, and members that are
+// exactly the records the manifest counts with the files they name.
+func verifyBench(a *audit, dir string, m *manifest, mtime time.Time) error {
+	b := m.Bench
+	if want := benchArchiveName(m.Version); b.Name != want {
+		a.add("manifest names the benchmark records archive %q, want %q", b.Name, want)
+		return nil
 	}
-	for _, s := range m.Schemas {
-		lines = append(lines, line{s.Name, s.SHA256})
+	data, err := os.ReadFile(filepath.Join(dir, b.Name)) //nolint:gosec // The expected records archive of the release directory.
+	if errors.Is(err, fs.ErrNotExist) {
+		a.add("%s is missing", b.Name)
+		return nil
 	}
-	slices.SortFunc(lines, func(x, y line) int { return strings.Compare(x.name, y.name) })
-	var b bytes.Buffer
-	for _, l := range lines {
-		b.WriteString(l.sum + "  " + l.name + "\n")
+	if err != nil {
+		return err
 	}
-	return b.Bytes()
+	if int64(len(data)) != b.Size || sha256Hex(data) != b.SHA256 {
+		a.add("%s does not match its manifest size and SHA-256", b.Name)
+	}
+	members, gz, err := readTarGz(data)
+	if err != nil {
+		a.add("%s: unreadable archive: %v", b.Name, err)
+		return nil
+	}
+	if gz.Name != "" || !gz.ModTime.IsZero() {
+		a.add("%s: gzip header carries a name or time", b.Name)
+	}
+	verifyLayout(a, b.Name, members, mtime)
+	for _, p := range benchProblems(members, b.Records) {
+		a.add("%s: %s", b.Name, p)
+	}
+	return nil
 }
 
 // jsonText renders v as compact JSON for a finding.

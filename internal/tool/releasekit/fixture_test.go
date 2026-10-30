@@ -6,6 +6,7 @@ package main
 import (
 	"context"
 	"debug/buildinfo"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -28,11 +29,15 @@ func fixtureTime() time.Time { return time.Date(2026, 10, 1, 12, 30, 45, 0, time
 // fixtureNotice is the fixture repository's NOTICE.
 const fixtureNotice = "Ruralz\nCopyright 2026 Revington\n"
 
-// fixture is a repository root, build output and notices for package,
-// with a stub git and stub build facts.
+// fixture is a repository root, build output, notices, an image layout
+// and benchmark records for package, with a stub git and stub build facts.
 type fixture struct {
 	root, dist, notices, out string
-	version                  string
+	// image is the OCI layout of the fixture image; empty packages none.
+	image string
+	// bench holds the fixture's benchmark records.
+	bench   string
+	version string
 	// deps are the modules every fake binary links.
 	deps []*debug.Module
 	// tweak changes the facts of one target, such as "ruralz_linux_amd64".
@@ -110,7 +115,55 @@ func newFixture(t *testing.T, version string) *fixture {
 		writeFile(t, filepath.Join(fx.notices, a.target(), noticeMember), fixtureNotice+"\nThird-party notices\n")
 		writeFile(t, filepath.Join(fx.notices, a.target(), thirdPartyMember), thirdPartyText("go1.27.3", fx.deps))
 	}
+	fx.bench = writeBench(t, version)
+	fx.writeImage(t, nil)
 	return fx
+}
+
+// benchRecordJSON is a ruralz.bench.v1 record as far as releasekit reads
+// it.
+func benchRecordJSON(scenario, kind, version string, histograms, profiles []string, summary map[string]any) map[string]any {
+	r := map[string]any{
+		"format": benchFormat,
+		"identity": map[string]any{
+			"scenario": scenario, "kind": kind, "commit": fixtureCommit, "version": version, "baseline": "", "toolchain": "go1.27.3",
+		},
+		"environment": map[string]any{"hardwareProfile": "RH-1"},
+		"latency":     map[string]any{"histogramFiles": histograms},
+		"resources":   map[string]any{"cpuProfileFiles": profiles},
+		"validity":    map[string]any{"verdict": "valid", "reasons": []any{}},
+		"budgets": []any{map[string]any{
+			"id": "SM-4", "value": "<= 1ms (target)", "result": "0.84ms", "slo": "SLO-GW-2", "verdict": "pass",
+		}},
+	}
+	if summary != nil {
+		r["summary"] = summary
+	}
+	return r
+}
+
+// writeBench writes the benchmark records of a release run into a fresh
+// directory: an S2 comparison summary over a head run, with its
+// histogram and CPU profile, and a single S1 run; and the rotation state,
+// which no archive ships. It holds three records.
+func writeBench(t *testing.T, version string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "bench")
+	write := func(rel string, v any) {
+		data, err := json.Marshal(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), string(data))
+	}
+	write("S2/summary-comparison.json", benchRecordJSON("S2", "summary", version, []string{}, []string{},
+		map[string]any{"of": "comparison", "verdict": "none", "runs": []any{"run-1-head.json"}}))
+	write("S2/run-1-head.json", benchRecordJSON("S2", "macro", version, []string{"run-1-head.hlog"}, []string{"run-1-head.cpu.pprof"}, nil))
+	writeFile(t, filepath.Join(dir, "S2", "run-1-head.hlog"), "#[StartTime: 1790000000.000]\n")
+	writeFile(t, filepath.Join(dir, "S2", "run-1-head.cpu.pprof"), "pprof")
+	write("S1/run-1.json", benchRecordJSON("S1", "macro", version, []string{}, []string{}, nil))
+	write("state.json", map[string]any{"slot": 2, "requeued": []any{}})
+	return dir
 }
 
 // stubGit answers the commit time of fixtureCommit and fails otherwise.
@@ -157,7 +210,10 @@ func (fx *fixture) facts() func([]byte) (buildFacts, error) {
 
 // options are the package flags of the fixture.
 func (fx *fixture) options() packageOptions {
-	return packageOptions{root: fx.root, dist: fx.dist, notices: fx.notices, out: fx.out, version: fx.version, commit: fixtureCommit}
+	return packageOptions{
+		root: fx.root, dist: fx.dist, notices: fx.notices, out: fx.out, version: fx.version, commit: fixtureCommit,
+		image: fx.image, bench: fx.bench,
+	}
 }
 
 func (fx *fixture) pkgDeps() packageDeps {
@@ -174,32 +230,50 @@ func sbomFor(deps []*debug.Module) string {
 	return `{"bomFormat":"CycloneDX","specVersion":"1.7","components":[` + strings.Join(comps, ",") + `]}`
 }
 
-// release builds a complete release directory: package, checksums, the
-// notes and an SBOM per archive.
-func (fx *fixture) release(t *testing.T) {
+// release builds a complete release directory in the order of make
+// release-dry-run: package, an SBOM per archive, the image SBOM merged
+// from a scan per platform image, the notes, then SHA256SUMS.
+func (fx *fixture) release(t *testing.T) *manifest {
 	t.Helper()
 	m, err := runPackage(t.Context(), fx.options(), fx.pkgDeps())
 	if err != nil {
 		t.Fatal(err)
 	}
+	for _, a := range m.Archives {
+		writeFile(t, filepath.Join(fx.out, a.SBOM), sbomFor(fx.deps))
+	}
+	if m.Images[0].recorded() {
+		if _, err := runSBOM(sbomOptions{manifest: filepath.Join(fx.out, manifestName), scans: fx.writeScans(t, m)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	writeFile(t, filepath.Join(fx.out, notesName), notesTitle(fx.version)+"\n\nnotes\n")
 	findings, err := runChecksums(fx.out)
 	if err != nil || len(findings) > 0 {
 		t.Fatalf("checksums: %v %v", findings, err)
 	}
-	writeFile(t, filepath.Join(fx.out, notesName), notesTitle(fx.version)+"\n\nnotes\n")
-	for _, a := range m.Archives {
-		writeFile(t, filepath.Join(fx.out, a.SBOM), sbomFor(fx.deps))
-	}
+	return m
 }
 
-// verifyFixture audits the fixture's release directory.
+// verify audits the fixture's release directory and image.
 func (fx *fixture) verify(t *testing.T) []string {
 	t.Helper()
-	findings, err := runVerify(verifyOptions{root: fx.root, manifest: filepath.Join(fx.out, manifestName)}, verifyDeps{facts: fx.facts()})
+	findings, err := runVerify(verifyOptions{root: fx.root, manifest: filepath.Join(fx.out, manifestName), image: fx.image}, verifyDeps{facts: fx.facts()})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return findings
+}
+
+// resum rewrites SHA256SUMS after a test changed a release file, so the
+// audit reports the change itself rather than stale checksums.
+func (fx *fixture) resum(t *testing.T) {
+	t.Helper()
+	_ = os.Remove(filepath.Join(fx.out, checksumsName))
+	findings, err := runChecksums(fx.out)
+	if err != nil || len(findings) > 0 {
+		t.Fatalf("checksums: %v %v", findings, err)
+	}
 }
 
 // hasFinding reports whether a finding contains want.

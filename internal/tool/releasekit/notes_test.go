@@ -101,16 +101,42 @@ func TestClassifyCommits(t *testing.T) {
 	}
 }
 
+// TestCodeSpan: a code span keeps its text verbatim, backslashes and
+// underscores included, and a fence longer than any backtick run inside.
+func TestCodeSpan(t *testing.T) {
+	for in, want := range map[string]string{
+		"ruralz_0.1.0_bench.tar.gz": "`ruralz_0.1.0_bench.tar.gz`",
+		`a\b`:                       "`a\\b`",
+		"a`b":                       "``a`b``",
+		"`edge":                     "`` `edge ``",
+	} {
+		if got := codeSpan(in); got != want {
+			t.Errorf("codeSpan(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestEscapeMarkdown(t *testing.T) {
 	if got, want := escapeMarkdown("keep <script> *bold* [x](y) a|b `c` ~d_e\\"), `keep \<script\> \*bold\* \[x\](y) a\|b \`+"`"+`c\`+"`"+` \~d\_e\\`; got != want {
 		t.Errorf("escapeMarkdown = %q, want %q", got, want)
 	}
 }
 
+// sampleIndex and sampleManifests are the image digests of the sample
+// notes.
+const sampleIndex = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func sampleImages(version string) []imagePlan {
+	return []imagePlan{images(version)[0].withDigests(sampleIndex, []platformManifest{
+		{Platform: "linux/amd64", Digest: "sha256:" + strings.Repeat("b", 64)},
+		{Platform: "linux/arm64", Digest: "sha256:" + strings.Repeat("c", 64)},
+	})}
+}
+
 func sampleNotes(version string) notesInput {
 	in := notesInput{
 		Version: version, Commit: fixtureCommit, From: "v0.0.9",
-		Archives: artifacts(), Images: images(version),
+		Archives: artifacts(), Images: sampleImages(version), Bench: benchArchiveName(version),
 		Features: []noteItem{{Scope: "cli", Text: "add the version command", Hash: fixtureCommit}},
 		Schema:   []string{"`ruralz/v1alpha1`: no schema changes."},
 		Records: []benchRecord{
@@ -159,10 +185,20 @@ func TestRenderNotes(t *testing.T) {
 		"--certificate-identity https://github.com/ravindu-rev/ruralz/.github/workflows/release-build.yml@refs/tags/v0.1.0",
 		"--certificate-oidc-issuer https://token.actions.githubusercontent.com",
 		"sha256sum --ignore-missing -c SHA256SUMS",
-		"and `release-manifest.json`, which lists every archive's members and digests",
-		"gh attestation verify ruralzd_0.1.0_linux_amd64.tar.gz --repo ravindu-rev/ruralz",
-		"cosign verify ghcr.io/ravindu-rev/ruralzd@sha256:<digest>",
-		"| Benchmarks | @octocat | maintain | RH-1 is being rebuilt |",
+		"`release-manifest.json`, which lists every archive's members and digests and the image digests",
+		"`ruralz_0.1.0_bench.tar.gz` holds the `ruralz.bench.v1` records",
+		"The image index is `ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + "`; its SBOM is `ruralzd_0.1.0_image.cdx.json`.",
+		"cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --new-bundle-format \\\n",
+		"gh attestation verify ruralzd_0.1.0_linux_amd64.tar.gz --repo ravindu-rev/ruralz \\\n     --signer-workflow ravindu-rev/ruralz/.github/workflows/release-build.yml\n",
+		"--signer-workflow ravindu-rev/ruralz/.github/workflows/release-build.yml \\\n     --predicate-type https://cyclonedx.org/bom\n",
+		"cosign verify ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + " \\\n",
+		"cosign verify ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + " --new-bundle-format \\\n",
+		"gh attestation verify oci://ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + " --repo ravindu-rev/ruralz",
+		"xattr -d com.apple.quarantine ruralzd",
+		"A download with `curl` never carries the flag.",
+		"| Benchmarks | Within 5% p99 and 3% alloc/op of the previous release (target)",
+		"For 0.1.0 no maintainer skips this gate: the release waits for RH-1 and passing budgets | @octocat | maintain | RH-1 is being rebuilt |",
+		"[release gates](https://github.com/ravindu-rev/ruralz/blob/v0.1.0/docs/engineering/03-testing-and-quality-strategy.md#release-gates)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notes lack %q", want)
@@ -187,6 +223,13 @@ func TestRenderNotesKinds(t *testing.T) {
 	}
 	if dev := renderNotes(sampleNotes("0.0.0-dev")); !strings.Contains(dev, "no tag is published for a development build") {
 		t.Error("development notes name an image tag")
+	}
+	// A dry run without Docker records no image, so the notes give no
+	// image digest to verify.
+	bare := sampleNotes("0.0.0-dev")
+	bare.Images = images("0.0.0-dev")
+	if got := renderNotes(bare); !strings.Contains(got, "3. This build recorded no image.") || strings.Contains(got, "cosign verify ghcr.io") {
+		t.Errorf("notes without an image:\n%s", got)
 	}
 }
 
@@ -374,7 +417,7 @@ func TestRunNotesOnRepository(t *testing.T) {
 		"**cli:** --legacy-output; removed in 0.4.0",
 		"`ruralz/v1alpha1`: Kind `Upstream` added.", "`ruralz/v1alpha1`: `RouteSpec.retries` added.",
 		"`ruralz.plugin.v1`: not served by this release.", "`ruralz.control.v1`: not served by this release.",
-		"| Chaos | @octocat | admin | flaky runner |",
+		"passed on the candidate commit | @octocat | admin | flaky runner |",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notes lack %q:\n%s", want, got)
@@ -428,6 +471,58 @@ func TestRunNotesErrors(t *testing.T) {
 		change(&o)
 		if err := runNotes(t.Context(), o, failing); err == nil {
 			t.Errorf("%s: no error", name)
+		}
+	}
+}
+
+// TestRunNotesManifest: with -manifest the notes name the image digests and
+// the records archive the manifest records; a manifest of another version
+// or commit is an error.
+func TestRunNotesManifest(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	gitIn(t, dir, "init", "--quiet", "--initial-branch=main")
+	writeFile(t, filepath.Join(dir, "api", "schema", "ruralz", "v1alpha1", "authoring.schema.json"), schemaDoc(`"Gateway"`, `"GatewaySpec":{}`))
+	gitIn(t, dir, "add", ".")
+	gitIn(t, dir, "commit", "--quiet", "-m", "feat(config): add the schema")
+	head := gitIn(t, dir, "rev-parse", "HEAD")
+	m := &manifest{Format: manifestFormat, Version: "0.2.0", Commit: head, Images: sampleImages("0.2.0"), Bench: benchInfo{Name: benchArchiveName("0.2.0")}}
+	data, err := encodeManifest(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(t.TempDir(), manifestName)
+	writeFile(t, manifestPath, string(data))
+	out := filepath.Join(t.TempDir(), notesName)
+	o := notesOptions{root: dir, version: "0.2.0", from: rootRef, to: "HEAD", manifest: manifestPath, out: out}
+	if err := runNotes(t.Context(), o, runGit); err != nil {
+		t.Fatal(err)
+	}
+	got := string(readBack(t, out))
+	for _, want := range []string{
+		"cosign verify ghcr.io/ravindu-rev/ruralzd@" + sampleIndex,
+		"The image index is `ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + "`",
+		"`ruralz_0.2.0_bench.tar.gz` holds",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("notes lack %q:\n%s", want, got)
+		}
+	}
+	for name, change := range map[string]func(*manifest){
+		"version": func(m *manifest) { m.Version = "0.2.1" },
+		"commit":  func(m *manifest) { m.Commit = strings.Repeat("a", 40) },
+	} {
+		other := *m
+		change(&other)
+		data, err := encodeManifest(&other)
+		if err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, manifestPath, string(data))
+		if err := runNotes(t.Context(), o, runGit); err == nil || !strings.Contains(err.Error(), "describes") {
+			t.Errorf("a manifest of another %s: %v, want an error", name, err)
 		}
 	}
 }

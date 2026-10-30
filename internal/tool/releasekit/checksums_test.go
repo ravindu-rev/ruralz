@@ -11,27 +11,19 @@ import (
 	"testing"
 )
 
-// TestChecksums: SHA256SUMS lists every archive, every schema file and the
-// published release-manifest.json, and only those, as sorted
-// "<sha256>  <name>" lines that sha256sum -c reads.
+// TestChecksums: SHA256SUMS lists every other file of the release
+// directory, so its one signature covers every asset: the archives and
+// their SBOMs, the image SBOM, the schema files, release-manifest.json,
+// NOTES.md and the benchmark records archive, as sorted "<sha256>  <name>"
+// lines that sha256sum -c reads.
 func TestChecksums(t *testing.T) {
 	fx := newFixture(t, "0.1.0")
-	m, err := runPackage(t.Context(), fx.options(), fx.pkgDeps())
-	if err != nil {
-		t.Fatal(err)
-	}
-	findings, err := runChecksums(fx.out)
-	if err != nil || len(findings) > 0 {
-		t.Fatalf("runChecksums: %q %v", findings, err)
-	}
+	m := fx.release(t)
 	data, err := os.ReadFile(filepath.Join(fx.out, checksumsName))
 	if err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSuffix(string(data), "\n"), "\n")
-	if want := len(m.Archives) + len(m.Schemas) + 1; len(lines) != want {
-		t.Fatalf("%d lines, want %d:\n%s", len(lines), want, data)
-	}
 	var names []string
 	for _, l := range lines {
 		sum, name, ok := strings.Cut(l, "  ")
@@ -42,21 +34,42 @@ func TestChecksums(t *testing.T) {
 		if err != nil || sha256Hex(content) != sum {
 			t.Errorf("%s: checksum does not match (%v)", name, err)
 		}
-		if strings.HasSuffix(name, sbomSuffix) || name == notesName {
-			t.Errorf("SHA256SUMS lists %s", name)
-		}
 		names = append(names, name)
 	}
-	if !slices.IsSorted(names) {
-		t.Errorf("names not sorted: %v", names)
+	want := []string{manifestName, notesName, m.Bench.Name, m.Images[0].SBOM}
+	for _, a := range m.Archives {
+		want = append(want, a.Name, a.SBOM)
 	}
-	if !slices.Contains(names, manifestName) {
-		t.Errorf("SHA256SUMS does not list %s: %v", manifestName, names)
+	for _, s := range m.Schemas {
+		want = append(want, s.Name)
+	}
+	slices.Sort(want)
+	if !slices.Equal(names, want) {
+		t.Errorf("SHA256SUMS lists %v, want %v", names, want)
+	}
+	entries, err := os.ReadDir(fx.out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != len(want)+1 {
+		t.Errorf("the release directory holds %d files, want the %d SHA256SUMS lists and SHA256SUMS", len(entries), len(want))
+	}
+
+	// A development build without an image has no image SBOM to list.
+	dev := newFixture(t, "0.0.0-dev")
+	dev.image = ""
+	dm := dev.release(t)
+	data, err = os.ReadFile(filepath.Join(dev.out, checksumsName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dm.Images[0].recorded() || strings.Contains(string(data), "_image.cdx.json") {
+		t.Errorf("a build without an image lists an image SBOM:\n%s", data)
 	}
 }
 
-// TestChecksumsFindings: a changed, missing or unlisted release file is a
-// finding, and SHA256SUMS is not written.
+// TestChecksumsFindings: a changed, missing or unexpected release file is
+// a finding, and SHA256SUMS is not written.
 func TestChecksumsFindings(t *testing.T) {
 	cases := []struct {
 		name   string
@@ -65,13 +78,30 @@ func TestChecksumsFindings(t *testing.T) {
 	}{
 		{"changed archive", func(t *testing.T, fx *fixture, m *manifest) {
 			writeFile(t, filepath.Join(fx.out, m.Archives[0].Name), "tampered")
-		}, "does not match its manifest SHA-256"},
+		}, m0 + " does not match its manifest SHA-256"},
+		{"changed records archive", func(t *testing.T, fx *fixture, m *manifest) {
+			writeFile(t, filepath.Join(fx.out, m.Bench.Name), "tampered")
+		}, "ruralz_0.1.0_bench.tar.gz does not match its manifest SHA-256"},
 		{"missing schema", func(_ *testing.T, fx *fixture, m *manifest) {
 			_ = os.Remove(filepath.Join(fx.out, m.Schemas[0].Name))
-		}, "listed in the manifest but missing"},
-		{"unlisted archive", func(t *testing.T, fx *fixture, _ *manifest) {
+		}, "ruralz-v1alpha1-authoring.schema.json is missing"},
+		{"missing archive SBOM", func(_ *testing.T, fx *fixture, m *manifest) {
+			_ = os.Remove(filepath.Join(fx.out, m.Archives[3].SBOM))
+		}, "ruralzd_0.1.0_darwin_amd64.tar.gz.cdx.json is missing"},
+		{"missing image SBOM", func(_ *testing.T, fx *fixture, m *manifest) {
+			_ = os.Remove(filepath.Join(fx.out, m.Images[0].SBOM))
+		}, "ruralzd_0.1.0_image.cdx.json is missing"},
+		{"missing notes", func(_ *testing.T, fx *fixture, _ *manifest) {
+			_ = os.Remove(filepath.Join(fx.out, notesName))
+		}, "NOTES.md is missing"},
+		{"unexpected archive", func(t *testing.T, fx *fixture, _ *manifest) {
 			writeFile(t, filepath.Join(fx.out, "ruralz_0.0.9_linux_amd64.tar.gz"), "old")
-		}, "ruralz_0.0.9_linux_amd64.tar.gz is not in the manifest"},
+		}, "unexpected ruralz_0.0.9_linux_amd64.tar.gz in the release directory"},
+		{"directory", func(t *testing.T, fx *fixture, _ *manifest) {
+			if err := os.Mkdir(filepath.Join(fx.out, "extra"), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}, "unexpected extra in the release directory"},
 		{"path in manifest", func(t *testing.T, fx *fixture, m *manifest) {
 			m.Schemas[0].Name = "../outside.schema.json"
 			data, _ := encodeManifest(m)
@@ -81,10 +111,8 @@ func TestChecksumsFindings(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			fx := newFixture(t, "0.1.0")
-			m, err := runPackage(t.Context(), fx.options(), fx.pkgDeps())
-			if err != nil {
-				t.Fatal(err)
-			}
+			m := fx.release(t)
+			_ = os.Remove(filepath.Join(fx.out, checksumsName))
 			c.change(t, fx, m)
 			findings, err := runChecksums(fx.out)
 			if err != nil {
@@ -102,3 +130,6 @@ func TestChecksumsFindings(t *testing.T) {
 		t.Error("a directory without a manifest is not an error")
 	}
 }
+
+// m0 is the first archive of a 0.1.0 release.
+const m0 = "ruralzd_0.1.0_linux_amd64.tar.gz"

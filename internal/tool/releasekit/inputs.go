@@ -26,6 +26,10 @@ const benchFormat = "ruralz.bench.v1"
 // MaxRecordBytes does for its own reader.
 const maxRecordBytes = 16 << 20
 
+// stateFile is the rotation state the Latency job writes beside its
+// records for the bench-records branch; it is no record and never ships.
+const stateFile = "state.json"
+
 // benchBudget is one budget result of a record.
 type benchBudget struct {
 	ID      string `json:"id"`
@@ -109,6 +113,9 @@ func readBudgets(dir string) ([]benchRecord, error) {
 			return fmt.Errorf("%s: %w", rel, err)
 		}
 		if r.Format != benchFormat {
+			if filepath.Base(rel) == stateFile {
+				return nil
+			}
 			return fmt.Errorf("%s: format %q, want %q", rel, r.Format, benchFormat)
 		}
 		switch r.Identity.Kind {
@@ -161,11 +168,34 @@ type skippedFile struct {
 	Skipped []skippedGate `json:"skipped"`
 }
 
-// releaseGates are the gates of the testing document's Release gates
-// table that apply from M1; a maintainer may skip one with a release-notes
-// entry.
+// releaseGateRows are the rows of the testing document's Release gates
+// table that apply from M0 and M1, as gate and evidence in plain text (link
+// targets and code marks dropped); a maintainer may skip a gate with a
+// release-notes entry, and the notes print the skipped gate's row.
+func releaseGateRows() [][2]string {
+	return [][2]string{
+		{"All CI stages green", "Every stage re-run on the candidate commit, with floor and release jobs"},
+		{"Golden corpus", "Byte-exact, except entries recording a deliberate change"},
+		{"Conformance", "100% of cases for shipped features (target); every PDK passes the Plugin ABI suite of every supported release line"},
+		{"Fuzzing", "Zero open crashers; every fixed crasher has a regression seed"},
+		{"Chaos", "Every chaos scenario, CE experiment, game day drill and failure catalog row shipped by the candidate's milestone passed on the candidate commit"},
+		{"Benchmarks", "Within 5% p99 and 3% alloc/op of the previous release (target), or absolute budgets only for 0.1.0; " +
+			"every seed budget met from the milestone introducing its component, read from the release run's summary records; " +
+			"the 2-hour S2 soak at half saturation under the soak rule: RSS drift 2% or less and flat goroutines (target), " +
+			"S2's validity rules, zero telemetry drops, PB-2 and PB-3. For 0.1.0 no maintainer skips this gate: the release waits for RH-1 and passing budgets"},
+		{"Security scanning", "Every check in Security scanning green"},
+		{"Release candidate", "For vX.Y.0, a vX.Y.0-rc.N tag on the same commit whose release run passed, published at least 14 days earlier (target); " +
+			"a patch vX.Y.Z needs no candidate (Release cadence)"},
+	}
+}
+
+// releaseGates are the gates of releaseGateRows.
 func releaseGates() []string {
-	return []string{"All CI stages green", "Golden corpus", "Conformance", "Fuzzing", "Chaos", "Benchmarks", "Security scanning"}
+	var out []string
+	for _, r := range releaseGateRows() {
+		out = append(out, r[0])
+	}
+	return out
 }
 
 // readSkipped reads and validates the skipped-gates document.

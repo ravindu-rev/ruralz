@@ -346,7 +346,8 @@ func parseCopy(t *testing.T, args string) dockerCopy {
 
 // TestDockerfile: an empty final base running the released binary as user
 // 65532; from the digest-pinned golang:1.27.1-bookworm stage of the tech
-// stack's CI tooling row only the CA bundle, the composed
+// stack's CI tooling row, named on a literal FROM line that Dependabot's
+// docker updates move, only the CA bundle, the composed
 // THIRD_PARTY_LICENSES and the empty data directory enter the image; the
 // legal files sit under /usr/share/doc/ruralzd/.
 func TestDockerfile(t *testing.T) {
@@ -356,8 +357,9 @@ func TestDockerfile(t *testing.T) {
 	if row == nil {
 		t.Fatal("the tech stack CI tooling table has no golang image row")
 	}
-	if ins[0].Cmd != "ARG" || !regexp.MustCompile(`^GOLANG_IMAGE=`+regexp.QuoteMeta(row[1])+`@sha256:[0-9a-f]{64}$`).MatchString(ins[0].Args) {
-		t.Errorf("first instruction %+v, want ARG GOLANG_IMAGE=%s@sha256:<digest>", ins[0], row[1])
+	certs := regexp.MustCompile(`^--platform=\$BUILDPLATFORM ` + regexp.QuoteMeta(row[1]) + `@sha256:[0-9a-f]{64} AS certs$`)
+	if ins[0].Cmd != "FROM" || !certs.MatchString(ins[0].Args) {
+		t.Errorf("first instruction %+v, want FROM --platform=$BUILDPLATFORM %s@sha256:<digest> AS certs", ins[0], row[1])
 	}
 	// The instructions after the second FROM form the final stage.
 	var froms []string
@@ -370,8 +372,8 @@ func TestDockerfile(t *testing.T) {
 			final = append(final, in)
 		}
 	}
-	if want := []string{"--platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS certs", "scratch AS " + images("0.1.0")[0].Target}; !slices.Equal(froms, want) {
-		t.Fatalf("FROM lines %q, want %q", froms, want)
+	if len(froms) != 2 || !certs.MatchString(froms[0]) || froms[1] != "scratch AS "+images("0.1.0")[0].Target {
+		t.Fatalf("FROM lines %q, want the certs stage and scratch AS %s", froms, images("0.1.0")[0].Target)
 	}
 	copies := map[string]dockerCopy{}
 	var user, entrypoint string
@@ -392,7 +394,7 @@ func TestDockerfile(t *testing.T) {
 		}
 	}
 	wantCopies := map[string]dockerCopy{
-		"/etc/ssl/certs/ca-certificates.crt":          {From: "certs", Src: "/etc/ssl/certs/ca-certificates.crt"},
+		"/etc/ssl/certs/ca-certificates.crt":          {From: "certs", Chmod: "0644", Src: "/work/ca-certificates.crt"},
 		"/usr/local/bin/ruralzd":                      {Chmod: "0755", Src: "dist/linux_${TARGETARCH}/ruralzd"},
 		"/usr/share/doc/ruralzd/LICENSE":              {Chmod: "0644", Src: "LICENSE"},
 		"/usr/share/doc/ruralzd/NOTICE":               {Chmod: "0644", Src: "dist/notices/ruralzd_linux_${TARGETARCH}/NOTICE"},
@@ -418,7 +420,9 @@ func TestDockerfile(t *testing.T) {
 
 // TestDockerfileNotices: the certs stage appends the CA bundle's notice,
 // with its MPL-2.0 source address, to the binary's THIRD_PARTY_LICENSES
-// under the same section rule, and makes the data directory owner-only.
+// under the same section rule, copies the CA bundle anew, so its time is
+// the build's and SOURCE_DATE_EPOCH clamps it, and makes the data
+// directory owner-only.
 func TestDockerfileNotices(t *testing.T) {
 	text := readRepo(t, "deploy/container/Dockerfile")
 	for _, want := range []string{
@@ -427,6 +431,7 @@ func TestDockerfileNotices(t *testing.T) {
 		"License: MPL-2.0 (certificate data)",
 		"https://sources.debian.org/src/ca-certificates/%s/",
 		"cat /usr/share/doc/ca-certificates/copyright",
+		"cp /etc/ssl/certs/ca-certificates.crt /work/ca-certificates.crt",
 		"install -d -m 0700 /work/varlib/ruralz",
 	} {
 		if !strings.Contains(text, want) {

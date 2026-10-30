@@ -8,15 +8,18 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
+	"encoding/pem"
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"testing"
 )
 
-// TestVerifyRelease: a complete release directory passes the audit, with
-// or without its Sigstore bundle.
+// TestVerifyRelease: a complete release directory and its image pass the
+// audit, with or without the Sigstore bundle; a development build may
+// record no image.
 func TestVerifyRelease(t *testing.T) {
 	for _, version := range []string{"0.1.0", "0.1.0-rc.2", "0.0.0-dev"} {
 		fx := newFixture(t, version)
@@ -28,6 +31,18 @@ func TestVerifyRelease(t *testing.T) {
 		if got := fx.verify(t); len(got) != 0 {
 			t.Errorf("%s with a signature: findings %q", version, got)
 		}
+	}
+	dev := newFixture(t, "0.0.0-dev")
+	layout := dev.image
+	dev.image = ""
+	dev.release(t)
+	if got := dev.verify(t); len(got) != 0 {
+		t.Errorf("a development build without an image: findings %q", got)
+	}
+	// An image layout given for a build that recorded none is a finding.
+	dev.image = layout
+	if got := dev.verify(t); !hasFinding(got, "the manifest records no image, but -image names the layout") {
+		t.Errorf("a layout for a build without an image: findings %q", got)
 	}
 }
 
@@ -95,7 +110,72 @@ func TestVerifyFindings(t *testing.T) {
 				t.Fatal(err)
 			}
 			writeFile(t, filepath.Join(fx.out, manifestName), string(data)+"\n")
-		}, "SHA256SUMS does not list exactly the archives, the schema files and release-manifest.json"},
+		}, "SHA256SUMS does not list exactly every other file of the release directory with its SHA-256"},
+		{"SHA256SUMS without the SBOMs", func(t *testing.T, fx *fixture) {
+			var kept []string
+			for _, l := range strings.SplitAfter(string(readBack(t, filepath.Join(fx.out, checksumsName))), "\n") {
+				if !strings.HasSuffix(strings.TrimSpace(l), sbomSuffix) {
+					kept = append(kept, l)
+				}
+			}
+			writeFile(t, filepath.Join(fx.out, checksumsName), strings.Join(kept, ""))
+		}, "SHA256SUMS does not list exactly every other file"},
+		{"release without an image", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { m.Images = images(m.Version) })
+			_ = os.Remove(filepath.Join(fx.out, "ruralzd_0.1.0_image.cdx.json"))
+			fx.resum(t)
+		}, "the release 0.1.0 records no image: a release or candidate ships its image"},
+		{"image digest", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { m.Images[0].Digest = "sha256:abc" })
+		}, `manifest image index digest "sha256:abc" is not sha256:<64 hex>`},
+		{"platform digests without an index", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { m.Images[0].Digest = "" })
+		}, "manifest image plan lists platform manifests"},
+		{"image digests out of order", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { slices.Reverse(m.Images[0].Manifests) })
+		}, "manifest image digests are for [linux/arm64 linux/amd64], want one per platform [linux/amd64 linux/arm64] in that order"},
+		{"layout of another image", func(t *testing.T, fx *fixture) {
+			fx.writeImage(t, func(s *imageSpec) { s.Config["created"] = "2026-10-02T00:00:00Z" })
+		}, "but the manifest records"},
+		{"no layout", func(_ *testing.T, fx *fixture) { fx.image = "" }, "give its OCI layout with -image to audit it"},
+		{"image SBOM missing", func(_ *testing.T, fx *fixture) {
+			_ = os.Remove(filepath.Join(fx.out, "ruralzd_0.1.0_image.cdx.json"))
+		}, "image SBOM ruralzd_0.1.0_image.cdx.json is missing"},
+		{"image SBOM without the modules", func(t *testing.T, fx *fixture) {
+			m, err := readManifest(filepath.Join(fx.out, manifestName))
+			if err != nil {
+				t.Fatal(err)
+			}
+			scans := filepath.Join(t.TempDir(), "scans")
+			for _, pm := range m.Images[0].Manifests {
+				writeFile(t, filepath.Join(scans, scanName(pm.Platform)), string(fakeScan(t, pm.Digest, nil)))
+			}
+			if _, err := runSBOM(sbomOptions{manifest: filepath.Join(fx.out, manifestName), scans: scans}); err != nil {
+				t.Fatal(err)
+			}
+		}, "image SBOM ruralzd_0.1.0_image.cdx.json: the linux/arm64 image lacks example.com/Upper/mod v1.2.3+incompatible"},
+		{"image SBOM of another image", func(t *testing.T, fx *fixture) {
+			rewriteJSON(t, filepath.Join(fx.out, "ruralzd_0.1.0_image.cdx.json"), func(doc map[string]any) {
+				doc["metadata"].(map[string]any)["component"].(map[string]any)["version"] = "sha256:" + strings.Repeat("f", 64)
+			})
+		}, "describes the container ghcr.io/ravindu-rev/ruralzd sha256:ffff"},
+		{"image SBOM platforms", func(t *testing.T, fx *fixture) {
+			rewriteJSON(t, filepath.Join(fx.out, "ruralzd_0.1.0_image.cdx.json"), func(doc map[string]any) {
+				doc["components"] = doc["components"].([]any)[:1]
+			})
+		}, "lists 1 platform images, want 2"},
+		{"records archive bytes", func(t *testing.T, fx *fixture) {
+			writeFile(t, filepath.Join(fx.out, "ruralz_0.1.0_bench.tar.gz"), "other bytes")
+		}, "ruralz_0.1.0_bench.tar.gz does not match its manifest size and SHA-256"},
+		{"records archive missing", func(_ *testing.T, fx *fixture) {
+			_ = os.Remove(filepath.Join(fx.out, "ruralz_0.1.0_bench.tar.gz"))
+		}, "ruralz_0.1.0_bench.tar.gz is missing"},
+		{"records archive count", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { m.Bench.Records = 5 })
+		}, "ruralz_0.1.0_bench.tar.gz: holds 3 records, the manifest says 5"},
+		{"records archive name", func(t *testing.T, fx *fixture) {
+			rewriteManifest(t, fx, func(m *manifest) { m.Bench.Name = "bench.tar.gz" })
+		}, `manifest names the benchmark records archive "bench.tar.gz", want "ruralz_0.1.0_bench.tar.gz"`},
 		{"notes missing", func(_ *testing.T, fx *fixture) {
 			_ = os.Remove(filepath.Join(fx.out, notesName))
 		}, "NOTES.md is missing"},
@@ -150,6 +230,132 @@ func TestVerifyFindings(t *testing.T) {
 			fx.release(t)
 			c.change(t, fx)
 			if got := fx.verify(t); !hasFinding(got, c.want) {
+				t.Errorf("findings %q\nlack %q", got, c.want)
+			}
+		})
+	}
+}
+
+// rewriteJSON applies change to the JSON document at p.
+func rewriteJSON(t *testing.T, p string, change func(map[string]any)) {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(readBack(t, p), &doc); err != nil {
+		t.Fatal(err)
+	}
+	change(doc)
+	data, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, p, string(data))
+}
+
+// entryNamed returns the index of the layer entry named name, or -1.
+func entryNamed(s *imageSpec, name string) int {
+	return slices.IndexFunc(s.Entries, func(e layerEntry) bool { return e.Name == name })
+}
+
+// TestVerifyImage: each way a platform image can differ from the one the
+// Dockerfile builds from the release's linux ruralzd archive is a finding
+// naming the image digest and platform.
+func TestVerifyImage(t *testing.T) {
+	setEntry := func(name string, change func(*layerEntry)) func(*imageSpec) {
+		return func(s *imageSpec) {
+			if i := entryNamed(s, name); i >= 0 {
+				change(&s.Entries[i])
+			}
+		}
+	}
+	cases := []struct {
+		name   string
+		mutate func(*imageSpec)
+		want   string
+	}{
+		{
+			"binary bytes", setEntry("usr/local/bin/ruralzd", func(e *layerEntry) { e.Data = []byte("another build") }),
+			"linux/amd64: /usr/local/bin/ruralzd differs from the linux ruralzd archive's binary",
+		},
+		{
+			"binary mode", setEntry("usr/local/bin/ruralzd", func(e *layerEntry) { e.Mode = 0o700 }),
+			"/usr/local/bin/ruralzd is a file of mode 0700 owned by 0:0, want a file of mode 0755 owned by 0:0",
+		},
+		{
+			"binary owner", setEntry("usr/local/bin/ruralzd", func(e *layerEntry) { e.UID, e.GID = imageUID, imageUID }),
+			"/usr/local/bin/ruralzd is a file of mode 0755 owned by 65532:65532",
+		},
+		{
+			"data directory mode", setEntry("var/lib/ruralz/", func(e *layerEntry) { e.Mode = 0o755 }),
+			"/var/lib/ruralz is a directory of mode 0755 owned by 65532:65532, want a directory of mode 0700 owned by 65532:65532",
+		},
+		{
+			"data directory owner", setEntry("var/lib/ruralz/", func(e *layerEntry) { e.UID, e.GID = 0, 0 }),
+			"/var/lib/ruralz is a directory of mode 0700 owned by 0:0",
+		},
+		{
+			"data directory missing", func(s *imageSpec) {
+				s.Entries = slices.Delete(s.Entries, entryNamed(s, "var/lib/ruralz/"), entryNamed(s, "var/lib/ruralz/")+1)
+			},
+			"missing /var/lib/ruralz",
+		},
+		{"extra file", func(s *imageSpec) {
+			s.Entries = append(s.Entries, layerEntry{Name: "etc/passwd", Type: tar.TypeReg, Mode: 0o644, Data: []byte("root:x:0:0::/:/bin/sh\n")})
+		}, "linux/arm64: unexpected /etc/passwd"},
+		{
+			"special file", setEntry("etc/ssl/certs/ca-certificates.crt", func(e *layerEntry) { e.Type, e.Data = tar.TypeSymlink, nil }),
+			"/etc/ssl/certs/ca-certificates.crt is a special file of mode 0644 owned by 0:0",
+		},
+		{"CA bundle missing", func(s *imageSpec) {
+			i := entryNamed(s, "etc/ssl/certs/ca-certificates.crt")
+			s.Entries = slices.Delete(s.Entries, i, i+1)
+		}, "missing /etc/ssl/certs/ca-certificates.crt"},
+		{
+			"CA bundle not PEM", setEntry("etc/ssl/certs/ca-certificates.crt", func(e *layerEntry) { e.Data = []byte("not a certificate\n") }),
+			"/etc/ssl/certs/ca-certificates.crt is not a PEM bundle of certificates",
+		},
+		{"CA bundle with a key", setEntry("etc/ssl/certs/ca-certificates.crt", func(e *layerEntry) {
+			e.Data = append(fixtureCABundle(), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: []byte("k")})...)
+		}), "/etc/ssl/certs/ca-certificates.crt is not a PEM bundle of certificates"},
+		{
+			"LICENSE", setEntry("usr/share/doc/ruralzd/LICENSE", func(e *layerEntry) { e.Data = []byte("MIT\n") }),
+			"/usr/share/doc/ruralzd/LICENSE differs from the repository's LICENSE",
+		},
+		{
+			"NOTICE", setEntry("usr/share/doc/ruralzd/NOTICE", func(e *layerEntry) { e.Data = []byte("another\n") }),
+			"/usr/share/doc/ruralzd/NOTICE differs from the archive's NOTICE",
+		},
+		{"THIRD_PARTY_LICENSES without the CA bundle", setEntry("usr/share/doc/ruralzd/THIRD_PARTY_LICENSES", func(e *layerEntry) {
+			e.Data = []byte(thirdPartyText("go1.27.3", []*debug.Module{{Path: "example.com/Upper/mod", Version: "v1.2.3+incompatible"}}))
+		}), "/usr/share/doc/ruralzd/THIRD_PARTY_LICENSES does not end with the CA bundle's MPL-2.0 notice and source address"},
+		{"THIRD_PARTY_LICENSES of another binary", setEntry("usr/share/doc/ruralzd/THIRD_PARTY_LICENSES", func(e *layerEntry) {
+			e.Data = []byte(thirdPartyText("go1.27.3", nil) + caSection(fixtureCAVersion))
+		}), "/usr/share/doc/ruralzd/THIRD_PARTY_LICENSES does not start with the archive's THIRD_PARTY_LICENSES"},
+		{"CA source of another version", setEntry("usr/share/doc/ruralzd/THIRD_PARTY_LICENSES", func(e *layerEntry) {
+			e.Data = bytes.Replace(e.Data, []byte("ca-certificates/"+fixtureCAVersion+"/"), []byte("ca-certificates/20210119/"), 1)
+		}), "does not end with the CA bundle's MPL-2.0 notice and source address"},
+		{"user", func(s *imageSpec) { s.configOf()["User"] = "0:0" }, `USER "0:0", want 65532:65532`},
+		{
+			"ports", func(s *imageSpec) { s.configOf()["ExposedPorts"].(map[string]any)["22/tcp"] = map[string]any{} },
+			"exposes [22/tcp 8080/tcp 8443/tcp 9901/tcp], want [8080/tcp 8443/tcp 9901/tcp]",
+		},
+		{"entrypoint", func(s *imageSpec) { s.configOf()["Entrypoint"] = []any{"/bin/sh"} }, `entrypoint ["/bin/sh"]`},
+		{"command", func(s *imageSpec) { s.configOf()["Cmd"] = []any{"--help"} }, `and command ["--help"], want [/usr/local/bin/ruralzd] alone`},
+		{"labels", func(s *imageSpec) {
+			s.configOf()["Labels"].(map[string]any)["org.opencontainers.image.revision"] = strings.Repeat("e", 40)
+		}, "labels {"},
+		{"platform", func(s *imageSpec) {
+			if s.Platform == "linux/arm64" {
+				s.Config["architecture"] = "amd64"
+			}
+		}, "linux/arm64: configuration is for linux/amd64"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fx := newFixture(t, "0.1.0")
+			fx.writeImage(t, c.mutate)
+			m := fx.release(t)
+			got := fx.verify(t)
+			if !hasFinding(got, c.want) || !hasFinding(got, "image "+m.Images[0].Digest+", linux/") {
 				t.Errorf("findings %q\nlack %q", got, c.want)
 			}
 		})
