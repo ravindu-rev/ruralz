@@ -23,11 +23,16 @@ import (
 )
 
 // childEnv makes the test binary act as an idle process: it waits for
-// SIGTERM and exits 0, standing in for a ruralzd with no Revision.
+// SIGTERM and exits 0, standing in for a ruralzd with no Revision. It exits
+// 3 at once unless it got the idle run's settings, so a run that dropped
+// one fails as a tool error.
 const childEnv = "SIZEGATE_TEST_CHILD"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(childEnv) == "idle" {
+		if os.Getenv("RURALZ_BIND_LOOPBACK") != "true" || os.Getenv("RURALZ_CONFIG") == "" || os.Getenv("RURALZ_DATA_DIR") == "" {
+			os.Exit(3)
+		}
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM)
 		<-ctx.Done()
 		stop()
@@ -271,9 +276,10 @@ func script(t *testing.T, body string) string {
 }
 
 // TestIdleRSS runs the gate against real processes with a short settle: an
-// idle process passes, a 1-byte limit fails, the override passes, the M0
-// stub is skipped and a crash is a tool error, whose summary still reports
-// what was measured.
+// idle process passes (it stays up only with RURALZ_BIND_LOOPBACK=true), a
+// 1-byte limit fails, the override passes, and any early exit, a former
+// M0 stub's included, is a tool error, whose summary still reports what was
+// measured.
 func TestIdleRSS(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("VmRSS needs /proc")
@@ -281,6 +287,8 @@ func TestIdleRSS(t *testing.T) {
 	short := []string{"-settle", "300ms", "-window", "200ms", "-interval", "100ms"}
 	stub := `echo "ruralzd 0.0.0-dev (commit unknown, flavor default): Ruralz Gateway is not implemented yet; it is Planned (M1)" >&2; exit 2`
 	self := []string{"-binary", os.Args[0], "-idle-rss", "-env", childEnv + "=idle"}
+	// A later -env entry replaces the idle run's own setting.
+	loopbackOff := append(slices.Clone(self), "-env", "RURALZ_BIND_LOOPBACK=false")
 	for _, tc := range []struct {
 		name        string
 		args        []string
@@ -291,10 +299,9 @@ func TestIdleRSS(t *testing.T) {
 		{"idle process passes", append(self, short...), 0, []string{"idle RSS of", "over 2 samples", "pass"}, []string{"Idle RSS"}},
 		{"limit exceeded fails", append(append(self, short...), "-max-rss", "1"), 1, []string{"FAIL"}, []string{"Idle RSS"}},
 		{"override passes", append(append(self, short...), "-max-rss", "1", "-override"), 0, []string{"FAIL", "failures accepted"}, []string{"Idle RSS"}},
-		{"M0 stub is skipped", append([]string{"-idle-rss", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "not implemented yet"}, []string{"Idle RSS"}},
-		{"M0 stub skip is annotated", append([]string{"-idle-rss", "-annotate", "-rss-binary", script(t, stub)}, short...), 0, []string{"skip idle RSS", "::warning title=Idle RSS gate skipped::"}, []string{"Idle RSS"}},
+		{"M0 stub exit is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, stub)}, short...), 2, nil, []string{"| Tool error |"}},
 		{"other exit 2 is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "listener: not implemented yet" >&2; exit 2`)}, short...), 2, nil, []string{"| Tool error |"}},
-		{"stub message with another status is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, `echo "Ruralz Gateway is not implemented yet; it is Planned (M1)" >&2; exit 1`)}, short...), 2, nil, []string{"| Tool error |"}},
+		{"bind on every interface is a tool error", append(loopbackOff, short...), 2, nil, []string{"| Tool error |"}},
 		{"crash is a tool error", append([]string{"-idle-rss", "-rss-binary", script(t, "echo crashed >&2; exit 3")}, short...), 2, nil, []string{"| Tool error |"}},
 		{"no host binary is a tool error", []string{"-binary", sparse(t, 10), "-idle-rss"}, 2, nil, []string{"| Tool error |", "Stripped size"}},
 	} {
@@ -310,8 +317,8 @@ func TestIdleRSS(t *testing.T) {
 					t.Errorf("stdout lacks %q:\n%s", want, stdout.String())
 				}
 			}
-			if annotated := slices.Contains(tc.args, "-annotate"); annotated != strings.Contains(stdout.String(), "::warning") {
-				t.Errorf("-annotate %v, but stdout:\n%s", annotated, stdout.String())
+			if strings.Contains(stdout.String(), "skip") {
+				t.Errorf("the idle RSS gate skipped:\n%s", stdout.String())
 			}
 			md, err := os.ReadFile(summary) //nolint:gosec // Test reads its own temporary file.
 			if err != nil {
@@ -326,37 +333,18 @@ func TestIdleRSS(t *testing.T) {
 	}
 }
 
-// TestNotImplemented: only the exact M0 stub message with exit status 2
-// skips the idle RSS gate, never any early exit that happens to say
-// "not implemented yet".
-func TestNotImplemented(t *testing.T) {
-	for _, tc := range []struct {
-		code   int
-		output string
-		want   bool
-	}{
-		{2, "ruralzd 1.0.0 (commit abc, flavor default): " + stubMessage + "\n", true},
-		{2, stubMessage, true},
-		{1, stubMessage, false},
-		{0, stubMessage, false},
-		{2, "ruralzd: listener not implemented yet\n", false},
-		{2, "ruralz gateway is not implemented yet; it is planned (m1)", false},
-		{2, "", false},
+// TestIdleEnv checks the idle run's settings: no Revision, its own data
+// directory and home, and the admin port on loopback only.
+func TestIdleEnv(t *testing.T) {
+	env := idleEnv("/tmp/x")
+	for _, want := range []string{
+		"RURALZ_CONFIG=" + filepath.Join("/tmp/x", "config"),
+		"RURALZ_DATA_DIR=" + filepath.Join("/tmp/x", "data"),
+		"HOME=" + filepath.Join("/tmp/x", "home"),
+		"RURALZ_BIND_LOOPBACK=true",
 	} {
-		if got := notImplemented(tc.code, tc.output); got != tc.want {
-			t.Errorf("notImplemented(%d, %q) = %v, want %v", tc.code, tc.output, got, tc.want)
-		}
-	}
-}
-
-func TestEscapeWorkflowData(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain":              "plain",
-		"50% done":           "50%25 done",
-		"a\nb\r\n::error::x": "a%0Ab%0D%0A::error::x",
-	} {
-		if got := escapeWorkflowData(in); got != want {
-			t.Errorf("escapeWorkflowData(%q) = %q, want %q", in, got, want)
+		if !slices.Contains(env, want) {
+			t.Errorf("idleEnv lacks %s: %v", want, env)
 		}
 	}
 }

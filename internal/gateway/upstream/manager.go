@@ -9,6 +9,8 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"net/http"
+	"net/http/httptrace"
 	"net/netip"
 	"slices"
 	"sync"
@@ -44,6 +46,11 @@ type Options struct {
 	Guard *egress.Guard
 	// Dial replaces the Guard's dialer; tests only.
 	Dial discovery.DialFunc
+	// Send replaces the transport every pool sends its attempts on, so a
+	// benchmark counts the Upstream layer without net/http (PB-8's canned
+	// transport, docs/architecture/12-performance-budgets-and-benchmarking.md
+	// "Regression policy and gates"); benchmarks and tests only.
+	Send http.RoundTripper
 	// Resolver performs DNS discovery lookups; nil means
 	// discovery.NewResolver().
 	Resolver discovery.Resolver
@@ -71,7 +78,9 @@ type Manager struct {
 	// guard dials every Endpoint connection when dial is nil.
 	guard *egress.Guard
 	// dial is Options.Dial; nil means the guard's dialer.
-	dial     discovery.DialFunc
+	dial discovery.DialFunc
+	// send is Options.Send; nil sends on each pool's transport.
+	send     http.RoundTripper
 	resolver discovery.Resolver
 	status   emit.NodeStatus
 	tracer   emit.Tracer
@@ -82,6 +91,12 @@ type Manager struct {
 	running  atomic.Bool
 	// legs pools the legs' working state.
 	legs sync.Pool
+	// outs pools the outgoing request headers (outHeader), each reused
+	// once the response of the request that carried it was closed.
+	outs sync.Pool
+	// traceProbe holds httptrace's client trace key, so an attempt
+	// context can answer that key itself (attemptRecord.Value).
+	traceProbe context.Context
 	// compileMu serializes Compile calls, which resolve new sources
 	// without holding mu.
 	compileMu sync.Mutex
@@ -102,6 +117,7 @@ func NewManager(o Options) *Manager {
 		rand:     o.Rand,
 		guard:    o.Guard,
 		dial:     o.Dial,
+		send:     o.Send,
 		resolver: o.Resolver,
 		status:   o.Status,
 		tracer:   o.Tracer,
@@ -117,6 +133,7 @@ func NewManager(o Options) *Manager {
 		m.tracer = nopTracer{}
 	}
 	m.prober = health.NewProber(health.ProberConfig{Clock: m.clk, Rand: m.rand, Status: m.status})
+	m.traceProbe = httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{})
 	return m
 }
 

@@ -172,7 +172,7 @@ Each Node keeps one breaker and one in-flight ceiling per Upstream, Planned (M1)
 | `openDuration` | Open time, jittered ±20% (target) | Half-open: one probe at a time, others get 503 `RZ-UP-005`; 3 consecutive successes close it, a failure reopens (target) |
 | `failureWhen` | CEL failure class, such as 429; a runtime error counts as failure | Not applicable |
 | `maxConnections` | In-flight attempts per Upstream per Node: a semaphore taken before `RoundTrip`, so HTTP/2 streams count | Attempts wait |
-| `maxPendingRequests` | Waiters for that semaphore, each bounded by its attempt context | 503 `RZ-UP-006` at once |
+| `maxPendingRequests` | Waiters for that semaphore, each bounded by its attempt context: a slot granted at or after the attempt deadline is handed on, and the attempt ends as a timeout before any Endpoint | 503 `RZ-UP-006` at once |
 
 At 10% independent failures, a 20-leg window reaches 50% with probability about 7 × 10^-6 (hypothesis). Below 20 legs per 10 s per Node the breaker never opens, whatever `consecutiveFailures` says: at 100 Nodes, for any Upstream under about 200 legs per second (hypothesis). Ejection, the retry budget and `maxPendingRequests` protect those.
 

@@ -35,6 +35,24 @@ type benchBudget struct {
 	Verdict string `json:"verdict"`
 }
 
+// Record kinds: every run writes a macro or component record, and every
+// scenario's comparison, rate ladder or soak adds a summary record, whose
+// budgets hold the pooled results the notes list.
+const (
+	kindMacro     = "macro"
+	kindComponent = "component"
+	kindSummary   = "summary"
+)
+
+// benchSummary is the part of a summary record's summary the notes show.
+type benchSummary struct {
+	// Of is comparison, ladder or soak.
+	Of string `json:"of"`
+	// Verdict is the A/B verdict: pass, fail, inconclusive, or none
+	// without a baseline.
+	Verdict string `json:"verdict"`
+}
+
 // benchRecord is the part of a ruralz.bench.v1 record the notes show.
 type benchRecord struct {
 	Format   string `json:"format"`
@@ -43,6 +61,7 @@ type benchRecord struct {
 		Kind      string `json:"kind"`
 		Commit    string `json:"commit"`
 		Version   string `json:"version"`
+		Baseline  string `json:"baseline"`
 		Toolchain string `json:"toolchain"`
 	} `json:"identity"`
 	Environment struct {
@@ -52,13 +71,17 @@ type benchRecord struct {
 		Verdict string `json:"verdict"`
 	} `json:"validity"`
 	Budgets []benchBudget `json:"budgets"`
+	Summary *benchSummary `json:"summary"`
 	// file is the record's path relative to the records directory.
 	file string
 }
 
-// readBudgets reads every record (*.json) under dir, sorted by scenario,
-// kind and file. A missing directory holds no record; any other JSON
-// file there is an error, so a result never goes missing silently.
+// readBudgets reads every record (*.json) under dir and returns the
+// summary records, sorted by scenario, kind and file: the notes list each
+// budget's pooled result from them, never a single run's. A missing
+// directory holds no record; any other JSON file there, a record of
+// another kind and a summary record without its summary are errors, so a
+// result never goes missing silently.
 func readBudgets(dir string) ([]benchRecord, error) {
 	if _, err := os.Stat(dir); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
@@ -87,6 +110,16 @@ func readBudgets(dir string) ([]benchRecord, error) {
 		}
 		if r.Format != benchFormat {
 			return fmt.Errorf("%s: format %q, want %q", rel, r.Format, benchFormat)
+		}
+		switch r.Identity.Kind {
+		case kindMacro, kindComponent:
+			return nil
+		case kindSummary:
+			if r.Summary == nil {
+				return fmt.Errorf("%s: a summary record without its summary", rel)
+			}
+		default:
+			return fmt.Errorf("%s: kind %q, want %s, %s or %s", rel, r.Identity.Kind, kindMacro, kindComponent, kindSummary)
 		}
 		r.file = filepath.ToSlash(rel)
 		out = append(out, r)

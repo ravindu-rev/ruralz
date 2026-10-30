@@ -80,10 +80,24 @@ FUZZ_SHARDS ?= 0
 FUZZ_REPORT ?= $(DIST)/fuzz/report.json
 CHAOS_SCALE ?= reduced
 CHAOS_TIMEOUT ?= 170m
+# The Latency and soak jobs: BENCH_PROFILE names the host profile
+# inventory of deploy/benchhost (empty: the loopback profile),
+# BENCH_STATE the rotation state read from the bench-records branch,
+# BENCH_ROTATION_ALL=true runs every slot (release), BENCH_ACCEPT a
+# maintainer's <scenario>=<commit> acceptance, and BENCH_BASELINE_RURALZD
+# with BENCH_BASELINE_VERSION the previous release's verified ruralzd. They
+# can come from workflow inputs, so recipes read them from the environment.
 BENCH_RECORDS ?= $(DIST)/bench
 BENCH_RUN ?= ^TestLatency
 BENCH_TIMEOUT ?= 175m
 SOAK_TIMEOUT ?= 150m
+BENCH_PROFILE ?=
+BENCH_STATE ?=
+BENCH_ROTATION_ALL ?= false
+BENCH_ACCEPT ?=
+BENCH_BASELINE_RURALZD ?=
+BENCH_BASELINE_VERSION ?=
+export BENCH_PROFILE BENCH_STATE BENCH_ROTATION_ALL BENCH_ACCEPT BENCH_BASELINE_RURALZD BENCH_BASELINE_VERSION
 # image-checks.yml. IMAGE=<ref>@<digest> is the image under test; empty,
 # image-checks builds one for the runner's platform from
 # deploy/container/Dockerfile and the linux binary and notices a
@@ -121,7 +135,6 @@ SIZEGATE_FLAGS ?=
 
 SUMMARY_FLAG = $(if $(GITHUB_STEP_SUMMARY),-summary "$(GITHUB_STEP_SUMMARY)")
 OVERRIDE_FLAG = $(if $(GATES_OVERRIDE),-override)
-ANNOTATE_FLAG = $(if $(GITHUB_ACTIONS),-annotate)
 
 # has_tests expands to a test file under $(1), or to nothing when the suite
 # does not exist yet.
@@ -165,9 +178,10 @@ fmt: $(GOLANGCI_LINT) ## Rewrite files with gofumpt and goimports
 	$(GOLANGCI_LINT) fmt ./...
 
 # Generated trees diffed by stage 3: the JSON Schema and the
-# served-feature table (schemagen) and the alert rules and dashboards
-# generated from the telemetry catalog (telemetrygen).
-GENERATED := api/schema/ruralz internal/config/registry/planned_gen.go deploy/grafana
+# served-feature table (schemagen), the alert rules and dashboards
+# generated from the telemetry catalog (telemetrygen) and the benchmark
+# record schema (internal/testkit/benchrecord).
+GENERATED := api/schema/ruralz internal/config/registry/planned_gen.go deploy/grafana test/bench/record.schema.json
 
 generate: ## Stage 3: regenerate the JSON Schema, alert rules and dashboards and fail on any difference
 	go generate ./...
@@ -238,7 +252,7 @@ gates: ## Stage 9: alloc/op A/B gate (benchgate) and stripped size and idle RSS 
 		done; \
 		if [[ $$built == true ]]; then \
 			"$$tools/sizegate" -binary $(DIST)/linux_amd64/ruralzd -binary $(DIST)/linux_arm64/ruralzd \
-				$(if $(filter Linux,$(UNAME_S)),-idle-rss -settle $(SIZE_SETTLE)) $(SUMMARY_FLAG) $(OVERRIDE_FLAG) $(ANNOTATE_FLAG) $(SIZEGATE_FLAGS) || worst $$?; \
+				$(if $(filter Linux,$(UNAME_S)),-idle-rss -settle $(SIZE_SETTLE)) $(SUMMARY_FLAG) $(OVERRIDE_FLAG) $(SIZEGATE_FLAGS) || worst $$?; \
 		fi; \
 	fi; \
 	exit $$rc
@@ -298,6 +312,9 @@ else
 	bash scripts/install-tools.sh oha vegeta
 	mkdir -p $(BENCH_RECORDS)
 	RURALZ_BENCH_OHA=$(OHA) RURALZ_BENCH_VEGETA=$(VEGETA) RURALZ_BENCH_RECORDS=$(BENCH_RECORDS) \
+		RURALZ_BENCH_PROFILE="$$BENCH_PROFILE" RURALZ_BENCH_STATE="$$BENCH_STATE" \
+		RURALZ_BENCH_ROTATION_ALL="$$BENCH_ROTATION_ALL" RURALZ_BENCH_ACCEPT="$$BENCH_ACCEPT" \
+		RURALZ_BENCH_BASELINE_RURALZD="$$BENCH_BASELINE_RURALZD" RURALZ_BENCH_BASELINE_VERSION="$$BENCH_BASELINE_VERSION" \
 		go test -tags e2e -p 1 -run '$(BENCH_RUN)' -timeout $(BENCH_TIMEOUT) $(TEST_FLAGS) ./test/bench/harness/...
 endif
 

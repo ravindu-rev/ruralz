@@ -12,7 +12,14 @@
 #   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine.
 #            Until RH-1 is registered and the repository variable
 #            RH1_PROVISIONED=true is set, the job fails with an explicit
-#            "RH-1 not provisioned" annotation.
+#            "RH-1 not provisioned" annotation. It runs S1 and S2 A/B, the
+#            component benchmarks and one slot of the rotation (every slot
+#            with rotation-all), reading the rotation state and baselines
+#            from the orphan bench-records branch, and uploads its
+#            ruralz.bench.v1 records with the next state.
+#   Records  commits the Latency job's records and state to bench-records:
+#            the only job here holding contents: write, so the rh-1 job
+#            keeps a read-only token.
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
 # A failure opens a nightly-failure issue (a fuzz crasher opens a
 # fuzz-crasher issue with the failing input) and blocks the next release.
@@ -34,6 +41,18 @@ on:
         description: Fuzzing time per target
         type: string
         default: 15m
+      rotation-all:
+        description: Run every slot of the benchmark rotation without the 3-hour limit
+        type: boolean
+        default: false
+      accept-scenario:
+        description: Maintainers only. Benchmark scenario whose deliberate regression is accepted (with accept-commit)
+        type: string
+        default: ""
+      accept-commit:
+        description: Maintainers only. The accepted commit, the scenario's next baseline
+        type: string
+        default: ""
   workflow_call:
     inputs:
       all:
@@ -44,6 +63,10 @@ on:
         description: Fuzzing time per target
         type: string
         default: 15m
+      rotation-all:
+        description: Run every slot of the benchmark rotation without the 3-hour limit (release)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -206,13 +229,48 @@ jobs:
         run: |
           echo "::error title=RH-1 not provisioned::The Latency job runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered; until then M1 exit criteria 2 and 3 stay open."
           exit 1
+      - name: Maintainer acceptance
+        if: inputs.accept-scenario != '' || inputs.accept-commit != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          SCENARIO: ${{ inputs.accept-scenario }}
+          COMMIT: ${{ inputs.accept-commit }}
+        run: |
+          # Inputs reach the shell only through the environment.
+          if [[ ! "$SCENARIO" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "$COMMIT" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error title=Invalid acceptance::accept-scenario and accept-commit must both be set: a scenario such as S2 and a commit"
+            exit 2
+          fi
+          role=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .role_name)
+          if [[ "$role" != admin && "$role" != maintain ]]; then
+            echo "::error title=Acceptance refused::only a maintainer (repository role admin or maintain) accepts a regression; $ACTOR has $role"
+            exit 1
+          fi
+          echo "BENCH_ACCEPT=$SCENARIO=$COMMIT" >>"$GITHUB_ENV"
+          echo "maintainer $ACTOR accepts $COMMIT as the baseline of $SCENARIO"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
+      - name: Read the rotation state from bench-records
+        # The first night finds no bench-records branch and starts slot 1.
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: bench-records
+          path: .bench-records
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - run: make nightly NIGHTLY_JOB=latency
+      - name: Latency
+        env:
+          BENCH_ROTATION_ALL: ${{ inputs.rotation-all && 'true' || 'false' }}
+          BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json
+        run: |
+          if [[ -f .bench-records/state.json ]]; then export BENCH_STATE="$PWD/.bench-records/state.json"; fi
+          make nightly NIGHTLY_JOB=latency
       - if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -220,6 +278,60 @@ jobs:
           path: dist/bench/
           if-no-files-found: ignore
           retention-days: 90
+
+  records:
+    name: 11. Benchmark records
+    needs: latency
+    # Records of a failed night publish too: failed, invalid and
+    # inconclusive runs never advance a baseline, and the state says so.
+    if: always() && needs.latency.result != 'skipped' && needs.latency.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bench-records
+          path: ${{ runner.temp }}/bench
+      - name: Commit to bench-records
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          src="$RUNNER_TEMP/bench"
+          if [[ -z "$(find "$src" -name '*.json' -print -quit)" ]]; then
+            echo "the Latency job wrote no records"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/branch"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git init -q "$dir"
+          cd "$dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "$SERVER/$REPO.git"
+          if git -c http.extraheader="$auth" fetch -q --depth=1 origin bench-records; then
+            git checkout -q -B bench-records FETCH_HEAD
+          else
+            git checkout -q --orphan bench-records
+          fi
+          day=$(date -u +%Y-%m-%d)
+          mkdir -p "records/$day-$RUN_ID"
+          cp -R "$src"/. "records/$day-$RUN_ID/"
+          if [[ -f "records/$day-$RUN_ID/state.json" ]]; then
+            mv "records/$day-$RUN_ID/state.json" state.json
+          fi
+          git add -A
+          git commit -q -m "bench: records of run $RUN_ID at $SHA"
+          git -c http.extraheader="$auth" push -q origin bench-records
 
   supply-chain:
     name: 6. Supply chain rescan
@@ -235,7 +347,7 @@ jobs:
 
   issues:
     name: Nightly issues
-    needs: [fuzz-plan, fuzz, chaos, latency, supply-chain]
+    needs: [fuzz-plan, fuzz, chaos, latency, records, supply-chain]
     if: always() && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
     permissions:

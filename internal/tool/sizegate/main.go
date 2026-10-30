@@ -8,19 +8,17 @@
 //	sizegate -binary PATH [-binary PATH ...] [-max-size 167772160]
 //	         [-idle-rss [-rss-binary PATH] [-max-rss 93323264] [-settle 120s]
 //	         [-window 10s] [-interval 1s] [-env KEY=VALUE ...]]
-//	         [-summary FILE] [-override] [-annotate]
+//	         [-summary FILE] [-override]
 //
 // Each -binary is a ruralzd built with the release flags plus -s -w; the
 // gate fails when one is larger than -max-size (160 MiB). With -idle-rss it
 // starts the binary built for the host platform (or -rss-binary) with
-// telemetry defaults, RURALZ_CONFIG naming an empty directory (no Revision)
-// and no connections, samples VmRSS from /proc/<pid>/status every -interval
-// over the last -window of the -settle period, and fails when the maximum
-// exceeds -max-rss (89 MiB). The M0 ruralzd stub, which exits 2 at once with
-// exactly "Ruralz Gateway is not implemented yet; it is Planned (M1)", is
-// skipped with a line until the data plane is wired; -annotate (set by
-// the Makefile under GitHub Actions) also prints the skip as a ::warning
-// workflow command. Both values go to the report and to -summary
+// telemetry defaults, RURALZ_CONFIG naming an empty directory (no Revision),
+// RURALZ_BIND_LOOPBACK=true so its admin port listens on loopback only,
+// and no connections, samples VmRSS from /proc/<pid>/status every
+// -interval over the last -window of the -settle period, and fails when
+// the maximum exceeds -max-rss (89 MiB). A process that exits during the
+// settle is a tool error. Both values go to the report and to -summary
 // ($GITHUB_STEP_SUMMARY); after a tool error -summary still gets the sizes
 // measured so far and a Tool error row. -override (a perf-override label
 // applied by a maintainer) reports failures and passes. Exit status: 0 pass,
@@ -75,7 +73,6 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 	procRoot := fs.String("proc", "/proc", "proc file system root")
 	summary := fs.String("summary", "", "append a Markdown report to this file, such as $GITHUB_STEP_SUMMARY")
 	override := fs.Bool("override", false, "report failures but exit 0 (perf-override approved by a maintainer)")
-	annotate := fs.Bool("annotate", false, "also print a skipped idle RSS measurement as a GitHub Actions ::warning workflow command")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -145,16 +142,8 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 		}
 		rss = &r
 		failed = failed || r.failed()
-		if r.skipped != "" {
-			_, _ = fmt.Fprintf(stdout, "sizegate: skip idle RSS: %s\n", r.skipped)
-			if *annotate {
-				_, _ = fmt.Fprintf(stdout, "::warning title=Idle RSS gate skipped::%s; the idle RSS limit is not enforced until the data plane replaces the stub\n",
-					escapeWorkflowData(r.skipped))
-			}
-		} else {
-			_, _ = fmt.Fprintf(stdout, "sizegate: idle RSS of %s after %v: max %s (%d bytes) over %d samples, limit %s (%d bytes): %s\n",
-				r.path, r.settle, mib(r.max), r.max, len(r.samples), mib(r.limit), r.limit, passFail(r.failed()))
-		}
+		_, _ = fmt.Fprintf(stdout, "sizegate: idle RSS of %s after %v: max %s (%d bytes) over %d samples, limit %s (%d bytes): %s\n",
+			r.path, r.settle, mib(r.max), r.max, len(r.samples), mib(r.limit), r.limit, passFail(r.failed()))
 	}
 
 	if *summary != "" {
@@ -172,12 +161,6 @@ func run(ctx context.Context, clk clock.Clock, args []string, stdout, stderr io.
 		return 1
 	}
 	return 0
-}
-
-// escapeWorkflowData escapes the message of a GitHub Actions workflow
-// command, so a line break or percent sign cannot end or alter it.
-func escapeWorkflowData(s string) string {
-	return strings.NewReplacer("%", "%25", "\r", "%0D", "\n", "%0A").Replace(s)
 }
 
 func passFail(failed bool) string {
@@ -204,12 +187,8 @@ func appendSummary(path string, sizes []sizeResult, rss *rssResult, overridden b
 			orUnknown(r.platform), r.path, mib(r.size), r.size, mib(r.limit), passFail(r.failed()))
 	}
 	if rss != nil {
-		if rss.skipped != "" {
-			fmt.Fprintf(&b, "| Idle RSS | `%s` | skipped: %s | %s | skip |\n", rss.path, rss.skipped, mib(rss.limit))
-		} else {
-			fmt.Fprintf(&b, "| Idle RSS after %v (max of %d samples) | `%s` | %s (%d bytes) | %s | %s |\n",
-				rss.settle, len(rss.samples), rss.path, mib(rss.max), rss.max, mib(rss.limit), passFail(rss.failed()))
-		}
+		fmt.Fprintf(&b, "| Idle RSS after %v (max of %d samples) | `%s` | %s (%d bytes) | %s | %s |\n",
+			rss.settle, len(rss.samples), rss.path, mib(rss.max), rss.max, mib(rss.limit), passFail(rss.failed()))
 	}
 	if toolErr != "" {
 		cell := strings.NewReplacer("|", `\|`, "\r", " ", "\n", " ").Replace(toolErr)

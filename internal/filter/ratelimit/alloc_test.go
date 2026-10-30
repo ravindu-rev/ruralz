@@ -134,10 +134,25 @@ func BenchmarkAdmit(b *testing.B) {
 	}
 }
 
-// BenchmarkLocalOnly measures an admission on local buckets alone.
+// BenchmarkAdmitKeyless measures the stage budget's memory path alone: an
+// admitted request on a service limit, whose local bucket and GCRA call on
+// the memory driver allocate nothing, without a key expression's cost.
+func BenchmarkAdmitKeyless(b *testing.B) {
+	l := newAdmitLoop(b)
+	f, _ := l.fx.build(b, "svc", &v1alpha1.RateLimitConfig{Limits: []v1alpha1.RateLimit{limit(1_000_000, time.Second)}})
+	l.f = f
+	ctx := context.Background()
+	b.ReportAllocs()
+	for b.Loop() {
+		l.run(b, ctx)
+	}
+}
+
+// BenchmarkLocalOnly measures an admission on local buckets alone, at the
+// highest limit the configuration check accepts (an interval of 1µs).
 func BenchmarkLocalOnly(b *testing.B) {
 	fx := newFixture(b, nil)
-	cfg := keyed(limit(1_000_000_000, time.Second))
+	cfg := keyed(limit(1_000_000, time.Second))
 	cfg.LocalOnly = ptr(true)
 	f, _ := fx.build(b, "rl", cfg)
 	x := &filtertest.Exchange{VarsV: vars("client-1", "")}

@@ -32,8 +32,9 @@
 // -to, or root without one): artifacts, features, fixes,
 // performance, dependency updates, deprecations (Deprecated: footers),
 // upgrade notes (breaking titles and BREAKING CHANGE: footers), schema,
-// Plugin ABI and Control Stream changes, the budget results of the
-// ruralz.bench.v1 records under -budgets, verification steps and the
+// Plugin ABI and Control Stream changes, every budget with its pooled
+// result from the ruralz.bench.v1 summary records under -budgets (the run
+// records beside them are read and skipped), verification steps and the
 // gates a maintainer skipped (-skipped, a ruralz.skippedgates.v1 file).
 //
 // verify audits the release directory of -manifest against the manifest
@@ -109,7 +110,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 			flagRef{"to", "release commit or tag", &no.to},
 			flagRef{"out", "notes file to write", &no.out})
 		fs.StringVar(&no.from, "from", "", "previous release tag, or root; empty finds the newest vX.Y.Z tag before -to")
-		fs.StringVar(&no.budgets, "budgets", "", "directory of ruralz.bench.v1 records; absent means none")
+		fs.StringVar(&no.budgets, "budgets", "", "directory of ruralz.bench.v1 records, whose summary records the notes list; absent means none")
 		fs.StringVar(&no.skipped, "skipped", "", "ruralz.skippedgates.v1 file; empty means no gate was skipped")
 	case "verify":
 		fs.StringVar(&root, "C", ".", "repository root")

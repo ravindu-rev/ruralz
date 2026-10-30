@@ -114,12 +114,13 @@ func sampleNotes(version string) notesInput {
 		Features: []noteItem{{Scope: "cli", Text: "add the version command", Hash: fixtureCommit}},
 		Schema:   []string{"`ruralz/v1alpha1`: no schema changes."},
 		Records: []benchRecord{
-			{Budgets: []benchBudget{{ID: "PB-2", Value: "<= 1ms (target)", Result: "0.84ms", SLO: "SLO-GW-2", Verdict: "pass"}}},
-			{Budgets: []benchBudget{{ID: "PB-3", Value: "<= 150us (target)", Result: "160us", Verdict: "fail"}}},
+			{Budgets: []benchBudget{{ID: "PB-2", Value: "<= 1ms (target)", Result: "0.84ms", SLO: "SLO-GW-2", Verdict: "pass"}}, Summary: &benchSummary{Of: "comparison", Verdict: "pass"}},
+			{Budgets: []benchBudget{{ID: "PB-3", Value: "<= 150us (target)", Result: "160us", Verdict: "fail"}}, Summary: &benchSummary{Of: "comparison", Verdict: "none"}},
 		},
 		Skipped: []skippedGate{{Gate: "Benchmarks", By: "octocat", Role: "maintain", Reason: "RH-1 is\nbeing rebuilt"}},
 	}
 	in.Records[0].Identity.Scenario, in.Records[0].Identity.Commit, in.Records[0].Environment.HardwareProfile = "S2", fixtureCommit, "RH-1"
+	in.Records[0].Identity.Baseline = "v0.0.9"
 	in.Records[1].Identity.Scenario, in.Records[1].Identity.Commit = "S1", strings.Repeat("e", 40)
 	return in
 }
@@ -149,8 +150,9 @@ func TestRenderNotes(t *testing.T) {
 		"- **cli:** add the version command ([`0123456789ab`](https://github.com/ravindu-rev/ruralz/commit/" + fixtureCommit + "))",
 		"## Fixes\n\nNone.\n",
 		"- `ruralz/v1alpha1`: no schema changes.",
-		`| S2 | PB-2 | \<= 1ms (target) | 0.84ms | SLO-GW-2 | pass | RH-1 | 0123456789ab |`,
-		`| S1 | PB-3 | \<= 150us (target) | 160us |  | fail |  | eeeeeeeeeeee (other commit) |`,
+		"| Scenario | Summary | A/B verdict | Budget | Value | Result | SLO | Verdict | Hardware | Commit |",
+		`| S2 | comparison | pass against v0.0.9 | PB-2 | \<= 1ms (target) | 0.84ms | SLO-GW-2 | pass | RH-1 | 0123456789ab |`,
+		`| S1 | comparison | none | PB-3 | \<= 150us (target) | 160us |  | fail |  | eeeeeeeeeeee (other commit) |`,
 		"Rows marked (other commit) were measured on another commit",
 		"cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x",
 		"GHSA-fx35-mq7g-6g98",
@@ -176,7 +178,7 @@ func TestRenderNotesKinds(t *testing.T) {
 	got := renderNotes(rc)
 	for _, want := range []string{
 		"Release candidate 0.1.0-rc.1 of Ruralz", "changes since the first commit.",
-		"Image `ghcr.io/ravindu-rev/ruralzd:0.1.0-rc.1` for", "No benchmark records were provided for this build.",
+		"Image `ghcr.io/ravindu-rev/ruralzd:0.1.0-rc.1` for", "No benchmark summary records were provided for this build.",
 		"None: no maintainer skipped a release gate.",
 	} {
 		if !strings.Contains(got, want) {
@@ -232,26 +234,38 @@ func TestSchemaChanges(t *testing.T) {
 	}
 }
 
-// TestReadBudgets reads ruralz.bench.v1 records, nested or not, sorted;
-// a missing directory holds none; another JSON file is an error.
+// TestReadBudgets reads ruralz.bench.v1 summary records, nested or not,
+// sorted, and skips the run records; a missing directory holds none;
+// another JSON file, a record of another kind and a summary record without
+// its summary are errors.
 func TestReadBudgets(t *testing.T) {
 	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "nightly", "s2.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S2","kind":"macro","commit":"c"},"budgets":[{"id":"PB-2","value":"v","result":"r","slo":"","verdict":"pass"}]}`)
-	writeFile(t, filepath.Join(dir, "s1.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"macro"},"budgets":[]}`)
+	writeFile(t, filepath.Join(dir, "nightly", "s2.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S2","kind":"summary","commit":"c"},"budgets":[{"id":"PB-2","value":"v","result":"r","slo":"","verdict":"pass"}],"summary":{"of":"comparison","verdict":"pass"}}`)
+	writeFile(t, filepath.Join(dir, "s1.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"summary"},"budgets":[],"summary":{"of":"ladder","verdict":"none"}}`)
+	writeFile(t, filepath.Join(dir, "runs", "s2-head-1.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S2","kind":"macro"},"budgets":[{"id":"PB-2","value":"v","result":"r1","slo":"","verdict":"pass"}]}`)
+	writeFile(t, filepath.Join(dir, "runs", "cel.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"CEL","kind":"component"},"budgets":[]}`)
 	writeFile(t, filepath.Join(dir, "s1.hlog"), "histogram")
 	got, err := readBudgets(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Identity.Scenario != "S1" || got[1].file != "nightly/s2.json" || got[1].Budgets[0].ID != "PB-2" {
+	if len(got) != 2 || got[0].Identity.Scenario != "S1" || got[0].Summary.Of != "ladder" ||
+		got[1].file != "nightly/s2.json" || got[1].Budgets[0].ID != "PB-2" || got[1].Budgets[0].Result != "r" {
 		t.Errorf("records = %+v", got)
 	}
 	if none, err := readBudgets(filepath.Join(dir, "absent")); err != nil || none != nil {
 		t.Errorf("missing directory: %v %v", none, err)
 	}
-	writeFile(t, filepath.Join(dir, "summary.json"), `{"format":"other"}`)
-	if _, err := readBudgets(dir); err == nil || !strings.Contains(err.Error(), "summary.json") {
-		t.Errorf("foreign JSON: %v", err)
+	for name, doc := range map[string]string{
+		"foreign.json":      `{"format":"other"}`,
+		"kind.json":         `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"trend"},"budgets":[]}`,
+		"bare-summary.json": `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"summary"},"budgets":[]}`,
+	} {
+		bad := t.TempDir()
+		writeFile(t, filepath.Join(bad, name), doc)
+		if _, err := readBudgets(bad); err == nil || !strings.Contains(err.Error(), name) {
+			t.Errorf("%s: %v", name, err)
+		}
 	}
 }
 

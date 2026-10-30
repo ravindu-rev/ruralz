@@ -187,6 +187,64 @@ func TestWithDeadline(t *testing.T) {
 	})
 }
 
+// TestDeadlineSharedTimer checks Deadlines armed in place on one reused
+// timer (Init with a timer), as a leg's attempts arm theirs: each fires at
+// its own deadline; a run of the timer's function before a Deadline's
+// deadline (an earlier attempt's late run) leaves it armed; and a Deadline
+// that Stop or its deadline already decided never touches the timer
+// again, so its Stop or Cancel cannot disarm the next attempt.
+func TestDeadlineSharedTimer(t *testing.T) {
+	clk := newClock()
+	var armed *Deadline
+	timer := clk.AfterFunc(time.Hour, func() { armed.Fire() })
+	timer.Stop()
+
+	ctx1, cancel1 := context.WithCancelCause(context.Background())
+	d1 := &Deadline{}
+	armed = d1
+	d1.Init(cancel1, clk, clk.Now().Add(time.Second), ErrAttemptTimeout, timer)
+	d1.Fire() // a stale run before the deadline
+	if ctx1.Err() != nil || d1.Expired() {
+		t.Fatal("a run before the deadline fired it")
+	}
+	clk.Advance(time.Second)
+	if !errors.Is(context.Cause(ctx1), ErrAttemptTimeout) || !d1.Expired() {
+		t.Fatalf("first deadline: cause %v", context.Cause(ctx1))
+	}
+
+	ctx2, cancel2 := context.WithCancelCause(context.Background())
+	d2 := &Deadline{}
+	armed = d2
+	d2.Init(cancel2, clk, clk.Now().Add(2*time.Second), ErrLegTimeout, timer)
+	// The first Deadline already fired: its Cancel must not stop the timer
+	// the second one now uses.
+	d1.Cancel()
+	clk.Advance(time.Second)
+	if ctx2.Err() != nil {
+		t.Fatal("second deadline fired a second early")
+	}
+	clk.Advance(time.Second)
+	if !errors.Is(context.Cause(ctx2), ErrLegTimeout) {
+		t.Fatalf("second deadline did not fire on the reused timer: %v", context.Cause(ctx2))
+	}
+
+	ctx3, cancel3 := context.WithCancelCause(context.Background())
+	d3 := &Deadline{}
+	armed = d3
+	d3.Init(cancel3, clk, clk.Now().Add(time.Second), ErrAttemptTimeout, timer)
+	if !d3.Stop() {
+		t.Fatal("Stop before the deadline reported fired")
+	}
+	clk.Advance(time.Hour)
+	if ctx3.Err() != nil {
+		t.Fatal("a stopped Deadline's shared timer canceled its context")
+	}
+	d3.Cancel()
+	if !errors.Is(context.Cause(ctx3), context.Canceled) {
+		t.Fatalf("Cancel: cause %v", context.Cause(ctx3))
+	}
+}
+
 // TestHeadersStopAttemptTimer: once response headers arrive the attempt
 // timer is stopped, so a body slower than perTryTimeout is not cut.
 func TestHeadersStopAttemptTimer(t *testing.T) {

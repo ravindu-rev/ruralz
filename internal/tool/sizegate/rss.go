@@ -146,28 +146,28 @@ type rssResult struct {
 	max     int64
 	settle  time.Duration
 	limit   int64
-	skipped string // reason the measurement was skipped, if it was
 }
 
-func (r rssResult) failed() bool { return r.skipped == "" && r.max > r.limit }
+func (r rssResult) failed() bool { return r.max > r.limit }
 
-// stubMessage is the exact message of the M0 ruralzd stub
-// (internal/gateway.Run before the data plane is wired).
-const stubMessage = "Ruralz Gateway is not implemented yet; it is Planned (M1)"
-
-// notImplemented reports the M0 ruralzd stub, which exits 2 at once with
-// stubMessage; the gate skips it until the data plane lands instead of
-// failing every pull request. Only that exact message and exit status
-// match, so an unrelated early exit of the real data plane is a tool error,
-// never a silent skip. This branch is removed when the data plane replaces
-// the stub.
-func notImplemented(exitCode int, output string) bool {
-	return exitCode == 2 && strings.Contains(output, stubMessage)
+// idleEnv is the idle run's process environment before the -env extras:
+// telemetry defaults, no Revision (RURALZ_CONFIG naming an empty
+// directory), its own data directory and home, and RURALZ_BIND_LOOPBACK, so
+// the admin port, the only socket a Node without a Revision binds, listens
+// on loopback instead of on every interface of the runner.
+func idleEnv(tmp string) []string {
+	return []string{
+		"PATH=" + os.Getenv("PATH"),
+		"HOME=" + filepath.Join(tmp, "home"),
+		"RURALZ_CONFIG=" + filepath.Join(tmp, "config"),
+		"RURALZ_DATA_DIR=" + filepath.Join(tmp, "data"),
+		"RURALZ_BIND_LOOPBACK=true",
+	}
 }
 
-// measureIdle starts the binary with telemetry defaults, no Revision
-// (RURALZ_CONFIG naming an empty directory) and no connections, samples its
-// VmRSS over the end of the settle, and stops it.
+// measureIdle starts the binary with idleEnv and no connections, samples
+// its VmRSS over the end of the settle, and stops it. A process that exits
+// during the settle is an error.
 func measureIdle(ctx context.Context, clk clock.Clock, o idleOptions) (res rssResult, err error) {
 	res = rssResult{path: o.binary, settle: o.settle, limit: o.limit}
 	tmp, err := os.MkdirTemp("", "sizegate-")
@@ -186,12 +186,7 @@ func measureIdle(ctx context.Context, clk clock.Clock, o idleOptions) (res rssRe
 	}
 	cmd := exec.CommandContext(ctx, o.binary) //nolint:gosec // The measured binary is a command-line argument.
 	cmd.Dir = tmp
-	cmd.Env = append([]string{
-		"PATH=" + os.Getenv("PATH"),
-		"HOME=" + filepath.Join(tmp, "home"),
-		"RURALZ_CONFIG=" + filepath.Join(tmp, "config"),
-		"RURALZ_DATA_DIR=" + filepath.Join(tmp, "data"),
-	}, o.env...)
+	cmd.Env = append(idleEnv(tmp), o.env...)
 	out := &tailBuffer{max: outputTail}
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.WaitDelay = stopGrace
@@ -211,11 +206,6 @@ func measureIdle(ctx context.Context, clk clock.Clock, o idleOptions) (res rssRe
 	}, o.settle, o.window, o.interval)
 	if errors.Is(err, errExited) {
 		<-done
-		code := cmd.ProcessState.ExitCode()
-		if notImplemented(code, out.String()) {
-			res.skipped = fmt.Sprintf("%s is the M0 stub (%q, exit status %d)", o.binary, stubMessage, code)
-			return res, nil
-		}
 		status := "exit status 0"
 		if waitErr != nil {
 			status = waitErr.Error()

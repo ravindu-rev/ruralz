@@ -16,6 +16,11 @@
 // arrival order): Trace, SpanNames, Children, Roots and FormatTree answer
 // "which spans, in which order, under which parent".
 //
+// With Config.Fold the sink folds one duration attribute of one log event,
+// the access log's gateway_duration, into the windows AddWindow registers
+// as records arrive, instead of keeping those records: the benchmark
+// harness's internal histogram of a run (fold.go).
+//
 // Modes script collector failures for exporter tests: Accept records and
 // answers OK; Reject answers every export with a gRPC status; Stall
 // holds every export until the mode changes, the client's deadline
@@ -170,6 +175,9 @@ type Config struct {
 	MaxBytes int64
 	// Mode is the initial mode; default Accept.
 	Mode Mode
+	// Fold, when set, folds one duration attribute of one log event into
+	// the windows AddWindow registers instead of recording those records.
+	Fold *Fold
 }
 
 // Stats counts export requests.
@@ -199,6 +207,7 @@ type Sink struct {
 	codec  rawCodec
 	conns  *connStats // shared by the servers across Down
 	rec    *recorder
+	fold   *folder       // nil without Config.Fold
 	closed chan struct{} // closed by Close
 
 	// modeMu serializes SetMode and Close, which start and stop servers;
@@ -246,6 +255,12 @@ func Start(ctx context.Context, c Config) (*Sink, error) {
 	if err != nil {
 		return nil, err
 	}
+	var fold *folder
+	if c.Fold != nil {
+		if fold, err = newFolder(*c.Fold); err != nil {
+			return nil, err
+		}
+	}
 	ln, err := listen(ctx, c.Listen)
 	if err != nil {
 		return nil, err
@@ -256,6 +271,7 @@ func Start(ctx context.Context, c Config) (*Sink, error) {
 		codec:   codec,
 		conns:   &connStats{},
 		rec:     newRecorder(c.MaxRequests, c.MaxBytes),
+		fold:    fold,
 		closed:  make(chan struct{}),
 		mode:    c.Mode,
 		release: make(chan struct{}),
@@ -483,6 +499,14 @@ func (s *Sink) handle(ctx context.Context, sig Signal, msg any, raw []byte) erro
 		req.Metrics = m
 	case *collogs.ExportLogsServiceRequest:
 		req.Logs = m
+		if s.fold != nil {
+			// Folded records are never recorded; a request holding only
+			// them is counted and dropped.
+			if req.Logs = s.fold.fold(m); req.Logs == nil {
+				s.rec.count(Logs)
+				return nil
+			}
+		}
 	}
 	s.rec.add(req)
 	return nil

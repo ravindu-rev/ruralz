@@ -70,8 +70,60 @@ func validComponent() *Record {
 	}
 }
 
+// validSummary is an S2 comparison summary: pooled head and baseline
+// percentiles, the median-of-runs p99 values, four slower pairs of five
+// and a quiet baseline, so the comparison fails; its budgets are pooled.
+func validSummary() *Record {
+	r := validMacro()
+	r.Identity.Kind = KindSummary
+	r.Validity = Validity{Verdict: VerdictValid}
+	r.Latency.HistogramFiles = nil
+	r.Resources.CPUProfileFiles = nil
+	r.Summary = &Summary{
+		Of:           OfComparison,
+		Runs:         []string{"S2-head-1.json", "S2-base-1.json"},
+		HeadRuns:     5,
+		BaselineRuns: 5,
+		Head: Views{
+			External: Percentiles{P50: 130 * time.Microsecond, P99: 900 * time.Microsecond, Max: 3 * time.Millisecond},
+			Internal: Percentiles{P50: 110 * time.Microsecond, P99: 760 * time.Microsecond},
+		},
+		Baseline: Views{
+			External: Percentiles{P50: 120 * time.Microsecond, P99: 840 * time.Microsecond},
+			Internal: Percentiles{P50: 100 * time.Microsecond, P99: 700 * time.Microsecond},
+		},
+		HeadMedianP99:     PerView{External: 905_000, Internal: 765_000},
+		BaselineMedianP99: PerView{External: 845_000, Internal: 705_000},
+		SlowerPairs:       PerView{External: 4, Internal: 5},
+		BaselineNoise:     PerView{External: 0.011, Internal: 0.009},
+		Verdict:           ABFail,
+	}
+	return r
+}
+
+// validLadder is an S1 rate ladder summary without a baseline.
+func validLadder() *Record {
+	r := validSummary()
+	r.Identity.Scenario = "S1"
+	r.Summary.Of = OfLadder
+	r.Summary.BaselineRuns = 0
+	r.Summary.Verdict = ABNone
+	r.Summary.Ladder = Ladder{
+		Steps: []LadderStep{
+			{OfferedRate: 25000, AchievedRate: 25000, P99: time.Millisecond, Saturated: true},
+			{OfferedRate: 52500, AchievedRate: 52490, RateError: 0.0002, P99: 4 * time.Millisecond, Saturated: true},
+			{OfferedRate: 55000, AchievedRate: 50000, RateError: 0.09, ErrorRate: 0.01, P99: 40 * time.Millisecond},
+		},
+		Saturation: 52500,
+	}
+	r.Budgets = []BudgetResult{{ID: "PB-4", Value: ">= 50000 rps (target)", Result: "52500 rps", Verdict: BudgetPass}}
+	return r
+}
+
 func TestWriteDecodeRoundTrip(t *testing.T) {
-	for name, rec := range map[string]*Record{"macro": validMacro(), "component": validComponent()} {
+	for name, rec := range map[string]*Record{
+		"macro": validMacro(), "component": validComponent(), "summary": validSummary(), "ladder": validLadder(),
+	} {
 		t.Run(name, func(t *testing.T) {
 			var buf bytes.Buffer
 			if err := Write(&buf, rec); err != nil {
@@ -100,19 +152,7 @@ func TestWriteDecodeRoundTrip(t *testing.T) {
 }
 
 func normalized(r *Record) *Record {
-	out := *r
-	if out.Budgets == nil {
-		out.Budgets = []BudgetResult{}
-	}
-	if out.Environment.Sysctls == nil {
-		out.Environment.Sysctls = map[string]string{}
-	}
-	if out.Latency.HistogramFiles == nil {
-		out.Latency.HistogramFiles = []string{}
-	}
-	if out.Resources.CPUProfileFiles == nil {
-		out.Resources.CPUProfileFiles = []string{}
-	}
+	out := materialized(r)
 	return &out
 }
 
@@ -121,10 +161,39 @@ func TestWriteMaterializesEmptyCollections(t *testing.T) {
 	if err := Write(&buf, validComponent()); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`"budgets": []`, `"sysctls": {}`, `"histogramFiles": []`, `"cpuProfileFiles": []`, `"p50Ns": 0`, `"format": "ruralz.bench.v1"`} {
+	for _, want := range []string{
+		`"budgets": []`, `"sysctls": {}`, `"histogramFiles": []`, `"cpuProfileFiles": []`, `"reasons": []`,
+		`"p50Ns": 0`, `"format": "ruralz.bench.v1"`, `"stateStoreCpuShare": 0`, `"evalshaUsecPerSec": 0`,
+	} {
 		if !strings.Contains(buf.String(), want) {
 			t.Errorf("record lacks %s:\n%s", want, buf.String())
 		}
+	}
+	// Only a summary record carries a summary member.
+	if strings.Contains(buf.String(), `"summary"`) {
+		t.Errorf("component record has a summary member:\n%s", buf.String())
+	}
+	s := validSummary()
+	s.Summary.Ladder.Steps = nil
+	buf.Reset()
+	if err := Write(&buf, s); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), `"steps": []`) {
+		t.Errorf("summary lacks an empty ladder step list:\n%s", buf.String())
+	}
+}
+
+// TestCommittedSchemaIsCurrent checks that test/bench/record.schema.json,
+// the copy go generate writes, equals the embedded schema (stage 3 diffs
+// it too).
+func TestCommittedSchemaIsCurrent(t *testing.T) {
+	got, err := os.ReadFile(filepath.Join("..", "..", "..", "test", "bench", "record.schema.json"))
+	if err != nil {
+		t.Fatalf("read the published schema (run go generate ./internal/testkit/benchrecord): %v", err)
+	}
+	if !bytes.Equal(got, Schema()) {
+		t.Fatal("test/bench/record.schema.json differs from the embedded schema: run go generate ./internal/testkit/benchrecord")
 	}
 }
 
@@ -179,6 +248,13 @@ func TestValidateViolations(t *testing.T) { // Schema check
 		{"budget value", func(r *Record) { r.Budgets[0].Value = "" }, "budgets[0].value"},
 		{"budget result", func(r *Record) { r.Budgets[1].Result = "" }, "budgets[1].result"},
 		{"budget verdict", func(r *Record) { r.Budgets[2].Verdict = "maybe" }, "budgets[2].verdict"},
+		{"state store share", func(r *Record) { r.Resources.StateStoreCPUShare = 1.2 }, "resources.stateStoreCpuShare"},
+		{"evalsha", func(r *Record) { r.Resources.EvalshaMicrosPerSecond = -3 }, "resources.evalshaUsecPerSec"},
+		{"mock excess", func(r *Record) { r.Validity.MockExcessP99 = -1 }, "validity.mockExcessP99Ns"},
+		{"invalid without reason", func(r *Record) { r.Validity.Verdict = VerdictInvalid }, "validity.reasons"},
+		{"inconclusive without reason", func(r *Record) { r.Validity.Verdict = VerdictInconclusive }, "validity.reasons"},
+		{"blank reason", func(r *Record) { r.Validity.Reasons = []string{" "} }, "validity.reasons[0]"},
+		{"summary on a macro run", func(r *Record) { r.Summary = validSummary().Summary }, "summary"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -198,6 +274,67 @@ func TestValidateViolations(t *testing.T) { // Schema check
 	}
 	if err := validComponent().Validate(); err != nil {
 		t.Fatalf("valid component record: %v", err)
+	}
+	reasoned := validMacro()
+	reasoned.Validity.Verdict, reasoned.Validity.Reasons = VerdictInvalid, []string{"achieved rate 1.2% short of the offered rate"}
+	if err := reasoned.Validate(); err != nil {
+		t.Fatalf("invalid run with a reason: %v", err)
+	}
+}
+
+// TestInconclusiveWithoutBaselineRuns checks that a comparison whose
+// baseline refused the head's Revision, so no baseline run exists, is a
+// valid inconclusive summary (PBB "Reproducibility").
+func TestInconclusiveWithoutBaselineRuns(t *testing.T) {
+	r := validSummary()
+	r.Summary.Verdict, r.Summary.BaselineRuns = ABInconclusive, 0
+	r.Summary.Baseline = Views{}
+	r.Summary.BaselineMedianP99, r.Summary.SlowerPairs, r.Summary.BaselineNoise = PerView{}, PerView{}, PerView{}
+	if err := r.Validate(); err != nil {
+		t.Errorf("Validate() = %v, want nil for an inconclusive comparison without baseline runs", err)
+	}
+}
+
+func TestValidateSummaryViolations(t *testing.T) { // Summary rules
+	tests := []struct {
+		name   string
+		mutate func(r *Record)
+		path   string
+	}{
+		{"summary missing", func(r *Record) { r.Summary = nil }, "summary"},
+		{"of", func(r *Record) { r.Summary.Of = "trend" }, "summary.of"},
+		{"no runs", func(r *Record) { r.Summary.Runs = nil }, "summary.runs"},
+		{"run path", func(r *Record) { r.Summary.Runs = []string{"../x.json"} }, "summary.runs[0]"},
+		{"negative runs", func(r *Record) { r.Summary.HeadRuns = -1 }, "summary.headRuns"},
+		{"head order", func(r *Record) { r.Summary.Head.External.P99 = time.Microsecond }, "summary.head.external.p99Ns"},
+		{"baseline order", func(r *Record) { r.Summary.Baseline.Internal.P99 = time.Microsecond }, "summary.baseline.internal.p99Ns"},
+		{"median", func(r *Record) { r.Summary.HeadMedianP99.External = -1 }, "summary.headMedianP99Ns.external"},
+		{"slower pairs", func(r *Record) { r.Summary.SlowerPairs.Internal = math.NaN() }, "summary.slowerPairs.internal"},
+		{"noise", func(r *Record) { r.Summary.BaselineNoise.External = math.Inf(1) }, "summary.baselineNoise.external"},
+		{"verdict", func(r *Record) { r.Summary.Verdict = "ok" }, "summary.verdict"},
+		{"A/B verdict without baseline", func(r *Record) { r.Summary.BaselineRuns = 0 }, "summary.verdict"},
+		{"saturation", func(r *Record) { r.Summary.Ladder.Saturation = -1 }, "summary.ladder.saturation"},
+		{"step order", func(r *Record) {
+			r.Summary.Ladder.Steps = []LadderStep{{OfferedRate: 2}, {OfferedRate: 1}}
+		}, "summary.ladder.steps[1].offeredRate"},
+		{"step error rate", func(r *Record) { r.Summary.Ladder.Steps = []LadderStep{{ErrorRate: 2}} }, "summary.ladder.steps[0].errorRate"},
+		{"soak negative", func(r *Record) { r.Summary.Soak.Samples = -1 }, "summary.soak"},
+		{"soak drift", func(r *Record) { r.Summary.Soak.RSSDrift = math.NaN() }, "summary.soak.rssDrift"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := validSummary()
+			tt.mutate(r)
+			err := r.Validate()
+			if err == nil || !strings.Contains(err.Error(), "benchrecord: "+tt.path+":") {
+				t.Fatalf("Validate() = %v, want a violation at %s", err, tt.path)
+			}
+		})
+	}
+	for name, r := range map[string]*Record{"comparison": validSummary(), "ladder": validLadder()} {
+		if err := r.Validate(); err != nil {
+			t.Errorf("valid %s summary: %v", name, err)
+		}
 	}
 }
 
@@ -383,16 +520,24 @@ func TestSchemaMatchesRecordType(t *testing.T) { // record.schema.json and the G
 			}
 			walk(path+"[]", s.Items, typ.Elem())
 			return
+		case typ.Kind() == reflect.Pointer:
+			walk(path, s, typ.Elem())
+			return
 		case typ.Kind() != reflect.Struct:
 			return
 		}
 		if string(s.AdditionalProperties) != "false" {
 			t.Errorf("%s: additionalProperties must be false", path)
 		}
-		var fields []string
+		var fields, mandatory []string
 		for f := range typ.Fields() {
-			name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+			name, opts, _ := strings.Cut(f.Tag.Get("json"), ",")
 			fields = append(fields, name)
+			// An omitempty member (the summary) is optional; the schema's
+			// if/then rule ties it to the kind, checked below.
+			if opts != "omitempty" {
+				mandatory = append(mandatory, name)
+			}
 			child := s.Properties[name]
 			if child == nil {
 				t.Errorf("%s: member %q missing from the schema", path, name)
@@ -410,11 +555,44 @@ func TestSchemaMatchesRecordType(t *testing.T) { // record.schema.json and the G
 		if !slices.Equal(fields, props) {
 			t.Errorf("%s: Go members %v, schema properties %v", path, fields, props)
 		}
-		if !slices.Equal(fields, req) {
-			t.Errorf("%s: every member is required: Go %v, schema required %v", path, fields, req)
+		slices.Sort(mandatory)
+		if !slices.Equal(mandatory, req) {
+			t.Errorf("%s: every member but an omitempty one is required: Go %v, schema required %v", path, mandatory, req)
 		}
 	}
 	walk("$", &root, reflect.TypeFor[Record]())
+	// The summary member is required exactly for kind summary.
+	var rule struct {
+		AllOf []struct {
+			If struct {
+				Properties struct {
+					Identity struct {
+						Properties struct {
+							Kind struct {
+								Const string `json:"const"`
+							} `json:"kind"`
+						} `json:"properties"`
+					} `json:"identity"`
+				} `json:"properties"`
+			} `json:"if"`
+			Then struct {
+				Required []string `json:"required"`
+			} `json:"then"`
+			Else struct {
+				Not struct {
+					Required []string `json:"required"`
+				} `json:"not"`
+			} `json:"else"`
+		} `json:"allOf"`
+	}
+	if err := json.Unmarshal(Schema(), &rule); err != nil || len(rule.AllOf) != 1 {
+		t.Fatalf("schema allOf: %v, %d rules", err, len(rule.AllOf))
+	}
+	r0 := rule.AllOf[0]
+	if r0.If.Properties.Identity.Properties.Kind.Const != KindSummary ||
+		!slices.Equal(r0.Then.Required, []string{"summary"}) || !slices.Equal(r0.Else.Not.Required, []string{"summary"}) {
+		t.Errorf("schema does not tie the summary member to kind summary: %+v", r0)
+	}
 	// Schema returns a copy.
 	s := Schema()
 	s[0] = 'x'
@@ -429,6 +607,11 @@ func FuzzDecode(f *testing.F) {
 		f.Fatal(err)
 	}
 	f.Add(buf.Bytes())
+	var sum bytes.Buffer
+	if err := Write(&sum, validLadder()); err != nil {
+		f.Fatal(err)
+	}
+	f.Add(sum.Bytes())
 	f.Add([]byte(`{"format":"ruralz.bench.v1"}`))
 	f.Add([]byte(`[]`))
 	f.Fuzz(func(t *testing.T, data []byte) {

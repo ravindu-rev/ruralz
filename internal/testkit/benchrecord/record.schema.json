@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/ravindu-rev/ruralz/test/bench/record.schema.json",
   "title": "ruralz.bench.v1 benchmark result record",
-  "description": "One record per macro or component benchmark run (performance budgets and benchmarking, Result record). Durations are integer nanoseconds.",
+  "description": "One record per macro or component benchmark run, plus one summary record per scenario comparison, rate ladder or soak (performance budgets and benchmarking, Result record). Durations are integer nanoseconds.",
   "type": "object",
   "additionalProperties": false,
   "required": ["format", "identity", "environment", "load", "latency", "resources", "validity", "budgets"],
@@ -14,7 +14,7 @@
       "required": ["scenario", "kind", "commit", "version", "baseline", "revisionDigest", "toolchain", "startedAt"],
       "properties": {
         "scenario": {"type": "string", "minLength": 1},
-        "kind": {"enum": ["macro", "component"]},
+        "kind": {"enum": ["macro", "component", "summary"]},
         "commit": {"type": "string", "pattern": "^[0-9a-f]{7,64}$"},
         "version": {"type": "string", "minLength": 1},
         "baseline": {"type": "string"},
@@ -68,7 +68,7 @@
     "resources": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cpuPerRequestNs", "gcCpuShare", "rssLoadBytes", "rssIdleBytes", "liveHeapBytes", "allocsPerOp", "cpuProfileFiles"],
+      "required": ["cpuPerRequestNs", "gcCpuShare", "rssLoadBytes", "rssIdleBytes", "liveHeapBytes", "allocsPerOp", "cpuProfileFiles", "stateStoreCpuShare", "evalshaUsecPerSec"],
       "properties": {
         "cpuPerRequestNs": {"type": "integer", "minimum": 0},
         "gcCpuShare": {"type": "number", "minimum": 0, "maximum": 1},
@@ -76,27 +76,39 @@
         "rssIdleBytes": {"type": "integer", "minimum": 0},
         "liveHeapBytes": {"type": "integer", "minimum": 0},
         "allocsPerOp": {"type": "number", "minimum": 0},
-        "cpuProfileFiles": {"type": "array", "items": {"$ref": "#/$defs/relativePath"}}
+        "cpuProfileFiles": {"type": "array", "items": {"$ref": "#/$defs/relativePath"}},
+        "stateStoreCpuShare": {"type": "number", "minimum": 0, "maximum": 1},
+        "evalshaUsecPerSec": {"type": "number", "minimum": 0}
       }
     },
     "validity": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["rateError", "generatorCpu", "mockCpu", "noiseCv", "drops", "verdict"],
+      "required": ["rateError", "generatorCpu", "mockCpu", "noiseCv", "mockExcessP99Ns", "drops", "verdict", "reasons"],
       "properties": {
         "rateError": {"type": "number", "minimum": 0},
         "generatorCpu": {"type": "number", "minimum": 0, "maximum": 1},
         "mockCpu": {"type": "number", "minimum": 0, "maximum": 1},
         "noiseCv": {"type": "number", "minimum": 0},
+        "mockExcessP99Ns": {"type": "integer", "minimum": 0},
         "drops": {"type": "integer", "minimum": 0},
-        "verdict": {"enum": ["valid", "invalid", "inconclusive"]}
+        "verdict": {"enum": ["valid", "invalid", "inconclusive"]},
+        "reasons": {"type": "array", "items": {"type": "string", "minLength": 1}}
       }
     },
     "budgets": {
       "type": "array",
       "items": {"$ref": "#/$defs/budget"}
-    }
+    },
+    "summary": {"$ref": "#/$defs/summary"}
   },
+  "allOf": [
+    {
+      "if": {"properties": {"identity": {"properties": {"kind": {"const": "summary"}}}}},
+      "then": {"required": ["summary"]},
+      "else": {"not": {"required": ["summary"]}}
+    }
+  ],
   "$defs": {
     "percentiles": {
       "type": "object",
@@ -125,6 +137,80 @@
         "result": {"type": "string"},
         "slo": {"type": "string"},
         "verdict": {"enum": ["pass", "fail", "skipped"]}
+      }
+    },
+    "views": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external", "internal"],
+      "properties": {
+        "external": {"$ref": "#/$defs/percentiles"},
+        "internal": {"$ref": "#/$defs/percentiles"}
+      }
+    },
+    "perView": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["external", "internal"],
+      "properties": {
+        "external": {"type": "number", "minimum": 0},
+        "internal": {"type": "number", "minimum": 0}
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["of", "runs", "headRuns", "baselineRuns", "head", "baseline", "headMedianP99Ns", "baselineMedianP99Ns", "slowerPairs", "baselineNoise", "verdict", "ladder", "soak"],
+      "properties": {
+        "of": {"enum": ["comparison", "ladder", "soak"]},
+        "runs": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/relativePath"}},
+        "headRuns": {"type": "integer", "minimum": 0},
+        "baselineRuns": {"type": "integer", "minimum": 0},
+        "head": {"$ref": "#/$defs/views"},
+        "baseline": {"$ref": "#/$defs/views"},
+        "headMedianP99Ns": {"$ref": "#/$defs/perView"},
+        "baselineMedianP99Ns": {"$ref": "#/$defs/perView"},
+        "slowerPairs": {"$ref": "#/$defs/perView"},
+        "baselineNoise": {"$ref": "#/$defs/perView"},
+        "verdict": {"enum": ["pass", "fail", "inconclusive", "none"]},
+        "ladder": {"$ref": "#/$defs/ladder"},
+        "soak": {"$ref": "#/$defs/soak"}
+      }
+    },
+    "ladder": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["steps", "saturation"],
+      "properties": {
+        "steps": {"type": "array", "items": {"$ref": "#/$defs/ladderStep"}},
+        "saturation": {"type": "number", "minimum": 0}
+      }
+    },
+    "ladderStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["offeredRate", "achievedRate", "rateError", "errorRate", "p99Ns", "saturated"],
+      "properties": {
+        "offeredRate": {"type": "number", "minimum": 0},
+        "achievedRate": {"type": "number", "minimum": 0},
+        "rateError": {"type": "number", "minimum": 0},
+        "errorRate": {"type": "number", "minimum": 0, "maximum": 1},
+        "p99Ns": {"type": "integer", "minimum": 0},
+        "saturated": {"type": "boolean"}
+      }
+    },
+    "soak": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["samples", "rssEarlyBytes", "rssLateBytes", "rssDrift", "goroutinesEarly", "goroutinesLate", "goroutinesFlat"],
+      "properties": {
+        "samples": {"type": "integer", "minimum": 0},
+        "rssEarlyBytes": {"type": "integer", "minimum": 0},
+        "rssLateBytes": {"type": "integer", "minimum": 0},
+        "rssDrift": {"type": "number"},
+        "goroutinesEarly": {"type": "integer", "minimum": 0},
+        "goroutinesLate": {"type": "integer", "minimum": 0},
+        "goroutinesFlat": {"type": "boolean"}
       }
     }
   }

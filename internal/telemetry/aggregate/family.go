@@ -191,6 +191,7 @@ func specialLayout(name string) (layout, bool) {
 	case catalog.ConfigRevisionInfo:
 		return layoutRevisionInfo, true
 	case catalog.RuntimeGoroutines, catalog.RuntimeHeapBytes, catalog.RuntimeGCCyclesTotal,
+		catalog.RuntimeGCCPUSecondsTotal, catalog.RuntimeAllocationsTotal,
 		catalog.TelemetryFoldedLabelSets, catalog.TelemetrySeries:
 		return layoutComputed, true
 	default:

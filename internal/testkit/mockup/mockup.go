@@ -108,6 +108,11 @@ type Config struct {
 	ErrorLog slog.Handler
 	// Seed seeds the delay distributions; 0 picks a random seed.
 	Seed uint64
+	// OnServed, when set, sees every answered request as its handler
+	// returns: the time the handler took and the delay its Behavior drew,
+	// so a benchmark measures the mock's own latency beyond its configured
+	// delay. It runs on the handler's goroutine and must not block.
+	OnServed func(elapsed, delay time.Duration)
 }
 
 // Stats counts requests and connections.
@@ -409,6 +414,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.requests.Add(1)
 	s.active.Add(1)
 	defer s.active.Add(-1)
+	var delay time.Duration
+	if f := s.cfg.OnServed; f != nil {
+		start := time.Now()
+		defer func() { f(time.Since(start), delay) }()
+	}
 	if s.cfg.Name != "" {
 		w.Header().Set(HeaderServer, s.cfg.Name)
 	}
@@ -431,7 +441,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		keep = max(keep, s.cfg.MaxEchoBody)
 	}
 	body, n := readBody(r.Body, keep)
-	delay := s.sample(b.Delay)
+	delay = s.sample(b.Delay)
 	s.log.add(r, body, n, s.cfg.MaxLoggedBody, delay, s.cfg.LogSize > 0)
 
 	if overrideErr != nil {

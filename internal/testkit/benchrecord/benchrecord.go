@@ -1,29 +1,43 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package benchrecord defines the ruralz.bench.v1 result record every macro
-// and component benchmark run writes (PBB "Result record"), with a JSON
-// writer, a strict reader and the schema check.
+// Package benchrecord defines the ruralz.bench.v1 result record
+// (docs/architecture/12-performance-budgets-and-benchmarking.md "Result
+// record"), with a JSON writer, a strict reader and the schema check.
 //
-// The record carries Identity (scenario, commit, baseline, Revision digest,
-// toolchain), Environment (hardware profile and microarchitecture, kernel,
-// cpuset, GOMAXPROCS, GOGC, GOMEMLIMIT, sysctls, NIC settings), Load (tool,
-// version, command line, offered and achieved rate, connections, key
-// cardinality and distribution, injected delay distribution), Latency
-// (external and internal percentiles, raw histogram logs), Resources (CPU
-// per request, GC CPU share, RSS at load and idle settle, live heap,
-// alloc/op) and Validity and budgets (rate error, generator and mock CPU,
-// drops, noise, verdict; each budget's value, result, SLO and verdict).
+// Every macro or component benchmark run writes one record of kind macro
+// or component, and every scenario's comparison, rate ladder or soak adds
+// one record of kind summary. A record carries Identity (scenario, kind,
+// commit, baseline, Revision digest, toolchain), Environment (hardware
+// profile and microarchitecture, kernel, cpuset, GOMAXPROCS, GOGC,
+// GOMEMLIMIT, sysctls, NIC settings), Load (tool, version, command line,
+// offered and achieved rate, connections, key cardinality and
+// distribution, injected delay distribution), Latency (external and
+// internal percentiles, raw HdrHistogram V2 interval logs), Resources (CPU
+// per request, GC CPU share, RSS at load and at idle settle, live heap,
+// alloc/op, and for State Store scenarios the State Store's main-thread
+// CPU share and EVALSHA microseconds per second, ungated) and Validity and
+// budgets (rate error, generator and mock CPU, the mock's latency beyond
+// its configured delay, drops, noise, the run's verdict and its reasons;
+// each budget's value, result, SLO and verdict). A summary record adds
+// Summary: the pooled percentiles of the head runs and of the baseline
+// runs, the median-of-runs p99 values, the slower pairs, the baseline
+// noise and the A/B verdict, the rate ladder's steps and saturation, or
+// the soak's drift; its budgets hold each budget's pooled result, which
+// internal/tool/releasekit notes and internal/tool/releasegate read.
 //
 // Durations are integer nanoseconds in JSON (members ending in "Ns").
 // Schema returns the JSON Schema (draft 2020-12) of the same format, which
-// the benchmark harness publishes as test/bench/record.schema.json. Decode
-// applies every rule that schema states (member presence and the absence
-// of null, which Go's decoder cannot see, then Validate for every value
-// rule), so records are checked without a JSON Schema library. Relative
-// file paths follow the same rule on every platform: slash-separated, no
-// leading "/", no backslash and no ".." element.
+// go generate copies to test/bench/record.schema.json (gen/main.go) and
+// stage 3 diffs. Decode applies every rule that schema states (member
+// presence and the absence of null, which Go's decoder cannot see, then
+// Validate for every value rule), so records are checked without a JSON
+// Schema library. Relative file paths follow the same rule on every
+// platform: slash-separated, no leading "/", no backslash and no ".."
+// element.
 package benchrecord
+
+//go:generate go run ./gen -out ../../../test/bench/record.schema.json
 
 import (
 	"bytes"
@@ -48,6 +62,14 @@ const Format = "ruralz.bench.v1"
 const (
 	KindMacro     = "macro"
 	KindComponent = "component"
+	KindSummary   = "summary"
+)
+
+// What a summary record summarizes (Summary.Of).
+const (
+	OfComparison = "comparison"
+	OfLadder     = "ladder"
+	OfSoak       = "soak"
 )
 
 // Run verdicts (Validity.Verdict).
@@ -55,6 +77,16 @@ const (
 	VerdictValid        = "valid"
 	VerdictInvalid      = "invalid"
 	VerdictInconclusive = "inconclusive"
+)
+
+// A/B verdicts of a summary (Summary.Verdict). ABNone is a summary without
+// a baseline, judged on absolute budgets only: a rate ladder, a soak, or
+// the first release's comparison.
+const (
+	ABPass         = "pass"
+	ABFail         = "fail"
+	ABInconclusive = "inconclusive"
+	ABNone         = "none"
 )
 
 // Budget verdicts (BudgetResult.Verdict).
@@ -73,7 +105,7 @@ var schema []byte
 // Schema returns a copy of the record's JSON Schema document.
 func Schema() []byte { return bytes.Clone(schema) }
 
-// Record is one benchmark run's result.
+// Record is one benchmark run's result, or a summary of runs.
 type Record struct {
 	// Format is always "ruralz.bench.v1".
 	Format      string         `json:"format"`
@@ -84,6 +116,8 @@ type Record struct {
 	Resources   Resources      `json:"resources"`
 	Validity    Validity       `json:"validity"`
 	Budgets     []BudgetResult `json:"budgets"`
+	// Summary is set exactly on records of kind summary.
+	Summary *Summary `json:"summary,omitempty"`
 }
 
 // Identity says what ran.
@@ -91,7 +125,7 @@ type Identity struct {
 	// Scenario is the PBB scenario (S1, S2, O1a...) or the component
 	// benchmark name.
 	Scenario string `json:"scenario"`
-	// Kind is "macro" or "component".
+	// Kind is "macro", "component" or "summary".
 	Kind string `json:"kind"`
 	// Commit is the full commit under test.
 	Commit string `json:"commit"`
@@ -167,6 +201,13 @@ type Resources struct {
 	// CPUProfileFiles are the CPU profiles published with the record
 	// (never heap profiles), relative to the record.
 	CPUProfileFiles []string `json:"cpuProfileFiles"`
+	// StateStoreCPUShare is the State Store's main-thread CPU share over
+	// the measured window, 0 to 1 (INFO cpu used_cpu_sys_main_thread plus
+	// used_cpu_user_main_thread deltas); 0 without a State Store. Ungated.
+	StateStoreCPUShare float64 `json:"stateStoreCpuShare"`
+	// EvalshaMicrosPerSecond is INFO commandstats cmdstat_evalsha
+	// microseconds per second over the measured window. Ungated.
+	EvalshaMicrosPerSecond float64 `json:"evalshaUsecPerSec"`
 }
 
 // Validity holds the run's validity checks and verdict.
@@ -179,10 +220,15 @@ type Validity struct {
 	MockCPU      float64 `json:"mockCpu"`
 	// NoiseCV is the baseline p99 coefficient of variation.
 	NoiseCV float64 `json:"noiseCv"`
+	// MockExcessP99 is the mock Upstream's p99 beyond its configured
+	// delay.
+	MockExcessP99 time.Duration `json:"mockExcessP99Ns"`
 	// Drops counts dropped telemetry records during the run.
 	Drops int64 `json:"drops"`
 	// Verdict is "valid", "invalid" or "inconclusive".
 	Verdict string `json:"verdict"`
+	// Reasons says why a run is invalid or inconclusive, one line each.
+	Reasons []string `json:"reasons"`
 }
 
 // BudgetResult is one budget checked by the run.
@@ -197,6 +243,86 @@ type BudgetResult struct {
 	SLO string `json:"slo"`
 	// Verdict is "pass", "fail" or "skipped".
 	Verdict string `json:"verdict"`
+}
+
+// Views holds one percentile set per measurement view.
+type Views struct {
+	External Percentiles `json:"external"`
+	Internal Percentiles `json:"internal"`
+}
+
+// PerView holds one value per measurement view.
+type PerView struct {
+	External float64 `json:"external"`
+	Internal float64 `json:"internal"`
+}
+
+// Summary summarizes a scenario's A/B comparison, rate ladder or soak.
+type Summary struct {
+	// Of is "comparison", "ladder" or "soak".
+	Of string `json:"of"`
+	// Runs are the run records summarized, relative to the record.
+	Runs []string `json:"runs"`
+	// HeadRuns and BaselineRuns count the valid runs of each side.
+	HeadRuns     int `json:"headRuns"`
+	BaselineRuns int `json:"baselineRuns"`
+	// Head and Baseline are the pooled percentiles of each side's runs.
+	Head     Views `json:"head"`
+	Baseline Views `json:"baseline"`
+	// HeadMedianP99 and BaselineMedianP99 are the median-of-runs p99
+	// values in nanoseconds, the gated comparison.
+	HeadMedianP99     PerView `json:"headMedianP99Ns"`
+	BaselineMedianP99 PerView `json:"baselineMedianP99Ns"`
+	// SlowerPairs counts the interleaved pairs whose head p99 was above
+	// the baseline's.
+	SlowerPairs PerView `json:"slowerPairs"`
+	// BaselineNoise is the coefficient of variation of the baseline runs'
+	// p99 values.
+	BaselineNoise PerView `json:"baselineNoise"`
+	// Verdict is the A/B verdict: "pass", "fail", "inconclusive", or
+	// "none" without a baseline.
+	Verdict string `json:"verdict"`
+	// Ladder holds a rate ladder's steps and saturation.
+	Ladder Ladder `json:"ladder"`
+	// Soak holds a soak's drift checks.
+	Soak Soak `json:"soak"`
+}
+
+// Ladder is a rate ladder's result.
+type Ladder struct {
+	// Steps are the steps in offered-rate order.
+	Steps []LadderStep `json:"steps"`
+	// Saturation is the highest step meeting the saturation rule; 0 when
+	// none does.
+	Saturation float64 `json:"saturation"`
+}
+
+// LadderStep is one step of a rate ladder.
+type LadderStep struct {
+	OfferedRate  float64       `json:"offeredRate"`
+	AchievedRate float64       `json:"achievedRate"`
+	RateError    float64       `json:"rateError"`
+	ErrorRate    float64       `json:"errorRate"`
+	P99          time.Duration `json:"p99Ns"`
+	// Saturated reports a step that meets the saturation rule.
+	Saturated bool `json:"saturated"`
+}
+
+// Soak is a soak's drift result.
+type Soak struct {
+	// Samples counts the RSS and goroutine samples.
+	Samples int `json:"samples"`
+	// RSSEarlyBytes and RSSLateBytes are the median RSS of minutes 10 to
+	// 20 and of the last 10 minutes; RSSDrift is late over early minus 1.
+	RSSEarlyBytes int64   `json:"rssEarlyBytes"`
+	RSSLateBytes  int64   `json:"rssLateBytes"`
+	RSSDrift      float64 `json:"rssDrift"`
+	// GoroutinesEarly and GoroutinesLate are the same medians of the
+	// goroutine count.
+	GoroutinesEarly int64 `json:"goroutinesEarly"`
+	GoroutinesLate  int64 `json:"goroutinesLate"`
+	// GoroutinesFlat reports medians within the soak rule.
+	GoroutinesFlat bool `json:"goroutinesFlat"`
 }
 
 // isLowerHex reports whether s is made of lowercase hex digits only.
@@ -235,6 +361,9 @@ func isBudgetID(s string) bool {
 	return true
 }
 
+// badFunc reports one violation at a JSON path.
+type badFunc func(path, format string, args ...any)
+
 // Validate checks every schema rule and returns all violations joined, each
 // naming its JSON path.
 func (r *Record) Validate() error {
@@ -249,8 +378,10 @@ func (r *Record) Validate() error {
 	if id.Scenario == "" {
 		bad("identity.scenario", "required")
 	}
-	if id.Kind != KindMacro && id.Kind != KindComponent {
-		bad("identity.kind", "want %q or %q, got %q", KindMacro, KindComponent, id.Kind)
+	switch id.Kind {
+	case KindMacro, KindComponent, KindSummary:
+	default:
+		bad("identity.kind", "want %q, %q or %q, got %q", KindMacro, KindComponent, KindSummary, id.Kind)
 	}
 	if !isCommit(id.Commit) {
 		bad("identity.commit", "want 7 to 64 lowercase hex digits, got %q", id.Commit)
@@ -303,38 +434,8 @@ func (r *Record) Validate() error {
 	checkPercentiles(bad, "latency.external", r.Latency.External)
 	checkPercentiles(bad, "latency.internal", r.Latency.Internal)
 	checkFiles(bad, "latency.histogramFiles", r.Latency.HistogramFiles)
-	res := r.Resources
-	if res.CPUPerRequest < 0 {
-		bad("resources.cpuPerRequestNs", "negative")
-	}
-	if !(res.GCCPUShare >= 0 && res.GCCPUShare <= 1) {
-		bad("resources.gcCpuShare", "want 0 to 1, got %v", res.GCCPUShare)
-	}
-	for path, v := range map[string]int64{
-		"resources.rssLoadBytes": res.RSSLoadBytes, "resources.rssIdleBytes": res.RSSIdleBytes, "resources.liveHeapBytes": res.LiveHeapBytes,
-	} {
-		if v < 0 {
-			bad(path, "negative")
-		}
-	}
-	nonNegFloat(bad, "resources.allocsPerOp", res.AllocsPerOp)
-	checkFiles(bad, "resources.cpuProfileFiles", res.CPUProfileFiles)
-	v := r.Validity
-	nonNegFloat(bad, "validity.rateError", v.RateError)
-	nonNegFloat(bad, "validity.noiseCv", v.NoiseCV)
-	for path, x := range map[string]float64{"validity.generatorCpu": v.GeneratorCPU, "validity.mockCpu": v.MockCPU} {
-		if !(x >= 0 && x <= 1) {
-			bad(path, "want 0 to 1, got %v", x)
-		}
-	}
-	if v.Drops < 0 {
-		bad("validity.drops", "negative")
-	}
-	switch v.Verdict {
-	case VerdictValid, VerdictInvalid, VerdictInconclusive:
-	default:
-		bad("validity.verdict", "want valid, invalid or inconclusive, got %q", v.Verdict)
-	}
+	checkResources(bad, r.Resources)
+	checkValidity(bad, r.Validity)
 	seen := map[string]bool{}
 	for i, b := range r.Budgets {
 		path := fmt.Sprintf("budgets[%d]", i)
@@ -357,16 +458,140 @@ func (r *Record) Validate() error {
 			bad(path+".verdict", "want pass, fail or skipped, got %q", b.Verdict)
 		}
 	}
+	switch {
+	case id.Kind == KindSummary && r.Summary == nil:
+		bad("summary", "required for a summary record")
+	case id.Kind != KindSummary && r.Summary != nil:
+		bad("summary", "only a summary record has one, this is %q", id.Kind)
+	case r.Summary != nil:
+		checkSummary(bad, r.Summary)
+	}
 	return errors.Join(errs...)
 }
 
-func nonNegFloat(bad func(string, string, ...any), path string, v float64) {
+func checkResources(bad badFunc, res Resources) {
+	if res.CPUPerRequest < 0 {
+		bad("resources.cpuPerRequestNs", "negative")
+	}
+	share(bad, "resources.gcCpuShare", res.GCCPUShare)
+	share(bad, "resources.stateStoreCpuShare", res.StateStoreCPUShare)
+	for _, x := range []struct {
+		path string
+		v    int64
+	}{
+		{"resources.rssLoadBytes", res.RSSLoadBytes}, {"resources.rssIdleBytes", res.RSSIdleBytes},
+		{"resources.liveHeapBytes", res.LiveHeapBytes},
+	} {
+		if x.v < 0 {
+			bad(x.path, "negative")
+		}
+	}
+	nonNegFloat(bad, "resources.allocsPerOp", res.AllocsPerOp)
+	nonNegFloat(bad, "resources.evalshaUsecPerSec", res.EvalshaMicrosPerSecond)
+	checkFiles(bad, "resources.cpuProfileFiles", res.CPUProfileFiles)
+}
+
+func checkValidity(bad badFunc, v Validity) {
+	nonNegFloat(bad, "validity.rateError", v.RateError)
+	nonNegFloat(bad, "validity.noiseCv", v.NoiseCV)
+	share(bad, "validity.generatorCpu", v.GeneratorCPU)
+	share(bad, "validity.mockCpu", v.MockCPU)
+	if v.MockExcessP99 < 0 {
+		bad("validity.mockExcessP99Ns", "negative")
+	}
+	if v.Drops < 0 {
+		bad("validity.drops", "negative")
+	}
+	switch v.Verdict {
+	case VerdictValid:
+	case VerdictInvalid, VerdictInconclusive:
+		if len(v.Reasons) == 0 {
+			bad("validity.reasons", "an %s run says why", v.Verdict)
+		}
+	default:
+		bad("validity.verdict", "want valid, invalid or inconclusive, got %q", v.Verdict)
+	}
+	for i, s := range v.Reasons {
+		if strings.TrimSpace(s) == "" {
+			bad(fmt.Sprintf("validity.reasons[%d]", i), "empty")
+		}
+	}
+}
+
+func checkSummary(bad badFunc, s *Summary) {
+	switch s.Of {
+	case OfComparison, OfLadder, OfSoak:
+	default:
+		bad("summary.of", "want comparison, ladder or soak, got %q", s.Of)
+	}
+	checkFiles(bad, "summary.runs", s.Runs)
+	if len(s.Runs) == 0 {
+		bad("summary.runs", "a summary names at least one run record")
+	}
+	if s.HeadRuns < 0 || s.BaselineRuns < 0 {
+		bad("summary.headRuns", "negative run count")
+	}
+	checkPercentiles(bad, "summary.head.external", s.Head.External)
+	checkPercentiles(bad, "summary.head.internal", s.Head.Internal)
+	checkPercentiles(bad, "summary.baseline.external", s.Baseline.External)
+	checkPercentiles(bad, "summary.baseline.internal", s.Baseline.Internal)
+	for _, x := range []struct {
+		path string
+		v    PerView
+	}{
+		{"summary.headMedianP99Ns", s.HeadMedianP99}, {"summary.baselineMedianP99Ns", s.BaselineMedianP99},
+		{"summary.slowerPairs", s.SlowerPairs}, {"summary.baselineNoise", s.BaselineNoise},
+	} {
+		nonNegFloat(bad, x.path+".external", x.v.External)
+		nonNegFloat(bad, x.path+".internal", x.v.Internal)
+	}
+	switch s.Verdict {
+	case ABPass, ABFail:
+		if s.BaselineRuns < 1 {
+			bad("summary.verdict", "an A/B verdict %q needs baseline runs", s.Verdict)
+		}
+	case ABInconclusive, ABNone:
+		// A baseline that refuses the head's Revision leaves an
+		// inconclusive comparison without baseline runs.
+	default:
+		bad("summary.verdict", "want pass, fail, inconclusive or none, got %q", s.Verdict)
+	}
+	nonNegFloat(bad, "summary.ladder.saturation", s.Ladder.Saturation)
+	for i, st := range s.Ladder.Steps {
+		path := fmt.Sprintf("summary.ladder.steps[%d]", i)
+		nonNegFloat(bad, path+".offeredRate", st.OfferedRate)
+		nonNegFloat(bad, path+".achievedRate", st.AchievedRate)
+		nonNegFloat(bad, path+".rateError", st.RateError)
+		share(bad, path+".errorRate", st.ErrorRate)
+		if st.P99 < 0 {
+			bad(path+".p99Ns", "negative")
+		}
+		if i > 0 && st.OfferedRate < s.Ladder.Steps[i-1].OfferedRate {
+			bad(path+".offeredRate", "steps are in offered-rate order")
+		}
+	}
+	so := s.Soak
+	if so.Samples < 0 || so.RSSEarlyBytes < 0 || so.RSSLateBytes < 0 || so.GoroutinesEarly < 0 || so.GoroutinesLate < 0 {
+		bad("summary.soak", "negative sample count, RSS or goroutine median")
+	}
+	if math.IsNaN(so.RSSDrift) || math.IsInf(so.RSSDrift, 0) {
+		bad("summary.soak.rssDrift", "want a finite value, got %v", so.RSSDrift)
+	}
+}
+
+func share(bad badFunc, path string, x float64) {
+	if !(x >= 0 && x <= 1) {
+		bad(path, "want 0 to 1, got %v", x)
+	}
+}
+
+func nonNegFloat(bad badFunc, path string, v float64) {
 	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
 		bad(path, "want a finite value >= 0, got %v", v)
 	}
 }
 
-func checkPercentiles(bad func(string, string, ...any), path string, p Percentiles) {
+func checkPercentiles(bad badFunc, path string, p Percentiles) {
 	vals := []struct {
 		name string
 		v    time.Duration
@@ -385,7 +610,7 @@ func checkPercentiles(bad func(string, string, ...any), path string, p Percentil
 	}
 }
 
-func checkFiles(bad func(string, string, ...any), path string, files []string) {
+func checkFiles(bad badFunc, path string, files []string) {
 	for i, f := range files {
 		if !isRelativePath(f) {
 			bad(fmt.Sprintf("%s[%d]", path, i), "want a slash-separated relative path inside the record directory, got %q", f)
@@ -408,12 +633,9 @@ func isRelativePath(f string) bool {
 	return true
 }
 
-// Write validates r and writes it as indented JSON with a trailing newline.
-// Nil slices and maps are written as empty arrays and objects.
-func Write(w io.Writer, r *Record) error {
-	if err := r.Validate(); err != nil {
-		return err
-	}
+// materialized returns a copy of r whose nil slices and maps are empty, as
+// the schema requires them present.
+func materialized(r *Record) Record {
 	out := *r
 	if out.Budgets == nil {
 		out.Budgets = []BudgetResult{}
@@ -427,7 +649,30 @@ func Write(w io.Writer, r *Record) error {
 	if out.Resources.CPUProfileFiles == nil {
 		out.Resources.CPUProfileFiles = []string{}
 	}
+	if out.Validity.Reasons == nil {
+		out.Validity.Reasons = []string{}
+	}
+	if out.Summary != nil {
+		s := *out.Summary
+		if s.Runs == nil {
+			s.Runs = []string{}
+		}
+		if s.Ladder.Steps == nil {
+			s.Ladder.Steps = []LadderStep{}
+		}
+		out.Summary = &s
+	}
 	out.Identity.StartedAt = out.Identity.StartedAt.UTC()
+	return out
+}
+
+// Write validates r and writes it as indented JSON with a trailing newline.
+// Nil slices and maps are written as empty arrays and objects.
+func Write(w io.Writer, r *Record) error {
+	if err := r.Validate(); err != nil {
+		return err
+	}
+	out := materialized(r)
 	b, err := json.MarshalIndent(&out, "", "  ")
 	if err != nil {
 		return fmt.Errorf("benchrecord: encode: %w", err)

@@ -9,17 +9,21 @@
 #   go=           Go changes (stages 2, 4, 9): *.go, go.mod, go.sum,
 #                 .golangci.yml, Makefile, scripts/
 #   generate=     stage 3 inputs, including the alert rules and dashboards
-#                 generated from the telemetry catalog
+#                 generated from the telemetry catalog and the benchmark
+#                 record schema test/bench/record.schema.json, which
+#                 internal/testkit/benchrecord writes
 #   test=         stage 5 and the floor job: Go changes, examples/, the
 #                 configuration conformance fixtures under
 #                 test/conformance/config/ (a golden regeneration touches only
 #                 fixtures, whose digests are checked on the floor, darwin
-#                 and windows jobs), or the documents the examples tests
+#                 and windows jobs), test/bench/ (the scenario Bundles and
+#                 their pinned digests), or the documents the examples tests
 #                 read: the configuration model (example Bundles, Worked
 #                 example, diagnostics) and Deployment topologies (the
 #                 quickstart Bundle)
 #   integration=  stage 8: the pr-full filter and every merge queue run
-#   gates=        stage 9: Go changes
+#   gates=        stage 9: Go changes, or the alloc/op gate list
+#                 test/bench/allocgate.json
 #
 # A change under .github/workflows/, a push, a manual or scheduled run, and
 # ALL=true (the workflow_call input `all` that release.yml passes) select
@@ -58,8 +62,10 @@ fi
 
 go=false; generate=false; test=false; integration=false
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/' && go=true
-any '^(pkg|api|internal/gen|internal/tool|internal/telemetry/catalog|sdk|deploy/crds|deploy/grafana)/|^buf(\.gen)?\.yaml$|^go\.mod$' && generate=true
-{ [[ $go == true ]] || any '^examples/|^test/conformance/config/|^docs/architecture/02-configuration-model\.md$|^docs/operations/01-deployment-topologies\.md$'; } && test=true
+any '^(pkg|api|internal/gen|internal/tool|internal/telemetry/catalog|internal/testkit/benchrecord|sdk|deploy/crds|deploy/grafana)/|^test/bench/record\.schema\.json$|^buf(\.gen)?\.yaml$|^go\.mod$' && generate=true
+{ [[ $go == true ]] || any '^examples/|^test/conformance/config/|^test/bench/|^docs/architecture/02-configuration-model\.md$|^docs/operations/01-deployment-topologies\.md$'; } && test=true
+gates=$go
+any '^test/bench/allocgate\.json$' && gates=true
 any '\.go$|^go\.(mod|sum)$|^\.golangci\.yml$|^Makefile$|^scripts/|^(api|examples|test|deploy)/|^internal/tool/' && integration=true
 [[ "$EVENT" == merge_group ]] && integration=true
-printf 'go=%s\ngenerate=%s\ntest=%s\nintegration=%s\ngates=%s\n' "$go" "$generate" "$test" "$integration" "$go" >>"$out"
+printf 'go=%s\ngenerate=%s\ntest=%s\nintegration=%s\ngates=%s\n' "$go" "$generate" "$test" "$integration" "$gates" >>"$out"

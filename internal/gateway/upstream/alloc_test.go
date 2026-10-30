@@ -107,9 +107,11 @@ func TestLegAllocations(t *testing.T) {
 }
 
 // maxLegAllocs is the allocation count of one pass-through leg: the
-// attempt record 1, the request copy 1, the GotConn hook 1, the header
-// clone 3 (net/http.Header.Clone), the forwarding fields 4
-// (clientaddr.Rewrite) and the attempt context 5
-// (resilience.WithDeadline); the tracer's injection adds 2 more. See
+// attempt record 1, which is the attempt context and holds its Deadline,
+// the request and its URL, and the cancellation of
+// context.WithCancelCause 2 (its context and its cancel function); the
+// deadline timer and the trace hooks are the pooled leg state's, and the
+// copy-free forwarding writer builds the header into a pooled one. A
+// relayed Early Hints hook adds 1 and the tracer's injection 2 more. See
 // TestLegAllocations.
-const maxLegAllocs = 15
+const maxLegAllocs = 3

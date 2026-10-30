@@ -164,6 +164,10 @@ func TestRewrite(t *testing.T) {
 			},
 		},
 	}
+	// One Writer serves every case in turn, as a pooled outgoing header's
+	// writer serves request after request: it must give Rewrite's result
+	// each time.
+	var w Writer
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			h := tt.in.Clone()
@@ -171,7 +175,68 @@ func TestRewrite(t *testing.T) {
 			if !reflect.DeepEqual(h, tt.want) {
 				t.Errorf("Rewrite =\n  %v\nwant\n  %v", h, tt.want)
 			}
+			hw := tt.in.Clone()
+			w.Rewrite(hw, tt.f)
+			if !reflect.DeepEqual(hw, tt.want) {
+				t.Errorf("Writer.Rewrite =\n  %v\nwant\n  %v", hw, tt.want)
+			}
 		})
+	}
+}
+
+// TestWriterStorage checks the forwarding writer's own storage: each line
+// it sets is capped, so an append to one field never writes into another
+// field's line; a new client address replaces the cached text; and a
+// rewrite of the next header leaves no line of the previous one behind in
+// it.
+func TestWriterStorage(t *testing.T) {
+	var w Writer
+	h := http.Header{}
+	w.Rewrite(h, Forwarding{Peer: netip.MustParseAddr("203.0.113.50"), Scheme: "https", Host: "api.shop.example"})
+	h["X-Forwarded-For"] = append(h["X-Forwarded-For"], "extra")
+	if got := h["X-Forwarded-Proto"]; len(got) != 1 || got[0] != "https" {
+		t.Fatalf("an append to X-Forwarded-For changed X-Forwarded-Proto: %v", got)
+	}
+	next := http.Header{}
+	w.Rewrite(next, Forwarding{Peer: netip.MustParseAddr("2001:db8::7"), Scheme: "http"})
+	want := http.Header{"X-Forwarded-For": {"2001:db8::7"}, "X-Forwarded-Proto": {"http"}}
+	if !reflect.DeepEqual(next, want) {
+		t.Errorf("second rewrite = %v, want %v", next, want)
+	}
+	mapped := http.Header{}
+	w.Rewrite(mapped, Forwarding{Peer: netip.MustParseAddr("::ffff:192.0.2.9"), Scheme: "https"})
+	if got := mapped.Get("X-Forwarded-For"); got != "192.0.2.9" {
+		t.Errorf("mapped address written as %q, want it unmapped", got)
+	}
+	invalid := http.Header{"X-Forwarded-For": {"1.1.1.1"}}
+	w.Rewrite(invalid, Forwarding{Scheme: "https"})
+	if _, ok := invalid["X-Forwarded-For"]; ok {
+		t.Errorf("an invalid peer kept X-Forwarded-For: %v", invalid)
+	}
+}
+
+// TestWriterAllocations checks what the forwarding writer allocates: nothing
+// for a client address it wrote last, one string for a trusted peer's
+// joined X-Forwarded-For line.
+func TestWriterAllocations(t *testing.T) {
+	if raceEnabled {
+		t.Skip("allocation counts are meaningless under -race")
+	}
+	var w Writer
+	h := make(http.Header, 8)
+	untrusted := Forwarding{Peer: netip.MustParseAddr("203.0.113.50"), Scheme: "https", Host: "api.shop.example"}
+	w.Rewrite(h, untrusted)
+	if n := testing.AllocsPerRun(100, func() { clear(h); w.Rewrite(h, untrusted) }); n != 0 {
+		t.Errorf("untrusted peer, same address: %v allocations, want 0", n)
+	}
+	prior := []string{"198.51.100.1"}
+	trusted := Forwarding{Peer: netip.MustParseAddr("10.0.0.1"), PeerTrusted: true, Scheme: "https", Host: "api.shop.example"}
+	if n := testing.AllocsPerRun(100, func() {
+		clear(h)
+		h["X-Forwarded-For"] = prior
+		w.Rewrite(h, trusted)
+	}); n != 1 {
+		t.Errorf("trusted peer behind a proxy: %v allocations, want 1 (the joined line)", n)
 	}
 }
 

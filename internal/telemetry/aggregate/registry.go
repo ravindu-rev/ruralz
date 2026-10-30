@@ -265,6 +265,8 @@ func New(o Options) (*Registry, error) {
 		{Name: "/sched/goroutines:goroutines"},
 		{Name: "/gc/heap/live:bytes"},
 		{Name: "/gc/cycles/total:gc-cycles"},
+		{Name: "/cpu/classes/gc/total:cpu-seconds"},
+		{Name: "/gc/heap/allocs:objects"},
 	}
 	r.producer = &Producer{r: r, sem: make(chan struct{}, 1)}
 	return r, nil

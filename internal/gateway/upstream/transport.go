@@ -138,6 +138,9 @@ func newPool(rt *runtime, st *epState, e *tlsEntry) *pool {
 		tr.DialTLSContext = p.dialTLS
 	}
 	p.tr, p.send = tr, tr
+	if rt.m.send != nil {
+		p.send = rt.m.send
+	}
 	return p
 }
 

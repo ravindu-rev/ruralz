@@ -111,6 +111,8 @@ func m1Families() []family {
 		{RuntimeGoroutines, Gauge, BoundsNone, "{goroutines}", nil, L, false},
 		{RuntimeHeapBytes, Gauge, BoundsNone, "By", nil, L, false},
 		{RuntimeGCCyclesTotal, Counter, BoundsNone, "{cycles}", nil, L, false},
+		{RuntimeGCCPUSecondsTotal, Counter, BoundsNone, "s", nil, L, false},
+		{RuntimeAllocationsTotal, Counter, BoundsNone, "{objects}", nil, L, false},
 		{TelemetrySpansTotal, Counter, BoundsNone, "{spans}", nil, L, false},
 		{TelemetrySpansDroppedTotal, Counter, BoundsNone, "{spans}", []string{"reason=queue_full|export_error"}, L, false},
 		{TelemetryTracesUnsampledTotal, Counter, BoundsNone, "{traces}", []string{"reason=rate_cap_root|rate_cap_parent"}, L, false},
@@ -208,13 +210,19 @@ func TestNaming(t *testing.T) {
 		default:
 			t.Errorf("%s has kind %d", n, f.Kind)
 		}
+		// The unit suffix precedes a counter's _total:
+		// ruralz_<component>_<name>_<unit>, counters ending _total.
+		base := n
+		if f.Kind == Counter {
+			base = strings.TrimSuffix(n, "_total")
+		}
 		switch f.Unit {
 		case "s":
-			if !strings.HasSuffix(n, "_seconds") {
+			if !strings.HasSuffix(base, "_seconds") {
 				t.Errorf("%s has unit s but does not end _seconds", n)
 			}
 		case "By":
-			if !strings.HasSuffix(n, "_bytes") {
+			if !strings.HasSuffix(base, "_bytes") {
 				t.Errorf("%s has unit By but does not end _bytes", n)
 			}
 		case "1":

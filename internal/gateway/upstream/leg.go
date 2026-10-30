@@ -164,6 +164,10 @@ type legState struct {
 	trace   httptrace.ClientTrace
 	conn    atomic.Pointer[trackedConn]
 	getBody func() (io.ReadCloser, error)
+	// timer is the attempt deadline timer every attempt of the legs this
+	// state runs reuses; armed is the Deadline it fires (onDeadline).
+	timer clock.Timer
+	armed atomic.Pointer[resilience.Deadline]
 	// The last attempt that ran.
 	endpoint  string
 	kind      resilience.Kind
@@ -212,6 +216,7 @@ func (m *Manager) putLeg(ls *legState) {
 	ls.resp, ls.errv, ls.upv = expr.Response{}, expr.AttemptError{}, expr.Upstream{}
 	ls.fleg = filter.Leg{}
 	ls.conn.Store(nil)
+	ls.armed.Store(nil)
 	ls.endpoint, ls.kind, ls.failed, ls.responded = "", resilience.KindNone, false, false
 	ls.cause, ls.canceled, ls.over, ls.delay = nil, false, false, 0
 	ls.park = parked{}
@@ -268,6 +273,24 @@ func (ls *legState) gotConn(info httptrace.GotConnInfo) {
 // reopen is the outgoing request's GetBody: a gated body reopens from the
 // first byte, so net/http may resend it on a fresh connection.
 func (ls *legState) reopen() (io.ReadCloser, error) { return ls.o.Body.Open() }
+
+// deadlineTimer returns the state's attempt deadline timer, stopped; it is
+// made once, on the Manager's clock, so an attempt allocates no timer.
+func (ls *legState) deadlineTimer() clock.Timer {
+	if ls.timer == nil {
+		ls.timer = ls.u.rt.m.clk.AfterFunc(time.Hour, ls.onDeadline)
+		ls.timer.Stop()
+	}
+	return ls.timer
+}
+
+// onDeadline is the timer's function: it fires the Deadline armed last,
+// which ignores a run before its own deadline (resilience.Deadline.Fire).
+func (ls *legState) onDeadline() {
+	if d := ls.armed.Load(); d != nil {
+		d.Fire()
+	}
+}
 
 // run is the attempt loop.
 func (ls *legState) run(ctx context.Context) (*snapshot.UpstreamResponse, error) {
@@ -335,8 +358,16 @@ func (ls *legState) sleep(ctx context.Context) error {
 func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *snapshot.UpstreamResponse, error) {
 	u, rt := ls.u, ls.u.rt
 	m := rt.m
-	actx, dl := resilience.WithDeadline(ctx, m.clk, a.Deadline, a.Cause)
-	end := attemptEnd{rt: rt, dl: dl, metrics: u.metrics, stripe: ls.o.Stripe, trace: ls.o.Trace}
+	// The attempt context is the attempt's record, the one allocation of
+	// an attempt besides its cancellation: a child of the leg context
+	// whose Deadline is armed in place on the state's reused timer.
+	rec := &attemptRecord{probe: m.traceProbe}
+	cctx, cancel := context.WithCancelCause(ctx)
+	rec.Context = cctx
+	ls.armed.Store(&rec.dl)
+	rec.dl.Init(cancel, m.clk, a.Deadline, a.Cause, ls.deadlineTimer())
+	actx := context.Context(rec)
+	end := attemptEnd{rt: rt, rec: rec, dl: &rec.dl, metrics: u.metrics, stripe: ls.o.Stripe, trace: ls.o.Trace}
 	if err := rt.res.Bulkhead().Acquire(actx, &u.res.Bulkhead); err != nil {
 		if errors.Is(err, resilience.ErrBulkheadFull) {
 			end.finish()
@@ -346,6 +377,15 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 		// The attempt context ended while the attempt waited for a slot: a
 		// timeout before any Endpoint, or the client went away.
 		return ls.onError(ctx, actx, a, err, &end, false, "")
+	}
+	// A slot granted at or after the attempt deadline, before the timer's
+	// function ran (or with the cancellation), is a timeout before any
+	// Endpoint as well: fire a due deadline (Fire ignores an early call)
+	// and hand the slot on, so an attempt never reaches an Endpoint past
+	// its deadline.
+	if rec.dl.Fire(); actx.Err() != nil {
+		rt.res.Bulkhead().Release()
+		return ls.onError(ctx, actx, a, fmt.Errorf("resilience: waiting for a bulkhead slot: %w", context.Cause(actx)), &end, false, "")
 	}
 	end.slot = true
 	set := u.bal.bal.Load()
@@ -371,9 +411,9 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 	ls.tried = append(ls.tried, ep.identity)
 	sctx, span := m.tracer.StartUpstream(actx, u.spanName, emit.UpstreamAttrs{Attempt: a.Number, Endpoint: ep.identity, Step: ls.t.Step})
 	end.span = span
-	end.rec = &attemptRecord{}
-	rctx := ls.traced(sctx, end.rec)
-	req := ls.newRequest(rctx, end.rec, ep, body, cl)
+	rctx := ls.traced(sctx, rec)
+	end.out = m.getOut()
+	req := ls.newRequest(rctx, rec, end.out, ep, body, cl)
 	m.tracer.Inject(sctx, ls.o.Trace, req.Header)
 	ls.fleg = filter.Leg{Upstream: u.name, Step: ls.t.Step, Attempt: a.Number, Endpoint: ep.identity, Request: req, MaxBodyBytes: ls.t.MaxBodyBytes}
 	if ls.hooks == nil && ls.o.Hooks != nil {
@@ -421,22 +461,31 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 	return ls.onResponse(ctx, sctx, a, resp, &end, tracked, ep.identity)
 }
 
-// traced returns ctx with the attempt's ClientTrace hooks: GotConn, and,
-// on a plain upstreams leg whose Outbound relays Early Hints, the
-// Got1xxResponse that relays each 103 with the token the attempt takes
-// now (attemptRecord.got1xx). The pooled hook set serves an attempt
-// without the relay unless ctx already carries a ClientTrace, which
-// httptrace would compose into it; the relay's hook set is rec's own.
-func (ls *legState) traced(ctx context.Context, rec *attemptRecord) context.Context {
+// traced returns the request context of the attempt whose span context is
+// sctx, with the attempt's ClientTrace hooks: GotConn, and, on a plain
+// upstreams leg whose Outbound relays Early Hints, the Got1xxResponse that
+// relays each 103 with the token the attempt takes now
+// (attemptRecord.got1xx). The pooled hook set serves an attempt without
+// the relay; the relay's hook set is rec's own. When the span added
+// nothing to the attempt context and no ClientTrace is there already, the
+// attempt context itself answers httptrace's key (attemptRecord.Value);
+// otherwise httptrace.WithClientTrace composes the hooks into sctx, on a
+// hook set of the attempt's own, since composing writes into it.
+func (ls *legState) traced(sctx context.Context, rec *attemptRecord) context.Context {
 	t := &ls.trace
 	if h := ls.o.Hints; h != nil && ls.t.Step == "" {
 		rec.hints, rec.token = h, h.HintsToken()
 		rec.trace = httptrace.ClientTrace{GotConn: ls.trace.GotConn, Got1xxResponse: rec.got1xx}
 		t = &rec.trace
-	} else if httptrace.ContextClientTrace(ctx) != nil {
+	}
+	if sctx == context.Context(rec) && httptrace.ContextClientTrace(rec.Context) == nil {
+		rec.tr = t
+		return rec
+	}
+	if t == &ls.trace {
 		t = &httptrace.ClientTrace{GotConn: ls.gotConn}
 	}
-	return httptrace.WithClientTrace(ctx, t)
+	return httptrace.WithClientTrace(sctx, t)
 }
 
 // got1xx relays a 103 Early Hints response the attempt received to the
@@ -600,6 +649,7 @@ func (ls *legState) onResponse(ctx, sctx context.Context, a *resilience.Attempt,
 		// final, no retry.
 		_ = resp.Body.Close()
 		end.finish()
+		end.recycle()
 		result := resilience.BreakerResult(failed, ls.leg.Outcome(true, resilience.KindNone), 0, 0)
 		return stepDone, ls.generated(ctx, replace, result), nil
 	}
@@ -749,6 +799,7 @@ func (ls *legState) unpark() {
 	}
 	_ = p.resp.Body.Close()
 	p.end.finish()
+	p.end.recycle()
 	ls.park = parked{}
 }
 
@@ -810,12 +861,24 @@ func closeBody(r *http.Request) {
 	}
 }
 
-// attemptRecord is the one allocation of an attempt: its request URL and,
-// when it is the leg's response, the body wrapper and the result, which
-// outlive the leg. An attempt that relays Early Hints also keeps its hook
-// set here, with the relay and the token it took, so a 1xx that arrives
-// after the leg's pooled state was reused still names this attempt.
+// attemptRecord is the one allocation of an attempt besides its
+// cancellation, everything of it that outlives the leg or that net/http
+// may still read: the attempt context (it embeds the context.Context of
+// context.WithCancelCause, so net/http's own contexts register with it
+// directly), its Deadline, the outgoing request and its URL, and, when it
+// is the leg's response, the body wrapper and the result. An attempt that
+// relays Early Hints also keeps its hook set here, with the relay and the
+// token it took, so a 1xx that arrives after the leg's pooled state was
+// reused still names this attempt.
 type attemptRecord struct {
+	context.Context
+	// tr is the hook set the context answers httptrace's key with; nil
+	// answers through the embedded context.
+	tr *httptrace.ClientTrace
+	// probe tells httptrace's key from others (Manager.traceProbe).
+	probe context.Context
+	dl    resilience.Deadline
+	req   http.Request
 	url   url.URL
 	body  finalBody
 	resp  snapshot.UpstreamResponse
@@ -824,17 +887,31 @@ type attemptRecord struct {
 	token uint64
 }
 
+// Value answers httptrace's client trace key with the attempt's hook set,
+// so the attempt needs no context.WithValue for it, and every other key
+// through the embedded context: the cancellation keys reach the embedded
+// cancel context, which net/http's contexts then register with.
+func (r *attemptRecord) Value(key any) any {
+	if r.tr != nil && r.probe.Value(key) != nil {
+		return r.tr
+	}
+	return r.Context.Value(key)
+}
+
 // attemptEnd is what an attempt holds until it ends: the bulkhead slot,
 // the Endpoint's in-flight count, the connection count, the span and the
 // attempt context.
 type attemptEnd struct {
-	rt      *runtime
-	rec     *attemptRecord
-	ep      *epState
-	pool    *pool
-	conn    *trackedConn
-	span    emit.Span
-	dl      *resilience.Deadline
+	rt   *runtime
+	rec  *attemptRecord
+	ep   *epState
+	pool *pool
+	conn *trackedConn
+	span emit.Span
+	dl   *resilience.Deadline
+	// out is the request's pooled header, returned by recycle once the
+	// response body was closed.
+	out     *outHeader
 	metrics *emit.UpstreamMetrics
 	// trace is the request's sampling decision: a sampled request's
 	// duration carries an exemplar (trace ID, server span ID).
@@ -891,6 +968,17 @@ func (e *attemptEnd) finish() {
 	}
 }
 
+// recycle returns the request's header to the pool once the caller closed
+// the attempt's response body, after which net/http no longer reads the
+// request (http.RoundTripper). An attempt without a response never calls
+// it: a transport may still write the request then.
+func (e *attemptEnd) recycle() {
+	if e.out != nil {
+		e.rt.m.putOut(e.out)
+		e.out = nil
+	}
+}
+
 // finalBody is the body of the leg's response. The attempt ends when it is
 // closed or read to its end (or fails), whichever is first: the bulkhead
 // slot is held for the whole response, streaming included.
@@ -905,6 +993,9 @@ type finalBody struct {
 	ex   emit.Excluder
 	clk  clock.Clock
 	done atomic.Bool
+	// closed is set by the first Close, which recycles the request's
+	// header.
+	closed atomic.Bool
 }
 
 // Read reads the response body, as Upstream I/O; the first error (io.EOF
@@ -923,10 +1014,14 @@ func (b *finalBody) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// Close closes the response body and ends the attempt.
+// Close closes the response body and ends the attempt; the first Close
+// also recycles the request's header, which net/http no longer reads.
 func (b *finalBody) Close() error {
 	err := b.rc.Close()
 	b.finish()
+	if b.closed.CompareAndSwap(false, true) {
+		b.end.recycle()
+	}
 	return err
 }
 

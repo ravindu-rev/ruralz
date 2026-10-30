@@ -285,6 +285,13 @@ func (r *recorder) add(req Request) {
 	r.changedLocked()
 }
 
+// count counts an answered request of sig that is not recorded.
+func (r *recorder) count(sig Signal) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.answered[sig-1]++
+}
+
 func (r *recorder) changedLocked() {
 	close(r.notify)
 	r.notify = make(chan struct{})

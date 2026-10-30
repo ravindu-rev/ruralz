@@ -66,13 +66,22 @@
 // queue is RZ-UP-006; a waiter is bounded by its attempt context), picks an
 // Endpoint (ring-hash by the leg's hashKey; tried, suspect, stalled and
 // capped Endpoints avoided while another remains; ejected and unhealthy
-// ones only in panic mode), runs onUpstreamRequest, and sends a fresh copy
-// of the client request: hop-by-hop fields stripped, forwarding fields
-// rewritten (clientaddr), or only removed for a Response Cache replay
+// ones only in panic mode), runs onUpstreamRequest, and sends the client
+// request through the copy-free forwarding writer: the client's fields
+// share their values with the outgoing request's pooled header, capped so
+// an append reallocates (a Filter replaces or appends values, never writes
+// into them), hop-by-hop fields stripped, forwarding fields rewritten
+// (clientaddr.Writer), or only removed for a Response Cache replay
 // (snapshot.Outbound.Replay), the Outbound's Via entry after the client's
 // (docs/architecture/07-multi-protocol.md "HTTP intermediary behavior"),
 // trace context injected, the normalized path unchanged, the Endpoint
-// authority as Host. An attempt that sends the client body forwards the
+// authority as Host; the header is reused once the attempt's response body
+// was closed, never after an attempt without a response, which a transport
+// may still be writing. The attempt context is the attempt's record, its
+// one allocation besides the cancellation of context.WithCancelCause: it
+// holds the attempt's Deadline, armed on the leg state's reused timer, the
+// request and its URL, and answers httptrace's key with the pooled hook
+// set itself. An attempt that sends the client body forwards the
 // client's declared trailer fields after it, without hop-by-hop and
 // framing fields (httpfield.IsForwardableTrailer), unframed so HTTP/1.1
 // can carry them. On a plain upstreams leg each 103 Early Hints an attempt

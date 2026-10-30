@@ -423,19 +423,26 @@ func (r *Registry) histPoint(c *collection, g *group, i int, now time.Time) metr
 // foldable family.
 func (r *Registry) collectComputed(f *family, fd *famData, snaps []famSnap, now time.Time, sc *seriesCount) {
 	switch f.cat.Name {
-	case catalog.RuntimeGoroutines, catalog.RuntimeHeapBytes, catalog.RuntimeGCCyclesTotal:
+	case catalog.RuntimeGoroutines, catalog.RuntimeHeapBytes, catalog.RuntimeGCCyclesTotal,
+		catalog.RuntimeGCCPUSecondsTotal, catalog.RuntimeAllocationsTotal:
 		i := slices.IndexFunc(r.rtSamples, func(s metrics.Sample) bool { return runtimeFamily(s.Name) == f.cat.Name })
 		if i < 0 {
 			return
 		}
-		var v uint64
-		if r.rtSamples[i].Value.Kind() == metrics.KindUint64 {
-			v = r.rtSamples[i].Value.Uint64()
+		// The GC CPU time is a float64 metric (cpu-seconds), the others
+		// uint64; a metric the runtime does not support reads as 0.
+		var v float64
+		switch val := r.rtSamples[i].Value; val.Kind() {
+		case metrics.KindUint64:
+			v = float64(val.Uint64())
+		case metrics.KindFloat64:
+			v = val.Float64()
+		default:
 		}
 		if f.gauge {
-			fd.gauges = append(fd.gauges, metricdata.DataPoint[int64]{StartTime: r.start, Time: now, Value: i64(v)})
+			fd.gauges = append(fd.gauges, metricdata.DataPoint[int64]{StartTime: r.start, Time: now, Value: int64(v)})
 		} else {
-			fd.sums = append(fd.sums, metricdata.DataPoint[float64]{StartTime: r.start, Time: now, Value: float64(v)})
+			fd.sums = append(fd.sums, metricdata.DataPoint[float64]{StartTime: r.start, Time: now, Value: v})
 		}
 		sc.live++
 	case catalog.TelemetryFoldedLabelSets:
@@ -461,6 +468,10 @@ func runtimeFamily(name string) string {
 		return catalog.RuntimeHeapBytes
 	case "/gc/cycles/total:gc-cycles":
 		return catalog.RuntimeGCCyclesTotal
+	case "/cpu/classes/gc/total:cpu-seconds":
+		return catalog.RuntimeGCCPUSecondsTotal
+	case "/gc/heap/allocs:objects":
+		return catalog.RuntimeAllocationsTotal
 	default:
 		return ""
 	}

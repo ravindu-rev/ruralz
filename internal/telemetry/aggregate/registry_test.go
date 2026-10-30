@@ -100,6 +100,42 @@ func TestRuntimeMetrics(t *testing.T) {
 	}
 }
 
+// The GC CPU time and heap allocation counters behind the GC share and a
+// macro run's alloc/op (docs/architecture/12-performance-budgets-and-benchmarking.md
+// "Resources per core") read /cpu/classes/gc/total:cpu-seconds, a float64
+// runtime metric, and /gc/heap/allocs:objects, and only grow.
+func TestRuntimeGCCPUAndAllocations(t *testing.T) {
+	r, clk := newTestRegistry(t, nil)
+	runtime.GC()
+	before := collectNow(t, r, clk)
+	gc0 := mustGet(t, before, catalog.RuntimeGCCPUSecondsTotal+"{}")
+	allocs0 := mustGet(t, before, catalog.RuntimeAllocationsTotal+"{}")
+	if gc0.kind != "sum" || allocs0.kind != "sum" {
+		t.Fatalf("kinds = %s, %s; want counters (sum)", gc0.kind, allocs0.kind)
+	}
+	if allocs0.value < 1 {
+		t.Errorf("allocations = %v, want at least 1 by now", allocs0.value)
+	}
+	// Allocate and collect so both counters move.
+	var keep [][]byte
+	for i := range 1000 {
+		keep = append(keep, make([]byte, 64+i))
+	}
+	runtime.KeepAlive(keep)
+	runtime.GC()
+	after := collectNow(t, r, clk)
+	gc1 := mustGet(t, after, catalog.RuntimeGCCPUSecondsTotal+"{}")
+	allocs1 := mustGet(t, after, catalog.RuntimeAllocationsTotal+"{}")
+	if allocs1.value < allocs0.value+1000 {
+		t.Errorf("allocations %v -> %v, want at least 1000 more", allocs0.value, allocs1.value)
+	}
+	// A few collections take a fraction of a CPU second: the float64
+	// metric must keep it, not truncate it to 0.
+	if gc1.value < gc0.value || gc1.value <= 0 || gc1.value > 3600 {
+		t.Errorf("gc cpu seconds %v -> %v, want a positive, non-decreasing fraction after two collections", gc0.value, gc1.value)
+	}
+}
+
 // The State Store handles are fixed arrays indexed by emit.StateOp*,
 // emit.StateZone*, emit.StateResult* and emit.Write*, each index labeled
 // with the catalog value at that position.

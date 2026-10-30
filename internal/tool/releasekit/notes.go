@@ -302,13 +302,16 @@ func renderNotes(in notesInput) string {
 	return b.String()
 }
 
-// writeBudgets renders the budget results of the benchmark records.
+// writeBudgets renders every budget with its pooled result from the
+// benchmark summary records: per scenario, what the summary covers
+// (comparison, ladder or soak) and its A/B verdict against its baseline.
 func writeBudgets(b *strings.Builder, records []benchRecord, commit string) {
 	if len(records) == 0 {
-		b.WriteString("No benchmark records were provided for this build.\n")
+		b.WriteString("No benchmark summary records were provided for this build.\n")
 		return
 	}
-	b.WriteString("| Scenario | Budget | Value | Result | SLO | Verdict | Hardware | Commit |\n|---|---|---|---|---|---|---|---|\n")
+	b.WriteString("| Scenario | Summary | A/B verdict | Budget | Value | Result | SLO | Verdict | Hardware | Commit |\n" +
+		"|---|---|---|---|---|---|---|---|---|---|\n")
 	other := false
 	for _, r := range records {
 		c := short(r.Identity.Commit)
@@ -316,12 +319,17 @@ func writeBudgets(b *strings.Builder, records []benchRecord, commit string) {
 			c += " (other commit)"
 			other = true
 		}
+		ab := escapeMarkdown(r.Summary.Verdict)
+		if r.Identity.Baseline != "" {
+			ab += " against " + escapeMarkdown(r.Identity.Baseline)
+		}
+		lead := fmt.Sprintf("| %s | %s | %s |", escapeMarkdown(r.Identity.Scenario), escapeMarkdown(r.Summary.Of), ab)
 		if len(r.Budgets) == 0 {
-			fmt.Fprintf(b, "| %s | none | | | | %s | %s | %s |\n", escapeMarkdown(r.Identity.Scenario),
+			fmt.Fprintf(b, "%s none | | | | %s | %s | %s |\n", lead,
 				escapeMarkdown(r.Validity.Verdict), escapeMarkdown(r.Environment.HardwareProfile), c)
 		}
 		for _, bg := range r.Budgets {
-			fmt.Fprintf(b, "| %s | %s | %s | %s | %s | %s | %s | %s |\n", escapeMarkdown(r.Identity.Scenario),
+			fmt.Fprintf(b, "%s %s | %s | %s | %s | %s | %s | %s |\n", lead,
 				escapeMarkdown(bg.ID), escapeMarkdown(bg.Value), escapeMarkdown(bg.Result), escapeMarkdown(bg.SLO),
 				escapeMarkdown(bg.Verdict), escapeMarkdown(r.Environment.HardwareProfile), c)
 		}

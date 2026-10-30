@@ -111,39 +111,71 @@ const (
 // one while dialers and TLS read context deadlines against the wall clock;
 // cancellation alone bounds the attempt.
 //
-// The Upstream core derives each attempt context with WithDeadline and
-// calls Stop when response headers arrive, so the attempt and leg deadlines
-// stop applying and a slow body is not cut (only the Route timeout bounds
-// it after commit), and Cancel when the attempt ends (its response body
-// closed, or no response). The timer is owned by the Deadline and stopped
-// by Stop or Cancel; whichever of Stop and the deadline comes first
-// decides, so a late timer never cancels a stopped Deadline's context.
+// The Upstream core arms each attempt's Deadline in place, inside the
+// attempt's own record, on a timer its pooled leg state reuses (Init and
+// Fire), and calls Stop when response headers arrive, so the attempt and
+// leg deadlines stop applying and a slow body is not cut (only the Route
+// timeout bounds it after commit), and Cancel when the attempt ends (its
+// response body closed, or no response). Whichever of Stop and the
+// deadline comes first decides, so a late timer never cancels a stopped
+// Deadline's context; only a Deadline still armed touches its timer, so
+// once Stop or the deadline decided, the timer may serve another attempt.
 type Deadline struct {
 	cancel context.CancelCauseFunc
 	cause  error
+	clk    clock.Clock
+	at     time.Time
 	timer  clock.Timer
 	state  atomic.Uint32
 }
 
 // WithDeadline returns a child of parent that is canceled with cause when
 // clk reaches deadline (at once when it already passed), and the Deadline
-// that controls it. A zero deadline sets no timer.
+// that controls it, with a timer of its own. A zero deadline sets no
+// timer.
 func WithDeadline(parent context.Context, clk clock.Clock, deadline time.Time, cause error) (context.Context, *Deadline) {
 	ctx, cancel := context.WithCancelCause(parent)
-	d := &Deadline{cancel: cancel, cause: cause}
+	d := &Deadline{}
+	d.Init(cancel, clk, deadline, cause, nil)
+	return ctx, d
+}
+
+// Init arms d in place: cancel (the attempt context's
+// context.CancelCauseFunc) runs with cause when clk reaches deadline, at
+// once when it already passed; a zero deadline arms nothing. timer, when
+// not nil, is a stopped timer whose function calls Fire on the Deadline
+// armed with it, reset here to the deadline: a leg reuses one timer for
+// all its attempts instead of allocating one per attempt. nil makes a
+// timer of d's own. d must be the zero Deadline.
+func (d *Deadline) Init(cancel context.CancelCauseFunc, clk clock.Clock, deadline time.Time, cause error, timer clock.Timer) {
+	d.cancel, d.cause, d.clk, d.at = cancel, cause, clk, deadline
 	if deadline.IsZero() {
-		return ctx, d
+		return
 	}
 	wait := deadline.Sub(clk.Now())
 	if wait <= 0 {
 		d.fire()
-		return ctx, d
+		return
 	}
-	d.timer = clk.AfterFunc(wait, d.fire)
-	return ctx, d
+	if timer == nil {
+		d.timer = clk.AfterFunc(wait, d.fire)
+		return
+	}
+	d.timer = timer
+	timer.Reset(wait)
 }
 
-// fire cancels the context at the deadline unless Stop came first.
+// Fire cancels the context at the deadline unless Stop came first. A call
+// before the deadline does nothing: a reused timer's function may still
+// run for an earlier attempt after the timer was reset for this one.
+func (d *Deadline) Fire() {
+	if !d.at.IsZero() && d.clk.Now().Before(d.at) {
+		return
+	}
+	d.fire()
+}
+
+// fire cancels the context unless Stop came first.
 func (d *Deadline) fire() {
 	if d.state.CompareAndSwap(deadlineArmed, deadlineFired) {
 		d.cancel(d.cause)
@@ -151,7 +183,9 @@ func (d *Deadline) fire() {
 }
 
 // Stop disarms the deadline without canceling the context: response
-// headers arrived. It reports whether the deadline had not fired.
+// headers arrived. It reports whether the deadline had not fired. Only the
+// call that disarms stops the timer, which may serve another attempt
+// afterwards.
 func (d *Deadline) Stop() bool {
 	if d.state.CompareAndSwap(deadlineArmed, deadlineStopped) {
 		if d.timer != nil {

@@ -152,6 +152,8 @@ const (
 	RuntimeGoroutines                   = "ruralz_runtime_goroutines"
 	RuntimeHeapBytes                    = "ruralz_runtime_heap_bytes"
 	RuntimeGCCyclesTotal                = "ruralz_runtime_gc_cycles_total"
+	RuntimeGCCPUSecondsTotal            = "ruralz_runtime_gc_cpu_seconds_total"
+	RuntimeAllocationsTotal             = "ruralz_runtime_allocations_total"
 	TelemetrySpansTotal                 = "ruralz_telemetry_spans_total"
 	TelemetrySpansDroppedTotal          = "ruralz_telemetry_spans_dropped_total"
 	TelemetryTracesUnsampledTotal       = "ruralz_telemetry_traces_unsampled_total"
@@ -284,6 +286,8 @@ func Families() []Family {
 		{RuntimeGoroutines, Gauge, BoundsNone, "{goroutines}", nil, ClassListener, false},
 		{RuntimeHeapBytes, Gauge, BoundsNone, "By", nil, ClassListener, false},
 		{RuntimeGCCyclesTotal, Counter, BoundsNone, "{cycles}", nil, ClassListener, false},
+		{RuntimeGCCPUSecondsTotal, Counter, BoundsNone, "s", nil, ClassListener, false},
+		{RuntimeAllocationsTotal, Counter, BoundsNone, "{objects}", nil, ClassListener, false},
 		{TelemetrySpansTotal, Counter, BoundsNone, "{spans}", nil, ClassListener, false},
 		{TelemetrySpansDroppedTotal, Counter, BoundsNone, "{spans}", []Label{{Name: "reason", Values: []string{"queue_full", "export_error"}}}, ClassListener, false},
 		{TelemetryTracesUnsampledTotal, Counter, BoundsNone, "{traces}", []Label{{Name: "reason", Values: []string{"rate_cap_root", "rate_cap_parent"}}}, ClassListener, false},
