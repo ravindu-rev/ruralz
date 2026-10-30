@@ -463,9 +463,9 @@ func parseCEL(v any, ptr string) (*CELSpec, error) {
 	}
 	result, _ := m["result"].(string)
 	switch result {
-	case "bool", "string", "dyn":
+	case "bool", "string", "int", "dyn":
 	default:
-		return nil, schemaErr(ptr, "x-ruralz-cel result %q is not bool, string or dyn", result)
+		return nil, schemaErr(ptr, "x-ruralz-cel result %q is not bool, string, int or dyn", result)
 	}
 	return &CELSpec{Variables: vars, Result: result}, nil
 }

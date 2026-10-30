@@ -62,8 +62,12 @@ func TestURLFunctionsInEveryPlace(t *testing.T) {
 			site.Mode = v1alpha1.CompositionModeSequential
 		}
 		src := `url.pathEscape("a/b") + url.queryEscape("c d")`
-		if p.Result == expr.ResultBool {
+		switch p.Result {
+		case expr.ResultBool:
 			src = `url.pathEscape("a/b") == url.queryEscape("a/b")`
+		case expr.ResultInt:
+			src = `size(url.pathEscape("a/b") + url.queryEscape("c d"))`
+		case expr.ResultString, expr.ResultDyn:
 		}
 		if iss := c.Check(site, src); len(iss) > 0 {
 			t.Errorf("%s: Check(%q) = %+v", p.ID, src, iss)

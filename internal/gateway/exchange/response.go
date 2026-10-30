@@ -407,6 +407,21 @@ func (x *Request) dropTees() {
 // Finish read them.
 func (x *Request) Tees() []*body.Tee { return x.tees }
 
+// addRateLimitField records f for the calling Policy, keeping the fields
+// in request order of their Policies (filter.Exchange.AddRateLimitField):
+// it goes after every field of a Policy that is not later than the
+// calling one, so a batched member that completes after a later member
+// decided in Prepare still lists first, and a Policy's own fields keep
+// their order.
+func (x *Request) addRateLimitField(f filter.RateLimitField) {
+	i := len(x.rateLimits)
+	for i > 0 && x.cur != nil && x.rateLimitBy[i-1] != nil && before(x.cur, x.rateLimitBy[i-1]) {
+		i--
+	}
+	x.rateLimits = slices.Insert(x.rateLimits, i, f)
+	x.rateLimitBy = slices.Insert(x.rateLimitBy, i, x.cur)
+}
+
 // RateLimitFields returns the applied limits Filters recorded, for the
 // RateLimit-Policy and RateLimit fields the handler appends after
 // onResponse. The slice is x's memory, valid until Put.

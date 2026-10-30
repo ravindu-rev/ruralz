@@ -150,6 +150,7 @@ func TestKeywords(t *testing.T) {
 	}{
 		{[]string{"$defs", "RouteSpec", "properties", "policies", "x-ruralz-list"}, `{"key":"name","type":"orderedMap"}`},
 		{[]string{"$defs", "RouteMatch", "properties", "when", "x-ruralz-cel"}, `{"result":"bool","variables":["request","source","now"]}`},
+		{[]string{"$defs", "RateLimitConfig", "properties", "cost", "x-ruralz-cel"}, `{"result":"int","variables":["request","source","route","consumer","auth","now"]}`},
 		{[]string{"$defs", "PolicyRef", "properties", "name", "x-ruralz-ref"}, `"Policy"`},
 		{[]string{"$defs", "Certificate", "properties", "privateKey", "x-ruralz-secret"}, `true`},
 		{[]string{"$defs", "PluginSpec", "properties", "capabilities", "x-ruralz-impact"}, `["plugin","security"]`},
@@ -179,8 +180,11 @@ func TestKeywords(t *testing.T) {
 	if dig(t, s, "$defs", "AuthMTLSConfig", "additionalProperties") != false {
 		t.Error("auth.mtls config must be closed")
 	}
-	if _, ok := dig(t, s, "$defs", "RateLimitConfig").(map[string]any)["additionalProperties"]; ok {
-		t.Error("ratelimit config must be open until its feature fields are registered")
+	if dig(t, s, "$defs", "RateLimitConfig", "additionalProperties") != false {
+		t.Error("ratelimit config must be closed: every field is registered")
+	}
+	if _, ok := dig(t, s, "$defs", "AuthJWTConfig").(map[string]any)["additionalProperties"]; ok {
+		t.Error("auth.jwt config must be open until its feature fields are registered")
 	}
 	// Every Policy type selects a config, and type plugin requires
 	// plugin: one requiredIf rule beside the 23 config dispatches.

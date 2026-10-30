@@ -415,6 +415,45 @@ func TestRateLimitFields(t *testing.T) {
 	}
 }
 
+// TestRateLimitFieldsKeepRequestOrder checks that the fields stay in
+// request order of their Policies whatever order the Policies record in:
+// a batched member that completes after a later member decided in Prepare
+// lists first, each Policy keeps its own fields' order, and a call outside
+// any Policy appends.
+func TestRateLimitFieldsKeepRequestOrder(t *testing.T) {
+	f := newFixture(t)
+	x := f.begin(serverRequest(http.MethodGet, "/", "", nil))
+	defer f.pool.Put(x)
+	global := testPolicy("ratelimit-global", 0, phase.ClassAdmission, phase.ScopeGateway, 0)
+	gold := testPolicy("ratelimit-gold", 1, phase.ClassAdmission, phase.ScopeRoute, 0)
+	quota := testPolicy("quota-monthly", 2, phase.ClassAdmission, phase.ScopeRoute, 1)
+	add := func(p *snapshot.Policy, names ...string) {
+		x.Enter(p, phase.OnRequestHeaders, nil)
+		for _, n := range names {
+			x.Exchange().AddRateLimitField(filter.RateLimitField{Name: n})
+		}
+	}
+	// The quota decided in Prepare; gold and global complete after it.
+	add(quota, "quota-monthly")
+	add(gold, "ratelimit-gold.1", "ratelimit-gold.2")
+	add(global, "ratelimit-global")
+	x.Enter(nil, phase.OnRequestHeaders, nil)
+	x.Exchange().AddRateLimitField(filter.RateLimitField{Name: "unattributed"})
+	var got []string
+	for _, rf := range x.RateLimitFields() {
+		got = append(got, rf.Name)
+	}
+	want := []string{"ratelimit-global", "ratelimit-gold.1", "ratelimit-gold.2", "quota-monthly", "unattributed"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("RateLimitFields() names = %v, want %v", got, want)
+	}
+	f.pool.Put(x)
+	x = f.begin(serverRequest(http.MethodGet, "/", "", nil))
+	if len(x.RateLimitFields()) != 0 || len(x.rateLimitBy) != 0 {
+		t.Errorf("a reused Request kept %d fields and %d owners", len(x.RateLimitFields()), len(x.rateLimitBy))
+	}
+}
+
 // counterFake counts Adds.
 type counterFake struct{ n uint64 }
 

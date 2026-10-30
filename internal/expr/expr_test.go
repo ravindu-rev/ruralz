@@ -30,6 +30,8 @@ func TestPlacesTable(t *testing.T) {
 		PlaceStepWhen:               {PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},
 		PlaceAuthzCELRule:           {PlaceAuthzCELRule, ResultBool, base, RuleAuthzUndecided, "M1"},
 		PlaceRateLimitKey:           {PlaceRateLimitKey, ResultString, base, RuleFailureMode, "M1"},
+		PlaceRateLimitCost:          {PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
+		PlaceRateLimitWhen:          {PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},
 		PlaceQuotaKey:               {PlaceQuotaKey, ResultString, base, RuleFailureMode, "M1"},
 		PlaceHeadersRequestValue:    {PlaceHeadersRequestValue, ResultString, base, RuleFailureMode, "M1"},
 		PlaceHeadersResponseValue:   {PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
@@ -47,8 +49,8 @@ func TestPlacesTable(t *testing.T) {
 		PlaceMessagingKey:           {PlaceMessagingKey, ResultString, base, RuleBadGateway, "M4"},
 	}
 	places := Places()
-	if len(places) != 21 || len(want) != 21 {
-		t.Fatalf("%d places, want 21", len(places))
+	if len(places) != len(want) {
+		t.Fatalf("%d places, want %d", len(places), len(want))
 	}
 	if !slices.IsSortedFunc(places, func(a, b Place) int { return strings.Compare(string(a.ID), string(b.ID)) }) {
 		t.Fatal("Places() is not sorted by ID")

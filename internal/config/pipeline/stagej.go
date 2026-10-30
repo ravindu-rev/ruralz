@@ -9,9 +9,11 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math/bits"
 	"slices"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
@@ -26,6 +28,18 @@ import (
 // CodeCEL is RZ-CFG-014: a CEL syntax, type or unavailable-variable error,
 // the code stage J gives a finding the compiler reports without one.
 const CodeCEL = "RZ-CFG-014"
+
+// CodeHotKey is RZ-CFG-043, the warning about a ratelimit limit keyed by a
+// constant that needs more State Store calls per second than one shard
+// sustains.
+const CodeHotKey = "RZ-CFG-043"
+
+// hotKeyRate is the rate, in requests per second, above which a limit
+// keyed by a constant needs more State Store calls than one shard
+// sustains: 25% of a shard's 100,000 calls per second (hypothesis,
+// docs/architecture/11-scalability-and-distributed-state.md "Distributed
+// rate limits").
+const hotKeyRate = 25_000
 
 // relatedAttached is the message of the related location of each
 // attaching PolicyRef whose site yields a CEL finding.
@@ -261,8 +275,75 @@ func (j *celStage) resource(w *worker, r *hub.Resource) celResult {
 	})
 	if err != nil {
 		out.err = err
+		return out
+	}
+	if ptype == v1alpha1.PolicyTypeRateLimit {
+		j.hotKey(w, &out, r, groups)
 	}
 	return out
+}
+
+// hotKey adds the RZ-CFG-043 warnings of ratelimit Policy r: without
+// localOnly, a config.key that is absent or whose compiled program reads
+// no variable sends every request of a limit to one State Store shard, so
+// each limits[] entry above hotKeyRate requests per second is a warning
+// at that entry (configuration model, RZ-CFG-043). The key compiles at
+// the first of the Policy's sites, groups, when it has any; a key that
+// does not compile yields no warning, since its field has a finding of
+// its own.
+func (j *celStage) hotKey(w *worker, out *celResult, r *hub.Resource, groups []siteGroup) {
+	cfg, ok := r.Config.(*v1alpha1.RateLimitConfig)
+	if !ok || cfg == nil || (cfg.LocalOnly != nil && *cfg.LocalOnly) {
+		return
+	}
+	var hot []int
+	for i, l := range cfg.Limits {
+		if aboveRate(l.Requests, time.Duration(l.Window), hotKeyRate) {
+			hot = append(hot, i)
+		}
+	}
+	if len(hot) == 0 {
+		return
+	}
+	if cfg.Key != "" {
+		site := expr.Site{Place: expr.PlaceRateLimitKey, PolicyType: v1alpha1.PolicyTypeRateLimit}
+		if len(groups) > 0 {
+			site = groups[0].site(expr.PlaceRateLimitKey, v1alpha1.PolicyTypeRateLimit, 0)
+		}
+		prg, _ := j.p.cel.NewBuilder(nil, expr.InputCaps{}).Compile(site, cfg.Key)
+		w.yield()
+		if prg == nil || prg.Refs().Vars != 0 {
+			return
+		}
+	}
+	for _, i := range hot {
+		path := diag.Path{diag.Field("spec"), diag.Field("config"), diag.Field("limits"), diag.Index(i)}
+		var pos tree.Pos
+		if n, ok := r.Tree.At(path); ok {
+			pos = n.Pos
+		}
+		out.ds = append(out.ds, diag.Diagnostic{
+			Code: CodeHotKey, Severity: diag.SeverityWarning, Location: j.location(r, pos),
+			Resource: r.ResourceID(), Path: path,
+			Message: "limit " + strconv.Itoa(i) + " allows more than " + strconv.Itoa(hotKeyRate) +
+				" requests per second on a constant key, more State Store calls than one shard sustains",
+			Hint: "set localOnly, or a key that reads a variable",
+		})
+	}
+}
+
+// aboveRate reports whether requests per window exceeds perSecond per
+// second: requests × 1s > perSecond × window, compared exactly.
+func aboveRate(requests int64, window time.Duration, perSecond uint64) bool {
+	if requests <= 0 {
+		return false
+	}
+	if window <= 0 {
+		return true
+	}
+	lhsHi, lhsLo := bits.Mul64(uint64(requests), uint64(time.Second)) //nolint:gosec // G115: positive operands, checked above.
+	rhsHi, rhsLo := bits.Mul64(perSecond, uint64(window))             //nolint:gosec // G115: as above.
+	return lhsHi > rhsHi || (lhsHi == rhsHi && lhsLo > rhsLo)
 }
 
 // field is one CEL expression: its resource, path, node and the location

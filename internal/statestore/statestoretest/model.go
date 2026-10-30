@@ -74,17 +74,22 @@ func GCRAParams(l statestore.GCRALimit) (t, tau float64, ok bool) {
 	return w / float64(l.Requests), float64(l.Burst) * w / float64(l.Requests), true
 }
 
-// GCRA decides g at server time now like sub-operation g, fills its
-// outcome fields (Out must have len(Limits)) and, on allow, advances
-// every TAT. It returns false where a driver answers RZ-STS-002.
+// GCRA decides g at server time now like sub-operation g, charging
+// g.Cost emission intervals (0 counts as 1), fills its outcome fields
+// (Out must have len(Limits)) and, on allow, advances every TAT. A limit
+// conforms when TAT - now is at most its slack τ - (cost - 1) × T, so all
+// cost units would conform; an allow advances its TAT by cost × T. Each
+// product is rounded before its sum, as Lua rounds it. It returns false
+// where a driver answers RZ-STS-002.
 func (m *Model) GCRA(now time.Time, g *statestore.GCRA) bool {
-	if len(g.Out) < len(g.Limits) {
+	cost, ok := statestore.GCRACost(g.Cost)
+	if len(g.Out) < len(g.Limits) || !ok {
 		return false
 	}
 	n := GCRAMicros(now)
 	type limit struct {
-		key         ModelLimit
-		t, tau, tat float64
+		key                ModelLimit
+		t, tau, slack, tat float64
 	}
 	ls := make([]limit, len(g.Limits))
 	for i, l := range g.Limits {
@@ -97,14 +102,14 @@ func (m *Model) GCRA(now time.Time, g *statestore.GCRA) bool {
 		if stored, ok := m.tats[key]; ok {
 			tat = math.Max(stored, n)
 		}
-		ls[i] = limit{key, t, tau, tat}
+		ls[i] = limit{key, t, tau, tau - float64(float64(cost-1)*t), tat}
 	}
 	g.Allowed, g.Denied, g.RetryAfter = true, -1, 0
 	worst := math.Inf(-1)
 	for i, l := range ls {
-		if l.tat-n > l.tau {
+		if l.tat-n > l.slack {
 			g.Allowed = false
-			if r := l.tat - l.tau - n; r > worst {
+			if r := l.tat - l.slack - n; r > worst {
 				worst, g.Denied = r, i
 			}
 		}
@@ -115,7 +120,7 @@ func (m *Model) GCRA(now time.Time, g *statestore.GCRA) bool {
 	for i, l := range ls {
 		x := l.tat
 		if g.Allowed {
-			x = l.tat + l.t
+			x = l.tat + float64(float64(cost)*l.t)
 			m.tats[l.key] = x
 		}
 		var remaining float64

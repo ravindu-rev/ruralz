@@ -51,7 +51,7 @@ const vocabularyMeta = `{
       "additionalProperties": false,
       "properties": {
         "variables": {"type": "array", "minItems": 1, "items": {"type": "string"}},
-        "result": {"enum": ["bool", "string", "dyn"]}
+        "result": {"enum": ["bool", "string", "int", "dyn"]}
       }
     },
     "x-ruralz-list": {

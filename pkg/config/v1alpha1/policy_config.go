@@ -130,31 +130,51 @@ type AuthzGeoIPConfig struct {
 // +ruralz:pattern=^[A-Z]{2}$
 type CountryCode string
 
-// RateLimitConfig is the config of a ratelimit Policy.
+// RateLimitConfig is the config of a ratelimit Policy. More than 8 limits,
+// two limits with equal requests and window, a window below 1ms or not in
+// whole milliseconds, a window divided by requests below 1µs, and a
+// perNodeCeiling or burst above requests are RZ-CFG-005.
 // +ruralz:policyType=ratelimit
-// +ruralz:open
 type RateLimitConfig struct {
-	// Key partitions the limit, for example per Consumer.
+	// Key partitions the limit, for example per Consumer; absent, or an empty result, puts every request of the Policy in one partition.
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
 	Key string `json:"key,omitempty"`
-	// Limits are the enforced windows.
+	// Limits are the enforced windows, 1 to 8.
 	// +ruralz:required
 	// +ruralz:minItems=1
 	// +ruralz:list=atomic
 	Limits []RateLimit `json:"limits"`
+	// Cost is the number of tokens a request takes from every applied limit, at least 1; a runtime error or a smaller value applies failureMode.
+	// +ruralz:default="1"
+	// +ruralz:cel=request,source,route,consumer,auth,now:int
+	Cost *string `json:"cost,omitempty"`
+	// ResponseHeaders selects the RateLimit-Policy and RateLimit response fields the Policy records: ietf records them, none records nothing, though a 429 of the Policy still carries Retry-After.
+	// +ruralz:default=ietf
+	ResponseHeaders *RateLimitResponseHeaders `json:"responseHeaders,omitempty"`
 	// LocalOnly keeps the limit in each Node's local buckets and never calls the State Store, so a Cell admits at most the Node count times the per-Node ceiling per window, even when the State Store is healthy (OQ-scalability-and-distributed-state-11 (a)).
 	// +ruralz:default=false
 	LocalOnly *bool `json:"localOnly,omitempty"`
 }
 
+// RateLimitResponseHeaders selects the RateLimit response fields a
+// ratelimit Policy records.
+type RateLimitResponseHeaders string
+
+// RateLimit response field choices.
+const (
+	// RateLimitResponseHeadersIETF records the RateLimit-Policy and RateLimit fields of draft-ietf-httpapi-ratelimit-headers.
+	RateLimitResponseHeadersIETF RateLimitResponseHeaders = "ietf"
+	// RateLimitResponseHeadersNone records no RateLimit field.
+	RateLimitResponseHeadersNone RateLimitResponseHeaders = "none"
+)
+
 // RateLimit is one limit window.
-// +ruralz:open
 type RateLimit struct {
 	// Requests is the number of requests allowed per window.
 	// +ruralz:required
 	// +ruralz:minimum=1
 	Requests int64 `json:"requests"`
-	// Window is the window length.
+	// Window is the window length, at least 1ms in whole milliseconds.
 	// +ruralz:required
 	Window Duration `json:"window"`
 	// PerNodeCeiling caps one Node's share, 1 to requests; unset means derived.
@@ -163,6 +183,9 @@ type RateLimit struct {
 	// Burst is 0 to requests; default requests.
 	// +ruralz:minimum=0
 	Burst *int64 `json:"burst,omitempty"`
+	// When applies the limit only to requests for which it is true; absent, the limit always applies.
+	// +ruralz:cel=request,source,route,consumer,auth,now:bool
+	When string `json:"when,omitempty"`
 }
 
 // QuotaConfig is the config of a quota Policy.

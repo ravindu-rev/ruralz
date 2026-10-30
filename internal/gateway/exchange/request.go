@@ -136,7 +136,9 @@ type Request struct {
 	genIdx int
 
 	rateLimits []filter.RateLimitField
-	tees       []*body.Tee
+	// rateLimitBy holds the Policy that recorded each rateLimits element.
+	rateLimitBy []*snapshot.Policy
+	tees        []*body.Tee
 	// cache is the cache result a Filter recorded (SetCacheResult).
 	cache string
 	final filter.Final
@@ -458,6 +460,8 @@ func (x *Request) reset() {
 	x.tees = x.tees[:0]
 	clear(x.rateLimits)
 	x.rateLimits = x.rateLimits[:0]
+	clear(x.rateLimitBy)
+	x.rateLimitBy = x.rateLimitBy[:0]
 	clear(x.params[:cap(x.params)])
 	x.params = x.params[:0]
 	for _, h := range x.genHdr {

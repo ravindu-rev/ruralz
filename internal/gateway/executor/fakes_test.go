@@ -309,6 +309,8 @@ func (p *constProgram) EvalBool(context.Context, *expr.Vars) (bool, error) {
 
 func (*constProgram) EvalString(context.Context, *expr.Vars) (string, error) { return "", nil }
 
+func (*constProgram) EvalInt(context.Context, *expr.Vars) (int64, error) { return 0, nil }
+
 func (*constProgram) EvalValue(context.Context, *expr.Vars) (expr.Value, error) {
 	return nil, nil //nolint:nilnil // unused by the executor
 }

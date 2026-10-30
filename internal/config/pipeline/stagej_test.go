@@ -8,6 +8,7 @@ import (
 	"errors"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/api/schema"
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -370,6 +371,99 @@ func TestStageJTransformValueResult(t *testing.T) {
 	for i, want := range []expr.Result{expr.ResultString, expr.ResultDyn} {
 		if got := ok.Validated.CEL[i].Site.Result; got != want {
 			t.Errorf("CEL use %d result = %v, want %v", i, got, want)
+		}
+	}
+}
+
+// hotKeyWarning is the text of the RZ-CFG-043 warning of limits[i] of
+// Policy rl in p.yaml, at line:column at.
+func hotKeyWarning(at, i string) string {
+	return "p.yaml:" + at + " warning RZ-CFG-043 Policy/rl spec.config.limits[" + i + "]: limit " + i +
+		" allows more than 25000 requests per second on a constant key, more State Store calls than one shard sustains (set localOnly, or a key that reads a variable)"
+}
+
+// TestStageJHotKey covers RZ-CFG-043: a ratelimit Policy without localOnly
+// whose config.key is absent or whose compiled program reads no variable
+// warns at each limits[] entry above 25,000 requests per second, the rate
+// compared exactly, whether a Route's chain runs it or not. A key that
+// reads a variable, now included, localOnly and a rate of exactly 25,000
+// per second warn about nothing; a key that does not compile has its
+// RZ-CFG-014 alone, and the warning alone keeps the Revision.
+func TestStageJHotKey(t *testing.T) {
+	const (
+		hot  = "      - requests: 30000\n        window: 1s\n"
+		edge = "      - requests: 25000\n        window: 1s\n"
+	)
+	tests := []struct {
+		name, config string
+		attached     bool
+		want         []string
+	}{
+		{"absent key", "    limits:\n" + hot, true, []string{hotKeyWarning("9:9", "0")}},
+		{"constant key", "    key: '\"global\"'\n    limits:\n" + hot, true, []string{hotKeyWarning("10:9", "0")}},
+		{"constant expression", "    key: '\"tenant-\" + string(7)'\n    limits:\n" + hot, true, []string{hotKeyWarning("10:9", "0")}},
+		{"Policy no chain runs", "    limits:\n" + hot, false, []string{hotKeyWarning("9:9", "0")}},
+		{"only the hot limit", "    limits:\n" + edge + hot, true, []string{hotKeyWarning("11:9", "1")}},
+		{"per millisecond", "    limits:\n      - requests: 26\n        window: 1ms\n", true, []string{hotKeyWarning("9:9", "0")}},
+		{"per minute just above", "    limits:\n      - requests: 1500001\n        window: 1m\n", true, []string{hotKeyWarning("9:9", "0")}},
+		{"exactly 25000 per second", "    limits:\n" + edge + "      - requests: 1500000\n        window: 1m\n", true, nil},
+		{"key reads a variable", "    key: source.ip\n    limits:\n" + hot, true, nil},
+		{"key reads now", "    key: string(now.getHours())\n    limits:\n" + hot, true, nil},
+		{"localOnly", "    localOnly: true\n    limits:\n" + hot, true, nil},
+	}
+	p := newPipeline(t, Options{})
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			gw := gatewayDoc
+			if tc.attached {
+				gw += "  policies:\n    - name: rl\n"
+			}
+			res := run(t, p, bundle(map[string]string{
+				"ruralz.yaml": gw, "u.yaml": upstreamDoc("orders"),
+				"p.yaml": policyDoc("rl", "ratelimit", "  config:\n"+tc.config),
+				"r.yaml": routeDoc("a", "orders", ""),
+			}), Request{})
+			wantTexts(t, tc.name, res.Diagnostics, tc.want...)
+			if res.Validated == nil {
+				t.Error("a run with warnings only has no Revision")
+			}
+		})
+	}
+	t.Run("key does not compile", func(t *testing.T) {
+		res := run(t, p, bundle(map[string]string{
+			"ruralz.yaml": gatewayDoc + "  policies:\n    - name: rl\n", "u.yaml": upstreamDoc("orders"),
+			"p.yaml": policyDoc("rl", "ratelimit", "  config:\n    key: '\"a\" +'\n    limits:\n"+hot),
+			"r.yaml": routeDoc("a", "orders", ""),
+		}), Request{})
+		if got := codes(res.Diagnostics); !slices.Equal(got, []string{CodeCEL}) {
+			t.Errorf("diagnostics %q, want only %s", texts(res.Diagnostics), CodeCEL)
+		}
+	})
+}
+
+// TestAboveRate covers the exact comparison of requests per window with a
+// rate per second, products past 64 bits included.
+func TestAboveRate(t *testing.T) {
+	for _, tc := range []struct {
+		requests int64
+		window   time.Duration
+		want     bool
+	}{
+		{25_000, time.Second, false},
+		{25_001, time.Second, true},
+		{25, time.Millisecond, false},
+		{26, time.Millisecond, true},
+		{1_500_000, time.Minute, false},
+		{1_500_001, time.Minute, true},
+		{1 << 40, 1 << 62, false},
+		{1 << 62, 1 << 62, true},
+		{1 << 62, time.Second, true},
+		{0, time.Second, false},
+		{-1, time.Second, false},
+		{1, 0, true},
+	} {
+		if got := aboveRate(tc.requests, tc.window, hotKeyRate); got != tc.want {
+			t.Errorf("aboveRate(%d, %v) = %v, want %v", tc.requests, tc.window, got, tc.want)
 		}
 	}
 }

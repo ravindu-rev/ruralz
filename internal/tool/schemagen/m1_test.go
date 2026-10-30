@@ -97,7 +97,9 @@ func TestDefaults(t *testing.T) {
 		"PluginLimits.timeout":                 `"5ms"`,
 		"PolicySpec.overridable":               `true`,
 		"QuotaConfig.key":                      `"consumer.name"`,
+		"RateLimitConfig.cost":                 `"1"`,
 		"RateLimitConfig.localOnly":            `false`,
+		"RateLimitConfig.responseHeaders":      `"ietf"`,
 		"Retries.attempts":                     `1`,
 		"RouteUpstream.weight":                 `1`,
 		"StateStore.driver":                    `"memory"`,
@@ -466,7 +468,8 @@ func TestPolicyConfigClosure(t *testing.T) {
 		"AuthzCedarConfig":           true,
 		"AuthzIPConfig":              false,
 		"AuthzGeoIPConfig":           false,
-		"RateLimitConfig":            true, // responseHeaders and cost later
+		"RateLimitConfig":            false, // every ratelimit field is registered
+		"RateLimit":                  false,
 		"QuotaConfig":                true,
 		"ValidationJSONSchemaConfig": false,
 		"CORSConfig":                 false, // every cors field is registered

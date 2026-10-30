@@ -23,6 +23,8 @@ func schemaPlace() map[string]expr.PlaceID {
 		"CompositionStep.when":                 expr.PlaceStepWhen,
 		"AuthzCELConfig.rule":                  expr.PlaceAuthzCELRule,
 		"RateLimitConfig.key":                  expr.PlaceRateLimitKey,
+		"RateLimitConfig.cost":                 expr.PlaceRateLimitCost,
+		"RateLimit.when":                       expr.PlaceRateLimitWhen,
 		"QuotaConfig.key":                      expr.PlaceQuotaKey,
 		"HeaderRequestSet.valueExpression":     expr.PlaceHeadersRequestValue,
 		"HeaderResponseSet.valueExpression":    expr.PlaceHeadersResponseValue,
@@ -81,6 +83,8 @@ func resultName(r expr.Result) string {
 		return "string"
 	case expr.ResultDyn:
 		return "dyn"
+	case expr.ResultInt:
+		return "int"
 	default:
 		return ""
 	}

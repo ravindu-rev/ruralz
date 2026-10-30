@@ -54,12 +54,22 @@ func tatOf(s *shard, k rlKey, now instant) (tat float64, live bool) {
 	return now.us, live
 }
 
+// gcraSlack returns how far TAT may lead now for cost units of a limit
+// to conform, τ - (cost - 1) × T, rounded as the script rounds it: the
+// explicit conversion keeps the product from fusing into the subtraction.
+func gcraSlack(t, tau float64, cost int64) float64 { return tau - float64(float64(cost-1)*t) }
+
+// gcraAdvance returns the TAT after an allow charging cost units,
+// TAT + cost × T, rounded as the script rounds it.
+func gcraAdvance(tat, t float64, cost int64) float64 { return tat + float64(float64(cost)*t) }
+
 // gcra runs sub-operation g, GCRA virtual scheduling over every limit of
-// one Policy, all or nothing. The caller holds s.mu. False is an error
-// reply (RZ-STS-002): an invalid limit, an Out shorter than Limits, or a
-// full shard.
+// one Policy, all or nothing, charging g.Cost emission intervals. The
+// caller holds s.mu. False is an error reply (RZ-STS-002): an invalid
+// limit or cost, an Out shorter than Limits, or a full shard.
 func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
-	if len(g.Out) < len(g.Limits) {
+	cost, ok := statestore.GCRACost(g.Cost)
+	if len(g.Out) < len(g.Limits) || !ok {
 		return false
 	}
 	// Every TAT is read before any is written, as the script does.
@@ -67,7 +77,7 @@ func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
 	tats := buf[:0]
 	allowed, denied, retry, fresh := true, -1, 0.0, 0
 	for i, l := range g.Limits {
-		_, tau, ok := gcraParams(l)
+		t, tau, ok := gcraParams(l)
 		if !ok {
 			return false
 		}
@@ -76,11 +86,11 @@ func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
 		if !live {
 			fresh++
 		}
-		if tat-now.us > tau {
+		if slack := gcraSlack(t, tau, cost); tat-now.us > slack {
 			allowed = false
 			// The limit with the largest retry-after sets it; the lowest
 			// index wins ties.
-			if r := tat - tau - now.us; denied < 0 || r > retry {
+			if r := tat - slack - now.us; denied < 0 || r > retry {
 				denied, retry = i, r
 			}
 		}
@@ -94,7 +104,7 @@ func (d *Driver) gcra(s *shard, g *statestore.GCRA, now instant) bool {
 		tat := tats[i]
 		x, conforms := tat, tat-now.us <= tau
 		if allowed {
-			x = tat + t
+			x = gcraAdvance(tat, t, cost)
 			// PX max(1, ceil((new - now + τ) / 1000)): TAT - now + τ.
 			px := max(1, int64(math.Ceil((x-now.us+tau)/1000)))
 			s.rl[k] = tatEntry{tat: x, exp: now.ms + px}

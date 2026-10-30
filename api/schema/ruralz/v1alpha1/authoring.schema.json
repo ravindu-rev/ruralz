@@ -3864,6 +3864,7 @@
       "type": "string"
     },
     "RateLimit": {
+      "additionalProperties": false,
       "description": "RateLimit is one limit window.",
       "properties": {
         "burst": {
@@ -3902,6 +3903,21 @@
           ],
           "description": "Requests is the number of requests allowed per window."
         },
+        "when": {
+          "description": "When applies the limit only to requests for which it is true; absent, the limit always applies.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
         "window": {
           "anyOf": [
             {
@@ -3911,7 +3927,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "Window is the window length."
+          "description": "Window is the window length, at least 1ms in whole milliseconds."
         }
       },
       "required": [
@@ -3921,10 +3937,27 @@
       "type": "object"
     },
     "RateLimitConfig": {
-      "description": "RateLimitConfig is the config of a ratelimit Policy.",
+      "additionalProperties": false,
+      "description": "RateLimitConfig is the config of a ratelimit Policy. More than 8 limits, two limits with equal requests and window, a window below 1ms or not in whole milliseconds, a window divided by requests below 1µs, and a perNodeCeiling or burst above requests are RZ-CFG-005.",
       "properties": {
+        "cost": {
+          "default": "1",
+          "description": "Cost is the number of tokens a request takes from every applied limit, at least 1; a runtime error or a smaller value applies failureMode.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "int",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
         "key": {
-          "description": "Key partitions the limit, for example per Consumer.",
+          "description": "Key partitions the limit, for example per Consumer; absent, or an empty result, puts every request of the Policy in one partition.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -3939,7 +3972,7 @@
           }
         },
         "limits": {
-          "description": "Limits are the enforced windows.",
+          "description": "Limits are the enforced windows, 1 to 8.",
           "items": {
             "$ref": "#/$defs/RateLimit"
           },
@@ -3960,12 +3993,32 @@
           ],
           "default": false,
           "description": "LocalOnly keeps the limit in each Node's local buckets and never calls the State Store, so a Cell admits at most the Node count times the per-Node ceiling per window, even when the State Store is healthy (OQ-scalability-and-distributed-state-11 (a))."
+        },
+        "responseHeaders": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RateLimitResponseHeaders"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "ietf",
+          "description": "ResponseHeaders selects the RateLimit-Policy and RateLimit response fields the Policy records: ietf records them, none records nothing, though a 429 of the Policy still carries Retry-After."
         }
       },
       "required": [
         "limits"
       ],
       "type": "object"
+    },
+    "RateLimitResponseHeaders": {
+      "description": "RateLimitResponseHeaders selects the RateLimit response fields a ratelimit Policy records.",
+      "enum": [
+        "ietf",
+        "none"
+      ],
+      "type": "string"
     },
     "Replace": {
       "additionalProperties": false,

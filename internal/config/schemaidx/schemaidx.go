@@ -281,11 +281,11 @@ func (i Impact) Has(c Impact) bool { return i&c == c }
 func (i Impact) String() string { return strings.Join(i.Strings(), ", ") }
 
 // CELSpec is an x-ruralz-cel keyword: the variables in scope and the
-// result type ("bool", "string" or "dyn").
+// result type ("bool", "string", "int" or "dyn").
 type CELSpec struct {
 	// Variables are the variable names in scope, in schema order.
 	Variables []string
-	// Result is "bool", "string" or "dyn".
+	// Result is "bool", "string", "int" or "dyn".
 	Result string
 }
 

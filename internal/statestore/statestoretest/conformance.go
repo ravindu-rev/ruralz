@@ -299,7 +299,7 @@ func (s *suite) checkGCRA(what string, c *statestore.Call) {
 			s.t.Fatalf("%s: ServerNow %v, want the store time %v", what, g.ServerNow, want)
 		}
 	}
-	want := statestore.GCRA{Policy: g.Policy, Digest: g.Digest, Limits: g.Limits, Out: make([]statestore.GCRAOutcome, len(g.Limits))}
+	want := statestore.GCRA{Policy: g.Policy, Digest: g.Digest, Limits: g.Limits, Cost: g.Cost, Out: make([]statestore.GCRAOutcome, len(g.Limits))}
 	if !s.model.GCRA(g.ServerNow, &want) {
 		s.t.Fatalf("%s: the model rejects the call", what)
 	}
@@ -317,7 +317,15 @@ func (s *suite) checkGCRA(what string, c *statestore.Call) {
 // gcra runs one GCRA call and checks it against the model.
 func (s *suite) gcra(what, policy string, d statestore.Digest, limits ...statestore.GCRALimit) *statestore.GCRA {
 	s.t.Helper()
+	return s.gcraCost(what, policy, d, 0, limits...)
+}
+
+// gcraCost runs one GCRA call charging cost and checks it against the
+// model.
+func (s *suite) gcraCost(what, policy string, d statestore.Digest, cost int64, limits ...statestore.GCRALimit) *statestore.GCRA {
+	s.t.Helper()
 	c := gcraCall(policy, d, limits...)
+	c.GCRA.Cost = cost
 	if n := s.consume(c); n != 1 {
 		s.t.Fatalf("%s: Consume took %d calls, want 1", what, n)
 	}
@@ -595,6 +603,109 @@ func gcraCases() []conformanceCase {
 				s.t.Fatal("GCRA key missing")
 			}
 			s.ttlNear("GCRA key", st.TTL, want, g.ServerNow)
+		}},
+		{name: "gcra/cost", run: func(s *suite) {
+			// requests 10, window 1 s, burst 10 (T = 100 ms, τ = 1 s), cost
+			// 4: slack τ - 3T = 700 ms. Two calls admit (TAT now + 400 ms,
+			// then + 800 ms), the third is denied though 3 units remain,
+			// with RetryAfter 100 ms, and a cost-3 call (slack 800 ms) then
+			// admits. The four calls must span less than T.
+			w := time.Second * s.unit
+			l := statestore.GCRALimit{Requests: 10, Window: w, Burst: 10}
+			s.timed(func(try int) (func(), bool) {
+				p, d := s.name("rl"+tryTag(try)), s.digest("k"+tryTag(try))
+				first := s.gcraCost("first", p, d, 4, l)
+				second := s.gcraCost("second", p, d, 4, l)
+				third := s.gcraCost("third", p, d, 4, l)
+				fourth := s.gcraCost("cost 3", p, d, 3, l)
+				return func() {
+					if !first.Allowed || !second.Allowed || third.Allowed || !fourth.Allowed {
+						s.t.Fatalf("allowed %v, %v, %v, %v; want cost 4 twice, then denied, then cost 3",
+							first.Allowed, second.Allowed, third.Allowed, fourth.Allowed)
+					}
+					if third.Denied != 0 || third.Out[0].Remaining == 0 {
+						s.t.Fatalf("third call denied by %d with %d left; want limit 0 with units left", third.Denied, third.Out[0].Remaining)
+					}
+					if !s.h.Exact {
+						return
+					}
+					for _, c := range []struct {
+						what string
+						got  statestore.GCRAOutcome
+						want statestore.GCRAOutcome
+					}{
+						{"first", first.Out[0], statestore.GCRAOutcome{Remaining: 7, ResetAfter: 400 * time.Millisecond}},
+						{"second", second.Out[0], statestore.GCRAOutcome{Remaining: 3, ResetAfter: 800 * time.Millisecond}},
+						{"third", third.Out[0], statestore.GCRAOutcome{Remaining: 3, ResetAfter: 800 * time.Millisecond}},
+						{"cost 3", fourth.Out[0], statestore.GCRAOutcome{Remaining: 0, ResetAfter: 1100 * time.Millisecond}},
+					} {
+						if c.got != c.want {
+							s.t.Fatalf("%s outcome %+v, want %+v", c.what, c.got, c.want)
+						}
+					}
+					if third.RetryAfter != 100*time.Millisecond {
+						s.t.Fatalf("RetryAfter %v, want 100ms", third.RetryAfter)
+					}
+				}, fourth.ServerNow.Sub(first.ServerNow) < w/10
+			})
+		}},
+		{name: "gcra/cost-above-tolerance", run: func(s *suite) {
+			// burst 0 (τ = 0) and cost 2: the slack is -T, so the call never
+			// conforms, from idle or after its RetryAfter of T.
+			l := statestore.GCRALimit{Requests: 10, Window: time.Second * s.unit, Burst: 0}
+			p, d := s.name("rl"), s.digest("k")
+			g := s.gcraCost("from idle", p, d, 2, l)
+			if g.Allowed || g.Denied != 0 {
+				s.t.Fatalf("cost 2 with burst 0 allowed %v denied %d; want denied", g.Allowed, g.Denied)
+			}
+			if s.h.Exact && g.RetryAfter != 100*time.Millisecond {
+				s.t.Fatalf("RetryAfter %v, want T = 100ms", g.RetryAfter)
+			}
+			s.advance(g.RetryAfter)
+			if g := s.gcraCost("after RetryAfter", p, d, 2, l); g.Allowed {
+				s.t.Fatal("cost 2 with burst 0 admitted after RetryAfter")
+			}
+			if g := s.gcraCost("cost 1", p, d, 1, l); !g.Allowed {
+				s.t.Fatal("cost 1 denied on an idle key")
+			}
+		}},
+		{name: "gcra/cost-all-or-nothing", run: func(s *suite) {
+			// Limits 10/1s (burst 10) and 4/1m (burst 0, T = 15 s), cost 2:
+			// the second limit never conforms, so the call is denied by it
+			// and the first limit's TAT is not advanced.
+			l1 := statestore.GCRALimit{Requests: 10, Window: time.Second * s.unit, Burst: 10}
+			l2 := statestore.GCRALimit{Requests: 4, Window: time.Minute * s.unit, Burst: 0}
+			p, d := s.name("rl"), s.digest("k")
+			g := s.gcraCost("cost 2", p, d, 2, l1, l2)
+			if g.Allowed || g.Denied != 1 {
+				s.t.Fatalf("allowed %v denied %d; want denied by limit 1", g.Allowed, g.Denied)
+			}
+			if _, held := s.model.TAT(p, l1, d); held {
+				s.t.Fatal("a denied call advanced the first limit's TAT")
+			}
+			if s.h.Inspect != nil {
+				if _, ok := s.inspect(Key{Kind: KeyRateLimit, Policy: p, Limit: l1, Digest: d}); ok {
+					s.t.Fatal("a denied call wrote the first limit's TAT")
+				}
+			}
+		}},
+		{name: "gcra/cost-zero-is-one", skip: needExact, run: func(s *suite) {
+			// Cost 0 charges one emission interval, as cost 1 does.
+			l := statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10}
+			zero := s.gcraCost("cost 0", s.name("rl0"), s.digest("k0"), 0, l)
+			one := s.gcraCost("cost 1", s.name("rl1"), s.digest("k1"), 1, l)
+			if zero.Out[0] != one.Out[0] || zero.Allowed != one.Allowed {
+				s.t.Fatalf("cost 0 outcome %+v, cost 1 %+v; want equal", zero.Out[0], one.Out[0])
+			}
+		}},
+		{name: "gcra/negative-cost", run: func(s *suite) {
+			// A negative cost is an error reply: RZ-STS-002.
+			c := gcraCall(s.name("rl"), s.digest("k"), statestore.GCRALimit{Requests: 1, Window: time.Second, Burst: 1})
+			c.GCRA.Cost = -1
+			s.consume(c)
+			if c.Err != statestore.ErrFailed || c.Done {
+				s.t.Fatalf("negative cost: Done %v Err %v, want RZ-STS-002", c.Done, c.Err)
+			}
 		}},
 		{name: "gcra/invalid-limit", run: func(s *suite) {
 			// A limit the script rejects is an error reply: RZ-STS-002.

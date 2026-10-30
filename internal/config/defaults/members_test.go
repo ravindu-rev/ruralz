@@ -47,7 +47,11 @@ func TestFoldedMemberNames(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ratelimit := func(cfg string) string { return policyDoc("ratelimit", cfg) }
+	// auth.jwt is an open config whose issuers are open too, so it holds
+	// undeclared members at two depths.
+	jwt := func(issuer string) string {
+		return policyDoc("auth.jwt", `{"issuers": [{"issuer": "idp", "jwksUrl": "https://idp.example/jwks", "audiences": ["api"]`+issuer+`}]}`)
+	}
 	tests := []struct {
 		name string
 		src  string
@@ -57,13 +61,13 @@ func TestFoldedMemberNames(t *testing.T) {
 	}{
 		{
 			"beside the declared member, at two depths",
-			ratelimit(`{"key": "consumer.name", "Key": "request.headers['x']", "limits": [{"requests": 5, "window": "1s", "perNodeCeiling": 2, "pernodeceiling": -7}]}`),
-			[]string{"spec.config.Key: " + foldMessage("Key", "key"), "spec.config.limits[0].pernodeceiling: " + foldMessage("pernodeceiling", "perNodeCeiling")},
+			policyDoc("auth.jwt", `{"Issuers": [], "issuers": [{"issuer": "idp", "jwksUrl": "https://idp.example/jwks", "jwksurl": "https://x", "audiences": ["api"]}]}`),
+			[]string{"spec.config.Issuers: " + foldMessage("Issuers", "issuers"), "spec.config.issuers[issuer=idp].jwksurl: " + foldMessage("jwksurl", "jwksUrl")},
 		},
 		{"without the declared member", policyDoc("auth.api-key", `{"Header": "x-b"}`), []string{"spec.config.Header: " + foldMessage("Header", "header")}},
 		{"upper case", policyDoc("auth.api-key", `{"header": "x-a", "HEADER": "x-c"}`), []string{"spec.config.HEADER: " + foldMessage("HEADER", "header")}},
-		{"Kelvin sign", ratelimit(`{"key": "consumer.name", "Key": "x", "limits": [{"requests": 5, "window": "1s"}]}`), []string{`spec.config["Key"]: ` + foldMessage("Key", "key")}},
-		{"long s", ratelimit(`{"limits": [{"requests": 5, "requeſts": 9, "window": "1s"}]}`), []string{`spec.config.limits[0]["requeſts"]: ` + foldMessage("requeſts", "requests")}},
+		{"Kelvin sign", jwt(`, "jw` + "\u212a" + `sUrl": "x"`), []string{"spec.config.issuers[issuer=idp][\"jw\u212asUrl\"]: " + foldMessage("jw\u212asUrl", "jwksUrl")}},
+		{"long s", jwt(`, "iſsuer": "x"`), []string{`spec.config.issuers[issuer=idp]["iſsuer"]: ` + foldMessage("iſsuer", "issuer")}},
 		{"typed-map keys differ in case", `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r", "labels": {"team": "a", "Team": "b"}}, "spec": {"match": {"path": {"prefix": "/"}}, "upstreams": [{"name": "u"}]}}`, nil},
 		{"free content below an undeclared member", policyDoc("auth.api-key", `{"header": "x", "extra": {"Header": 1, "header": 2}}`), nil},
 		{"plugin config", pluginDoc(`{"a": 1, "A": 2}`), nil},

@@ -28,9 +28,10 @@ import (
 // PlaceID names a field whose schema carries x-ruralz-cel.
 type PlaceID string
 
-// The 21 places of docs/architecture/02-configuration-model.md "Allowed
+// The places of docs/architecture/02-configuration-model.md "Allowed
 // places". A test in internal/cel maps each one to exactly one schema
-// annotation.
+// annotation. The ratelimit and quota config.cost row of the table is two
+// places, one per Policy type, as its config.key row is.
 //
 // PlaceHeadersRequestValue covers the valueExpression of every
 // config.request.set[] and add[] entry (schema definition HeaderRequestSet),
@@ -49,6 +50,8 @@ const (
 	PlaceStepWhen               PlaceID = "Route.spec.composition.steps[].when" //nolint:gosec // G101: a CEL place name, not a credential.
 	PlaceAuthzCELRule           PlaceID = "authz.cel config.rule"
 	PlaceRateLimitKey           PlaceID = "ratelimit config.key"
+	PlaceRateLimitCost          PlaceID = "ratelimit config.cost"
+	PlaceRateLimitWhen          PlaceID = "ratelimit config.limits[].when"
 	PlaceQuotaKey               PlaceID = "quota config.key"
 	PlaceHeadersRequestValue    PlaceID = "headers config.request.set[].valueExpression"
 	PlaceHeadersResponseValue   PlaceID = "headers config.response.set[].valueExpression"
@@ -74,6 +77,7 @@ const (
 	ResultBool Result = iota + 1
 	ResultString
 	ResultDyn
+	ResultInt
 )
 
 // Var is a bit set of CEL variables.
@@ -160,6 +164,8 @@ func Places() []Place {
 		{PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},
 		{PlaceAuthzCELRule, ResultBool, base, RuleAuthzUndecided, "M1"},
 		{PlaceRateLimitKey, ResultString, base, RuleFailureMode, "M1"},
+		{PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
+		{PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},
 		{PlaceQuotaKey, ResultString, base, RuleFailureMode, "M1"},
 		{PlaceHeadersRequestValue, ResultString, base, RuleFailureMode, "M1"},
 		{PlaceHeadersResponseValue, ResultString, base | VarResponse | VarUpstream, RuleFailureMode, "M1"},
@@ -287,6 +293,9 @@ type Program interface {
 	EvalBool(ctx context.Context, v *Vars) (bool, error)
 	// EvalString evaluates a string place.
 	EvalString(ctx context.Context, v *Vars) (string, error)
+	// EvalInt evaluates an int place (config.cost); a non-int result is
+	// KindResultType.
+	EvalInt(ctx context.Context, v *Vars) (int64, error)
 	// EvalValue evaluates a dyn place (transform bodies).
 	EvalValue(ctx context.Context, v *Vars) (Value, error)
 }

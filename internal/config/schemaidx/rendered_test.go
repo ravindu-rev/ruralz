@@ -447,14 +447,14 @@ func TestUnknownFieldsAndOpenConfigs(t *testing.T) {
 	if _, ok := x.Lookup("Nothing", nil, nil); ok {
 		t.Error("unknown kind resolved")
 	}
-	res := parseTree(t, `{"spec":{"type":"ratelimit","config":{"futureField":{"a":[1]}}}}`)
+	res := parseTree(t, `{"spec":{"type":"authz.opa","config":{"futureField":{"a":[1]}}}}`)
 	info, ok := x.Lookup("Policy", res, pathOf("spec", "config", "futureField", "a", 0))
 	if !ok || info.Known() || !info.Free {
 		t.Errorf("open config member: %+v %v", info, ok)
 	}
-	cfg := mustInfo(t, x, "Policy", `{"spec":{"type":"ratelimit"}}`, "spec", "config")
+	cfg := mustInfo(t, x, "Policy", `{"spec":{"type":"authz.opa"}}`, "spec", "config")
 	if !cfg.Node.Open() || cfg.Node.Closed() {
-		t.Errorf("ratelimit config open %v closed %v", cfg.Node.Open(), cfg.Node.Closed())
+		t.Errorf("authz.opa config open %v closed %v", cfg.Node.Open(), cfg.Node.Closed())
 	}
 }
 

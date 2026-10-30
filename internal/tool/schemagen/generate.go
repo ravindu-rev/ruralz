@@ -648,8 +648,8 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 			ctx.noSubst = true
 		case "cel":
 			vars, result, ok := strings.Cut(m.value, ":")
-			if !ok || vars == "" || !slices.Contains([]string{"bool", "string", "dyn"}, result) {
-				return nil, false, fmt.Errorf("+ruralz:cel=%s: want <variables>:<bool|string|dyn>", m.value)
+			if !ok || vars == "" || !slices.Contains([]string{"bool", "string", "int", "dyn"}, result) {
+				return nil, false, fmt.Errorf("+ruralz:cel=%s: want <variables>:<bool|string|int|dyn>", m.value)
 			}
 			annotations["x-ruralz-cel"] = schema{"variables": toAny(strings.Split(vars, ",")), "result": result}
 			ctx.noSubst = true

@@ -95,6 +95,12 @@
 // (configuration model, "Diagnostics and source map"). The loader keeps
 // the bytes of each file it read (loader.Result.Text) for this.
 //
+// RZ-CFG-043 warns at each limits[] entry above 25,000 requests per second
+// (hypothesis) of a ratelimit Policy without localOnly whose config.key is
+// absent or whose compiled program reads no variable, whether a Route's
+// chain runs it or not: every request of such a limit calls one State
+// Store shard.
+//
 // # Stage K
 //
 // RZ-CFG-034: an AIModel without limits.maxOutputTokens that a Route

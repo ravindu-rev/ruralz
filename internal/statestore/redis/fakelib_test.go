@@ -133,11 +133,15 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 		kind, _ := luaArg(argv, a)
 		switch kind {
 		case kindGCRA:
-			n, ok := tonumber(luaArg(argv, a+1))
+			cost, okCost := tonumber(luaArg(argv, a+1))
+			if !okCost || cost < 1 || cost != math.Floor(cost) {
+				return bad("cost")
+			}
+			n, ok := tonumber(luaArg(argv, a+2))
 			if !ok || n < 0 {
 				return bad("limits")
 			}
-			a += 2
+			a += 3
 			var tats, ts, taus []float64
 			allowed := true
 			for i := 1; float64(i) <= n; i++ {
@@ -162,7 +166,8 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 					}
 				}
 				tats, ts, taus = append(tats, tat), append(ts, t), append(taus, tau)
-				if tat-now > tau {
+				// Lua rounds the product before the subtraction.
+				if slack := tau - float64((cost-1)*t); tat-now > slack {
 					allowed = false
 				}
 			}
@@ -173,7 +178,7 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 			r := []string{integer(flag)}
 			for i := range tats {
 				if allowed {
-					x := tats[i] + ts[i]
+					x := tats[i] + float64(cost*ts[i])
 					px := math.Ceil((x - now + taus[i]) / 1000)
 					if px < 1 {
 						px = 1

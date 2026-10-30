@@ -352,6 +352,12 @@ type RateLimitField struct {
 	// R is the remaining count and T the seconds to reset, when Known.
 	R, T  int64
 	Known bool
+	// Denied marks the limit that denied the request with a 429 (RZ-RL-001
+	// to RZ-RL-003): R and T are then its count and the seconds until it
+	// admits, equal to Retry-After, and a 429 lists in RateLimit this
+	// limit only (docs/architecture/09-traffic-management-and-resilience.md
+	// "RateLimit response headers").
+	Denied bool
 }
 
 // Final is the outcome of a request, available in onLog.
@@ -465,7 +471,11 @@ type Exchange interface {
 	TeeResponse(limit int64) Tee
 	// ReplaceResponse replaces the uncommitted response (stale-if-error).
 	ReplaceResponse(r *Response)
-	// AddRateLimitField records an applied limit.
+	// AddRateLimitField records an applied limit of the calling Policy.
+	// The fields stay in request order of their Policies, each Policy's in
+	// the order it recorded them, whatever order the Policies record in:
+	// a batched member that completes after a later member decided in
+	// Prepare still lists first.
 	AddRateLimitField(f RateLimitField)
 	// SetCacheResult records the request's cache result for the access
 	// log's cache field: for the Response Cache, the result label of

@@ -159,6 +159,7 @@ func (c *Compiler) env(vars expr.Var) (*celgo.Env, error) {
 		ext.Strings(ext.StringsVersion(5)),
 		ext.Encoders(ext.EncodersVersion(1)),
 		celgo.Lib(urlLibrary{}),
+		celgo.Lib(netLibrary{}),
 		// After ext.Strings, so these replace its split estimates.
 		celgo.CostEstimatorOptions(splitEstimates()...),
 		celgo.ASTValidators(
@@ -296,7 +297,8 @@ func (c *Compiler) program(site expr.Site, src string, caps expr.InputCaps) (*Pr
 }
 
 // resultMismatch reports an output type the place cannot take: a bool
-// place takes bool or dyn, a string place string or dyn, a dyn place any.
+// place takes bool or dyn, a string place string or dyn, an int place int
+// or dyn, a dyn place any.
 func resultMismatch(want expr.Result, got *types.Type) (msg, hint string, bad bool) {
 	if got == nil {
 		return "", "", false
@@ -314,6 +316,10 @@ func resultMismatch(want expr.Result, got *types.Type) (msg, hint string, bad bo
 	case expr.ResultString:
 		if got.Kind() != types.StringKind {
 			return "expression has type " + got.String() + ", want string", "convert it with string(...)", true
+		}
+	case expr.ResultInt:
+		if got.Kind() != types.IntKind {
+			return "expression has type " + got.String() + ", want int", "convert it with int(...)", true
 		}
 	case expr.ResultDyn:
 	}

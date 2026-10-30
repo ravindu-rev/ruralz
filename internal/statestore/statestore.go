@@ -220,6 +220,19 @@ type GCRALimit struct {
 	Burst int64
 }
 
+// GCRACost returns the cost a GCRA call charges: c, or 1 for 0; ok is
+// false for a negative c, which drivers answer with RZ-STS-002.
+func GCRACost(c int64) (cost int64, ok bool) {
+	switch {
+	case c < 0:
+		return 0, false
+	case c == 0:
+		return 1, true
+	default:
+		return c, true
+	}
+}
+
 // GCRAOutcome is one limit's state after the decision.
 type GCRAOutcome struct {
 	Remaining  int64
@@ -232,6 +245,12 @@ type GCRA struct {
 	Policy string
 	Digest Digest
 	Limits []GCRALimit
+	// Cost is the request's config.cost, the emission intervals the call
+	// charges every limit: a limit conforms when TAT - now is at most
+	// τ - (Cost - 1) × T, so all Cost units would conform, and an allow
+	// advances each TAT by Cost × T. 0 counts as 1; a negative Cost is an
+	// error reply (RZ-STS-002).
+	Cost int64
 	// Out is caller-provided with len(Limits).
 	Out []GCRAOutcome
 

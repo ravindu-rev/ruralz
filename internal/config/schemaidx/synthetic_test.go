@@ -506,7 +506,7 @@ func TestLoadErrors(t *testing.T) {
 		{"cel shape", obj(`{"x-ruralz-cel":{"variables":["a"]}}`), "x-ruralz-cel must be"},
 		{"cel vars", obj(`{"x-ruralz-cel":{"variables":[],"result":"bool"}}`), "must not be empty"},
 		{"cel var type", obj(`{"x-ruralz-cel":{"variables":[1],"result":"bool"}}`), "array of strings"},
-		{"cel result", obj(`{"x-ruralz-cel":{"variables":["a"],"result":"int"}}`), "not bool, string or dyn"},
+		{"cel result", obj(`{"x-ruralz-cel":{"variables":["a"],"result":"float"}}`), "not bool, string, int or dyn"},
 		{"impact shape", obj(`{"x-ruralz-impact":"security"}`), "array of strings"},
 		{"impact empty", obj(`{"x-ruralz-impact":[]}`), "must not be empty"},
 		{"impact class", obj(`{"x-ruralz-impact":["speed"]}`), "unknown impact class"},

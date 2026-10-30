@@ -84,6 +84,10 @@ func (p *fakeProgram) EvalString(context.Context, *expr.Vars) (string, error) {
 	return "", p.err
 }
 
+func (p *fakeProgram) EvalInt(context.Context, *expr.Vars) (int64, error) {
+	return 0, p.err
+}
+
 func (p *fakeProgram) EvalValue(context.Context, *expr.Vars) (expr.Value, error) {
 	return nil, p.err
 }

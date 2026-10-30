@@ -10,7 +10,8 @@
 --
 --   c  consumptive calls of one slot, in order, stopping after the first
 --      deny: g runs GCRA over every limit of one ratelimit Policy with the
---      server's TIME, updating the TATs only if all allow; q reserves one
+--      server's TIME, charging config.cost emission intervals and
+--      updating the TATs only if all allow; q reserves one
 --      Quota unit in the window the server's TIME picks from the Node's
 --      two candidates
 --   r  returns one Quota unit, never below 0 and never creating a key
@@ -98,11 +99,17 @@ if op == 'c' then
   for c = 1, calls do
     local kind = ARGV[a]
     if kind == 'g' then
-      local n = tonumber(ARGV[a + 1])
+      -- cost units conform when TAT - now is at most tau - (cost - 1) * T;
+      -- an allow advances each TAT by cost * T.
+      local cost = tonumber(ARGV[a + 1])
+      if not cost or cost < 1 or cost ~= math.floor(cost) then
+        return bad('cost')
+      end
+      local n = tonumber(ARGV[a + 2])
       if not n or n < 0 then
         return bad('limits')
       end
-      a = a + 2
+      a = a + 3
       local tats = {}
       local ts = {}
       local taus = {}
@@ -128,7 +135,8 @@ if op == 'c' then
         tats[i] = tat
         ts[i] = t
         taus[i] = tau
-        if tat - now > tau then
+        local slack = tau - (cost - 1) * t
+        if tat - now > slack then
           allowed = false
         end
       end
@@ -138,7 +146,7 @@ if op == 'c' then
       end
       for i = 1, n do
         if allowed then
-          local x = tats[i] + ts[i]
+          local x = tats[i] + cost * ts[i]
           local px = math.ceil((x - now + taus[i]) / 1000)
           if px < 1 then
             px = 1

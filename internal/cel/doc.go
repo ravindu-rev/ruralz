@@ -19,8 +19,14 @@
 // a response Phase, and the transform places declare upstream only at
 // Upstream scope. The language is the standard library plus the strings
 // (version 5) and encoders (version 1) extensions and the Ruralz functions
-// url.pathEscape and url.queryEscape (urlLibrary), with the duration,
-// timestamp and regular-expression literal validators.
+// url.pathEscape and url.queryEscape (urlLibrary) and net.prefix
+// (netLibrary), with the duration, timestamp and regular-expression
+// literal validators. net.prefix(address, v4, v6) masks an IPv4 address,
+// an IPv4-mapped one included, to v4 bits and an IPv6 address to v6 bits
+// and returns the network in CIDR form; an address that does not parse or
+// a length out of range is a runtime error. It costs 1 plus 0.1 unit per
+// input byte, and the estimators size its result at its input plus 4
+// bytes.
 //
 // # Validation
 //
@@ -41,12 +47,12 @@
 //   - reads steps outside a sequential composition, or names a step that is
 //     not an earlier step of the composition;
 //   - has a result type the site cannot take: a bool site takes bool or
-//     dyn, a string site string or dyn, a dyn site anything. A site's
-//     result is its place's, or the narrower one it names
-//     (expr.Site.Result): a transform set[] valueExpression is a string
-//     site for targets header, query and path and a dyn site for target
-//     body. Programs of two sites that differ only in their result are
-//     kept apart, so each keeps its own check.
+//     dyn, a string site string or dyn, an int site (config.cost) int or
+//     dyn, a dyn site anything. A site's result is its place's, or the
+//     narrower one it names (expr.Site.Result): a transform set[]
+//     valueExpression is a string site for targets header, query and path
+//     and a dyn site for target body. Programs of two sites that differ
+//     only in their result are kept apart, so each keeps its own check.
 //
 // References reports what a source reads at a site without planning a
 // program, for decisions taken before Filters are built, such as whether

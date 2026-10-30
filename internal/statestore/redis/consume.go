@@ -56,6 +56,15 @@ func gcraParams(l statestore.GCRALimit) (t, tau float64, ok bool) {
 	return wus / req, float64(l.Burst) * wus / req, true
 }
 
+// gcraSlack returns how far TAT may lead now for cost units of a limit
+// to conform, τ - (cost - 1) × T, rounded as the library rounds it: the
+// explicit conversion keeps the product from fusing into the subtraction.
+func gcraSlack(t, tau float64, cost int64) float64 { return tau - float64(float64(cost-1)*t) }
+
+// gcraAdvance returns the TAT after an allow charging cost units,
+// TAT + cost × T, rounded as the library rounds it.
+func gcraAdvance(tat, t float64, cost int64) float64 { return tat + float64(float64(cost)*t) }
+
 // toInt64 converts a non-negative float count, saturating.
 func toInt64(f float64) int64 {
 	if f >= maxCount {
@@ -220,16 +229,16 @@ func (d *Driver) finishConsume(stripe emit.Stripe, label int, group []*statestor
 
 // encodeConsume writes the group's EVALSHA: KEYS are every limit's TAT
 // key, then each Quota's two window keys (the Node clock's window and its
-// nearer neighbor); ARGV is c, the call count, then per call g, the limit
-// count and each limit's T and τ, or q, the limit, the window and the two
-// window starts. False is a call the library would refuse.
+// nearer neighbor); ARGV is c, the call count, then per call g, the cost,
+// the limit count and each limit's T and τ, or q, the limit, the window
+// and the two window starts. False is a call the library would refuse.
 func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 	nkeys := 0
 	for _, c := range group {
 		switch c.Kind {
 		case statestore.OpGCRA:
 			g := &c.GCRA
-			if len(g.Out) < len(g.Limits) {
+			if _, ok := statestore.GCRACost(g.Cost); !ok || len(g.Out) < len(g.Limits) {
 				return false
 			}
 			for _, l := range g.Limits {
@@ -268,7 +277,9 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 	for _, c := range group {
 		if c.Kind == statestore.OpGCRA {
 			g := &c.GCRA
+			cost, _ := statestore.GCRACost(g.Cost)
 			tr.arg(kindGCRA)
+			tr.arg(strconv.FormatInt(cost, 10))
 			tr.arg(strconv.Itoa(len(g.Limits)))
 			for _, l := range g.Limits {
 				t, tau, _ := gcraParams(l)
@@ -340,9 +351,9 @@ func (d *Driver) parseConsume(m rueidis.RedisMessage, group []*statestore.Call) 
 }
 
 // gcraOutcome fills g from the TATs the library read (each max(stored
-// TAT, now)) with the memory driver's arithmetic: the denying limit has
-// the largest raw retry-after, the lowest index on ties; remaining and
-// reset follow each limit's TAT after the decision.
+// TAT, now)) with the memory driver's arithmetic and g.Cost: the denying
+// limit has the largest raw retry-after, the lowest index on ties;
+// remaining and reset follow each limit's TAT after the decision.
 func gcraOutcome(g *statestore.GCRA, tatMsgs []rueidis.RedisMessage, now instant, allowed bool) bool {
 	if len(tatMsgs) != len(g.Limits) {
 		return false
@@ -360,11 +371,12 @@ func gcraOutcome(g *statestore.GCRA, tatMsgs []rueidis.RedisMessage, now instant
 		}
 		tats = append(tats, tat)
 	}
+	cost, _ := statestore.GCRACost(g.Cost)
 	denied, retry := -1, 0.0
 	for i, l := range g.Limits {
-		_, tau, _ := gcraParams(l)
-		if tats[i]-now.us > tau {
-			if r := tats[i] - tau - now.us; denied < 0 || r > retry {
+		t, tau, _ := gcraParams(l)
+		if slack := gcraSlack(t, tau, cost); tats[i]-now.us > slack {
+			if r := tats[i] - slack - now.us; denied < 0 || r > retry {
 				denied, retry = i, r
 			}
 		}
@@ -377,7 +389,7 @@ func gcraOutcome(g *statestore.GCRA, tatMsgs []rueidis.RedisMessage, now instant
 		tat := tats[i]
 		x, conforms := tat, tat-now.us <= tau
 		if allowed {
-			x = tat + t
+			x = gcraAdvance(tat, t, cost)
 		}
 		var remaining int64
 		if conforms {

@@ -110,6 +110,19 @@ func (p *Program) EvalString(ctx context.Context, v *expr.Vars) (string, error) 
 	return string(s), nil
 }
 
+// EvalInt evaluates an int place; any other result is KindResultType.
+func (p *Program) EvalInt(ctx context.Context, v *expr.Vars) (int64, error) {
+	out, err := p.eval(ctx, v)
+	if err != nil {
+		return 0, err
+	}
+	n, ok := out.(types.Int)
+	if !ok {
+		return 0, p.resultError(out, "int")
+	}
+	return int64(n), nil
+}
+
 // EvalValue evaluates a dyn place, such as a transform body.
 func (p *Program) EvalValue(ctx context.Context, v *expr.Vars) (expr.Value, error) {
 	out, err := p.eval(ctx, v)

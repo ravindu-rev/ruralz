@@ -105,7 +105,7 @@ func (v *view) TeeResponse(limit int64) filter.Tee { return (*Request)(v).teeRes
 func (v *view) ReplaceResponse(r *filter.Response) { (*Request)(v).replaceResponse(r) }
 
 // AddRateLimitField implements filter.Exchange.
-func (v *view) AddRateLimitField(f filter.RateLimitField) { v.rateLimits = append(v.rateLimits, f) }
+func (v *view) AddRateLimitField(f filter.RateLimitField) { (*Request)(v).addRateLimitField(f) }
 
 // SetCacheResult implements filter.Exchange: the access record's cache
 // field (FillAccess).
