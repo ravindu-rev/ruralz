@@ -80,7 +80,7 @@ func TestMetricNamesMatchAcrossExports(t *testing.T) {
 	scrapeAfter(t, r)
 	text, _ := scrapeText(t, r, "")
 	om, _ := scrapeText(t, r, openMetrics)
-	if err := r.pipe.mp.ForceFlush(waitCtx(t)); err != nil {
+	if err := r.pipe.push.pushNow(waitCtx(t)); err != nil {
 		t.Fatalf("metric flush: %v", err)
 	}
 	otlp := sink.MetricNames()

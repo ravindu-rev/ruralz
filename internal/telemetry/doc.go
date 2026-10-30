@@ -28,13 +28,30 @@
 // that never block and count queue_full and export_error drops (spans: the
 // tracing processor; logs: 8,192 records and 4 MiB, batches of 512 or every
 // second); metrics are pushed every 15 s from the same collection /metrics
-// reads. One export attempt is bounded by 10 s and retried from 1 s to 5 s
-// apart for up to 10 s; a signal's exports failing continuously for longer
-// than one metric interval raise telemetry_export_failing until every
-// failing signal has exported again. Without an endpoint nothing is pushed
-// and no span is created. A
-// changed endpoint or TLS setting builds the new connection off the request
-// path, swaps it in and retires the old one within 5 s.
+// reads. One export, with its retries, is bounded by 10 s and retried from
+// 1 s to 5 s apart for up to 10 s; a signal's exports failing continuously
+// for longer than one metric interval raise telemetry_export_failing until
+// every failing signal has exported again. Without an endpoint nothing is
+// pushed and no span is created. A changed endpoint or TLS setting builds
+// the new connection off the request path, swaps it in and retires the old
+// one within 5 s.
+//
+// Process and access records reach stdout and the OTLP log queue
+// independently: each bridge takes a record when it is queued, so a blocked
+// stdout never stops OTLP log export and a failing collector never stops
+// stdout. A queued access record joins the OTLP queue by reference and is
+// encoded by the export worker, so the request goroutine does no encoding.
+// ruralz_telemetry_logs_dropped_total counts each sink's losses under its
+// sink label, stdout or otlp.
+//
+// Every timer and bound of the export runs on the runtime's clock, so the
+// controllable clock of the ruralzd test build drives them
+// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+// scope"): the batch intervals, the metric push interval, each export's
+// bound and retry backoff, the 5 s retirement bound and the 10 s scrape
+// wait. The SDK exporters run with their own timeout and retry off; only
+// the gRPC connection's own dial backoff and the scrape write deadline, a
+// socket deadline, stay on real time.
 //
 // # /metrics
 //

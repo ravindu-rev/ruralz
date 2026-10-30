@@ -156,3 +156,96 @@ func TestComprehensionStopFires(t *testing.T) {
 		t.Errorf("EvalBool after a stop = %v, %v; want true", got, err)
 	}
 }
+
+// TestNewWithClockTimesTheStop checks that a Compiler built on a clock
+// times its comprehension stops there, as ruralzd's does on its process
+// clock: a tracked comprehension over 20,000 tokens, which runs far past
+// 50 ms of real time, ends normally while that clock stands still, and
+// ends with KindDeadline once the clock passes the 50 ms stop.
+func TestNewWithClockTimesTheStop(t *testing.T) {
+	clk := clocktest.New(time.Now())
+	c, err := NewWithClock(clk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prg := mustProgram(t, c, at(expr.PlaceAuthzCELRule), ordersRule)
+	if !prg.stoppable {
+		t.Fatalf("%q is not stoppable with every input unbounded", ordersRule)
+	}
+	start := time.Now()
+	if got, err := prg.EvalBool(context.Background(), longScope(20_000)); err != nil || got {
+		t.Errorf("EvalBool with the clock standing still = %v, %v after %v of real time; want false", got, err, time.Since(start))
+	}
+	errs := make(chan error, 1)
+	go func() {
+		_, err := prg.EvalBool(context.Background(), longScope(20_000))
+		errs <- err
+	}()
+	// The evaluation arms its stop when it starts.
+	for clk.Pending() == 0 {
+		select {
+		case err := <-errs:
+			t.Fatalf("EvalBool ended before its stop was armed: %v", err)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	clk.Advance(comprehensionStop)
+	var ee *expr.EvalError
+	if err := <-errs; !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
+		t.Errorf("EvalBool once the clock passed the stop = %v, want KindDeadline", err)
+	}
+}
+
+// absorbingRule holds ordersRule under a logical OR whose other operand is
+// true for testVars: cel-go ends an interrupted comprehension with an
+// error value, which the OR would absorb.
+const absorbingRule = ordersRule + ` || request.method == "GET"`
+
+// TestStopIsNotAbsorbed checks that a stop is a runtime error even where a
+// logical operator would absorb the interrupted comprehension's error
+// value: once the clock passes the stop during the evaluation, and when the
+// request had ended before it started, the evaluation ends with
+// KindDeadline instead of the OR's true. A comprehension too short to reach
+// an interrupt check still finishes under an ended request.
+func TestStopIsNotAbsorbed(t *testing.T) {
+	clk := clocktest.New(time.Now())
+	c, err := NewWithClock(clk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prg := mustProgram(t, c, at(expr.PlaceAuthzCELRule), absorbingRule)
+	if !prg.stoppable {
+		t.Fatalf("%q is not stoppable with every input unbounded", absorbingRule)
+	}
+	var ee *expr.EvalError
+	errs := make(chan error, 1)
+	go func() {
+		_, err := prg.EvalBool(context.Background(), longScope(20_000))
+		errs <- err
+	}()
+	for clk.Pending() == 0 {
+		select {
+		case err := <-errs:
+			t.Fatalf("EvalBool ended before its stop was armed: %v", err)
+		case <-time.After(time.Millisecond):
+		}
+	}
+	clk.Advance(comprehensionStop)
+	if err := <-errs; !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
+		t.Errorf("EvalBool once the clock passed the stop = %v, want KindDeadline", err)
+	}
+
+	ended, cancel := context.WithCancel(t.Context())
+	cancel()
+	if got, err := prg.EvalBool(ended, longScope(1000)); !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
+		t.Errorf("EvalBool under an ended request = %v, %v; want KindDeadline", got, err)
+	}
+	if got, err := prg.EvalBool(ended, testVars()); err != nil || !got {
+		t.Errorf("a short comprehension under an ended request = %v, %v; want true", got, err)
+	}
+	// Only the stopped evaluations failed: the program evaluates normally
+	// afterwards.
+	if got, err := prg.EvalBool(context.Background(), longScope(1000)); err != nil || !got {
+		t.Errorf("EvalBool after a stop = %v, %v; want true", got, err)
+	}
+}

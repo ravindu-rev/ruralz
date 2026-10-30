@@ -70,6 +70,16 @@ func TestHelperProcess(t *testing.T) {
 			_, _ = fmt.Fprintf(os.Stdout, "%08d %s\n", i, strings.Repeat("x", 90))
 		}
 		os.Exit(0)
+	case "flood":
+		// Announce on stderr, write FLOOD_BYTES to stdout, announce again.
+		n, _ := strconv.Atoi(os.Getenv("FLOOD_BYTES"))
+		_, _ = os.Stderr.WriteString("flooding\n")
+		chunk := []byte(strings.Repeat("y", 16<<10))
+		for written := 0; written < n; written += len(chunk) {
+			_, _ = os.Stdout.Write(chunk[:min(len(chunk), n-written)])
+		}
+		_, _ = os.Stderr.WriteString("flooded\n")
+		os.Exit(0)
 	case "spam":
 		n, _ := strconv.Atoi(os.Getenv("SPAM_BYTES"))
 		line := []byte("0123456789abcdef")
@@ -365,6 +375,68 @@ func TestOutputBounds(t *testing.T) { // Output bounds
 	o, _ := p.LogPaths()
 	if st, err := os.Stat(o); err != nil || st.Size() < 1<<20 {
 		t.Fatalf("log file holds %v bytes: %v", st, err)
+	}
+}
+
+// TestBlockStdout checks a stdout nobody reads: once the pipe fills, the
+// process's writes to stdout block, stderr is still read, and releasing
+// the hold lets the process finish.
+func TestBlockStdout(t *testing.T) {
+	const flood = 4 << 20
+	p, err := Start(ctx(t), helper("flood", "FLOOD_BYTES="+strconv.Itoa(flood)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	unblock := p.BlockStdout()
+	if again := p.BlockStdout(); again == nil {
+		t.Fatal("a second hold returned no release")
+	} else {
+		again() // the first holder's hold stays
+	}
+	if _, err := p.WaitOutput(ctx(t), regexp.MustCompile(`flooding\n`)); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-p.Done():
+		t.Fatal("the process finished its flood with stdout held")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if out, _ := p.Written(); out >= flood {
+		t.Fatalf("%d of %d bytes reached the harness with stdout held", out, flood)
+	}
+	unblock()
+	unblock()
+	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
+		t.Fatalf("Wait = %d, %v; want 0", code, err)
+	}
+	if out, _ := p.Written(); out != flood {
+		t.Fatalf("Written = %d after the release, want %d", out, flood)
+	}
+	if _, errb := p.Output(); !bytes.Contains(errb, []byte("flooded\n")) {
+		t.Fatalf("stderr = %q", errb)
+	}
+}
+
+// TestExitReleasesBlockedStdout checks that a process killed with stdout
+// held is still reaped: the reaper releases the hold, so neither the wait
+// nor the copying goroutine stays blocked.
+func TestExitReleasesBlockedStdout(t *testing.T) {
+	p, err := Start(ctx(t), helper("flood", "FLOOD_BYTES="+strconv.Itoa(4<<20)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.BlockStdout()
+	if _, err := p.WaitOutput(ctx(t), regexp.MustCompile(`flooding\n`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Kill(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := p.Wait(ctx(t)); err != nil {
+		t.Fatalf("Wait after a kill with stdout held: %v", err)
+	}
+	if p.stdout.held.Load() != nil {
+		t.Fatal("the hold outlived the process")
 	}
 }
 

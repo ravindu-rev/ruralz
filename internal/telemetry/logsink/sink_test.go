@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"slices"
 	"strings"
 	"sync"
@@ -117,12 +118,14 @@ func TestWriteErrorCountsLostLines(t *testing.T) {
 }
 
 // ADR-0018 "Blocked stdout test": a stdout nobody reads never blocks the
-// logging goroutine; records beyond the queue drop with queue_full; after
-// the pipe unblocks the worker writes what it held and Run returns on
-// cancel.
+// logging goroutine; records beyond the queue drop with queue_full; the
+// OTLP bridge still takes every record while stdout is blocked; after the
+// pipe unblocks the worker writes what it held and Run returns on cancel.
 func TestBlockedStdout(t *testing.T) {
 	bw := newBlockingWriter()
 	s, _ := newSink(t, Options{Stdout: bw, QueueRecords: 64})
+	b := &recordingBridge{}
+	s.SetBridge(b)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -142,6 +145,9 @@ func TestBlockedStdout(t *testing.T) {
 	st := s.Stats()
 	if st.Produced != n+1 || st.QueueFull < n-64 {
 		t.Fatalf("stats = %+v, want at least %d queue_full drops", st, n-64)
+	}
+	if got := b.records(); got != n+1 {
+		t.Fatalf("bridge got %d records while stdout was blocked, want all %d", got, n+1)
 	}
 
 	close(bw.release)
@@ -334,16 +340,21 @@ func TestAccessStream(t *testing.T) {
 type recordingBridge struct {
 	mu  sync.Mutex
 	got []Exported
-	err error
 }
 
-func (b *recordingBridge) Export(r *Exported) error {
+func (b *recordingBridge) Export(r *Exported) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	c := *r
 	c.Record = r.Record.Clone()
 	b.got = append(b.got, c)
-	return b.err
+}
+
+// records returns the number of records exported so far.
+func (b *recordingBridge) records() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.got)
 }
 
 func recordAttrs(r slog.Record) map[string]string {
@@ -411,11 +422,11 @@ func TestBridgeSlotGroupRedacted(t *testing.T) {
 	}
 }
 
-// After the stdout write each record goes once to the OTLP bridge, with
-// framing members as attributes, groups applied, trace IDs separate and
-// node_id left to the resource.
+// Each record goes once to the OTLP bridge when it is queued, before any
+// stdout write, with framing members as attributes, groups applied, trace
+// IDs separate and node_id left to the resource.
 func TestBridge(t *testing.T) {
-	s, _ := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
+	s, out := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
 	b := &recordingBridge{}
 	s.SetBridge(b)
 	s.SetRevision("rev-0123456789ab")
@@ -430,12 +441,15 @@ func TestBridge(t *testing.T) {
 	slog.New(s.Handler("")).InfoContext(t.Context(), "nested",
 		slog.Group("", slog.Group("", slog.String(catalog.KeyCode, "RZ-RT-002"), slog.Int("k", 3)),
 			slog.Group(catalog.KeyError, slog.String("kind", "x"))))
+	if len(b.got) != 3 || out.Writes() != 0 {
+		t.Fatalf("bridge got %d records and stdout %d writes before the worker ran, want 3 and 0", len(b.got), out.Writes())
+	}
 	drain(s)
 	if len(b.got) != 3 {
-		t.Fatalf("bridge got %d records", len(b.got))
+		t.Fatalf("bridge got %d records after the stdout write, want the same 3", len(b.got))
 	}
 	first := b.got[0]
-	if !first.HasTrace || first.TraceID != testIDs().trace || first.SpanID != testIDs().span || first.Dropped {
+	if !first.HasTrace || first.TraceID != testIDs().trace || first.SpanID != testIDs().span {
 		t.Errorf("trace = %+v", first)
 	}
 	want := map[string]string{
@@ -465,28 +479,56 @@ func TestBridge(t *testing.T) {
 	}
 }
 
-// A record lost by stdout still reaches the bridge, flagged, and is counted
-// once even when the bridge fails too; a bridge failure alone counts
-// export_error.
-func TestDropCountedOnce(t *testing.T) {
-	b := &recordingBridge{err: errors.New("export failed")}
+// A record lost by stdout, to a failed write or to a full queue, still
+// reaches the bridge, and stdout counts its loss once in its own Stats.
+func TestStdoutLossKeepsTheBridge(t *testing.T) {
+	b := &recordingBridge{}
 	s, _ := newSink(t, Options{Stdout: &failWriter{}})
 	s.SetBridge(b)
 	s.Logger("c").InfoContext(t.Context(), "m")
 	drain(s)
-	if st := s.Stats(); st.ExportError != 1 {
+	if st := s.Stats(); st.ExportError != 1 || st.QueueFull != 0 {
 		t.Fatalf("stats = %+v, want exactly one export error", st)
 	}
-	if len(b.got) != 1 || !b.got[0].Dropped {
-		t.Fatalf("bridge got %+v", b.got)
+	if b.records() != 1 {
+		t.Fatalf("bridge got %d records after a failed write, want 1", b.records())
 	}
 
-	s2, _ := newSink(t, Options{})
-	s2.SetBridge(b)
-	s2.Logger("c").InfoContext(t.Context(), "m")
-	drain(s2)
-	if st := s2.Stats(); st.ExportError != 1 {
-		t.Fatalf("stats = %+v, want the bridge failure counted", st)
+	b2 := &recordingBridge{}
+	s2, _ := newSink(t, Options{QueueRecords: 2})
+	s2.SetBridge(b2)
+	for range 5 {
+		s2.Logger("c").InfoContext(t.Context(), "m")
+	}
+	if st := s2.Stats(); st.QueueFull != 3 || b2.records() != 5 {
+		t.Fatalf("stats = %+v with %d bridged; want 3 queue_full drops and all 5 bridged", st, b2.records())
+	}
+	s2.Close()
+	s2.Logger("c").InfoContext(t.Context(), "after close")
+	if st := s2.Stats(); st.QueueFull != 6 || b2.records() != 6 {
+		t.Fatalf("after Close: stats = %+v with %d bridged; want the record dropped from stdout and bridged", st, b2.records())
+	}
+}
+
+// A record too large for the stdout byte budget is dropped from stdout
+// without being frozen when no bridge is set, and frozen for the bridge
+// alone when one is.
+func TestOversizedRecordReachesTheBridge(t *testing.T) {
+	big := strings.Repeat("x", 4096)
+	s, out := newSink(t, Options{QueueBytes: 1024})
+	s.Logger("c").InfoContext(t.Context(), "m", slog.String("v", big))
+	if st := s.Stats(); st.QueueFull != 1 {
+		t.Fatalf("stats = %+v, want the record dropped from stdout", st)
+	}
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	s.Logger("c").InfoContext(t.Context(), "m", slog.Any("h", http.Header{"Authorization": {"Bearer LEAK"}, "X-Pad": {big}}))
+	drain(s)
+	if st := s.Stats(); st.QueueFull != 2 || b.records() != 1 || len(out.lines(t)) != 0 {
+		t.Fatalf("stats = %+v, %d bridged, %d lines; want stdout to drop it and the bridge to take it", st, b.records(), len(out.lines(t)))
+	}
+	if got := recordAttrs(b.got[0].Record)["h"]; strings.Contains(got, "LEAK") || !strings.Contains(got, "[REDACTED]") {
+		t.Errorf("bridged h = %q, want the frozen header map with Authorization redacted", got)
 	}
 }
 
@@ -512,11 +554,12 @@ func TestErrorLogBridge(t *testing.T) {
 // TestCloseCountsAbandonedBatch checks that when the owner gives up on a
 // worker blocked in its write, Close counts the queued records as
 // queue_full and the lines of the blocked batch as export_error, once: the
-// batch written later is neither counted again nor counted by the bridge.
+// batch written later is not counted again. The bridge took every record
+// when it was queued, whatever stdout did with it.
 func TestCloseCountsAbandonedBatch(t *testing.T) {
 	bw := newBlockingWriter()
 	s, _ := newSink(t, Options{Stdout: bw})
-	b := &recordingBridge{err: errors.New("bridge failure")}
+	b := &recordingBridge{}
 	s.SetBridge(b)
 	log := s.Logger("c")
 	ctx := t.Context()
@@ -542,10 +585,8 @@ func TestCloseCountsAbandonedBatch(t *testing.T) {
 	if st := s.Stats(); st != want {
 		t.Fatalf("stats after the write returned = %+v, want %+v", st, want)
 	}
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if len(b.got) != 3 || !b.got[0].Dropped || !b.got[2].Dropped {
-		t.Fatalf("bridge got %d records, want 3 flagged Dropped", len(b.got))
+	if n := b.records(); n != 5 {
+		t.Fatalf("bridge got %d records, want all 5", n)
 	}
 	if s.bytes.Load() != 0 {
 		t.Fatalf("byte budget not released: %d", s.bytes.Load())

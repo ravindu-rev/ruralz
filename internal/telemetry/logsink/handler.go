@@ -211,9 +211,11 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 	return &Handler{s: h.s, st: st}
 }
 
-// Handle queues r: it counts the record as produced, and drops it with
+// Handle queues r: it counts the record as produced, hands it to the
+// Bridge when one is set, and queues it for stdout, where it drops with
 // reason queue_full when the Sink is closed or its queue is out of
-// records or bytes. It never blocks and always returns nil.
+// records or bytes; that drop never keeps the record from the Bridge. It
+// never blocks and always returns nil.
 //
 // The byte reservation counts what the queued record holds: the message,
 // string values, and the full size of the values freeze copies (byte
@@ -224,10 +226,7 @@ func (h *Handler) WithGroup(name string) slog.Handler {
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	s := h.s
 	s.produced.Add(1)
-	if s.closed.Load() {
-		s.queueFull.Add(1)
-		return nil
-	}
+	box := s.bridge.Load()
 	size := int64(entryOverhead + len(r.Message))
 	needFreeze := false
 	r.Attrs(func(a slog.Attr) bool {
@@ -237,28 +236,47 @@ func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 		}
 		return true
 	})
-	if len(s.q) == cap(s.q) || !s.reserve(size) {
+	// Stdout and the Bridge take the record independently: a record the
+	// stdout queue has no room for still goes to the Bridge.
+	stdout := !s.closed.Load() && len(s.q) < cap(s.q) && s.reserve(size)
+	if !stdout {
 		s.queueFull.Add(1)
-		return nil
-	}
-	rec := freezeRecord(r, s.creds.Load(), needFreeze)
-	if needFreeze {
-		frozen := recordSize(rec)
-		if !s.resize(size, frozen) {
-			s.queueFull.Add(1)
+		if box == nil {
 			return nil
 		}
-		size = frozen
+	}
+	rec := freezeRecord(r, s.creds.Load(), needFreeze)
+	if stdout && needFreeze {
+		frozen := recordSize(rec)
+		if s.resize(size, frozen) {
+			size = frozen
+		} else {
+			stdout = false
+			s.queueFull.Add(1)
+			if box == nil {
+				return nil
+			}
+		}
 	}
 	e := s.getEntry()
 	e.st = h.st
-	e.size = size
 	e.rec = rec
+	if stdout {
+		e.size = size
+	}
 	if rev := s.revision.Load(); rev != nil {
 		e.revision = *rev
 	}
 	if s.traceContext != nil && ctx != nil {
 		e.traceID, e.spanID, e.hasTrace = s.traceContext(ctx)
+	}
+	if box != nil {
+		ex := s.exported(e)
+		box.b.Export(&ex)
+	}
+	if !stdout {
+		s.release(e)
+		return nil
 	}
 	select {
 	case s.q <- e:

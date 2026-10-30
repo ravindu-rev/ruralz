@@ -195,7 +195,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_runtime_gc_cpu_seconds_total`, `ruralz_runtime_allocations_total` | Counter | seconds, objects | none | GC CPU time (`/cpu/classes/gc/total:cpu-seconds`) and heap allocations (`/gc/heap/allocs:objects`), for the GC share of [Performance budgets](12-performance-budgets-and-benchmarking.md#resources-per-core) and its GOGC rule |
 | `ruralz_telemetry_spans_total`, `ruralz_telemetry_spans_dropped_total` | Counter | spans | `reason` when dropped | Offered to export; queue_full, export_error |
 | `ruralz_telemetry_traces_unsampled_total` | Counter | traces | `reason` | rate_cap_root, rate_cap_parent |
-| `ruralz_telemetry_logs_total`, `ruralz_telemetry_logs_dropped_total` | Counter | records | `stream`; `reason` when dropped | access, process; queue_full, export_error |
+| `ruralz_telemetry_logs_total`, `ruralz_telemetry_logs_dropped_total` | Counter | records | `stream`; `sink` and `reason` when dropped | access, process; stdout, otlp, each sink counting a record it loses once; queue_full, export_error |
 | `ruralz_telemetry_access_log_cel_errors_total` | Counter | errors | none | `Gateway.spec.telemetry.accessLog.when` runtime errors; each still writes its entry |
 | `ruralz_telemetry_folded_label_sets` | Gauge | label sets | `instrument` | Folded into `_overflow` |
 | `ruralz_telemetry_series` | Gauge | series | `state` | live, retiring |

@@ -131,7 +131,7 @@ func New(o Options) (*Runtime, error) {
 		r.metricInterval = o.MetricInterval
 	}
 	r.ratio.Store(math.Float64bits(tracing.DefaultTraceSampling))
-	r.access = accesslog.New(accesslog.Options{NodeID: o.NodeID, Clock: r.clk})
+	r.access = accesslog.New(accesslog.Options{NodeID: o.NodeID})
 	r.sink, err = logsink.New(logsink.Options{
 		Stdout:       o.Stdout,
 		Level:        o.Level,
@@ -219,15 +219,20 @@ func tracingCounters(reg *aggregate.Registry) (tracing.Counters, error) {
 	return c, nil
 }
 
-// streamCounts reads both streams' counters with the OTLP-side losses.
+// streamCounts reads both streams' counters: stdout's losses from the
+// streams, the OTLP sink's from the log processors.
 func (r *Runtime) streamCounts() [numStreams]streamCounts {
 	var out [numStreams]streamCounts
 	acc, proc := r.access.Stats(), r.sink.Stats()
-	out[streamAccess] = streamCounts{produced: acc.Produced, queueFull: acc.QueueFull, exportError: acc.ExportError}
-	out[streamProcess] = streamCounts{produced: proc.Produced, queueFull: proc.QueueFull, exportError: proc.ExportError}
+	out[streamAccess].produced = acc.Produced
+	out[streamAccess].queueFull[sinkStdout] = acc.QueueFull
+	out[streamAccess].exportError[sinkStdout] = acc.ExportError
+	out[streamProcess].produced = proc.Produced
+	out[streamProcess].queueFull[sinkStdout] = proc.QueueFull
+	out[streamProcess].exportError[sinkStdout] = proc.ExportError
 	for s := range numStreams {
-		out[s].queueFull += r.drops.queueFull[s].Load()
-		out[s].exportError += r.drops.exportError[s].Load()
+		out[s].queueFull[sinkOTLP] = r.drops.queueFull[s].Load()
+		out[s].exportError[sinkOTLP] = r.drops.exportError[s].Load()
 	}
 	return out
 }
@@ -344,9 +349,14 @@ func (r *Runtime) Apply(ctx context.Context, s Settings) error {
 	if cur != nil {
 		cur.current.Store(false)
 		// The retirement outlives this activation, so it keeps ctx's values
-		// but not its cancellation, and ends within retireTimeout or when
-		// Shutdown cuts it short.
-		rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retireTimeout)
+		// but not its cancellation, and ends within retireTimeout on the
+		// runtime's clock or when Shutdown cuts it short.
+		rctx, cancelCtx := context.WithCancel(context.WithoutCancel(ctx))
+		bound := r.clk.AfterFunc(retireTimeout, cancelCtx)
+		cancel := func() {
+			bound.Stop()
+			cancelCtx()
+		}
 		id := r.nextCancel
 		r.nextCancel++
 		r.cancels[id] = cancel

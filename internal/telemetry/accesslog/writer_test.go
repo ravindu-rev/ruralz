@@ -4,13 +4,10 @@
 package accesslog
 
 import (
-	"errors"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
-	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
@@ -225,18 +222,12 @@ func TestSubmitKeepsNoCallerSlice(t *testing.T) {
 
 // TestCloseCountsUnflushedLines checks that Close counts the lines a
 // worker blocked in its write still holds as export_error, once; when the
-// worker later settles them they are not counted again and reach the
-// bridge flagged.
+// worker later settles them they are not counted again. The bridge took
+// every record at Submit.
 func TestCloseCountsUnflushedLines(t *testing.T) {
 	w := New(Options{})
-	var bridged, flagged int
-	w.SetBridge(bridgeFunc(func(r *Exported) error {
-		bridged++
-		if r.Dropped {
-			flagged++
-		}
-		return errors.New("bridge failure is not counted for a dropped record")
-	}))
+	b := &holdingBridge{}
+	w.SetBridge(b)
 	for range 3 {
 		w.Submit(w.Acquire())
 	}
@@ -252,12 +243,13 @@ func TestCloseCountsUnflushedLines(t *testing.T) {
 	if st := w.Stats(); st != (Stats{Produced: 3, QueueFull: 1, ExportError: 2}) {
 		t.Fatalf("stats after Flushed = %+v, want no double count", st)
 	}
-	if bridged != 2 || flagged != 2 {
-		t.Fatalf("bridged %d, flagged %d", bridged, flagged)
+	if b.held() != 3 {
+		t.Fatalf("bridged %d records, want all 3", b.held())
 	}
 	if w.bytes.Load() != 0 {
 		t.Fatalf("reservation not released: %d", w.bytes.Load())
 	}
+	b.releaseAll()
 }
 
 // TestSubmitRacingClose checks that a Submit racing Close never leaves a
@@ -316,62 +308,155 @@ func TestWake(t *testing.T) {
 	}
 }
 
-type bridgeFunc func(*Exported) error
+// holdingBridge keeps the records it is handed until released, as the
+// telemetry runtime's export queue does.
+type holdingBridge struct {
+	mu   sync.Mutex
+	kept []Pending
+}
 
-func (f bridgeFunc) Export(r *Exported) error { return f(r) }
+func (b *holdingBridge) Export(p Pending) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.kept = append(b.kept, p)
+}
 
-// Lines lost by stdout count export_error once, reach the bridge flagged
-// Dropped, and a bridge failure alone counts export_error.
+// records returns the records held, in Submit order.
+func (b *holdingBridge) records() []Pending {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]Pending(nil), b.kept...)
+}
+
+// held returns the number of records held.
+func (b *holdingBridge) held() int { return len(b.records()) }
+
+// releaseAll releases every record held.
+func (b *holdingBridge) releaseAll() {
+	b.mu.Lock()
+	kept := b.kept
+	b.kept = nil
+	b.mu.Unlock()
+	for _, p := range kept {
+		p.Release()
+	}
+}
+
+// The bridge takes each record at Submit, before any stdout write, with
+// the stdout line, the start time and the span context; lines lost by
+// stdout count export_error once in stdout's Stats and leave the bridge's
+// records intact, which stay readable after stdout released them.
 func TestFlushedAndBridge(t *testing.T) {
-	fake := clocktest.New(time.Date(2026, 9, 26, 8, 0, 0, 0, time.UTC))
-	w := New(Options{NodeID: testNode, Clock: fake})
-	var got []Exported
-	var mu sync.Mutex
-	w.SetBridge(bridgeFunc(func(r *Exported) error {
-		mu.Lock()
-		defer mu.Unlock()
-		c := *r
-		c.Line = append([]byte(nil), r.Line...)
-		got = append(got, c)
-		if strings.Contains(string(r.Line), `"route":"fail"`) {
-			return errors.New("export failed")
-		}
-		return nil
-	}))
-	for _, route := range []string{"ok", "fail", "lost", "lostfail"} {
+	w := New(Options{NodeID: testNode})
+	b := &holdingBridge{}
+	w.SetBridge(b)
+	for _, route := range []string{"ok", "second", "lost", "lost2"} {
 		r := w.Acquire()
 		fullRecord(r)
 		r.Route = route
-		if route == "lostfail" {
-			r.Route = "fail"
-		}
 		w.Submit(r)
 	}
-	lines := drainLines(w, 2)
-	if len(lines) != 4 || len(got) != 4 {
-		t.Fatalf("lines %d, bridged %d", len(lines), len(got))
+	if b.held() != 4 {
+		t.Fatalf("bridged %d records at Submit, want 4", b.held())
 	}
-	if st := w.Stats(); st.ExportError != 3 {
-		t.Fatalf("stats = %+v, want 2 stdout losses and 1 bridge failure", st)
+	lines := drainLines(w, 2)
+	if len(lines) != 4 {
+		t.Fatalf("lines %d, want 4", len(lines))
+	}
+	if st := w.Stats(); st.ExportError != 2 || st.QueueFull != 0 {
+		t.Fatalf("stats = %+v, want the 2 stdout losses", st)
 	}
 	want := &emit.AccessRecord{}
 	fullRecord(want)
-	for i, ex := range got {
-		if ex.Dropped != (i >= 2) {
-			t.Errorf("record %d Dropped = %v", i, ex.Dropped)
+	for i, p := range b.records() {
+		traceID, spanID, sampled := p.Trace()
+		if !p.Start().Equal(want.Start) || traceID != want.TraceID || spanID != want.SpanID || !sampled {
+			t.Errorf("record %d: start %v, trace %x %x %v", i, p.Start(), traceID, spanID, sampled)
 		}
-		if !ex.Start.Equal(want.Start) || !ex.Observed.Equal(fake.Now()) || ex.TraceID != want.TraceID || ex.SpanID != want.SpanID || !ex.Sampled {
-			t.Errorf("record %d = %+v", i, ex)
+		if got := string(p.AppendLine(nil)); got != lines[i] {
+			t.Errorf("bridge line %d differs from stdout:\n%s\n%s", i, got, lines[i])
 		}
-		if string(ex.Line) != lines[i] {
-			t.Errorf("bridge line %d differs from stdout:\n%s\n%s", i, ex.Line, lines[i])
+		if p.Size() != int64(entryOverhead+len(p.e.arena)) || p.Size() <= entryOverhead {
+			t.Errorf("record %d Size = %d", i, p.Size())
 		}
 	}
+	b.releaseAll()
 	w.SetBridge(nil)
 	w.Submit(w.Acquire())
 	drainLines(w, 0)
-	if len(got) != 4 {
+	if b.held() != 0 {
 		t.Fatal("bridge called after SetBridge(nil)")
+	}
+}
+
+// A record stdout has no room for, by records, by bytes or after Close,
+// still reaches the bridge; stdout counts it as queue_full and holds no
+// reservation for it.
+func TestStdoutDropsKeepTheBridge(t *testing.T) {
+	w := New(Options{NodeID: testNode, QueueRecords: 2})
+	b := &holdingBridge{}
+	w.SetBridge(b)
+	for range 5 {
+		w.Submit(w.Acquire())
+	}
+	if st := w.Stats(); st.QueueFull != 3 || b.held() != 5 {
+		t.Fatalf("stats = %+v with %d bridged; want 3 queue_full and all 5 bridged", st, b.held())
+	}
+	reserved := w.bytes.Load()
+	small := New(Options{NodeID: testNode, QueueBytes: 1})
+	small.SetBridge(b)
+	small.Submit(small.Acquire())
+	if st := small.Stats(); st.QueueFull != 1 || b.held() != 6 || small.bytes.Load() != 0 {
+		t.Fatalf("byte budget: stats = %+v, %d bridged, reserved %d", st, b.held(), small.bytes.Load())
+	}
+	w.Close()
+	w.Submit(w.Acquire())
+	if st := w.Stats(); st.QueueFull != 6 || b.held() != 7 {
+		t.Fatalf("after Close: stats = %+v with %d bridged", st, b.held())
+	}
+	if w.bytes.Load() != 0 || reserved == 0 {
+		t.Fatalf("reservations %d before Close, %d after; want both stdout records reserved, then released", reserved, w.bytes.Load())
+	}
+	b.releaseAll()
+}
+
+// An entry returns to its pool only when stdout and the bridge both
+// released it, in either order, so neither ever reads a reused entry.
+func TestEntrySharedUntilBothRelease(t *testing.T) {
+	w := New(Options{NodeID: testNode})
+	b := &holdingBridge{}
+	w.SetBridge(b)
+	r := w.Acquire()
+	fullRecord(r)
+	w.Submit(r)
+	p := b.records()[0]
+	if got := p.e.refs.Load(); got != 2 {
+		t.Fatalf("refs after Submit = %d, want 2", got)
+	}
+	drainLines(w, 0)
+	if got := p.e.refs.Load(); got != 1 || len(p.e.arena) == 0 {
+		t.Fatalf("after stdout: refs %d, arena %d bytes; want the bridge's reference and the record intact", got, len(p.e.arena))
+	}
+	line := string(p.AppendLine(nil))
+	b.releaseAll()
+	if got := p.e.refs.Load(); got != 0 || len(p.e.arena) != 0 {
+		t.Fatalf("after both: refs %d, arena %d bytes; want the entry reset", got, len(p.e.arena))
+	}
+	if !strings.Contains(line, `"route":"orders-summary"`) {
+		t.Errorf("line read after stdout = %s", line)
+	}
+
+	// The bridge first, then stdout.
+	r = w.Acquire()
+	fullRecord(r)
+	w.Submit(r)
+	p = b.records()[0]
+	b.releaseAll()
+	if got := p.e.refs.Load(); got != 1 {
+		t.Fatalf("refs after the bridge = %d, want stdout's", got)
+	}
+	if lines := drainLines(w, 0); len(lines) != 1 || !strings.Contains(lines[0], `"route":"orders-summary"`) {
+		t.Fatalf("stdout after the bridge released = %q", lines)
 	}
 }
 

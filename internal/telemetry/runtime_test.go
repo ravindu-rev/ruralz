@@ -73,8 +73,14 @@ func TestLogCountersReachMetrics(t *testing.T) {
 	if v := value(t, set, catalog.TelemetryLogsTotal, "stream", "access"); v != 1 {
 		t.Errorf("access records = %v, want 1", v)
 	}
-	if v := value(t, set, catalog.TelemetryLogsDroppedTotal, "stream", "process", "reason", "queue_full"); v != 0 {
-		t.Errorf("process queue_full = %v", v)
+	for _, sink := range catalog.LogSinks() {
+		for _, stream := range []string{"access", "process"} {
+			for _, reason := range []string{"queue_full", "export_error"} {
+				if v := value(t, set, catalog.TelemetryLogsDroppedTotal, "stream", stream, "sink", sink, "reason", reason); v != 0 {
+					t.Errorf("%s %s %s drops = %v, want an exported 0", stream, sink, reason, v)
+				}
+			}
+		}
 	}
 }
 

@@ -89,7 +89,7 @@ func TestExportOverTLS(t *testing.T) {
 	if err := r.pipe.lp.ForceFlush(ctx); err != nil {
 		t.Fatalf("log flush: %v", err)
 	}
-	if err := r.pipe.mp.ForceFlush(ctx); err != nil {
+	if err := r.pipe.push.pushNow(ctx); err != nil {
 		t.Fatalf("metric flush: %v", err)
 	}
 
@@ -140,8 +140,8 @@ func TestExportOverTLS(t *testing.T) {
 // first export after the collector returns clears it.
 func TestCollectorDownRaisesFailing(t *testing.T) {
 	sink := startSink(t, otlpsink.Config{Mode: otlpsink.Down{}})
-	// An interval of an hour keeps the real-time metric push out of the
-	// test; the fake clock moves the failure run past it.
+	// The metric push follows the fake clock, which moves the failure run
+	// past one interval; it pushes, and fails, on the way.
 	r, _ := newRuntime(t, func(o *Options) { o.MetricInterval = time.Hour })
 	r.export = exportBounds{timeout: time.Second}
 	applyEndpoint(t, r, cleartext(sink), nil)
@@ -171,8 +171,8 @@ func TestCollectorDownRaisesFailing(t *testing.T) {
 	}
 	// The connection backs off after the refusals: reset the backoff and
 	// export until one gets through. Every signal that failed clears on
-	// its own next success, so the logs (whose failure was logged too)
-	// need a record of their own.
+	// its own next success, so the logs (whose failure was logged too) and
+	// the metrics need an export of their own.
 	for failing() != 0 {
 		if ctx.Err() != nil {
 			t.Fatal("never cleared after the collector returned")
@@ -182,6 +182,7 @@ func TestCollectorDownRaisesFailing(t *testing.T) {
 		_ = r.Tracer().ForceFlush(ctx)
 		r.Logger("probe").Info("collector back")
 		_ = r.pipe.lp.ForceFlush(ctx)
+		_ = r.pipe.push.pushNow(ctx)
 		time.Sleep(50 * time.Millisecond)
 	}
 	if v := value(t, scrapeAfter(t, r), catalog.SecurityCleartextHops, "hop", "telemetry"); v != 1 {
@@ -195,7 +196,9 @@ func TestCollectorDownRaisesFailing(t *testing.T) {
 func TestCollectorStallDropsQueueFull(t *testing.T) {
 	sink := startSink(t, otlpsink.Config{Mode: otlpsink.Stall{}})
 	r, _ := newRuntime(t, nil)
-	r.export = exportBounds{timeout: 500 * time.Millisecond}
+	// The export bound runs on the fake clock, which the loop below moves
+	// by 10 s in all: an hour keeps the first export stalled throughout.
+	r.export = exportBounds{timeout: time.Hour}
 	applyEndpoint(t, r, cleartext(sink), nil)
 	clk := r.clk.(*clocktest.Fake)
 	start := time.Now()

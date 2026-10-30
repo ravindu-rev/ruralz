@@ -101,9 +101,16 @@ type Process struct {
 	name           string
 	cmd            *exec.Cmd
 	stdout, stderr *ring
-	done           chan struct{}
-	outPath        string
-	errPath        string
+	// out is the read end of the stdout pipe, which copyOut reads into
+	// stdout until outDone closes. The Process reads stdout itself rather
+	// than through exec.Cmd, whose Wait waits for its copying goroutines:
+	// a held stdout (BlockStdout) would keep Wait, and so the release on
+	// exit, from ever returning.
+	out     *os.File
+	outDone chan struct{}
+	done    chan struct{}
+	outPath string
+	errPath string
 	// Set by the reaper before done is closed.
 	state   *os.ProcessState
 	waitErr error
@@ -163,14 +170,22 @@ func Start(ctx context.Context, s Spec) (*Process, error) {
 		cmd.Stdin = s.Stdin
 	}
 	cmd.ExtraFiles = s.ExtraFiles
-	cmd.Stdout = p.stdout
+	out, outW, err := os.Pipe()
+	if err != nil {
+		p.stdout.closeFile()
+		p.stderr.closeFile()
+		return nil, fmt.Errorf("proc: start %s: %w", name, err)
+	}
+	p.out, p.outDone = out, make(chan struct{})
+	cmd.Stdout = outW
 	cmd.Stderr = p.stderr
 	cmd.SysProcAttr = sysProcAttr()
 	cmd.WaitDelay = WaitDelay
 	p.cmd = cmd
 	started := make(chan error, 1)
-	go p.run(started)
+	go p.run(started, outW)
 	if err := <-started; err != nil {
+		_ = out.Close()
 		p.stdout.closeFile()
 		p.stderr.closeFile()
 		return nil, fmt.Errorf("proc: start %s: %w", name, err)
@@ -178,19 +193,39 @@ func Start(ctx context.Context, s Spec) (*Process, error) {
 	return p, nil
 }
 
-// run is the one goroutine a Process owns: it starts the process, reports
-// the start on started and reaps it, holding its OS thread from the fork
-// until the exit (see Start). It ends when the process exits or fails to
-// start.
-func (p *Process) run(started chan<- error) {
+// run is the goroutine a Process owns: it starts the process, reports the
+// start on started, starts copyOut and reaps the process, holding its OS
+// thread from the fork until the exit (see Start). It ends when the
+// process exits or fails to start. outW, the stdout pipe's write end,
+// belongs to the child once it started.
+func (p *Process) run(started chan<- error, outW *os.File) {
 	runtime.LockOSThread()
 	defer runtime.UnlockOSThread()
-	if err := p.cmd.Start(); err != nil {
+	err := p.cmd.Start()
+	_ = outW.Close()
+	if err != nil {
 		started <- err
 		return
 	}
+	go p.copyOut()
 	started <- nil
 	p.reap()
+}
+
+// copyOut reads the process's stdout into its ring until the pipe ends:
+// at EOF once every writer closed it, or when the reaper closes it.
+func (p *Process) copyOut() {
+	defer close(p.outDone)
+	buf := make([]byte, 32<<10)
+	for {
+		n, err := p.out.Read(buf)
+		if n > 0 {
+			_, _ = p.stdout.Write(buf[:n])
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 func openLog(path string) (*os.File, error) {
@@ -201,9 +236,20 @@ func openLog(path string) (*os.File, error) {
 	return f, nil
 }
 
-// reap waits for the process to exit and records how it ended.
+// reap waits for the process to exit and records how it ended. A stdout
+// still blocked (BlockStdout) is released once the process exited, and its
+// pipe read to its end within WaitDelay, as exec.Cmd bounds stderr: a
+// leftover child may hold the pipe open.
 func (p *Process) reap() {
 	err := p.cmd.Wait()
+	p.stdout.release()
+	select {
+	case <-p.outDone:
+	case <-time.After(WaitDelay):
+		_ = p.out.Close()
+		<-p.outDone
+	}
+	_ = p.out.Close()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) || errors.Is(err, exec.ErrWaitDelay) ||
 		errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -283,6 +329,14 @@ func (p *Process) State() *os.ProcessState {
 func (p *Process) Output() (stdout, stderr []byte) {
 	return p.stdout.bytes(), p.stderr.bytes()
 }
+
+// BlockStdout stops reading the process's standard output until the
+// returned function is called, as a stdout nobody reads: the harness takes
+// nothing more from the pipe, so once the pipe's buffer fills the
+// process's writes to stdout block. Calling the function, more than once
+// is fine, reads again; the process's exit also releases it, and the
+// reaper then reads the pipe to its end. Standard error stays read.
+func (p *Process) BlockStdout() (unblock func()) { return p.stdout.hold() }
 
 // Written returns the total bytes the process wrote to stdout and stderr,
 // including bytes the rings no longer hold.
@@ -413,10 +467,34 @@ type ring struct {
 	fileErr error
 	notify  chan struct{} // closed on the next write; nil when nobody waits
 	closed  bool
+	// held, while set, is the gate every Write waits on before it takes
+	// the bytes (hold).
+	held atomic.Pointer[chan struct{}]
 }
 
 func newRing(limit int) *ring {
 	return &ring{buf: make([]byte, min(limit, ringInitialBytes)), limit: limit}
+}
+
+// hold makes every Write wait until the returned function, or release,
+// opens the gate.
+func (r *ring) hold() func() {
+	gate := make(chan struct{})
+	if !r.held.CompareAndSwap(nil, &gate) {
+		return func() {} // already held: the first holder releases
+	}
+	return func() {
+		if r.held.CompareAndSwap(&gate, nil) {
+			close(gate)
+		}
+	}
+}
+
+// release opens the gate of a hold, if any.
+func (r *ring) release() {
+	if g := r.held.Swap(nil); g != nil {
+		close(*g)
+	}
 }
 
 // grow enlarges buf, keeping the held bytes in order, until it holds need
@@ -437,6 +515,9 @@ func (r *ring) grow(need int) {
 
 // Write never fails, so the child never blocks on a failed log file.
 func (r *ring) Write(p []byte) (int, error) {
+	if g := r.held.Load(); g != nil {
+		<-*g
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.file != nil && r.fileErr == nil {

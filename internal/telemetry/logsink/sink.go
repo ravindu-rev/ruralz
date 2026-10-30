@@ -11,8 +11,9 @@
 // redacts values that could leak or change (secret values, credential
 // headers, URLs with query strings, header maps), and queues it without
 // blocking into a queue bounded to 4,096 records and 1 MiB. A full queue
-// drops the record and counts it (ruralz_telemetry_logs_dropped_total
-// stream process, reason queue_full). No request goroutine ever writes.
+// drops the record from stdout and counts it
+// (ruralz_telemetry_logs_dropped_total stream process, sink stdout, reason
+// queue_full). No request goroutine ever writes.
 //
 // Redaction and copying cover these value types, directly or through one
 // pointer: LogValuer (resolved at once), http.Header and
@@ -31,12 +32,18 @@
 // One worker goroutine (Run) drains the process queue and, when present,
 // a second Stream (the access log of internal/telemetry/accesslog), encodes
 // each record as one JSON line into a 64 KiB batch, and writes the batch
-// to stdout when it fills or the queues drain. After the write it hands
-// each record once to the OTLP Bridge, if one is set. A failed write
-// counts export_error for the stream that lost the line; a record is
-// counted as dropped at most once. Close counts what an abandoned worker
-// still holds: queued records as queue_full, and the lines of the batch
-// it is writing as export_error.
+// to stdout when it fills or the queues drain. A failed write counts
+// export_error for the stream that lost the line. Close counts what an
+// abandoned worker still holds: queued records as queue_full, and the
+// lines of the batch it is writing as export_error.
+//
+// The OTLP Bridge, when one is set, takes each record when it is queued,
+// on the goroutine that logged it, never after its stdout write: a record
+// the stdout queue has no room for still reaches the Bridge, so a blocked
+// stdout loses only stdout lines and never stops OTLP log export. Each
+// sink counts a record it loses once (ruralz_telemetry_logs_dropped_total
+// with sink stdout or otlp): Stats holds the stdout sink's losses, and the
+// Bridge counts its own.
 //
 // Process lines carry, in order: time (RFC 3339 UTC with microseconds),
 // level, msg, component, node_id, revision (absent before the first
@@ -93,11 +100,12 @@ type Stream interface {
 
 // Bridge exports process records over OTLP logs; internal/telemetry
 // implements it over the otelslog handler, building the span context from
-// TraceID and SpanID. Export runs on the worker after the stdout write,
-// once per record, and must not block; an error counts export_error
-// unless the record was already counted as dropped.
+// TraceID and SpanID. Export runs when the record is queued, on the
+// goroutine that logged it, once per record whether or not stdout has room
+// for it, and must not block; the Bridge counts the records it loses
+// itself (ruralz_telemetry_logs_dropped_total with sink otlp).
 type Bridge interface {
-	Export(r *Exported) error
+	Export(r *Exported)
 }
 
 // Exported is one record handed to the Bridge, valid until Export returns.
@@ -113,9 +121,6 @@ type Exported struct {
 	SpanID  [8]byte
 	// HasTrace reports a valid span context.
 	HasTrace bool
-	// Dropped is true when the stdout write already lost and counted the
-	// record; the Bridge must not count it again.
-	Dropped bool
 }
 
 // Options configure a Sink.
@@ -131,8 +136,10 @@ type Options struct {
 	// TraceContext returns the trace and span IDs of ctx's valid span
 	// context (injected by internal/telemetry); nil logs no trace IDs.
 	TraceContext func(ctx context.Context) (traceID [16]byte, spanID [8]byte, ok bool)
-	// ReplaceAttr is an extra redaction hook (internal/redact), called on
-	// the worker for every non-group attribute with its groups.
+	// ReplaceAttr is an extra redaction hook (internal/redact), called for
+	// every non-group attribute with its groups: on the worker for the
+	// stdout line and, while a Bridge is set, on the logging goroutine for
+	// the OTLP record. It must be safe for concurrent use.
 	ReplaceAttr func(groups []string, a slog.Attr) slog.Attr
 	// Access is the access-log stream the worker also drains; optional.
 	Access Stream
@@ -143,15 +150,17 @@ type Options struct {
 	BatchBytes   int
 }
 
-// Stats are the counters of one log stream: Produced feeds
+// Stats are the counters of one log stream on stdout: Produced feeds
 // ruralz_telemetry_logs_total, QueueFull and ExportError feed
-// ruralz_telemetry_logs_dropped_total by reason.
+// ruralz_telemetry_logs_dropped_total with sink stdout, by reason. The
+// Bridge counts the OTLP sink's losses.
 type Stats struct {
 	// Produced counts records handled (at or above the level).
 	Produced uint64
-	// QueueFull counts records dropped because a queue was full or closed.
+	// QueueFull counts records stdout lost because its queue was full, out
+	// of bytes or closed.
 	QueueFull uint64
-	// ExportError counts records lost by a failed stdout write or Bridge.
+	// ExportError counts records stdout lost to a failed write.
 	ExportError uint64
 }
 
@@ -289,7 +298,8 @@ func (s *Sink) SetRevision(display string) {
 // Revision and the headers set by upstream-auth Filters.
 func (s *Sink) SetCredentialHeaders(names []string) { s.creds.Store(newCredSet(names)) }
 
-// SetBridge sets the OTLP bridge; nil stops OTLP export of process logs.
+// SetBridge sets the OTLP bridge, which takes every record queued after
+// the call; nil stops OTLP export of process logs.
 func (s *Sink) SetBridge(b Bridge) {
 	if b == nil {
 		s.bridge.Store(nil)
@@ -444,7 +454,7 @@ func (s *Sink) nextAccess() bool {
 }
 
 // flush writes the batch, attributes lines lost to a failed write to
-// their stream, hands the process records to the Bridge and releases them.
+// their stream and releases the process records.
 func (s *Sink) flush() {
 	lostProcess, lostAccess := 0, 0
 	if len(s.batch) > 0 {
@@ -471,25 +481,15 @@ func (s *Sink) flush() {
 	}
 }
 
-// finishProcess counts the lost process lines, exports the records to the
-// Bridge and releases them. The last lost records were not written; the
-// first ones Close claimed (see unflushed) were already counted, so they
-// are neither counted again nor counted by the Bridge.
+// finishProcess counts the lost process lines and releases the records.
+// The last lost records were not written; the first ones Close claimed
+// (see unflushed) were already counted, so they are not counted again.
 func (s *Sink) finishProcess(lost int) {
 	n := len(s.pending)
 	claimed := max(n-int(s.unflushed.Swap(0)), 0)
-	box := s.bridge.Load()
 	for i, e := range s.pending {
-		byClose := i < claimed
-		dropped := byClose || i >= n-lost
-		if dropped && !byClose {
+		if i >= claimed && i >= n-lost {
 			s.exportError.Add(1)
-		}
-		if box != nil {
-			ex := s.exported(e, dropped)
-			if err := box.b.Export(&ex); err != nil && !dropped {
-				s.exportError.Add(1)
-			}
 		}
 		s.release(e)
 	}

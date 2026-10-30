@@ -530,10 +530,14 @@ ruralz_telemetry_traces_unsampled_total{reason="rate_cap_parent"} 0 start=0s
 ruralz_telemetry_logs_total{stream="access"} 0 start=0s
 ruralz_telemetry_logs_total{stream="process"} 0 start=0s
 # ruralz_telemetry_logs_dropped_total counter {records} monotonic=true cumulative=true
-ruralz_telemetry_logs_dropped_total{reason="queue_full",stream="access"} 0 start=0s
-ruralz_telemetry_logs_dropped_total{reason="export_error",stream="access"} 0 start=0s
-ruralz_telemetry_logs_dropped_total{reason="queue_full",stream="process"} 0 start=0s
-ruralz_telemetry_logs_dropped_total{reason="export_error",stream="process"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="queue_full",sink="stdout",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",sink="stdout",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="queue_full",sink="otlp",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",sink="otlp",stream="access"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="queue_full",sink="stdout",stream="process"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",sink="stdout",stream="process"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="queue_full",sink="otlp",stream="process"} 0 start=0s
+ruralz_telemetry_logs_dropped_total{reason="export_error",sink="otlp",stream="process"} 0 start=0s
 # ruralz_telemetry_access_log_cel_errors_total counter {errors} monotonic=true cumulative=true
 ruralz_telemetry_access_log_cel_errors_total{} 0 start=0s
 # ruralz_telemetry_folded_label_sets gauge {label_sets}
@@ -564,7 +568,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
 # ruralz_telemetry_series gauge {series}
-ruralz_telemetry_series{state="live"} 1554 start=0s
+ruralz_telemetry_series{state="live"} 1558 start=0s
 ruralz_telemetry_series{state="retiring"} 10 start=0s
 # ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
 ruralz_tap_events_dropped_total{} 0 start=0s

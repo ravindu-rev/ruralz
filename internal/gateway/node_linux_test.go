@@ -251,6 +251,24 @@ func upstreamServer(t *testing.T) *httptest.Server {
 	return up
 }
 
+// TestRunRouteDeadlineOnTheProcessClock checks that the Route deadline runs
+// on the process clock, as the Upstream layer that enforces it does: a
+// process clock an hour ahead of the wall clock, as the controllable-clock
+// build's is once a test has moved it, still serves the Route instead of
+// refusing every request with RZ-RT-007.
+func TestRunRouteDeadlineOnTheProcessClock(t *testing.T) {
+	up := upstreamServer(t)
+	f := newFixture(t, up.Listener.Addr().String())
+	n := startNode(t, f.env(nil))
+	ctx := t.Context()
+	adminURL := "http://127.0.0.1:" + strconv.Itoa(f.adminPort)
+	n.eventually("/readyz ready", func() bool { code, _, _ := get(ctx, adminURL+admin.PathReadyz, false); return code == http.StatusOK })
+	n.clk.Set(time.Now().Add(time.Hour))
+	if code, _, body := get(ctx, "http://127.0.0.1:"+strconv.Itoa(f.webPort)+"/a", false); code != http.StatusOK || body != "orders:/a" {
+		t.Errorf("GET /a with the process clock an hour ahead = %d %q, want 200 %q", code, body, "orders:/a")
+	}
+}
+
 func TestRunServesReloadsAndDrains(t *testing.T) {
 	up := upstreamServer(t)
 	f := newFixture(t, up.Listener.Addr().String())

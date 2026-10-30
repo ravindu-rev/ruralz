@@ -132,10 +132,10 @@ func (p *Program) EvalValue(ctx context.Context, v *expr.Vars) (expr.Value, erro
 	return celtypes.FromVal(out), nil
 }
 
-// eval evaluates the program over v. A stoppable program runs through
-// ContextEval under a pooled stop that fires at the smaller of ctx's
-// deadline and the stop, or at once when ctx has already ended (stopPool);
-// any other program cannot run past the runtime limit and ignores ctx.
+// eval evaluates the program over v. A stoppable program runs under a
+// pooled stop that fires at the smaller of ctx's deadline and the stop, or
+// at once when ctx has already ended (stopPool); any other program cannot
+// run past the runtime limit and ignores ctx.
 func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 	if v == nil {
 		v = &expr.Vars{}
@@ -146,9 +146,7 @@ func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 		err error
 	)
 	if p.stoppable {
-		sctx, st := p.stops.start(ctx, p.stop)
-		out, _, err = p.prg.ContextEval(sctx, act)
-		p.stops.end(st)
+		out, err = p.evalStoppable(ctx, act)
 	} else {
 		out, _, err = p.prg.Eval(act)
 	}
@@ -156,6 +154,45 @@ func (p *Program) eval(ctx context.Context, v *expr.Vars) (ref.Val, error) {
 		return nil, expr.NewEvalError(p.place, errorKind(err), err.Error())
 	}
 	return out, nil
+}
+
+// errStopped is the runtime error of an evaluation its stop ended.
+var errStopped = interpreter.EvalCancelledError{Message: "operation interrupted", Cause: interpreter.ContextCancelled}
+
+// evalStoppable evaluates a stoppable program in an execution frame whose
+// context is the stop, as ContextEval does, and keeps the frame until it
+// has read whether an interrupt check saw the stop. cel-go ends an
+// interrupted comprehension with an error value, which a logical operator
+// absorbs when its other operand decides, as in `list.exists(...) || b`;
+// a stop is a runtime error (docs/architecture/02-configuration-model.md
+// "Limits"), so an evaluation whose interrupt check saw its stop ends with
+// errStopped whatever value it produced. An evaluation that reached no
+// interrupt check after its stop keeps its result, as the stop acts only
+// through those checks. A cost-limit abort keeps its own error.
+func (p *Program) evalStoppable(ctx context.Context, act interpreter.Activation) (ref.Val, error) {
+	frame, err := interpreter.NewExecutionFrame(act)
+	if err != nil {
+		return nil, err
+	}
+	sctx, st := p.stops.start(ctx, p.stop)
+	defer p.stops.end(st)
+	if err := frame.SetContext(sctx, interruptCheckFrequency); err != nil {
+		frame.Close()
+		return nil, err
+	}
+	out, _, err := p.prg.Eval(frame)
+	// CheckInterrupt reports a check that saw the stop; it is read only
+	// once the stop has passed, as before then no check can have seen it.
+	stopped := sctx.Err() != nil && frame.CheckInterrupt()
+	frame.Close()
+	if !stopped {
+		return out, err
+	}
+	var canceled interpreter.EvalCancelledError
+	if errors.As(err, &canceled) && canceled.Cause == interpreter.CostLimitExceeded {
+		return nil, err
+	}
+	return nil, errStopped
 }
 
 // resultError is the KindResultType error of a result that is not want.

@@ -8,10 +8,10 @@ import (
 	"slices"
 )
 
-// exported builds the Bridge view of a written record: the same members
-// as the stdout line, with groups as slog groups. It allocates; it runs on
-// the worker only while a Bridge is set.
-func (s *Sink) exported(e *entry, dropped bool) Exported {
+// exported builds the Bridge view of a queued record: the same members as
+// the stdout line, with groups as slog groups. It allocates; it runs on
+// the logging goroutine only while a Bridge is set.
+func (s *Sink) exported(e *entry) Exported {
 	st := e.st
 	creds := s.creds.Load()
 	r := slog.NewRecord(e.rec.Time, e.rec.Level, e.rec.Message, e.rec.PC)
@@ -81,7 +81,7 @@ func (s *Sink) exported(e *entry, dropped bool) Exported {
 	}
 	r.AddAttrs(framing...)
 	r.AddAttrs(inner...)
-	return Exported{Record: r, TraceID: e.traceID, SpanID: e.spanID, HasTrace: e.hasTrace, Dropped: dropped}
+	return Exported{Record: r, TraceID: e.traceID, SpanID: e.spanID, HasTrace: e.hasTrace}
 }
 
 // exportSlot mirrors appendSlotValue for the Bridge: a group value's

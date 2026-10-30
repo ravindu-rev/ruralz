@@ -38,38 +38,45 @@ const (
 	scrapeBuffer = 64 << 10
 )
 
-// streamCounts are the cumulative counts of one log stream.
+// streamCounts are the cumulative counts of one log stream: the records
+// produced, and the records each sink lost by reason.
 type streamCounts struct {
-	produced, queueFull, exportError uint64
+	produced               uint64
+	queueFull, exportError [numSinks]uint64
 }
 
 // streamStats feeds ruralz_telemetry_logs_total and
-// ruralz_telemetry_logs_dropped_total from the streams' own counters:
-// before each collection it adds what each stream counted since the
-// previous one.
+// ruralz_telemetry_logs_dropped_total from the streams' and sinks' own
+// counters: before each collection it adds what each counted since the
+// previous one. A record a sink loses counts once under that sink, so one
+// record lost by stdout and by OTLP counts once under each.
 type streamStats struct {
 	read func() [numStreams]streamCounts
 
-	produced, queueFull, exportError [numStreams]emit.Counter
+	produced               [numStreams]emit.Counter
+	queueFull, exportError [numStreams][numSinks]emit.Counter
 
 	mu   sync.Mutex
 	last [numStreams]streamCounts
 }
 
-// newStreamStats resolves the counters of both streams.
+// newStreamStats resolves the counters of both streams and both sinks.
 func newStreamStats(reg *aggregate.Registry, read func() [numStreams]streamCounts) (*streamStats, error) {
 	s := &streamStats{read: read}
-	names := [numStreams]string{streamAccess: "access", streamProcess: "process"}
-	for i, name := range names {
+	streams := [numStreams]string{streamAccess: "access", streamProcess: "process"}
+	sinks := catalog.LogSinks()
+	for i, name := range streams {
 		var err error
 		if s.produced[i], err = reg.Counter(catalog.TelemetryLogsTotal, name); err != nil {
 			return nil, fmt.Errorf("telemetry: %w", err)
 		}
-		if s.queueFull[i], err = reg.Counter(catalog.TelemetryLogsDroppedTotal, name, "queue_full"); err != nil {
-			return nil, fmt.Errorf("telemetry: %w", err)
-		}
-		if s.exportError[i], err = reg.Counter(catalog.TelemetryLogsDroppedTotal, name, "export_error"); err != nil {
-			return nil, fmt.Errorf("telemetry: %w", err)
+		for k := range numSinks {
+			if s.queueFull[i][k], err = reg.Counter(catalog.TelemetryLogsDroppedTotal, name, sinks[k], "queue_full"); err != nil {
+				return nil, fmt.Errorf("telemetry: %w", err)
+			}
+			if s.exportError[i][k], err = reg.Counter(catalog.TelemetryLogsDroppedTotal, name, sinks[k], "export_error"); err != nil {
+				return nil, fmt.Errorf("telemetry: %w", err)
+			}
 		}
 	}
 	return s, nil
@@ -80,15 +87,17 @@ func (s *streamStats) sync() {
 	now := s.read()
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	for i := range numStreams {
-		add := func(c emit.Counter, cur, prev uint64) {
-			if cur > prev {
-				c.Add(0, cur-prev)
-			}
+	add := func(c emit.Counter, cur, prev uint64) {
+		if cur > prev {
+			c.Add(0, cur-prev)
 		}
+	}
+	for i := range numStreams {
 		add(s.produced[i], now[i].produced, s.last[i].produced)
-		add(s.queueFull[i], now[i].queueFull, s.last[i].queueFull)
-		add(s.exportError[i], now[i].exportError, s.last[i].exportError)
+		for k := range numSinks {
+			add(s.queueFull[i][k], now[i].queueFull[k], s.last[i].queueFull[k])
+			add(s.exportError[i][k], now[i].exportError[k], s.last[i].exportError[k])
+		}
 		s.last[i] = now[i]
 	}
 }
@@ -116,17 +125,19 @@ func (p *syncProducer) Produce(ctx context.Context) ([]metricdata.ScopeMetrics, 
 	return sm, err
 }
 
-// releasingExporter wraps the OTLP metric exporter: after each export it
-// releases the collection to the producer's pool and reports the result.
+// releasingExporter wraps the OTLP metric exporter: it bounds and retries
+// each export (exportRetry), then releases the collection to the
+// producer's pool and reports the result.
 type releasingExporter struct {
 	sdkmetric.Exporter
 	inner  *aggregate.Producer
 	report func(error)
+	retry  exportRetry
 }
 
 // Export implements sdkmetric.Exporter.
 func (e *releasingExporter) Export(ctx context.Context, rm *metricdata.ResourceMetrics) error {
-	err := e.Exporter.Export(ctx, rm)
+	err := e.retry.run(ctx, func(ctx context.Context) error { return e.Exporter.Export(ctx, rm) })
 	e.inner.ReleaseResource(rm)
 	e.report(err)
 	return err
@@ -219,6 +230,28 @@ func (h *metricsHandler) gather() (func(expfmt.Encoder) error, error) {
 	return h.cached, nil
 }
 
+// acquire takes a scrape slot, waiting up to scrapeWait on the runtime's
+// clock, so the wait is a Node timer the controllable clock drives
+// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+// scope"); false when the wait ends or the scrape goes away first.
+func (h *metricsHandler) acquire(ctx context.Context) bool {
+	select {
+	case h.slots <- struct{}{}:
+		return true
+	default:
+	}
+	t := h.clk.NewTimer(scrapeWait)
+	defer t.Stop()
+	select {
+	case h.slots <- struct{}{}:
+		return true
+	case <-t.C():
+		return false
+	case <-ctx.Done():
+		return false
+	}
+}
+
 // ServeHTTP implements http.Handler.
 func (h *metricsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if req.Method != http.MethodGet && req.Method != http.MethodHead {
@@ -226,12 +259,7 @@ func (h *metricsHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	wait, cancel := context.WithTimeout(req.Context(), scrapeWait)
-	select {
-	case h.slots <- struct{}{}:
-		cancel()
-	case <-wait.Done():
-		cancel()
+	if !h.acquire(req.Context()) {
 		http.Error(w, "too many concurrent scrapes", http.StatusServiceUnavailable)
 		return
 	}

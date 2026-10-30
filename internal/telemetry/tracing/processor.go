@@ -31,7 +31,8 @@ var ErrClosed = errors.New("tracing: processor shut down")
 
 // ProcessorOptions configure a Processor. Zero values take the defaults.
 type ProcessorOptions struct {
-	// Clock schedules the batch interval; nil means clock.Real().
+	// Clock schedules the batch interval and bounds each export; nil
+	// means clock.Real().
 	Clock clock.Clock
 	// QueueSize bounds the queue of ended spans.
 	QueueSize int
@@ -39,7 +40,7 @@ type ProcessorOptions struct {
 	BatchSize int
 	// BatchInterval is the longest a queued span waits for its batch.
 	BatchInterval time.Duration
-	// ExportTimeout bounds one export.
+	// ExportTimeout bounds one export, on Clock.
 	ExportTimeout time.Duration
 	// Spans counts ruralz_telemetry_spans_total.
 	Spans emit.Counter
@@ -77,6 +78,7 @@ type Processor struct {
 	batchSize int
 	interval  time.Duration
 	timeout   time.Duration
+	clock     clock.Clock
 	timer     clock.Timer
 
 	kick     chan struct{}
@@ -115,6 +117,7 @@ func NewProcessor(o ProcessorOptions) *Processor {
 		batchSize:  positive(o.BatchSize, DefaultBatchSize),
 		interval:   positiveDuration(o.BatchInterval, DefaultBatchInterval),
 		timeout:    positiveDuration(o.ExportTimeout, DefaultExportTimeout),
+		clock:      c,
 		kick:       make(chan struct{}, 1),
 		flushes:    make(chan flushRequest),
 		stop:       make(chan flushRequest, 1),
@@ -369,8 +372,12 @@ func (p *Processor) export(ctx context.Context, batch []sdktrace.ReadOnlySpan) [
 	if ref == nil {
 		p.dropExport.Add(0, uint64(len(batch)))
 	} else {
-		ectx, cancel := context.WithTimeout(ctx, p.timeout)
+		// The bound runs on the processor's clock, a Node timer the
+		// controllable clock drives.
+		ectx, cancel := context.WithCancel(ctx)
+		bound := p.clock.AfterFunc(p.timeout, cancel)
 		err := ref.e.ExportSpans(ectx, batch)
+		bound.Stop()
 		cancel()
 		if err != nil {
 			p.dropExport.Add(0, uint64(len(batch)))

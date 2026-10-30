@@ -14,22 +14,32 @@
 // submitted record, which returns to the pool, keeps no caller slice. A
 // record's string values take at most 4 KiB once JSON-escaped, host and
 // user_agent at most 256 bytes and path 1,024; cut fields are named in
-// truncated. The queue is bounded twice: 8,192 records, and a 4 MiB byte
-// budget from which each record reserves its actual size (the bytes copied
-// into its arena plus a fixed overhead for its other members) until it is
-// written; either limit drops the record with reason queue_full. A typical
-// record reserves under 512 bytes, so the record bound is reached first. The
-// budget counts record bytes, not the pooled entry and arena class holding
-// them, so the queue's heap can reach about 2.3 times the budget (about 9.4
-// MiB at the defaults, with every record just over 512 bytes). Submit never
-// blocks and allocates nothing at steady state; a record with failure modes
-// costs the caller its FailureModes slice unless the caller reuses one of its
-// own.
+// truncated. The stdout queue is bounded twice: 8,192 records, and a 4 MiB
+// byte budget from which each record reserves its actual size (the bytes
+// copied into its arena plus a fixed overhead for its other members) until it
+// is written; either limit drops the record from stdout with reason
+// queue_full. A typical record reserves under 512 bytes, so the record bound
+// is reached first. The budget counts record bytes, not the pooled entry and
+// arena class holding them, so the queue's heap can reach about 2.3 times the
+// budget (about 9.4 MiB at the defaults, with every record just over 512
+// bytes). Submit never blocks and allocates nothing at steady state; a record
+// with failure modes costs the caller its FailureModes slice unless the caller
+// reuses one of its own.
 //
 // The stdout worker of internal/telemetry/logsink drains the queue through
 // the logsink.Stream methods (Wake, Next, Flushed, Pending), so one
 // goroutine owns stdout for both streams. Each line is slog-shaped
 // ("level":"INFO","msg":"access") with the members in a fixed order.
+//
+// The OTLP Bridge, when one is set, takes each record when it is queued, as
+// a Pending handle on the same pooled entry, whether or not the stdout queue
+// has room for it, so a blocked stdout never stops OTLP log export. Taking a
+// record costs the request goroutine one reference count: the Bridge reads
+// and encodes the record off the request path and releases it, and the entry
+// returns to its pool once stdout and the Bridge are both done with it. Each
+// sink counts a record it loses once (ruralz_telemetry_logs_dropped_total
+// with sink stdout or otlp): Stats holds the stdout sink's losses, and the
+// Bridge counts its own.
 package accesslog
 
 import (
@@ -37,7 +47,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -51,50 +60,66 @@ const (
 
 // Bridge exports access records over OTLP logs (internal/telemetry maps
 // the line's members to attributes, the start time to the LogRecord
-// timestamp and sets event.name to EventName). Export runs on the stdout
-// worker after the stdout write, once per record, and must not block; an
-// error counts export_error unless the record was already counted.
+// timestamp and sets event.name to EventName). Export runs when the record
+// is queued, on the request goroutine that submitted it, once per record
+// whether or not stdout has room for it. It must not block or do work in
+// proportion to the record: it keeps p and calls p.Release exactly once,
+// at once or after reading the record on a goroutine of its own. The
+// Bridge counts the records it loses itself
+// (ruralz_telemetry_logs_dropped_total with sink otlp).
 type Bridge interface {
-	Export(r *Exported) error
+	Export(p Pending)
 }
 
-// Exported is one record handed to the Bridge, valid until Export returns.
-type Exported struct {
-	// Start is the request start (LogRecord timestamp); Observed is the
-	// emit time (observed timestamp).
-	Start, Observed time.Time
-	// TraceID, SpanID and Sampled are the server span context.
-	TraceID [16]byte
-	SpanID  [8]byte
-	Sampled bool
-	// Line is the record as one JSON object without the newline.
-	Line []byte
-	// Dropped is true when the stdout write already lost and counted the
-	// record; the Bridge must not count it again.
-	Dropped bool
+// Pending is one access record handed to the Bridge. The record is
+// immutable until Release, and its methods are safe to call from any
+// goroutine before Release; none may be called after it.
+type Pending struct {
+	w *Writer
+	e *entry
 }
+
+// Start returns the request start, the LogRecord timestamp.
+func (p Pending) Start() time.Time { return p.e.start }
+
+// Trace returns the server span context of the request.
+func (p Pending) Trace() (traceID [16]byte, spanID [8]byte, sampled bool) {
+	return p.e.traceID, p.e.spanID, p.e.sampled
+}
+
+// AppendLine appends the record to dst as one JSON object, without the
+// newline, exactly as stdout writes it.
+func (p Pending) AppendLine(dst []byte) []byte { return p.e.appendLine(dst, p.w.node) }
+
+// Size returns the bytes the record holds: the bytes copied into its arena
+// plus the fixed overhead of its other members, the actual size it
+// reserves from the stdout budget.
+func (p Pending) Size() int64 { return int64(entryOverhead + len(p.e.arena)) }
+
+// Release gives the record back; the entry returns to its pool once stdout
+// is done with it too.
+func (p Pending) Release() { p.w.deref(p.e) }
 
 // Options configure a Writer.
 type Options struct {
 	// NodeID is the ULID written as node_id.
 	NodeID string
-	// Clock stamps the observed time of bridged records; nil is clock.Real().
-	Clock clock.Clock
 	// QueueRecords and QueueBytes override the defaults when positive.
 	QueueRecords int
 	QueueBytes   int64
 }
 
-// Stats are the access stream counters: Produced feeds
+// Stats are the access stream counters on stdout: Produced feeds
 // ruralz_telemetry_logs_total{stream="access"}, QueueFull and ExportError
-// feed ruralz_telemetry_logs_dropped_total by reason.
+// feed ruralz_telemetry_logs_dropped_total with sink stdout, by reason.
+// The Bridge counts the OTLP sink's losses.
 type Stats struct {
 	// Produced counts submitted records.
 	Produced uint64
-	// QueueFull counts records dropped because the queue was full, out of
-	// bytes or closed.
+	// QueueFull counts records stdout lost because the queue was full, out
+	// of bytes or closed.
 	QueueFull uint64
-	// ExportError counts records lost by a failed stdout write or Bridge.
+	// ExportError counts records stdout lost to a failed write.
 	ExportError uint64
 }
 
@@ -103,7 +128,6 @@ type bridgeBox struct{ b Bridge }
 // Writer is the bounded, non-blocking access log (emit.AccessLog).
 type Writer struct {
 	node     []byte
-	clock    clock.Clock
 	maxBytes int64
 
 	q       chan *entry
@@ -123,7 +147,6 @@ type Writer struct {
 
 	// Worker-owned (logsink's stdout worker).
 	pending []*entry
-	scratch []byte
 }
 
 var _ emit.AccessLog = (*Writer)(nil)
@@ -131,10 +154,7 @@ var _ emit.AccessLog = (*Writer)(nil)
 // New returns a Writer. It starts no goroutine: the logsink worker drains
 // it (logsink.Options.Access).
 func New(o Options) *Writer {
-	w := &Writer{node: nodeMember(o.NodeID), clock: o.Clock, maxBytes: o.QueueBytes}
-	if w.clock == nil {
-		w.clock = clock.Real()
-	}
+	w := &Writer{node: nodeMember(o.NodeID), maxBytes: o.QueueBytes}
 	if w.maxBytes <= 0 {
 		w.maxBytes = DefaultQueueBytes
 	}
@@ -164,34 +184,49 @@ func (w *Writer) Acquire() *emit.AccessRecord {
 	return r
 }
 
-// Submit copies r, truncated, into a pooled entry and queues it without
-// blocking; r returns to the pool at once (emit.AccessLog). A closed
-// Writer, a full queue or an exhausted byte budget drops the record with
-// reason queue_full. The record reserves its actual size: entryOverhead
-// plus the bytes its strings need, trued down to the bytes copied once
-// fill applied the escaped-size budget.
+// Submit copies r, truncated, into a pooled entry, hands the entry to the
+// Bridge when one is set and queues it for stdout, without blocking; r
+// returns to the pool at once (emit.AccessLog). A closed Writer, a full
+// queue or an exhausted byte budget drops the record from stdout with
+// reason queue_full, which never keeps it from the Bridge. The record
+// reserves its actual size: entryOverhead plus the bytes its strings need,
+// trued down to the bytes copied once fill applied the escaped-size
+// budget.
 func (w *Writer) Submit(r *emit.AccessRecord) {
 	w.produced.Add(1)
-	if w.closed.Load() || len(w.q) == cap(w.q) {
-		w.queueFull.Add(1)
-		w.putRecord(r)
-		return
-	}
+	box := w.bridge.Load()
 	n := need(r)
 	size := int64(entryOverhead + n)
-	if !w.reserve(size) {
+	stdout := !w.closed.Load() && len(w.q) < cap(w.q) && w.reserve(size)
+	if !stdout {
 		w.queueFull.Add(1)
-		w.putRecord(r)
-		return
+		if box == nil {
+			w.putRecord(r)
+			return
+		}
 	}
 	e := w.getEntry(classFor(n))
 	e.fill(r)
-	if d := len(e.arena) - n; d < 0 {
-		w.bytes.Add(int64(d))
-		size += int64(d)
-	}
-	e.size = size
 	w.putRecord(r)
+	var refs int32
+	if stdout {
+		if d := len(e.arena) - n; d < 0 {
+			w.bytes.Add(int64(d))
+			size += int64(d)
+		}
+		e.size = size
+		refs++
+	}
+	if box != nil {
+		refs++
+	}
+	e.refs.Store(refs)
+	if box != nil {
+		box.b.Export(Pending{w: w, e: e})
+	}
+	if !stdout {
+		return
+	}
 	select {
 	case w.q <- e:
 		// A Close that ran between the closed check and the send has
@@ -233,11 +268,19 @@ func (w *Writer) getEntry(class int) *entry {
 	return e
 }
 
-// release returns e's reservation to the budget and e to its pool.
+// release ends stdout's hold on e: its reservation returns to the budget
+// and its reference is dropped.
 func (w *Writer) release(e *entry) {
 	w.bytes.Add(-e.size)
-	e.reset()
-	w.entries[e.class].Put(e)
+	w.deref(e)
+}
+
+// deref drops one reference to e; the last one returns e to its pool.
+func (w *Writer) deref(e *entry) {
+	if e.refs.Add(-1) == 0 {
+		e.reset()
+		w.entries[e.class].Put(e)
+	}
 }
 
 // Stats returns the access stream counters.
@@ -245,7 +288,8 @@ func (w *Writer) Stats() Stats {
 	return Stats{Produced: w.produced.Load(), QueueFull: w.queueFull.Load(), ExportError: w.exportError.Load()}
 }
 
-// SetBridge sets the OTLP bridge; nil stops OTLP export of access records.
+// SetBridge sets the OTLP bridge, which takes every record submitted after
+// the call; nil stops OTLP export of access records.
 func (w *Writer) SetBridge(b Bridge) {
 	if b == nil {
 		w.bridge.Store(nil)
@@ -254,12 +298,13 @@ func (w *Writer) SetBridge(b Bridge) {
 	w.bridge.Store(&bridgeBox{b: b})
 }
 
-// Close stops the Writer: later records are dropped and counted, the
-// records still queued are counted as dropped (queue_full), and the lines
-// Next handed to a worker that has not settled them with Flushed (a batch
-// an abandoned worker is still writing) count export_error, so records
-// lost at exit are counted once. Call it after the stdout worker returned,
-// or after giving up on a worker blocked on stdout; lines such a worker
+// Close stops the Writer for stdout: later records are dropped from stdout
+// and counted, the records still queued are counted as dropped
+// (queue_full), and the lines Next handed to a worker that has not settled
+// them with Flushed (a batch an abandoned worker is still writing) count
+// export_error, so records lost at exit are counted once. A Bridge still
+// set keeps taking records. Call it after the stdout worker returned, or
+// after giving up on a worker blocked on stdout; lines such a worker
 // settles later are not counted again. It is safe to call more than once.
 func (w *Writer) Close() {
 	w.closed.Store(true)
@@ -307,31 +352,15 @@ func (w *Writer) Next(dst []byte) ([]byte, bool) {
 }
 
 // Flushed settles the lines Next returned since the previous call
-// (logsink.Stream): the last lost were not written and count
-// export_error; every record then goes to the Bridge, if set, and its
-// entry and reservation are released. The first lines Close already
-// claimed (see unflushed) are not counted again and reach the Bridge
-// flagged Dropped. Worker only.
+// (logsink.Stream): the last lost were not written and count export_error,
+// and every entry's reservation is released. The first lines Close already
+// claimed (see unflushed) are not counted again. Worker only.
 func (w *Writer) Flushed(lost int) {
-	box := w.bridge.Load()
 	n := len(w.pending)
 	claimed := max(n-int(w.unflushed.Swap(0)), 0)
 	for i, e := range w.pending {
-		byClose := i < claimed
-		dropped := byClose || i >= n-lost
-		if dropped && !byClose {
+		if i >= claimed && i >= n-lost {
 			w.exportError.Add(1)
-		}
-		if box != nil {
-			w.scratch = e.appendLine(w.scratch[:0], w.node)
-			ex := Exported{
-				Start: e.start, Observed: w.clock.Now(),
-				TraceID: e.traceID, SpanID: e.spanID, Sampled: e.sampled,
-				Line: w.scratch, Dropped: dropped,
-			}
-			if err := box.b.Export(&ex); err != nil && !dropped {
-				w.exportError.Add(1)
-			}
 		}
 		w.release(e)
 	}

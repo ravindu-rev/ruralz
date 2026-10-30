@@ -80,19 +80,25 @@
 // its runtime does, and one more entry for a split result than its
 // string's size, as n separators split into n + 1 entries.
 //
-// A tracked program holding a comprehension evaluates through ContextEval
-// under the smaller of the request deadline and 50 ms (target, ADR-0019),
-// fixed when the evaluation starts: a request context that has already
-// ended stops it at the first interrupt check, and a cancellation during
-// the evaluation does not stop it sooner. An untracked comprehension has
+// A tracked program holding a comprehension evaluates in an execution
+// frame whose context stops it at the smaller of the request deadline and
+// 50 ms (target, ADR-0019), fixed when the evaluation starts: a request
+// context that has already ended stops it at the first interrupt check,
+// and a cancellation during the evaluation does not stop it sooner. Either
+// stop is a runtime error, KindDeadline, even when cel-go's interrupted
+// comprehension yields an error value that a logical operator absorbs, as
+// in `list.exists(...) || b`: an evaluation whose interrupt check saw the
+// stop never yields a value. An untracked comprehension has
 // no stop, since its bound caps its work. The stop is a context and timer
 // taken from a pool the Compiler owns and returned unless it fired, so an
 // evaluation that finishes in time builds no context, timer or closure.
+// Its timer runs on the Compiler's clock: [NewWithClock] takes ruralzd's
+// process clock, and [New] the wall clock for validation.
 //
 // What remains of a tracked evaluation's allocations is cel-go's: the cost
 // tracker clones itself, grows its value stack and copies call arguments
-// for every call it observes, ContextEval derives a child context and an
-// async gate, and functions such as split build their results. An
+// for every call it observes, the execution frame derives a child context
+// and an async gate, and functions such as split build their results. An
 // untracked program allocates only for the values it builds and the
 // strings it reads from the request.
 //

@@ -208,6 +208,13 @@ func CacheResults() []string {
 // failed, or the lease no longer held the job's token).
 func CacheRevalidationResults() []string { return []string{"refreshed", "ended", "kept", "skipped"} }
 
+// LogSinks returns the sink values of ruralz_telemetry_logs_dropped_total
+// in label order: a log record reaches stdout and the OTLP log queue
+// independently, and each sink counts a record it loses once, so a record
+// can count once for each (docs/architecture/10-observability.md "Process
+// logs").
+func LogSinks() []string { return []string{"stdout", "otlp"} }
+
 // CacheRevalidationDropReasons returns the reason values of
 // ruralz_cache_revalidation_drops_total in label order: the queue was full,
 // a job waited too long in the queue, or the Node already tracked its most
@@ -292,7 +299,7 @@ func Families() []Family {
 		{TelemetrySpansDroppedTotal, Counter, BoundsNone, "{spans}", []Label{{Name: "reason", Values: []string{"queue_full", "export_error"}}}, ClassListener, false},
 		{TelemetryTracesUnsampledTotal, Counter, BoundsNone, "{traces}", []Label{{Name: "reason", Values: []string{"rate_cap_root", "rate_cap_parent"}}}, ClassListener, false},
 		{TelemetryLogsTotal, Counter, BoundsNone, "{records}", []Label{{Name: "stream", Values: []string{"access", "process"}}}, ClassListener, false},
-		{TelemetryLogsDroppedTotal, Counter, BoundsNone, "{records}", []Label{{Name: "stream", Values: []string{"access", "process"}}, {Name: "reason", Values: []string{"queue_full", "export_error"}}}, ClassListener, false},
+		{TelemetryLogsDroppedTotal, Counter, BoundsNone, "{records}", []Label{{Name: "stream", Values: []string{"access", "process"}}, {Name: "sink", Values: LogSinks()}, {Name: "reason", Values: []string{"queue_full", "export_error"}}}, ClassListener, false},
 		{TelemetryAccessLogCELErrorsTotal, Counter, BoundsNone, "{errors}", nil, ClassListener, false},
 		{TelemetryFoldedLabelSets, Gauge, BoundsNone, "{label_sets}", []Label{{Name: "instrument"}}, ClassListener, false},
 		{TelemetrySeries, Gauge, BoundsNone, "{series}", []Label{{Name: "state", Values: []string{"live", "retiring"}}}, ClassListener, false},

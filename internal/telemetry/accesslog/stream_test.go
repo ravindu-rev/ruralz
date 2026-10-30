@@ -47,9 +47,9 @@ func (g *gate) String() string {
 }
 
 // ADR-0018 "Blocked stdout test": with stdout blocked, Submit and process
-// logging never block; the access log drops beyond its bounds with
-// queue_full; one worker writes both streams as whole lines once stdout
-// drains.
+// logging never block; both streams drop beyond their stdout bounds with
+// queue_full while their OTLP bridges still take every record; one worker
+// writes both streams as whole lines once stdout drains.
 func TestBlockedStdoutBothStreams(t *testing.T) {
 	w := accesslog.New(accesslog.Options{NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4", QueueRecords: 256})
 	g := &gate{open: make(chan struct{}), entered: make(chan struct{})}
@@ -57,6 +57,9 @@ func TestBlockedStdoutBothStreams(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	pb, ab := &processBridge{}, &accessBridge{}
+	s.SetBridge(pb)
+	w.SetBridge(ab)
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() { done <- s.Run(ctx) }()
@@ -87,6 +90,13 @@ func TestBlockedStdoutBothStreams(t *testing.T) {
 	}
 	if ps.QueueFull == 0 {
 		t.Fatalf("process stats = %+v, want queue_full drops", ps)
+	}
+	if ab.n.Load() != as.Produced || pb.n.Load() != ps.Produced {
+		t.Fatalf("bridged access %d of %d and process %d of %d while stdout was blocked, want all",
+			ab.n.Load(), as.Produced, pb.n.Load(), ps.Produced)
+	}
+	if ab.leaked.Load() {
+		t.Fatal("a query string reached the access bridge")
 	}
 
 	close(g.open)
@@ -204,11 +214,22 @@ func (c *lineCounter) Write(p []byte) (int, error) {
 
 type processBridge struct{ n atomic.Uint64 }
 
-func (b *processBridge) Export(*logsink.Exported) error { b.n.Add(1); return nil }
+func (b *processBridge) Export(*logsink.Exported) { b.n.Add(1) }
 
-type accessBridge struct{ n atomic.Uint64 }
+// accessBridge counts the records it takes, reads each line as the
+// telemetry runtime's export worker does and releases it at once.
+type accessBridge struct {
+	n      atomic.Uint64
+	leaked atomic.Bool
+}
 
-func (b *accessBridge) Export(*accesslog.Exported) error { b.n.Add(1); return nil }
+func (b *accessBridge) Export(p accesslog.Pending) {
+	b.n.Add(1)
+	if bytes.Contains(p.AppendLine(nil), []byte("leak")) {
+		b.leaked.Store(true)
+	}
+	p.Release()
+}
 
 // TestConcurrentProducersAndSetters is a -race test: producers log and
 // submit on many goroutines while another changes the Revision, the

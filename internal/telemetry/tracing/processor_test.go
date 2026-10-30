@@ -202,18 +202,44 @@ func TestProcessorNoExporter(t *testing.T) {
 	}
 }
 
-// TestProcessorExportTimeout: one export is bounded by ExportTimeout.
+// TestProcessorExportTimeout: one export is bounded by ExportTimeout on
+// the processor's clock: a blocked export ends only when the clock passes
+// the bound, never on real time.
 func TestProcessorExportTimeout(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 1, ExportTimeout: 20 * time.Millisecond})
 	f.exp.block = make(chan struct{})
 	f.end(ended(1, "s"))
-	f.flush(t)
+	flushed := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		flushed <- f.p.ForceFlush(ctx)
+	}()
+	// The batch interval timer is always armed; the export's bound is the
+	// second timer.
+	deadline := time.Now().Add(5 * time.Second)
+	for f.fake.Pending() < 2 {
+		if time.Now().After(deadline) {
+			t.Fatal("the export never started")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	f.fake.Advance(19 * time.Millisecond)
+	select {
+	case err := <-flushed:
+		t.Fatalf("the export ended before its bound on the clock: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	f.fake.Advance(time.Millisecond)
+	if err := <-flushed; err != nil {
+		t.Fatalf("ForceFlush: %v", err)
+	}
 	if got := f.c.export.Load(); got != 1 {
 		t.Fatalf("export_error = %d, want 1", got)
 	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if len(f.errs) != 1 || !errors.Is(f.errs[0], context.DeadlineExceeded) {
+	if len(f.errs) != 1 || !errors.Is(f.errs[0], context.Canceled) {
 		t.Fatalf("OnExport %v", f.errs)
 	}
 }

@@ -47,47 +47,77 @@ const (
 	numStreams
 )
 
-// logDrops counts the OTLP-side losses per stream, Node-wide: they outlive
-// the pipeline that lost them, so a swap never resets a counter.
+// logSink is a sink of a log record: the sink label of
+// ruralz_telemetry_logs_dropped_total, in catalog order
+// (catalog.LogSinks). A record reaches both independently, and each sink
+// counts a record it loses once.
+type logSink uint8
+
+// Sinks.
+const (
+	sinkStdout logSink = iota
+	sinkOTLP
+	numSinks
+)
+
+// logDrops counts the OTLP sink's losses per stream, Node-wide: they
+// outlive the pipeline that lost them, so a swap never resets a counter.
 type logDrops struct {
 	queueFull   [numStreams]atomic.Uint64
 	exportError [numStreams]atomic.Uint64
 }
 
 // logMeta travels in the context from a bridge to the processor: the
-// record's stream, and whether stdout already lost and counted it.
+// record's stream.
 type logMeta struct {
-	stream  stream
-	counted bool
+	stream stream
 }
 
 // logMetaKey is the context key of logMeta.
 type logMetaKey struct{}
 
-// queuedLog is one record in the processor's queue.
-type queuedLog struct {
-	rec  sdklog.Record
-	meta logMeta
-	size int64
+// capture receives the SDK record of one access record the export worker
+// encodes: OnEmit stores the record in it instead of queueing it.
+type capture struct {
+	rec sdklog.Record
+	ok  bool
 }
 
-// logProcessor is the Ruralz sdklog.Processor: OnEmit clones the record
-// into a bounded queue without blocking, dropping with a queue_full count
-// when the queue is out of records or bytes; one worker exports batches of
-// up to logBatch records, or every logInterval, and counts a failed batch
-// as export_error drops. A record stdout already lost is exported but
-// never counted again.
+// captureKey is the context key of a *capture.
+type captureKey struct{}
+
+// queuedLog is one record in the processor's queue: an SDK record cloned
+// at OnEmit (process logs, through otelslog), or an access record the
+// export worker encodes into one when its batch is exported, so the
+// request goroutine that queued it does no encoding.
+type queuedLog struct {
+	rec    sdklog.Record
+	access accesslog.Pending
+	lazy   bool
+	stream stream
+	size   int64
+}
+
+// logProcessor is the Ruralz sdklog.Processor and the OTLP log queue:
+// OnEmit clones a record into a bounded queue without blocking, and
+// offerAccess queues an access record as it is, both dropping with a
+// queue_full count when the queue is out of records or bytes. One worker
+// exports batches of up to logBatch records, or every logInterval on the
+// runtime's clock, encoding queued access records first, and counts a
+// failed batch as export_error drops of each record's stream.
 type logProcessor struct {
-	exp     sdklog.Exporter
-	clk     clock.Clock
-	drops   *logDrops
-	timeout time.Duration
-	report  func(error)
+	exp    sdklog.Exporter
+	clk    clock.Clock
+	drops  *logDrops
+	report func(error)
 
 	mu     sync.Mutex
 	queue  []queuedLog
 	bytes  int64
 	closed bool
+	// logger emits the access records the worker encodes, through this
+	// processor (capture), so they carry the provider's resource and scope.
+	logger otellog.Logger
 
 	wake  chan struct{}
 	flush chan chan struct{}
@@ -96,36 +126,71 @@ type logProcessor struct {
 	// ctx bounds exports; cancel cuts the one in flight at shutdown.
 	ctx    context.Context
 	cancel context.CancelFunc
+	// timer paces the batch interval; it exists before the worker runs, so
+	// a clock advanced right after construction still fires it.
+	timer clock.Timer
+	// scratch is the worker's line buffer for access records.
+	scratch []byte
 }
 
 // Compile-time check of the contract.
 var _ sdklog.Processor = (*logProcessor)(nil)
 
-// newLogProcessor starts the worker of a processor exporting through exp.
-func newLogProcessor(exp sdklog.Exporter, clk clock.Clock, drops *logDrops, timeout time.Duration, report func(error)) *logProcessor {
+// newLogProcessor starts the worker of a processor exporting through exp;
+// the exporter bounds and retries each export itself.
+func newLogProcessor(exp sdklog.Exporter, clk clock.Clock, drops *logDrops, report func(error)) *logProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &logProcessor{
-		exp: exp, clk: clk, drops: drops, timeout: timeout, report: report,
+		exp: exp, clk: clk, drops: drops, report: report,
 		wake: make(chan struct{}, 1), flush: make(chan chan struct{}),
 		stop: make(chan struct{}), done: make(chan struct{}),
 		ctx: ctx, cancel: cancel,
+		timer: clk.NewTimer(logInterval),
 	}
 	go p.run()
 	return p
 }
 
+// setLogger sets the logger the worker emits encoded access records
+// through; the pipeline sets it before any bridge offers one.
+func (p *logProcessor) setLogger(l otellog.Logger) {
+	p.mu.Lock()
+	p.logger = l
+	p.mu.Unlock()
+}
+
 // Enabled reports that every record is processed.
 func (p *logProcessor) Enabled(context.Context, sdklog.EnabledParameters) bool { return true }
 
-// OnEmit queues a clone of r without blocking.
+// OnEmit queues a clone of r without blocking; a record the worker is
+// encoding goes to its capture instead.
 func (p *logProcessor) OnEmit(ctx context.Context, r *sdklog.Record) error {
-	meta, _ := ctx.Value(logMetaKey{}).(logMeta)
-	q := queuedLog{rec: r.Clone(), meta: meta, size: recordSize(r)}
+	if c, ok := ctx.Value(captureKey{}).(*capture); ok {
+		c.rec, c.ok = r.Clone(), true
+		return nil
+	}
+	st := streamProcess
+	if meta, ok := ctx.Value(logMetaKey{}).(logMeta); ok {
+		st = meta.stream
+	}
+	p.enqueue(queuedLog{rec: r.Clone(), stream: st, size: recordSize(r)})
+	return nil
+}
+
+// offerAccess queues the access record a without encoding it; it is
+// released when the worker has exported or dropped it.
+func (p *logProcessor) offerAccess(a accesslog.Pending) {
+	p.enqueue(queuedLog{access: a, lazy: true, stream: streamAccess, size: a.Size()})
+}
+
+// enqueue adds q to the queue, or drops it with a queue_full count.
+func (p *logProcessor) enqueue(q queuedLog) {
 	p.mu.Lock()
 	if p.closed || len(p.queue) >= logQueueRecords || p.bytes+q.size > logQueueBytes {
 		p.mu.Unlock()
-		p.drop(meta, &p.drops.queueFull)
-		return nil
+		p.drops.queueFull[q.stream].Add(1)
+		q.releaseAccess()
+		return
 	}
 	p.queue = append(p.queue, q)
 	p.bytes += q.size
@@ -137,13 +202,13 @@ func (p *logProcessor) OnEmit(ctx context.Context, r *sdklog.Record) error {
 		default:
 		}
 	}
-	return nil
 }
 
-// drop counts one lost record on counter c, unless stdout already did.
-func (p *logProcessor) drop(meta logMeta, c *[numStreams]atomic.Uint64) {
-	if !meta.counted && meta.stream < numStreams {
-		c[meta.stream].Add(1)
+// releaseAccess releases the access record a lazy item holds.
+func (q *queuedLog) releaseAccess() {
+	if q.lazy {
+		q.access.Release()
+		q.lazy = false
 	}
 }
 
@@ -151,8 +216,7 @@ func (p *logProcessor) drop(meta logMeta, c *[numStreams]atomic.Uint64) {
 // record every logInterval, and on a ForceFlush request.
 func (p *logProcessor) run() {
 	defer close(p.done)
-	t := p.clk.NewTimer(logInterval)
-	defer t.Stop()
+	defer p.timer.Stop()
 	for {
 		select {
 		case <-p.stop:
@@ -162,9 +226,9 @@ func (p *logProcessor) run() {
 			close(ack)
 		case <-p.wake:
 			p.export(p.ctx, true)
-		case <-t.C():
+		case <-p.timer.C():
 			p.export(p.ctx, false)
-			t.Reset(logInterval)
+			p.timer.Reset(logInterval)
 		}
 	}
 }
@@ -182,25 +246,79 @@ func (p *logProcessor) export(ctx context.Context, fullOnly bool) {
 		}
 		batch := make([]queuedLog, n)
 		copy(batch, p.queue)
+		clear(p.queue[:n])
 		p.queue = append(p.queue[:0], p.queue[n:]...)
 		for _, q := range batch {
 			p.bytes -= q.size
 		}
+		lg := p.logger
 		p.mu.Unlock()
-		recs := make([]sdklog.Record, n)
-		for i, q := range batch {
-			recs[i] = q.rec
+		recs := make([]sdklog.Record, 0, n)
+		streams := make([]stream, 0, n)
+		for i := range batch {
+			q := &batch[i]
+			if q.lazy {
+				rec, ok := p.encodeAccess(lg, q.access)
+				q.releaseAccess()
+				if !ok {
+					p.drops.exportError[streamAccess].Add(1)
+					continue
+				}
+				q.rec = rec
+			}
+			recs = append(recs, q.rec)
+			streams = append(streams, q.stream)
 		}
-		ectx, cancel := context.WithTimeout(ctx, p.timeout)
-		err := p.exp.Export(ectx, recs)
-		cancel()
+		if len(recs) == 0 {
+			continue
+		}
+		err := p.exp.Export(ctx, recs)
 		if err != nil {
-			for _, q := range batch {
-				p.drop(q.meta, &p.drops.exportError)
+			for _, s := range streams {
+				p.drops.exportError[s].Add(1)
 			}
 		}
 		p.report(err)
 	}
+}
+
+// encodeAccess encodes one access record as an SDK record: the line's
+// members become attributes, the request start the timestamp, the
+// runtime's clock the observed timestamp, and event.name is
+// accesslog.EventName. It emits the record through the provider's logger
+// into a capture, so the record carries the provider's resource and
+// scope; false when the logger is missing or the provider stopped.
+func (p *logProcessor) encodeAccess(lg otellog.Logger, a accesslog.Pending) (sdklog.Record, bool) {
+	if lg == nil {
+		return sdklog.Record{}, false
+	}
+	p.scratch = a.AppendLine(p.scratch[:0])
+	var rec otellog.Record
+	rec.SetTimestamp(a.Start())
+	rec.SetObservedTimestamp(p.clk.Now())
+	rec.SetEventName(accesslog.EventName)
+	rec.SetSeverity(otellog.SeverityInfo)
+	rec.SetSeverityText(accesslog.Level)
+	rec.SetBody(attribute.StringValue(accesslog.Message))
+	if tree, _, err := jsonval.Decode(p.scratch, jsonval.Options{}); err == nil {
+		if obj, ok := tree.(*jsonval.Object); ok {
+			for name, v := range obj.All() {
+				switch name {
+				case "time", "level", "msg":
+					// Carried by the timestamp, severity and body.
+				default:
+					rec.AddAttributes(attribute.KeyValue{Key: attribute.Key(name), Value: logValue(v)})
+				}
+			}
+		}
+	} else {
+		rec.SetBody(attribute.StringValue(string(p.scratch)))
+	}
+	traceID, spanID, sampled := a.Trace()
+	c := &capture{}
+	ctx := context.WithValue(withMeta(traceID, spanID, sampled, logMeta{stream: streamAccess}), captureKey{}, c)
+	lg.Emit(ctx, rec)
+	return c.rec, c.ok
 }
 
 // ForceFlush exports every record queued when it is called, bounded by ctx.
@@ -223,7 +341,10 @@ func (p *logProcessor) ForceFlush(ctx context.Context) error {
 
 // Shutdown stops accepting records, exports what is queued within ctx
 // (records left when ctx ends count as export_error), stops the worker and
-// shuts the exporter down. Later calls return nil.
+// shuts the exporter down. The provider calls it once it no longer emits,
+// so an access record still queued then can no longer be encoded and
+// counts as export_error: the pipeline flushes first. Later calls return
+// nil.
 func (p *logProcessor) Shutdown(ctx context.Context) error {
 	p.mu.Lock()
 	if p.closed {
@@ -242,8 +363,9 @@ func (p *logProcessor) Shutdown(ctx context.Context) error {
 	left := p.queue
 	p.queue, p.bytes = nil, 0
 	p.mu.Unlock()
-	for _, q := range left {
-		p.drop(q.meta, &p.drops.exportError)
+	for i := range left {
+		p.drops.exportError[left[i].stream].Add(1)
+		left[i].releaseAccess()
 	}
 	p.cancel()
 	return errors.Join(ctx.Err(), p.exp.Shutdown(ctx))
@@ -298,7 +420,7 @@ func valueSize(v attribute.Value) int64 {
 }
 
 // withMeta returns ctx carrying the span context of traceID and spanID,
-// when valid, and the record's stream and drop state.
+// when valid, and the record's stream.
 func withMeta(traceID [16]byte, spanID [8]byte, sampled bool, meta logMeta) context.Context {
 	ctx := context.Background()
 	sc := trace.NewSpanContext(trace.SpanContextConfig{TraceID: traceID, SpanID: spanID})
@@ -311,58 +433,38 @@ func withMeta(traceID [16]byte, spanID [8]byte, sampled bool, meta logMeta) cont
 	return context.WithValue(ctx, logMetaKey{}, meta)
 }
 
-// processBridge implements logsink.Bridge over the otelslog handler.
+// processBridge implements logsink.Bridge over the otelslog handler: each
+// record reaches the processor's queue when it is logged.
 type processBridge struct {
-	h *otelslog.Handler
+	h     *otelslog.Handler
+	drops *logDrops
 }
 
 // Compile-time check of the contract.
 var _ logsink.Bridge = (*processBridge)(nil)
 
 // Export hands the record to otelslog with its span context; the
-// processor queues it without blocking.
-func (b *processBridge) Export(e *logsink.Exported) error {
-	ctx := withMeta(e.TraceID, e.SpanID, false, logMeta{stream: streamProcess, counted: e.Dropped})
-	return b.h.Handle(ctx, e.Record)
+// processor queues it without blocking. A record otelslog refuses counts
+// as an export_error loss of the OTLP sink.
+func (b *processBridge) Export(e *logsink.Exported) {
+	ctx := withMeta(e.TraceID, e.SpanID, false, logMeta{stream: streamProcess})
+	if err := b.h.Handle(ctx, e.Record); err != nil {
+		b.drops.exportError[streamProcess].Add(1)
+	}
 }
 
-// accessBridge implements accesslog.Bridge over an OpenTelemetry logger:
-// the line's members become attributes, the request start the timestamp,
-// and event.name is accesslog.EventName.
+// accessBridge implements accesslog.Bridge over the processor: each record
+// joins the OTLP log queue as it is submitted, and the export worker
+// encodes it.
 type accessBridge struct {
-	l otellog.Logger
+	p *logProcessor
 }
 
 // Compile-time check of the contract.
 var _ accesslog.Bridge = (*accessBridge)(nil)
 
-// Export emits one access record.
-func (b *accessBridge) Export(e *accesslog.Exported) error {
-	var rec otellog.Record
-	rec.SetTimestamp(e.Start)
-	rec.SetObservedTimestamp(e.Observed)
-	rec.SetEventName(accesslog.EventName)
-	rec.SetSeverity(otellog.SeverityInfo)
-	rec.SetSeverityText(accesslog.Level)
-	rec.SetBody(attribute.StringValue(accesslog.Message))
-	if tree, _, err := jsonval.Decode(e.Line, jsonval.Options{}); err == nil {
-		if obj, ok := tree.(*jsonval.Object); ok {
-			for name, v := range obj.All() {
-				switch name {
-				case "time", "level", "msg":
-					// Carried by the timestamp, severity and body.
-				default:
-					rec.AddAttributes(attribute.KeyValue{Key: attribute.Key(name), Value: logValue(v)})
-				}
-			}
-		}
-	} else {
-		rec.SetBody(attribute.StringValue(string(e.Line)))
-	}
-	ctx := withMeta(e.TraceID, e.SpanID, e.Sampled, logMeta{stream: streamAccess, counted: e.Dropped})
-	b.l.Emit(ctx, rec)
-	return nil
-}
+// Export queues one access record.
+func (b *accessBridge) Export(a accesslog.Pending) { b.p.offerAccess(a) }
 
 // logValue converts a decoded JSON value; null is the empty value.
 func logValue(v any) attribute.Value {

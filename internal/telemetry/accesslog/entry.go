@@ -5,6 +5,7 @@ package accesslog
 
 import (
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -123,7 +124,10 @@ const entryOverhead = 128
 
 // entry is a queued record: fixed fields by value and every string copied,
 // truncated, into its own arena, so it never references request memory.
+// It is immutable once filled until its last holder, the stdout queue or
+// the Bridge, drops its reference (refs) and returns it to the pool.
 type entry struct {
+	refs          atomic.Int32
 	class         uint8
 	start         time.Time
 	traceID       [16]byte
