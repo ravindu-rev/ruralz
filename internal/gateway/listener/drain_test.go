@@ -54,6 +54,18 @@ func TestShutdownDrainsConnections(t *testing.T) {
 	shut := make(chan error, 1)
 	go func() { shut <- h.set.Shutdown(context.WithoutCancel(t.Context())) }()
 	recv(t, "the socket to close", ep.stopped)
+	// The connections sit on different shards: wait until Shutdown has
+	// started every shard's shutdown, which it does under the Set's lock.
+	waitFor(t, "every shard to shut down", func() bool {
+		h.set.mu.Lock()
+		defer h.set.mu.Unlock()
+		for sv := range h.set.servers {
+			if !sv.shutting {
+				return false
+			}
+		}
+		return true
+	})
 	if !refused(t, addr) {
 		t.Error("the socket accepted a connection after Shutdown")
 	}

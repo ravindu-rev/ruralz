@@ -4,10 +4,21 @@
 // Package listener runs the client listeners of a Node
 // (docs/architecture/03-data-plane.md "Listeners and protocols" and
 // "Bounded resources"): a Set binds one SO_REUSEPORT socket per Gateway
-// listener (internal/gateway/reuseport) and feeds it to a net/http Server
-// that calls one http.Handler for every request.
+// listener (internal/gateway/reuseport) and feeds it to [Shards] net/http
+// Server shards that call one http.Handler for every request.
 //
 // # Servers
+//
+// Each client listener serves through K = [Shards] Server shards that
+// share the handler ("Sources, Last-Known-Good and Drain"): the socket's
+// dispatching listener, one accept loop, hands connection n to shard n
+// modulo K through the shard's channel-fed listener, so the shards hold
+// equal shares of the connections. Server.Shutdown sends all of a
+// Server's GOAWAYs at once and ignores hijacked connections, so the Drain
+// shuts the shards down one at a time and clients reconnect in K waves,
+// without a per-connection GOAWAY API or the x/net/http2 Server. A shard
+// that stopped taking connections passes its turn to the next shard
+// still serving.
 //
 // Every Server is configured once, at start, with the Bounded resources
 // values: ReadHeaderTimeout (which net/http also applies to the TLS
@@ -24,9 +35,10 @@
 //
 // # Connections
 //
-// One goroutine per socket accepts connections and hands each to the
-// listener's current Server; an accept error other than a closed socket
-// is retried after 5 ms, doubling up to 1 s. A connection passes, in
+// One goroutine per socket, the dispatching listener, accepts connections
+// and hands each to a shard of the listener's current Servers; an accept
+// error other than a closed socket is retried after 5 ms, doubling up to
+// 1 s. A connection passes, in
 // order: the Node-wide client connection ceiling (admission.ConnLimiter:
 // a slot per accepted connection; at the ceiling the listener holds the
 // connection it accepted until a slot frees), the PROXY protocol v2 reader
@@ -68,22 +80,28 @@
 // accepting for the Linger after its group was steered away, so
 // handshakes begun before the steering finish, then closes; a removed
 // listener stops accepting at once. A changed client-certificate request
-// mode starts a new Server on the same socket and shuts the previous one
-// down: GOAWAY on HTTP/2, idle connections closed, Connection: close on
-// busy HTTP/1.1 ones. A stopped socket's Servers shut down the same way,
-// so their connections finish. Commit also reports the http listeners as
-// cleartext client hops. [Plan.Abort] releases what Prepare bound when the
-// activation fails before the swap.
+// mode starts a new group of Server shards on the same socket and shuts
+// the previous group down: GOAWAY on HTTP/2, idle connections closed,
+// Connection: close on busy HTTP/1.1 ones. A stopped socket's shards shut
+// down the same way, so their connections finish. Commit also reports the
+// http listeners as cleartext client hops. [Plan.Abort] releases what
+// Prepare bound when the activation fails before the swap.
 //
 // # Drain and Zero-Downtime Upgrade
 //
 // In the process that holds the data-directory lock (Options.Steer, or
 // [Set.Pin] once a handover successor takes the lock), each port's
 // reuseport group is pinned to the socket serving it, after every bind
-// (ADR-0015 "Pinning"). [Set.SteerToSuccessor] steers every
-// group to the socket a handover successor added (ADR-0015 "Steering");
-// [Set.StopAccepting] closes every socket at the linger's end while
-// Servers keep serving; [Set.Shutdown] starts the Drain's one
-// Server.Shutdown per Server and waits for it; [Set.Close] ends
-// everything at once and waits for every goroutine the Set started.
+// (ADR-0015 "Pinning"). [Set.SteerToSuccessor] steers every group to the
+// socket a handover successor added (ADR-0015 "Steering").
+//
+// The Drain (internal/gateway/drain) drives the rest: [Set.Bound] tells
+// whether any socket accepts; [Set.StopAccepting] closes every socket,
+// and so every dispatching listener, while the shards keep serving (also
+// a handover's linger end); [Set.ShutdownShard] starts the one
+// Server.Shutdown of shard i of every listener, without waiting, at its
+// jittered time; at the Drain deadline [Set.Shutdown] shuts down every
+// shard left and waits for the connections within its context, then
+// closes the rest; [Set.Close] ends everything at once and waits for
+// every goroutine the Set started.
 package listener

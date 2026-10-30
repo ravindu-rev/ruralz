@@ -34,6 +34,8 @@ type Issue struct {
 // Tracker holds the readiness conditions and the encoded /readyz answer.
 type Tracker struct {
 	cur atomic.Pointer[answer]
+	// answered is set once /readyz answered 200.
+	answered atomic.Bool
 
 	mu        sync.Mutex
 	revision  revision.Digest
@@ -101,6 +103,13 @@ func (t *Tracker) Drain() {
 // Ready reports whether /readyz answers 200.
 func (t *Tracker) Ready() bool { return t.cur.Load().ready }
 
+// Answered reports whether /readyz has ever answered 200, so a balancer
+// may have seen the Node ready. A Node that never did and has no client
+// listener bound skips the Drain's accept window
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Drain
+// timeline defaults").
+func (t *Tracker) Answered() bool { return t.answered.Load() }
+
 // Readyz returns the current /readyz body, for sd_notify STATUS= and logs.
 func (t *Tracker) Readyz() adminapi.Readyz {
 	v := t.cur.Load().view
@@ -113,6 +122,9 @@ func (t *Tracker) Readyz() adminapi.Readyz {
 // {"status":"not_ready","reasons":[...]}.
 func (t *Tracker) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
 	a := t.cur.Load()
+	if a.ready && !t.answered.Load() {
+		t.answered.Store(true)
+	}
 	h := w.Header()
 	h.Set("Content-Type", "application/json")
 	h.Set("Cache-Control", "no-store")

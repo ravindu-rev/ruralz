@@ -53,6 +53,10 @@ ExecReload=/usr/local/bin/ruralzd-handover /usr/local/bin/ruralzd
 TimeoutStartSec=90
 # The Drain exits within 30 s of SIGTERM (target); stop waits longer.
 TimeoutStopSec=40
+# ruralzd sends WATCHDOG=1 every 15 s while its admin server, retirer and
+# activation loop each ran within the last 30 s (target); a Node that stops
+# sending is killed and, by Restart=on-failure, restarted.
+WatchdogSec=30s
 KillMode=control-group
 KillSignal=SIGTERM
 # A crash or SIGKILL restarts the Node, which boots Last-Known-Good.

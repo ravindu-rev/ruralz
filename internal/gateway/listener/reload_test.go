@@ -158,13 +158,13 @@ func TestAbortReleasesWhatPrepareBuilt(t *testing.T) {
 }
 
 // TestKeptListenerKeepsSocketAndConnections checks that a listener whose
-// identity did not change keeps its socket, Server and connections across
-// a Hot Reload, and takes the new snapshot's metric handles.
+// identity did not change keeps its socket, Server shards and connections
+// across a Hot Reload, and takes the new snapshot's metric handles.
 func TestKeptListenerKeepsSocketAndConnections(t *testing.T) {
 	h := newHarness(t)
 	h.activate(t, snap(httpListener("a", 0)), nil)
 	ep := h.endpoint(t, "a")
-	sv := ep.srv.Load()
+	sv := ep.group.Load()
 	c := dialRaw(t, h.addr(t, "a"), nil)
 	c.mustRoundTrip(t)
 
@@ -173,8 +173,8 @@ func TestKeptListenerKeepsSocketAndConnections(t *testing.T) {
 	m := newFakeMetrics()
 	l.Metrics = m.m
 	h.activate(t, snap(l), nil)
-	if h.endpoint(t, "a") != ep || ep.srv.Load() != sv {
-		t.Fatal("an unchanged listener identity got a new endpoint or Server")
+	if h.endpoint(t, "a") != ep || ep.group.Load() != sv {
+		t.Fatal("an unchanged listener identity got a new endpoint or Server shards")
 	}
 	if r := c.mustRoundTrip(t); r.status != http.StatusOK {
 		t.Errorf("open connection after the reload: %d", r.status)

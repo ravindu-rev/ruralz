@@ -37,7 +37,7 @@ The request goroutine recovers a fault in request handling outside the Filter Ch
 | Goroutine | Count | Bound |
 |---|---|---|
 | Request handler | One per request, HTTP/2 stream or HTTP/3 stream | [Bounded resources](#bounded-resources) |
-| Listener accept loop | One per listening socket | Listeners plus lingering sockets |
+| Listener accept loop and server shards | One dispatching accept loop per listening socket, and one `Serve` loop for each of its K = 8 server shards (target) | Listeners plus lingering sockets, K + 1 each |
 | TLS handshake observer | One per TLS connection until its handshake ends | Client connections per Node |
 | Composition step | One per parallel `aggregate` step | `limits.maxCompositionSteps`; one in-flight unit each |
 | Stream pump | One per direction of a WebSocket or bidirectional gRPC stream | One in-flight unit each |

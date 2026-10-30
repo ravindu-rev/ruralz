@@ -94,9 +94,10 @@ const drainExitBound = 30
 
 // TestSystemdUnit: Type=notify with NotifyAccess=all; the data directory
 // /var/lib/ruralz; ExecReload runs the helper on the replaced binary;
-// TimeoutStopSec=40 above the Drain exit bound; reloads, which share the
-// start timeout, outlast the helper; both processes of a handover get the
-// stop signal; a crash or SIGKILL restarts the Node.
+// TimeoutStopSec=40 above the Drain exit bound; WatchdogSec=30s, which
+// ruralzd answers with WATCHDOG=1; reloads, which share the start timeout,
+// outlast the helper; both processes of a handover get the stop signal; a
+// crash, SIGKILL or watchdog kill restarts the Node.
 func TestSystemdUnit(t *testing.T) {
 	u := unitFile(t, readRepo(t, "deploy/systemd/ruralzd.service"))
 	s := u["Service"]
@@ -107,6 +108,7 @@ func TestSystemdUnit(t *testing.T) {
 		"ExecStart":       "/usr/local/bin/ruralzd",
 		"ExecReload":      "/usr/local/bin/ruralzd-handover /usr/local/bin/ruralzd",
 		"TimeoutStopSec":  "40", "KillMode": "control-group", "KillSignal": "SIGTERM", "Restart": "on-failure",
+		"WatchdogSec": "30s",
 	}
 	for k, v := range want {
 		if !slices.Equal(s[k], []string{v}) {

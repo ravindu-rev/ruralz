@@ -15,6 +15,8 @@
 // itself, so /readyz never reads ready between two updates. Drain fails
 // readiness at once and for good ("Sources, Last-Known-Good and Drain").
 //
-// Every update re-encodes the body once, so a probe costs one atomic load
-// and one write. A Tracker is safe for concurrent use.
+// Every update re-encodes the body once, so a probe costs two atomic loads
+// and one write. A Tracker also records whether /readyz ever answered 200,
+// which decides whether a Drain keeps its accept window. A Tracker is safe
+// for concurrent use.
 package readiness

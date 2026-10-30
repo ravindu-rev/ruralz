@@ -36,8 +36,11 @@ func nextAcceptRetry(prev time.Duration) time.Duration {
 }
 
 // endpoint is one listening socket of a listener identity
-// (snapshot.ListenerKey) and the Servers it feeds: one at a time, a new
-// one after a change of the client-certificate request mode.
+// (snapshot.ListenerKey) and its dispatching listener: one accept loop
+// that hands each connection round-robin to the channel-fed listeners of
+// the Shards servers it feeds (docs/architecture/03-data-plane.md
+// "Sources, Last-Known-Good and Drain"). It feeds one group of shards at a
+// time, a new group after a change of the client-certificate request mode.
 type endpoint struct {
 	s     *Set
 	key   snapshot.ListenerKey
@@ -53,7 +56,10 @@ type endpoint struct {
 	metrics atomic.Pointer[emit.ListenerMetrics] // the latest snapshot's
 	tls     atomic.Pointer[tlsState]             // https only
 	tlsCfg  *tls.Config                          // https only; reads tls per handshake
-	srv     atomic.Pointer[server]
+	group   atomic.Pointer[shardGroup]
+	// next counts the connections dispatched: connection n goes to shard
+	// n modulo Shards, or to the next shard still taking connections.
+	next atomic.Uint64
 
 	stopOnce sync.Once
 	// stopped is closed once the socket closed.
@@ -96,8 +102,9 @@ func (ep *endpoint) discard() {
 	}
 }
 
-// acceptLoop accepts connections until the socket closes and hands each
-// to the current Server. Its goroutine is counted in Set.wg.
+// acceptLoop is the dispatching listener: it accepts connections until
+// the socket closes and hands each to a shard of the current group. Its
+// goroutine is counted in Set.wg.
 func (ep *endpoint) acceptLoop() {
 	s := ep.s
 	defer s.wg.Done()
@@ -138,8 +145,8 @@ func (ep *endpoint) wait(d time.Duration) bool {
 }
 
 // admit records an accepted connection, wraps it in TLS on https and hands
-// it to the current Server. A panic closes the connection only (through
-// its record once there is one, so it leaves the open connections).
+// it to a shard. A panic closes the connection only (through its record
+// once there is one, so it leaves the open connections).
 func (ep *endpoint) admit(c net.Conn) {
 	s := ep.s
 	var rec *Conn
@@ -161,21 +168,23 @@ func (ep *endpoint) admit(c net.Conn) {
 	ep.deliver(nc)
 }
 
-// deliver hands nc to the endpoint's current Server; a Server that stops
-// before taking it passes it to its replacement, else nc closes.
+// deliver hands nc to the shard whose turn it is, round-robin over the
+// current group. A shard that stopped taking connections, as one the
+// Drain shut down, passes its turn to the next shard still taking them; a
+// group whose every shard stopped passes nc to its replacement, else nc
+// closes.
 func (ep *endpoint) deliver(nc net.Conn) {
+	turn := ep.next.Add(1) - 1
 	for {
-		sv := ep.srv.Load()
-		select {
-		case sv.ln.conns <- nc:
-			return
-		case <-sv.ln.done:
-			if ep.srv.Load() != sv {
-				continue
-			}
-			_ = nc.Close()
+		g := ep.group.Load()
+		if g.offer(nc, turn) {
 			return
 		}
+		if ep.group.Load() != g {
+			continue
+		}
+		_ = nc.Close()
+		return
 	}
 }
 

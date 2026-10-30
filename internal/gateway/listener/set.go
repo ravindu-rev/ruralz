@@ -104,7 +104,7 @@ type Set struct {
 	ports     map[int]*endpoint        // the endpoint serving each bound port
 	groups    map[int]*reuseport.Group // per bound port with a listening socket
 	lingering map[*endpoint]struct{}
-	servers   map[*server]struct{} // every Server not stopped yet
+	servers   map[*server]struct{} // every Server shard not stopped yet
 	pending   *Plan
 	steer     bool
 	stopped   bool
@@ -353,7 +353,8 @@ func (p *Plan) release() {
 }
 
 // startLocked makes ep listen and serve: the ceiling and PROXY v2 wrappers,
-// its first Server, its accept loop, and its place in the port's group.
+// its first group of Server shards, its dispatching accept loop, and its
+// place in the port's reuseport group.
 func (s *Set) startLocked(ep *endpoint) error {
 	if ep.tcp == nil {
 		tcp, err := ep.sock.Listen()
@@ -386,7 +387,7 @@ func (s *Set) startLocked(ep *endpoint) error {
 	if s.steer {
 		s.pinLocked(port)
 	}
-	ep.srv.Store(s.newServerLocked(ep))
+	ep.group.Store(s.newGroupLocked(ep))
 	s.wg.Add(1)
 	go ep.acceptLoop()
 	s.log.Info("listener serving", catalog.KeyListener, ep.key.Name)
@@ -394,9 +395,9 @@ func (s *Set) startLocked(ep *endpoint) error {
 }
 
 // updateLocked applies a kept endpoint's update. A changed client
-// certificate request mode starts a new Server on the socket and shuts the
-// previous one down, so connections negotiated under the old mode end
-// (Security and identity, "Mutual TLS").
+// certificate request mode starts a new group of Server shards on the
+// socket and shuts the previous group down, so connections negotiated
+// under the old mode end (Security and identity, "Mutual TLS").
 func (s *Set) updateLocked(u update) {
 	ep := u.ep
 	ep.metrics.Store(u.metrics)
@@ -411,8 +412,8 @@ func (s *Set) updateLocked(u update) {
 	if old.mtls == u.tls.mtls {
 		return
 	}
-	prev := ep.srv.Swap(s.newServerLocked(ep))
-	s.shutdownLocked(context.Background(), prev)
+	prev := ep.group.Swap(s.newGroupLocked(ep))
+	s.shutdownGroupLocked(context.Background(), prev)
 }
 
 // lingerLocked keeps a replaced socket accepting for the Linger, then
@@ -434,9 +435,10 @@ func (s *Set) lingerLocked(ep *endpoint) {
 	}()
 }
 
-// stopLocked closes ep's socket once, updates its port's group (pinning
-// the group to the socket now serving the port) and, with shutdown,
-// shuts its current Server down under ctx so its connections finish.
+// stopLocked closes ep's socket once, which closes its dispatching
+// listener, updates its port's reuseport group (pinning the group to the
+// socket now serving the port) and, with shutdown, shuts its current
+// Server shards down under ctx so their connections finish.
 func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 	ep.stopOnce.Do(func() {
 		delete(s.lingering, ep)
@@ -462,8 +464,8 @@ func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 		s.log.InfoContext(ctx, "listener stopped accepting", catalog.KeyListener, ep.key.Name)
 	})
 	if shutdown {
-		if sv := ep.srv.Load(); sv != nil {
-			s.shutdownLocked(ctx, sv)
+		if g := ep.group.Load(); g != nil {
+			s.shutdownGroupLocked(ctx, g)
 		}
 	}
 }
@@ -479,22 +481,36 @@ func (s *Set) pinLocked(port int) {
 	}
 }
 
-// newServerLocked starts a Server for ep.
-func (s *Set) newServerLocked(ep *endpoint) *server {
-	sv := &server{
-		ep:   ep,
-		http: newHTTPServer(ep.key.Protocol, s.opts.Handler, s.errH),
-		ln:   newServerListener(ep),
-		done: make(chan struct{}),
+// newGroupLocked starts the Shards Server shards of ep, which share the
+// handler.
+func (s *Set) newGroupLocked(ep *endpoint) *shardGroup {
+	g := &shardGroup{}
+	for i := range g.shards {
+		sv := &server{
+			ep:    ep,
+			shard: i,
+			http:  newHTTPServer(ep.key.Protocol, s.opts.Handler, s.errH),
+			ln:    newShardListener(ep),
+			done:  make(chan struct{}),
+		}
+		g.shards[i] = sv
+		s.servers[sv] = struct{}{}
+		s.wg.Add(1)
+		go s.serve(sv)
 	}
-	s.servers[sv] = struct{}{}
-	s.wg.Add(1)
-	go s.serve(sv)
-	return sv
+	return g
 }
 
-// serve runs one Server until it closes. Its hand-off listener closes with
-// it, so the accept loop never waits on a Server that stopped serving.
+// shutdownGroupLocked starts the graceful shutdown of every shard of g.
+func (s *Set) shutdownGroupLocked(ctx context.Context, g *shardGroup) {
+	for _, sv := range g.shards {
+		s.shutdownLocked(ctx, sv)
+	}
+}
+
+// serve runs one Server shard until it closes. Its channel-fed listener
+// closes with it, so the dispatching listener never waits on a shard that
+// stopped serving.
 func (s *Set) serve(sv *server) {
 	defer s.wg.Done()
 	defer func() { _ = sv.ln.Close() }()
@@ -522,6 +538,11 @@ func (s *Set) shutdownLocked(ctx context.Context, sv *server) {
 		_ = sv.http.Close()
 		return
 	}
+	// The HTTP/1.1 half of Shutdown at once, before the goroutine runs it:
+	// idle connections close and every later response carries Connection:
+	// close, so a response written as the shutdown starts cannot keep its
+	// connection alive.
+	sv.http.SetKeepAlivesEnabled(false)
 	ctx, cancel := context.WithCancel(ctx)
 	sv.cancel = cancel
 	s.wg.Add(1)
@@ -599,13 +620,60 @@ func (s *Set) SteerToSuccessor() error {
 	return errors.Join(errs...)
 }
 
-// StopAccepting closes every socket, lingering ones included, while the
-// Servers keep serving their connections; a pending Plan is aborted and
-// Prepare then fails. A handover's holder calls it at the linger's end.
+// Bound reports whether a client listener socket is bound and accepting:
+// a serving or lingering one not closed yet. A Plan's socket, bound but
+// not serving, does not count. A Node that never answered /readyz with 200
+// and has none skips the Drain's accept window
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Drain
+// timeline defaults").
+func (s *Set) Bound() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, ep := range s.endpointsLocked() {
+		select {
+		case <-ep.stopped:
+		default:
+			return true
+		}
+	}
+	return false
+}
+
+// StopAccepting closes every socket, lingering ones included, and so
+// every dispatching listener, while the Server shards keep serving their
+// connections; a pending Plan is aborted and Prepare then fails. It is the
+// Drain's stop-accepting step, and a handover's holder calls it at the
+// linger's end. It is idempotent.
 func (s *Set) StopAccepting() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.stopAllLocked(context.Background(), false)
+}
+
+// ShutdownShard starts the graceful shutdown of Server shard i of every
+// client listener, lingering and removed ones included: Server.Shutdown
+// sends one HTTP/2 GOAWAY (NO_ERROR) on each of the shard's connections,
+// closes its idle HTTP/1.1 ones and gives each busy HTTP/1.1 one
+// Connection: close on its next response. Its HTTP/1.1 part is done when
+// it returns, so a response written after it carries Connection: close;
+// it does not wait for the shard's connections, which finish in the
+// background until Shutdown or Close cuts them short. A shard already
+// shutting down is left as it is, and an i outside [0, Shards) shuts down
+// nothing. The Drain calls it for each i across its jitter window, after
+// StopAccepting, so clients reconnect in Shards waves; on a Set still
+// accepting, the dispatching listener passes a shut down shard's turn to
+// the next shard still serving.
+func (s *Set) ShutdownShard(i int) {
+	if i < 0 || i >= Shards {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for sv := range s.servers {
+		if sv.shard == i {
+			s.shutdownLocked(context.Background(), sv)
+		}
+	}
 }
 
 // stopAllLocked stops accepting for good; with shutdown, the endpoints'
@@ -635,11 +703,11 @@ func (s *Set) endpointsLocked() []*endpoint {
 	return eps
 }
 
-// Shutdown is the Drain's stop-accepting step: every socket closes and
-// every Server shuts down once (HTTP/2 GOAWAY, idle connections closed,
-// Connection: close on busy HTTP/1.1 ones). It waits until every
-// connection has ended or ctx is done; then it closes the remaining
-// connections and returns ctx's error.
+// Shutdown is the Drain deadline's listener step: every socket closes,
+// every Server shard not shutting down yet shuts down (HTTP/2 GOAWAY,
+// idle connections closed, Connection: close on busy HTTP/1.1 ones), and
+// it waits until every connection has ended or ctx is done; then it closes
+// the remaining connections and returns ctx's error.
 func (s *Set) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	if s.closed {

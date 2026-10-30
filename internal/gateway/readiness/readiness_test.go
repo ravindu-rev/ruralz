@@ -203,6 +203,27 @@ func TestUpdatesCopyTheirInput(t *testing.T) {
 	}
 }
 
+// TestAnswered checks Answered: false while /readyz answers only 503, and
+// false while the Node is ready but no probe came; true from the first
+// 200 on, even once a Drain fails readiness.
+func TestAnswered(t *testing.T) {
+	tr := New()
+	if status, _, _ := probe(t, tr); status != http.StatusServiceUnavailable || tr.Answered() {
+		t.Fatalf("not ready: probe %d, Answered %t; want 503 and false", status, tr.Answered())
+	}
+	ready(tr, digest(t))
+	if tr.Answered() {
+		t.Fatal("Answered before a probe saw the Node ready")
+	}
+	if status, _, _ := probe(t, tr); status != http.StatusOK || !tr.Answered() {
+		t.Fatalf("ready: probe %d, Answered %t; want 200 and true", status, tr.Answered())
+	}
+	tr.Drain()
+	if status, _, _ := probe(t, tr); status != http.StatusServiceUnavailable || !tr.Answered() {
+		t.Fatalf("draining: probe %d, Answered %t; want 503 and still true", status, tr.Answered())
+	}
+}
+
 // TestConcurrentUpdatesAndProbes checks, under -race, that probes read a
 // whole answer while the conditions change.
 func TestConcurrentUpdatesAndProbes(t *testing.T) {
