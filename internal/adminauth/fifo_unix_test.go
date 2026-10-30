@@ -56,6 +56,11 @@ func TestFIFOTokenFileRefused(t *testing.T) {
 			}
 		}
 	})
+	within(t, "ReadToken", func() {
+		if _, err := ReadToken(fifo); !errors.Is(err, ErrNotRegular) {
+			t.Errorf("ReadToken = %v, want ErrNotRegular", err)
+		}
+	})
 	within(t, "readRegular", func() {
 		if _, _, err := readRegular(fifo, 1); !errors.Is(err, ErrNotRegular) {
 			t.Errorf("readRegular = %v", err)

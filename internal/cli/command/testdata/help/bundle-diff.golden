@@ -16,4 +16,5 @@ Flags:
   --from-env NAME          Environment of FROM
   --help                   Print this help
   --output text|json       Output format (text or json, default text)
+  --timeout DURATION       Deadline of each admin call (default 5m; 0 means none)
   --to-env NAME            Environment of TO

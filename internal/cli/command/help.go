@@ -170,6 +170,9 @@ func flagDetail(f FlagSpec) string {
 	case f.Default != "":
 		parts = append(parts, "default "+f.Default)
 	}
+	if f.ZeroNone {
+		parts = append(parts, "0 means none")
+	}
 	if f.Deprecated != "" {
 		parts = append(parts, "deprecated: "+f.Deprecated)
 	}

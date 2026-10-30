@@ -85,19 +85,48 @@ func readRegular(path string, limit int64) ([]byte, os.FileInfo, error) {
 // readToken reads the token file at path, trims trailing whitespace,
 // validates the token and returns its digest with the opened file's info.
 func readToken(path string) (digest, os.FileInfo, error) {
-	b, fi, err := readRegular(path, maxTokenFileBytes)
+	var d digest
+	fi, err := readTokenFile(path, func(tok []byte) { d = sha256.Sum256(tok) })
 	if err != nil {
 		return digest{}, nil, err
 	}
+	return d, fi, nil
+}
+
+// ReadToken reads the token file at path by the rule every admin token
+// file follows, a Node's RURALZ_ADMIN_TOKEN_FILE and the ruralz CLI's
+// --admin-token-file alike (docs/architecture/08-security-and-identity.md
+// "Admin ports"): a regular file holding MinTokenBytes to MaxTokenBytes
+// RFC 6750 b64token characters once trailing whitespace is trimmed. It
+// returns the token. Errors wrap ErrNotRegular, ErrTokenEmpty,
+// ErrTokenShort, ErrTokenLong, ErrTokenSyntax or the read error, and never
+// contain file content.
+func ReadToken(path string) (string, error) {
+	var tok string
+	if _, err := readTokenFile(path, func(b []byte) { tok = string(b) }); err != nil {
+		return "", err
+	}
+	return tok, nil
+}
+
+// readTokenFile reads the token file at path, trims trailing whitespace,
+// validates the token and passes it to use before clearing the bytes
+// read; it returns the opened file's info.
+func readTokenFile(path string, use func(tok []byte)) (os.FileInfo, error) {
+	b, fi, err := readRegular(path, maxTokenFileBytes)
+	if err != nil {
+		return nil, err
+	}
 	defer clear(b)
 	if len(b) > maxTokenFileBytes {
-		return digest{}, nil, ErrTokenLong
+		return nil, ErrTokenLong
 	}
 	tok := bytes.TrimRightFunc(b, unicode.IsSpace)
 	if err := checkToken(tok); err != nil {
-		return digest{}, nil, err
+		return nil, err
 	}
-	return sha256.Sum256(tok), fi, nil
+	use(tok)
+	return fi, nil
 }
 
 // checkToken validates a configured token.

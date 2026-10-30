@@ -199,6 +199,7 @@ func TestFlagDefinitionPanics(t *testing.T) {
 		"mode on non-enum":    func(f *Flags) { f.String(&s, "x", "X", "", "", CompleteNone); f.EnumMode("x", nil, "a", "a") },
 		"mode default":        func(f *Flags) { f.Output(&s, "text", "text"); f.EnumMode("output", nil, "yaml", "json") },
 		"deprecate undefined": func(f *Flags) { f.Deprecate("x", "gone") },
+		"negative timeout":    func(f *Flags) { var d time.Duration; f.Timeout(&d, "timeout", -time.Second, "") },
 		"define after parse":  func(f *Flags) { _, _ = f.Parse(nil); f.Bool(&b, "x", "") },
 		"parse twice":         func(f *Flags) { _, _ = f.Parse(nil); _, _ = f.Parse(nil) },
 	}
@@ -226,6 +227,88 @@ func TestValueStrings(t *testing.T) {
 	b := true
 	if (&boolValue{p: &b}).String() != "true" || !(&boolValue{}).IsBoolFlag() {
 		t.Error("bool String or IsBoolFlag")
+	}
+	var zero time.Duration
+	if got := (&durationValue{p: &zero, zeroNone: true}).String(); got != "0s" {
+		t.Errorf("timeout String of 0 = %q, want 0s", got)
+	}
+}
+
+// TestTimeoutFlag covers Flags.Timeout, the duration flag of --timeout:
+// 0 is accepted and means none, a negative value is a usage error, and
+// Flags.Duration still refuses 0.
+func TestTimeoutFlag(t *testing.T) {
+	cases := []struct {
+		name string
+		args []string
+		want time.Duration
+		err  string
+	}{
+		{"default", nil, 5 * time.Minute, ""},
+		{"zero means none", []string{"--timeout", "0"}, 0, ""},
+		{"zero with a unit", []string{"--timeout=0s"}, 0, ""},
+		{"negative zero is zero", []string{"--timeout", "-0"}, 0, ""},
+		{"positive", []string{"--timeout", "90s"}, 90 * time.Second, ""},
+		{"fractional", []string{"-timeout=1.5h"}, 90 * time.Minute, ""},
+		{"negative", []string{"--timeout", "-1s"}, 0, `invalid value "-1s" for --timeout: must be zero or greater (0 means none)`},
+		{"not a duration", []string{"--timeout", "soon"}, 0, `invalid value "soon" for --timeout: want a duration such as 30s or 5m, or 0 for none`},
+		{"missing value", []string{"--timeout"}, 0, "flag needs an argument: --timeout"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			f := NewFlags("ruralz node dump")
+			var d time.Duration
+			f.Timeout(&d, "timeout", 5*time.Minute, "Deadline of the call")
+			_, err := f.Parse(c.args)
+			if c.err != "" {
+				if _, ok := errors.AsType[*UsageError](err); !ok || err.Error() != c.err {
+					t.Fatalf("Parse(%q) = %v, want usage error %q", c.args, err, c.err)
+				}
+				if Code(t.Context(), err) != ExitNoResult {
+					t.Errorf("Parse(%q) exit %d, want 2", c.args, Code(t.Context(), err))
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("Parse(%q) = %v", c.args, err)
+			}
+			if d != c.want {
+				t.Errorf("Parse(%q): --timeout = %v, want %v", c.args, d, c.want)
+			}
+		})
+	}
+	f := NewFlags("ruralz x")
+	var d time.Duration
+	f.Duration(&d, "ready-timeout", 30*time.Second, "Readiness wait")
+	if _, err := f.Parse([]string{"--ready-timeout", "0"}); err == nil {
+		t.Errorf("Duration accepted 0; only Timeout takes it")
+	}
+}
+
+// TestTimeoutSpecAndHelp checks the spec of a Timeout flag and its help
+// detail, which names the default and the meaning of 0.
+func TestTimeoutSpecAndHelp(t *testing.T) {
+	f := NewFlags("ruralz node dump")
+	var d, z time.Duration
+	f.Timeout(&d, "timeout", 5*time.Minute, "Deadline of the call")
+	f.Timeout(&z, "wait", 0, "Wait")
+	specs := f.Specs()
+	got := specs[slices.IndexFunc(specs, func(s FlagSpec) bool { return s.Name == "timeout" })]
+	if got.Placeholder != "DURATION" || got.Default != "5m" || !got.ZeroNone || got.Bool || got.Complete != CompleteNone {
+		t.Errorf("Timeout spec = %+v", got)
+	}
+	if detail := flagDetail(got); detail != "Deadline of the call (default 5m; 0 means none)" {
+		t.Errorf("flagDetail = %q", detail)
+	}
+	wait := specs[slices.IndexFunc(specs, func(s FlagSpec) bool { return s.Name == "wait" })]
+	if detail := flagDetail(wait); detail != "Wait (default 0s; 0 means none)" {
+		t.Errorf("flagDetail of a zero default = %q", detail)
+	}
+	var p time.Duration
+	g := NewFlags("ruralz x")
+	g.Duration(&p, "ready-timeout", 30*time.Second, "Readiness wait")
+	if s := g.Specs()[0]; s.ZeroNone || flagDetail(s) != "Readiness wait (default 30s)" {
+		t.Errorf("Duration spec = %+v, detail %q", s, flagDetail(s))
 	}
 }
 

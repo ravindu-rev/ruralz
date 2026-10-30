@@ -25,6 +25,9 @@
 // The TLS directory is read by internal/tlsconf.Admin at start; this
 // package checks that tls.crt and tls.key exist and parses ca.crt, whose
 // certificates are the only anchors a verified client chain may end at.
+// ReadToken applies the same token file rule to the ruralz CLI's
+// --admin-token-file, and Loopback is the peer rule the CLI tests before
+// it sends a token over cleartext.
 //
 // Audit: the /tap and /config/dump access records go to Options.Logger,
 // which ruralzd must set; AuditEnabled reports whether it is.

@@ -33,6 +33,9 @@ type FlagSpec struct {
 	Deprecated string
 	// Bool marks a flag that takes no value (--flag or --flag=true|false).
 	Bool bool
+	// ZeroNone marks a duration flag whose value 0 means none, such as
+	// --timeout (Flags.Timeout); help says so.
+	ZeroNone bool
 	// Values are the allowed values of an enum flag outside every Mode.
 	Values []string
 	// Modes are the alternative defaults and values of an enum flag that
@@ -143,6 +146,20 @@ func (f *Flags) Duration(p *time.Duration, name string, value time.Duration, usa
 	}
 	f.define(FlagSpec{Name: name, Placeholder: "DURATION", Default: def, Usage: usage},
 		&durationValue{f: f, name: name, p: p})
+}
+
+// Timeout binds --name DURATION, a deadline in time.ParseDuration form
+// whose value may be 0, meaning none, as for the admin client's --timeout
+// (docs/reference/01-cli-and-api-surface.md "Admin API conventions"); a
+// negative value is a usage error. Help shows the default and that 0
+// means none.
+func (f *Flags) Timeout(p *time.Duration, name string, value time.Duration, usage string) {
+	if value < 0 {
+		panic(fmt.Sprintf("command: negative default %v of --%s", value, name))
+	}
+	*p = value
+	f.define(FlagSpec{Name: name, Placeholder: "DURATION", Default: FormatDuration(value), Usage: usage, ZeroNone: true},
+		&durationValue{f: f, name: name, p: p, zeroNone: true})
 }
 
 // Deprecate marks the defined flag name as deprecated: using it prints
@@ -392,11 +409,13 @@ func (v *boolValue) Set(s string) error {
 // IsBoolFlag lets the flag package accept --name without a value.
 func (v *boolValue) IsBoolFlag() bool { return true }
 
-// durationValue is a positive duration flag.
+// durationValue is a positive duration flag (Flags.Duration), or with
+// zeroNone a non-negative one whose 0 means none (Flags.Timeout).
 type durationValue struct {
-	f    *Flags
-	name string
-	p    *time.Duration
+	f        *Flags
+	name     string
+	p        *time.Duration
+	zeroNone bool
 }
 
 func (v *durationValue) String() string {
@@ -409,9 +428,13 @@ func (v *durationValue) String() string {
 func (v *durationValue) Set(s string) error {
 	d, err := time.ParseDuration(s)
 	switch {
+	case err != nil && v.zeroNone:
+		v.f.setErr = fmt.Errorf("invalid value %q for --%s: want a duration such as 30s or 5m, or 0 for none", s, v.name)
 	case err != nil:
 		v.f.setErr = fmt.Errorf("invalid value %q for --%s: want a duration such as 30s or 5m", s, v.name)
-	case d <= 0:
+	case d < 0 && v.zeroNone:
+		v.f.setErr = fmt.Errorf("invalid value %q for --%s: must be zero or greater (0 means none)", s, v.name)
+	case d <= 0 && !v.zeroNone:
 		v.f.setErr = fmt.Errorf("invalid value %q for --%s: must be greater than zero", s, v.name)
 	default:
 		*v.p = d

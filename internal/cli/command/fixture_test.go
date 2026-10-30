@@ -158,6 +158,7 @@ func m1Table(run runFunc) []command.Spec {
 				f.String(v.str("from-env"), "from-env", "NAME", "", "Environment of FROM", command.CompleteNone)
 				f.String(v.str("to-env"), "to-env", "NAME", "", "Environment of TO", command.CompleteNone)
 				adminFlags(f, v, "")
+				f.Timeout(v.dur("timeout"), "timeout", 5*time.Minute, "Deadline of each admin call")
 				f.Output(v.str("output"), "text", "text", "json")
 			}, run),
 		},
@@ -207,6 +208,7 @@ func m1Table(run runFunc) []command.Spec {
 			New: newFixture(func(f *command.Flags, v *values) {
 				adminFlags(f, v, "http://127.0.0.1:9901")
 				f.OutputFile(v.str("output-file"), "Write the document to PATH instead of stdout")
+				f.Timeout(v.dur("timeout"), "timeout", 5*time.Minute, "Deadline of the /config/dump call")
 			}, run),
 		},
 		{

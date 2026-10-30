@@ -98,6 +98,21 @@ func TestStartRefusal(t *testing.T) {
 					t.Fatalf("the error quotes the token: %v", err)
 				}
 			}
+			// ReadToken, the reader of the CLI's --admin-token-file, applies
+			// the same rule and returns the trimmed token.
+			tok, err := ReadToken(p)
+			if tt.err == nil {
+				if want := strings.TrimRight(tt.content, " \t\r\n"); err != nil || tok != want {
+					t.Fatalf("ReadToken = %q, %v, want %q", tok, err, want)
+				}
+				return
+			}
+			if !errors.Is(err, tt.err) || tok != "" {
+				t.Fatalf("ReadToken = %q, %v, want %v", tok, err, tt.err)
+			}
+			if tok := strings.TrimSpace(tt.content); tok != "" && len(tok) < 100 && strings.Contains(err.Error(), tok) {
+				t.Fatalf("the ReadToken error quotes the token: %v", err)
+			}
 		})
 	}
 
@@ -106,11 +121,17 @@ func TestStartRefusal(t *testing.T) {
 		if !errors.Is(err, os.ErrNotExist) || !strings.Contains(err.Error(), EnvTokenFile) {
 			t.Fatalf("New = %v", err)
 		}
+		if _, err := ReadToken(filepath.Join(dir, "absent")); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("ReadToken = %v", err)
+		}
 	})
 	t.Run("directory", func(t *testing.T) {
 		_, err := New(Settings{MetricsTokenFile: dir}, Options{})
 		if !errors.Is(err, ErrNotRegular) || !strings.Contains(err.Error(), EnvMetricsTokenFile) {
 			t.Fatalf("New = %v", err)
+		}
+		if _, err := ReadToken(dir); !errors.Is(err, ErrNotRegular) {
+			t.Fatalf("ReadToken = %v", err)
 		}
 	})
 	t.Run("TLS directory", func(t *testing.T) {

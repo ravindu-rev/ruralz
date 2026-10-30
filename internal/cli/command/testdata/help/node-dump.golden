@@ -10,3 +10,4 @@ Flags:
   --client-key PATH        Key of --client-cert
   --help                   Print this help
   --output-file PATH       Write the document to PATH instead of stdout
+  --timeout DURATION       Deadline of the /config/dump call (default 5m; 0 means none)
