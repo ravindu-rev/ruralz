@@ -283,8 +283,7 @@ func TestDelayFlushedOnPass(t *testing.T) {
 
 // TestDelaySwitchDistribution moves from a long delay through Pass or
 // Blackhole to a short delay: the short delay applies at once, because the
-// long delay's queue is gone (each mode on live connections;
-// OQ-scalability-and-distributed-state-10 (a)).
+// long delay's queue is gone (each mode applies on live connections).
 func TestDelaySwitchDistribution(t *testing.T) {
 	tests := []struct {
 		name    string

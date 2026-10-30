@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package faultproxy is the protocol-agnostic TCP fault proxy of the chaos
-// and integration harness (OQ-scalability-and-distributed-state-10 (a)): it
-// sits between a client (a Node) and an upstream (a State Store, an
-// Upstream Endpoint, a Node behind the balancer) and injects faults on
-// live and new connections:
+// and integration harness (docs/engineering/03-testing-and-quality-strategy.md,
+// "Chaos testing"): it sits between a client (a Node) and an upstream (a
+// State Store, an Upstream Endpoint, a Node behind the balancer) and injects
+// faults on live and new connections:
 //
 //   - Pass forwards bytes unchanged.
 //   - Delay holds every chunk, per direction, for a normally distributed

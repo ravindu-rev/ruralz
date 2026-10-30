@@ -18,7 +18,8 @@ import (
 )
 
 // DefaultDumpLimit is the /config/dump body cap ReadDump applies when its
-// limit is zero or negative: 256 MiB (proposed).
+// limit is zero or negative: 256 MiB (target), the CLI's bound in
+// docs/reference/01-cli-and-api-surface.md, "Admin API conventions".
 const DefaultDumpLimit = 256 << 20
 
 // Dump is a /config/dump document read by ReadDump.
