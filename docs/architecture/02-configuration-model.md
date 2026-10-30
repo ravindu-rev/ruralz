@@ -230,7 +230,7 @@ spec:
   telemetry:
     otlp:                          # OTLP over gRPC
       endpoint: "https://otel-collector:4317"   # http or https, host, optional port (default 4317), no path; unset: no export
-      tls:                         # https only; the Upstream tls shape: sni, caCertificate, clientCertificate, clientKey
+      tls:                         # https only; the Upstream tls fields sni, caCertificate, clientCertificate, clientKey
         caCertificate: {secretRef: {provider: file, name: /etc/ruralz/otel/ca.crt}}
     traceSampling: 0.05            # ratio 0 to 1; default 0.01
     accessLog: {when: "response.status >= 400"}   # CEL
@@ -355,6 +355,8 @@ spec:
   healthCheck:
     active: {path: /healthz, interval: 10s, timeout: 2s, healthyThreshold: 2, unhealthyThreshold: 3}   # defaults /, 10s, 2s, 2, 3
     passive: {consecutiveErrors: 5, ejectionTime: 30s}   # defaults 5, 30s
+    stallTimeout: 1s               # an attempt without response headers this long is stalled and its Endpoint suspect; default 1s
+    pingTimeout: 5s                # an HTTP/2 connection whose ping goes unanswered this long is closed; default 5s
   retries:
     attempts: 2                    # retries after the first attempt; default 1
     perTryTimeout: 1s
@@ -363,16 +365,15 @@ spec:
     maxConnections: 1024           # in-flight attempts per Upstream per Node; default 1024
     maxPendingRequests: 256        # attempts waiting for a slot; default 256
     consecutiveFailures: 5         # run of failed legs that opens the breaker; default 5
-    minimumLegs: 20                # legs a rolling 10 s window needs before it may open; default 20
-    failureRatio: 0.5              # failed share of that window it also needs, 0 to 1; default 0.5
     openDuration: 30s              # default 30s
-    halfOpenSuccesses: 3           # successful probe legs that close a half-open breaker; default 3
     failureWhen: 'error != null || response.status >= 500'   # CEL
   tls:
     sni: orders.shop.svc
     caCertificate: {secretRef: {provider: file, name: /etc/ruralz/ca/ca.crt}}
     clientCertificate: {secretRef: {provider: file, name: /etc/ruralz/mtls/tls.crt}}
     clientKey: {secretRef: {provider: file, name: /etc/ruralz/mtls/tls.key}}
+    handshakeTimeout: 2s           # bound of a TLS handshake; default 2s
+  connectTimeout: 1s               # bound of a dial to an Endpoint, its addresses included; default 1s
   timeout: 3s
   messaging: {topic: orders.created, key: "consumer.name"}   # kafka | nats | mqtt only; key is CEL
   ai: {surface: openai, models: [{name: support-chat}]}     # protocol ai only; surface openai | native; models is a map keyed by name
@@ -381,7 +382,7 @@ spec:
 
 `ai.models` replaces `endpoints` for `ai`, and `ring-hash` requires `hashKey`, a rule the schema states (RZ-CFG-005 at stage F). Kubernetes discovery watches EndpointSlices, avoiding DNS TTL lag. `http` and `dns` discovery are `Planned (M1)`; `kubernetes` discovery `Planned (M2)`; `grpc`, `graphql`, `websocket` and `ai` `Planned (M3)`; `kafka`, `nats`, `mqtt` and `messaging` `Planned (M4)`.
 
-Sketch comments give the schema defaults, the static values of OQ-traffic-management-and-resilience-6 (c) (target); computed defaults stay out of the canonical form ([Deadlines](09-traffic-management-and-resilience.md#deadlines)). The breaker guards `minimumLegs`, `failureRatio` and `halfOpenSuccesses` are Planned (M1) (OQ-traffic-management-and-resilience-5, option (a)); [Circuit breakers](09-traffic-management-and-resilience.md#circuit-breakers) owns their semantics.
+Sketch comments give the schema defaults, the static defaults of [Deadlines](09-traffic-management-and-resilience.md#deadlines) (target); computed defaults, such as the Route `timeout` its protocol sets, stay out of the canonical form. `connectTimeout`, `tls.handshakeTimeout`, `healthCheck.stallTimeout` and `healthCheck.pingTimeout` bound the dial, the TLS handshake, stall detection and the HTTP/2 ping, whose expiries [Traffic management and resilience](09-traffic-management-and-resilience.md#health-checking-and-outlier-detection) defines. The breaker's guards are fixed values, not fields: at least 20 legs in a rolling 10 s window with at least 50% of them failed, and 3 probe successes to close (target; [Circuit breakers](09-traffic-management-and-resilience.md#circuit-breakers)).
 
 ### Policy
 

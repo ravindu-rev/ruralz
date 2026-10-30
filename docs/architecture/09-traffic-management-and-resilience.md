@@ -52,7 +52,7 @@ flowchart TD
     rh --> gate
     rnd --> gate
     gate -- "no" --> e005["503 RZ-UP-005 or RZ-UP-006"]
-    gate -- "yes" --> att["Attempt: pooled connection, or dial within 1 s and TLS within 2 s (target)"]
+    gate -- "yes" --> att["Attempt: pooled connection, or dial within connectTimeout and TLS within tls.handshakeTimeout"]
 ```
 
 ## Service discovery
@@ -75,12 +75,14 @@ Each Node judges health alone (P3 in [Vision](../vision/01-vision-and-positionin
 |---|---|---|
 | Passive ejection, on by default | `healthCheck.passive.consecutiveErrors`, `ejectionTime` | That many attempts matching `circuitBreaker.failureWhen` eject the Endpoint for `ejectionTime` × its ejection count, at most 10 (target) |
 | Active checks, when set | `healthCheck.active.path`, `interval`, `timeout`, `healthyThreshold`, `unhealthyThreshold` | `GET path` every `interval`, 10% jitter (target); 200 to 399 within `timeout` succeeds; new Endpoints start healthy |
+| Stall and suspect detection, always on | `healthCheck.stallTimeout` | An attempt without response headers after `stallTimeout` is stalled and its Endpoint suspect, as below |
+| HTTP/2 ping, on except for gRPC Upstreams | `healthCheck.pingTimeout` | A connection silent for 1 s is pinged and closed once the ping goes unanswered for `pingTimeout`, as below |
 
 At most 50% of Endpoints are passively ejected at once (target), so a bad deploy cannot empty the set; active removals, connect errors (dial timeouts, ping closes) and timeouts on suspect Endpoints bypass the cap, so a lost zone leaves rotation. With no healthy Endpoint the Node uses all (panic mode, reason `panic`); all-or-nothing panic at M1 is recommended for OQ-data-plane-7 (threshold: OQ-traffic-management-and-resilience-7). [Observability](10-observability.md) defines `ruralz_upstream_ejections_total` (reason `passive` or `active`).
 
-An attempt without response headers after 1 s is stalled (target); an Endpoint holding one and sending no headers for 1 s is suspect until it does: selection skips it while another remains, and an attempt timeout on it ejects it. Any black-holed Endpoint, `http` or gRPC, pooled or not, thus stops getting attempts within about 1 s (target).
+An attempt without response headers after `healthCheck.stallTimeout`, 1 s by default (target), is stalled; an Endpoint holding one and sending no headers for `stallTimeout` is suspect until it does: selection skips it while another remains, and an attempt timeout on it ejects it. Any black-holed Endpoint, `http` or gRPC, pooled or not, thus stops getting attempts within about `stallTimeout` (target).
 
-Go leaves HTTP/2 health checks off by default ([source](https://pkg.go.dev/golang.org/x/net/http2#Server)), so `HTTP2Config` pings a connection silent for 1 s and closes it after 5 s unanswered (target), resetting its streams. A 2 s garbage-collection pause or two TCP retransmission timeouts only suspend new attempts: no false positives below 5 s (hypothesis; field: OQ-traffic-management-and-resilience-6). gRPC Upstreams, Planned (M3), skip keepalive (OQ-traffic-management-and-resilience-6), as a default grpc-go server answers frequent pings with GOAWAY `too_many_pings` ([source](https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go)); in-flight attempts on a black-holed gRPC connection thus end at `perTryTimeout` as 504 `RZ-UP-003`, since default `retryOn` omits `timeout`.
+Go leaves HTTP/2 health checks off by default ([source](https://pkg.go.dev/golang.org/x/net/http2#Server)), so `HTTP2Config` pings a connection silent for 1 s, a fixed value, and closes it, resetting its streams, once the ping goes unanswered for `healthCheck.pingTimeout`, 5 s by default (target). A 2 s garbage-collection pause or two TCP retransmission timeouts only suspend new attempts: the default `pingTimeout` gives no false positives below 5 s (hypothesis). gRPC Upstreams, Planned (M3), send no keepalive pings, so `pingTimeout` does not apply to them, as a default grpc-go server answers frequent pings with GOAWAY `too_many_pings` ([source](https://github.com/grpc/grpc-go/blob/master/internal/transport/http2_server.go)); in-flight attempts on a black-holed gRPC connection thus end at `perTryTimeout` as 504 `RZ-UP-003`, since default `retryOn` omits `timeout`.
 
 Probe slots per Node are min(256, ceil(probes per second × `timeout`)) (target), shared across Upstreams; skipped probes count in `ruralz_upstream_probes_skipped_total` and, above 10% for 1 minute, raise degraded reason `probes_skipped` (target), both proposed to Observability. Beyond about 1,280 Endpoints per Node at `interval: 10s`, `timeout: 2s` (target), stalls, ejection and dial timeouts handle zone loss. gRPC checks use `grpc.health.v1`, Planned (M3).
 
@@ -95,14 +97,16 @@ Each bound clamps those below:
 | Request, streamed body included | `Route.spec.timeout` | `RZ-RT-007` before any attempt, `RZ-UP-003` during one, `RZ-UP-009` after commit |
 | Leg, attempts and backoff included, to the final response headers | `Upstream.spec.timeout` | `RZ-UP-003` |
 | Attempt, to the last response header byte | `retries.perTryTimeout` | Error kind `timeout`; `retryOn` decides |
-| Dial; TLS handshake | Fixed 1 s; 2 s (target); fields per OQ-traffic-management-and-resilience-6 | Error kind `connect`; `tls` |
+| Dial, every address of the Endpoint included; TLS handshake | `Upstream.spec.connectTimeout`; `Upstream.spec.tls.handshakeTimeout` | Error kind `connect`; `tls` |
 | State Store round trip | `Policy.spec.stateStoreTimeout`, clamped by the Route's largest (pack 8.7) | `failureMode` |
 
-Only attempt, leg or Route deadlines yield kind `timeout`, so a black-holed dial fails fast as `connect` and retries elsewhere. After commit only the Route `timeout` and the idle limit below bound the body: an SSE or `ai` Upstream's `timeout: 3s` never ends a stream. gRPC sends the remaining deadline as `grpc-timeout`. Proposed defaults (OQ-traffic-management-and-resilience-6):
+Only attempt, leg or Route deadlines yield kind `timeout`, so a black-holed dial fails fast as `connect` and retries elsewhere. After commit only the Route `timeout` and the idle limit below bound the body: an SSE or `ai` Upstream's `timeout: 3s` never ends a stream. gRPC sends the remaining deadline as `grpc-timeout`.
 
-| Field | Proposed default |
+The defaults follow. A static default is a schema default; a computed default, the Route and Upstream `timeout` and `retries.perTryTimeout`, is a runtime rule kept out of the canonical form, as are the CEL defaults of `retryOn` and `failureWhen` ([Canonical form and Revision](02-configuration-model.md#canonical-form-and-revision)):
+
+| Field | Default |
 |---|---|
-| `Route.spec.timeout` | 15 s; 1 h for WebSocket, GraphQL subscription, gRPC streaming and `protocol: ai` Routes (target) |
+| `Route.spec.timeout` | Computed from the Route's protocol: 15 s; 1 h for WebSocket, GraphQL subscription, gRPC streaming and `protocol: ai` Routes (target) |
 | `Upstream.spec.timeout` | The Route's `timeout` (target) |
 | `retries.perTryTimeout` | Leg time left divided by (retries left + 1) (target) |
 | `retries.attempts` | 1 retry |
@@ -110,6 +114,8 @@ Only attempt, leg or Route deadlines yield kind `timeout`, so a black-holed dial
 | `circuitBreaker.failureWhen` | `error != null \|\| response.status in [502, 503, 504]` |
 | `circuitBreaker` limits | `maxConnections` 1,024, `maxPendingRequests` 256, `consecutiveFailures` 5, `openDuration` 30 s (target) |
 | `healthCheck.passive` | `consecutiveErrors` 5, `ejectionTime` 30 s (target) |
+| `connectTimeout`; `tls.handshakeTimeout` | 1 s; 2 s (target) |
+| `healthCheck.stallTimeout`; `healthCheck.pingTimeout` | 1 s; 5 s (target) |
 
 OQ-data-plane-10: a fixed 60 s inter-chunk idle limit is recommended (target).
 
@@ -158,7 +164,7 @@ stateDiagram-v2
 
 ## Circuit breakers
 
-Each Node keeps one breaker and one in-flight ceiling per Upstream, Planned (M1); ejection isolates Endpoints. The breaker counts legs whose final result matches `failureWhen`; connect errors count only while over 50% of Endpoints are ejected (target), so a bad Endpoint or lost zone never opens it.
+Each Node keeps one breaker and one in-flight ceiling per Upstream, Planned (M1); ejection isolates Endpoints. The breaker counts legs whose final result matches `failureWhen`; connect errors count only while over 50% of Endpoints are ejected (target), so a bad Endpoint or lost zone never opens it. Its guards are fixed values, not fields: it may open only once a rolling 10 s window holds at least 20 legs and at least 50% of them failed, together with `consecutiveFailures`, and 3 consecutive probe successes close it when half-open (target).
 
 | Field | Role | When exceeded |
 |---|---|---|
@@ -168,9 +174,9 @@ Each Node keeps one breaker and one in-flight ceiling per Upstream, Planned (M1)
 | `maxConnections` | In-flight attempts per Upstream per Node: a semaphore taken before `RoundTrip`, so HTTP/2 streams count | Attempts wait |
 | `maxPendingRequests` | Waiters for that semaphore, each bounded by its attempt context | 503 `RZ-UP-006` at once |
 
-At 10% independent failures, a 20-leg window reaches 50% with probability about 7 × 10^-6 (hypothesis). Below 20 legs per 10 s per Node the breaker never opens, whatever `consecutiveFailures` says: at 100 Nodes, for any Upstream under about 200 legs per second (hypothesis). Ejection, the retry budget and `maxPendingRequests` protect those; guard fields like `minimumLegs` are OQ-traffic-management-and-resilience-5, blocking for M1.
+At 10% independent failures, a 20-leg window reaches 50% with probability about 7 × 10^-6 (hypothesis). Below 20 legs per 10 s per Node the breaker never opens, whatever `consecutiveFailures` says: at 100 Nodes, for any Upstream under about 200 legs per second (hypothesis). Ejection, the retry budget and `maxPendingRequests` protect those.
 
-An Endpoint holds at most max(8, min(2 × its weighted share, 50%) of `maxConnections`) in-flight attempts; once stalled attempts hold 50%, selection skips every Endpoint holding one (target). As detection takes about 1 s, `maxConnections` SHOULD exceed attempts per second per Node (target), or a multi-Endpoint zone can fill the slots first.
+An Endpoint holds at most max(8, min(2 × its weighted share, 50%) of `maxConnections`) in-flight attempts; once stalled attempts hold 50%, selection skips every Endpoint holding one (target). As detection takes about `healthCheck.stallTimeout`, `maxConnections` SHOULD exceed the attempts per Node in one `stallTimeout`, the attempts per second at its 1 s default (target), or a multi-Endpoint zone can fill the slots first.
 
 Streaming and WebSocket legs hold a slot for life, up to the Route `timeout`, so the default allows 1,024 streams per Upstream and Node (target); stream Routes SHOULD get their own Upstream. [Observability](10-observability.md) defines `ruralz_upstream_breaker_state_info`; post-close ramp, locality and slow start are OQ-traffic-management-and-resilience-8.
 
@@ -528,14 +534,14 @@ Every protection is a bounded resource that rejects fast: [Data plane](03-data-p
 | Ruralz Control unreachable, or no Node count yet (Control mode) | Derived ceiling | Last count kept in memory and persisted; a Node restarted meanwhile uses its persisted count, flagged stale, until the next arrives. A Node that never received one has a full-limit ceiling, fail-open clamp max(1, `requests` / 100) per window, 200 first-seen calls per second (target), `node_count_unknown`; fail-open admits N_countless × the clamp, 100 per second per client on `ratelimit-free` from 100 such Nodes, 10 × limit (hypothesis) | Open | Declared ceiling |
 | Ruralz Control leader or Raft quorum lost | Derived ceiling; cache stores | Count frozen at N_frozen while new Nodes get Revisions: fail-open admits N_serving / N_frozen × 2 × limit, 20 × limit after a 10 to 100 scale-out; stores add 2% × N_serving / N_frozen of `maxmemory` per 10 s read, unsafe past 25-fold (hypothesis) | Open | Declared ceiling |
 | Nodes lost | Derived ceiling | Large decreases publish at once ([Control plane](04-control-plane-and-gitops.md#replica-roles)); keys under-admit meanwhile | Closed | No |
-| Endpoint or zone refusing connections or black-holed: new dials | Load balancing | Dials fail at once or at 1 s (target), retry elsewhere and eject past the cap; two zones hold about 500 of 1,024 slots (hypothesis) | Open | `retries`, `healthCheck` |
+| Endpoint or zone refusing connections or black-holed: new dials | Load balancing | Dials fail at once or at 1 s (target), retry elsewhere and eject past the cap; two zones hold about 500 of 1,024 slots (hypothesis) | Open | `retries`, `healthCheck`, `connectTimeout` |
 | Zone lost, black-holed: pooled HTTP/2 connections | Load balancing | Suspect in about 1 s; the 5 s ping close resets streams, which retry, and ejects (target); two zones at 1,000 per second hold about 500 slots (hypothesis) | Open; Closed for non-idempotent methods (502 `RZ-UP-004`) | `retryOn`, `healthCheck` |
-| Zone lost, black-holed: pooled gRPC connections | Load balancing | Suspect in about 1 s (target); in-flight attempts, about 500 per Node at 1,000 per second over two zones, get 504 `RZ-UP-003` at `perTryTimeout`, 7.5 s, the first ejecting; no `RZ-UP-006` while `maxConnections` exceeds attempts per second (hypothesis) | Closed for in-flight attempts | `retries.perTryTimeout`; OQ-traffic-management-and-resilience-6 |
-| Endpoint reset, or 5 s without a ping answer | Load balancing | Idempotent methods retry; others get 502 `RZ-UP-004`; shorter stalls only suspend new attempts (target) | Closed for non-idempotent methods | `retryOn` |
-| Upstream TLS failure or handshake timeout | Upstream layer | 502 `RZ-UP-002`, no retry | Closed | `retryOn`, `tls` |
+| Zone lost, black-holed: pooled gRPC connections | Load balancing | Suspect in about 1 s (target); in-flight attempts, about 500 per Node at 1,000 per second over two zones, get 504 `RZ-UP-003` at `perTryTimeout`, 7.5 s, the first ejecting; no `RZ-UP-006` while `maxConnections` exceeds attempts per second (hypothesis) | Closed for in-flight attempts | `retries.perTryTimeout`, `healthCheck.stallTimeout` |
+| Endpoint reset, or a ping unanswered for `pingTimeout`, 5 s by default | Load balancing | Idempotent methods retry; others get 502 `RZ-UP-004`; shorter stalls only suspend new attempts (target) | Closed for non-idempotent methods | `retryOn`, `healthCheck.pingTimeout` |
+| Upstream TLS failure or handshake timeout | Upstream layer | 502 `RZ-UP-002`, no retry | Closed | `retryOn`, `tls`, `tls.handshakeTimeout` |
 | Every Endpoint unhealthy, or none left | Load balancing | Panic mode; an empty set gives 503 `RZ-UP-008` | Open; Closed when empty | OQ-traffic-management-and-resilience-7 |
 | Discovery source down, NXDOMAIN or empty answer | Discovery | Keep the last set, `discovery_stale`; NXDOMAIN until 3 refreshes repeat it (target) | Open | No |
-| Low-traffic Upstream failing | Circuit breaker | Under 20 legs per 10 s per Node (target) the breaker stays closed; ejection, retry budget and `maxPendingRequests` bound it | Closed per failed request | OQ-traffic-management-and-resilience-5 |
+| Low-traffic Upstream failing | Circuit breaker | Under 20 legs per 10 s per Node (target) the breaker stays closed; ejection, retry budget and `maxPendingRequests` bound it | Closed per failed request | No; the 20-leg guard is fixed |
 | Breaker open, bulkhead full, timeout or retry budget exhausted | Breaker; retries | 503 `RZ-UP-005`, `RZ-UP-006`; else code selection | Closed | `circuitBreaker`, `timeout`; OQ-traffic-management-and-resilience-5 |
 | Upstream fails, stale entry exists | `cache` | Serve stale within `stale-if-error`, the response's or the request's, also while the breaker is open, unless a stale limit forbids it; a failed background revalidation keeps the entry | Open | Upstream `Cache-Control`; request `Cache-Control` |
 | Upstream fails after commit | Streaming | End the stream with `RZ-UP-009` | Closed | No |
@@ -576,8 +582,7 @@ An attempt that ends because the client's streamed body passed `limits.maxReques
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-traffic-management-and-resilience-5 | Which fields set backoff, retry budget, hedging and breaker guards? | (a) Proposed: `retries.backoff`, `budget`, `hedgeDelay` (M4); `circuitBreaker.failureRatio`, `minimumLegs` (M1), `halfOpenSuccesses`; (b) fixed values, hedging awaiting `hedgeDelay` | configuration-model | Yes, breaker `minimumLegs` (M1); hedging (M4) |
-| OQ-traffic-management-and-resilience-6 | Are the Deadlines defaults right; which timeouts are fields; should gRPC use keepalive despite grpc-go ping enforcement? | (a) As proposed, no gRPC keepalive; (b) no default retries; (c) per-protocol Route timeouts (recommended); any with (d) `Upstream.spec.connectTimeout`, `tls.handshakeTimeout`, `healthCheck.pingTimeout`, `healthCheck.stallTimeout`, (e) gRPC keepalive after a grpc-go research row | configuration-model | Yes, canonical form (M1) |
+| OQ-traffic-management-and-resilience-5 | Which fields set backoff, the retry budget and hedging? | (a) Proposed: `retries.backoff`, `budget`, `hedgeDelay` (M4); (b) fixed values, hedging awaiting `hedgeDelay` | configuration-model | Yes, hedging (M4) |
 | OQ-traffic-management-and-resilience-7 | Are the ejection cap and panic threshold fields? | (a) `healthCheck.passive.maxEjectionPercent`, a panic percentage; (b) fixed (current) | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-8 | Should balancing prefer same-zone Endpoints and ramp new ones? | (a) `loadBalancing.locality`, `slowStart`; (b) slow start; (c) neither | traffic-management-and-resilience | No |
 | OQ-traffic-management-and-resilience-9 | 1,000 Nodes refreshing 200 Upstreams send about 13,300 DNS queries per second (hypothesis); tune or relay? | (a) `discovery.refreshInterval`; (b) fixed (current); (c) Control Stream relay | configuration-model | No |
