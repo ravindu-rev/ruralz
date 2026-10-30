@@ -517,10 +517,12 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 }
 
 // requiredIf encodes requiredIf=<field>,<member>=<value> on struct t: field
-// is required when member is present and equals the string value, as an
-// if/then rule in the form the schema index reads for dispatch (a member
-// const and its required). A value outside the enum of member's type is an
-// error, so the rule cannot silently never apply.
+// is required when member is present and equals value, as an if/then rule
+// in the form the schema index reads for dispatch (a member const and its
+// required). The const is the string value, or for a bool member the
+// boolean true or false, so a step's collection: true can require group.
+// A value outside the enum of member's type, or a bool value other than
+// true and false, is an error, so the rule cannot silently never apply.
 func (g *generator) requiredIf(t reflect.Type, value string, props schema) (schema, error) {
 	field, cond, ok := strings.Cut(value, ",")
 	member, want, hasValue := strings.Cut(cond, "=")
@@ -532,6 +534,7 @@ func (g *generator) requiredIf(t reflect.Type, value string, props schema) (sche
 			return nil, fmt.Errorf("requiredIf names unknown field %q", f)
 		}
 	}
+	var constant any = want
 	for i := range t.NumField() {
 		f := t.Field(i)
 		if jsonName, _, err := jsonTag(f); err != nil || jsonName != member {
@@ -541,12 +544,23 @@ func (g *generator) requiredIf(t reflect.Type, value string, props schema) (sche
 		if mt.Kind() == reflect.Pointer {
 			mt = mt.Elem()
 		}
+		if mt.Kind() == reflect.Bool {
+			switch want {
+			case "true":
+				constant = true
+			case "false":
+				constant = false
+			default:
+				return nil, fmt.Errorf("requiredIf %q: %q is not true or false", value, want)
+			}
+			continue
+		}
 		if enum := g.in.source[mt.Name()].enumOrNil(); len(enum) > 0 && !slices.Contains(enum, want) {
 			return nil, fmt.Errorf("requiredIf %q: %q is not a %s value", value, want, mt.Name())
 		}
 	}
 	return schema{
-		"if":   schema{"properties": schema{member: schema{"const": want}}, "required": []any{member}},
+		"if":   schema{"properties": schema{member: schema{"const": constant}}, "required": []any{member}},
 		"then": schema{"required": []any{field}},
 	}, nil
 }

@@ -23,6 +23,8 @@ const (
 	KindCondUnknown   Kind = "CondUnknown"
 	KindCondMalformed Kind = "CondMalformed"
 	KindCondBadValue  Kind = "CondBadValue"
+	KindCondFlag      Kind = "CondFlag"
+	KindCondBadFlag   Kind = "CondBadFlag"
 )
 
 // CondDriver is a fixture enum for the requiredIf condition.
@@ -92,6 +94,36 @@ type CondBadValueSpec struct {
 	URL string `json:"url,omitempty"`
 }
 
+// CondFlag requires url when the bool enabled is true.
+type CondFlag struct {
+	Metadata Meta         `json:"metadata"`
+	Spec     CondFlagSpec `json:"spec"`
+}
+
+// CondFlagSpec requires url when enabled is true.
+// +ruralz:requiredIf=url,enabled=true
+type CondFlagSpec struct {
+	// Enabled switches the backend on.
+	Enabled *bool `json:"enabled,omitempty"`
+	// URL is the backend address.
+	URL string `json:"url,omitempty"`
+}
+
+// CondBadFlag conditions a bool member on a value that is not a bool.
+type CondBadFlag struct {
+	Metadata Meta            `json:"metadata"`
+	Spec     CondBadFlagSpec `json:"spec"`
+}
+
+// CondBadFlagSpec names a bool value that does not exist.
+// +ruralz:requiredIf=url,enabled=yes
+type CondBadFlagSpec struct {
+	// Enabled switches the backend on.
+	Enabled *bool `json:"enabled,omitempty"`
+	// URL is the backend address.
+	URL string `json:"url,omitempty"`
+}
+
 // condSources parses the fixtures of both fixture files.
 func condSources(t *testing.T) sourceInfo {
 	t.Helper()
@@ -129,11 +161,60 @@ func TestRequiredIfMarker(t *testing.T) {
 		{reflect.TypeFor[CondUnknown](), `names unknown field "address"`},
 		{reflect.TypeFor[CondMalformed](), "want <field>,<member>=<value>"},
 		{reflect.TypeFor[CondBadValue](), `"rediss" is not a CondDriver value`},
+		{reflect.TypeFor[CondBadFlag](), `"yes" is not true or false`},
 	} {
 		_, err := generate(input{source: info, resources: []reflect.Type{c.typ}}, rendered)
 		if err == nil || !strings.Contains(err.Error(), c.want) {
 			t.Errorf("%s: err = %v, want %q", c.typ.Name(), err, c.want)
 		}
+	}
+}
+
+// TestRequiredIfBoolMember checks requiredIf on a bool member: the
+// condition's const is the boolean, never the string "true", so the rule
+// applies to enabled: true and not to enabled: false or an absent member.
+func TestRequiredIfBoolMember(t *testing.T) {
+	info := condSources(t)
+	want := `[{"if":{"properties":{"enabled":{"const":true}},"required":["enabled"]},"then":{"required":["url"]}}]`
+	for _, v := range []view{authoring, rendered} {
+		out, err := generate(input{source: info, resources: []reflect.Type{reflect.TypeFor[CondFlag]()}}, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := json.Marshal(dig(t, decode(t, out), "$defs", "CondFlagSpec", "allOf"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if string(got) != want {
+			t.Errorf("view %v: CondFlagSpec allOf = %s, want %s", v, got, want)
+		}
+	}
+}
+
+// TestStepCollectionNeedsGroup checks the CompositionStep rule of the
+// committed schema (docs/architecture/02-configuration-model.md "Semantic
+// validation"): collection: true without group is RZ-CFG-005 at the step,
+// at stage F; with group, collection false or absent, the step validates.
+func TestStepCollectionNeedsGroup(t *testing.T) {
+	views := embeddedViews(t)
+	tests := []struct {
+		name, fields string
+		want         []string
+	}{
+		{"collection without group", `"collection": true`, []string{"RZ-CFG-005 spec.composition.steps[name=a]"}},
+		{"collection with group", `"collection": true, "group": "items"`, nil},
+		{"collection false without group", `"collection": false`, nil},
+		{"no collection", `"target": "data"`, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Route", "metadata": {"name": "r"}, "spec": {` +
+				`"match": {"path": {"prefix": "/r"}}, "composition": {"mode": "aggregate", "steps": [` +
+				`{"name": "a", "upstream": "u", "path": "/a", ` + tt.fields + `}]}}}`
+			if got := validateJSON(t, views, v1alpha1.KindRoute, src); strings.Join(got, "|") != strings.Join(tt.want, "|") {
+				t.Errorf("Validate = %q, want %q", got, tt.want)
+			}
+		})
 	}
 }
 

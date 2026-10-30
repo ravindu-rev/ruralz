@@ -18,7 +18,8 @@
 // Policy.spec.when declares response only when the Policy's first Phase is
 // a response Phase, and the transform places declare upstream only at
 // Upstream scope. The language is the standard library plus the strings
-// (version 5) and encoders (version 1) extensions, with the duration,
+// (version 5) and encoders (version 1) extensions and the Ruralz functions
+// url.pathEscape and url.queryEscape (urlLibrary), with the duration,
 // timestamp and regular-expression literal validators.
 //
 // # Validation

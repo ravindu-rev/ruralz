@@ -32,7 +32,8 @@
 // the actual request, whose cors Policy answers it. A match.when runtime error ends
 // matching with RZ-RT-006 and no fallthrough, so an erroring guard never
 // diverts traffic to a less protected Route. match.when sees the
-// candidate's template captures as request.pathParams; on return the
+// candidate's template captures as request.pathParams, decoded, and
+// request.rawPathParams, as the normalized path holds them; on return the
 // activation holds the winner's captures, or none.
 //
 // Match allocates nothing when params has room for MaxParams captures,

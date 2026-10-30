@@ -119,7 +119,7 @@ func (e cappedEstimator) capOf(path []string) (uint64, bool) {
 	switch path[0] {
 	case "request":
 		switch path[1] {
-		case "method", "scheme", "host", "path", "pathParams", "query", "headers":
+		case "method", "scheme", "host", "path", "pathParams", "rawPathParams", "query", "headers":
 			if !e.clientRequest || c.RequestHeaderBytes <= 0 || c.AddedHeaderBytes < 0 {
 				return 0, false
 			}

@@ -52,7 +52,7 @@ func workedRequests() []workedRequest {
 		{req{"DELETE", "api.shop.example", "/v1/orders", nil}, "orders-any", nil},
 		{req{"GET", "other.example", "/x", nil}, "fallback", nil},
 		{req{"GET", "API.Shop.Example:8443", "/v1/%6Frders/./export", nil}, "orders-export", nil},
-		{req{"GET", "api.shop.example.", "/v1/orders/a%2fb", nil}, "orders-get", []expr.Param{p("orderId", "a/b")}},
+		{req{"GET", "api.shop.example.", "/v1/orders/a%2fb", nil}, "orders-get", []expr.Param{pr("orderId", "a/b", "a%2Fb")}},
 		{req{"GET", "api.shop.example", "/v1/x/../orders/42/summary", nil}, "orders-summary", []expr.Param{p("orderId", "42")}},
 		{req{"GET", "api.shop.example", "/v1/orders/42/", nil}, "orders-any", nil},
 		{req{"GET", "api.shop.example", "/v1/ordersX", nil}, "tenant-wild", nil},
@@ -368,17 +368,18 @@ func TestWhenErrorStopsMatching(t *testing.T) {
 }
 
 // TestWhenSeesCandidateCaptures checks that match.when reads the
-// candidate's decoded captures as request.pathParams, and none for a
+// candidate's captures as request.pathParams, decoded, and as
+// request.rawPathParams, as the normalized path holds them, and none for a
 // candidate without a template.
 func TestWhenSeesCandidateCaptures(t *testing.T) {
 	f := newFixture(t, nil,
 		spec{"seven", v1alpha1.RouteMatch{Path: templatePath("/v1/{id}"), When: `request.pathParams.id == "7"`}},
-		spec{"slash", v1alpha1.RouteMatch{Path: templatePath("/v1/{key}"), When: `request.pathParams.key == "a/b"`}},
+		spec{"slash", v1alpha1.RouteMatch{Path: templatePath("/v1/{key}"), When: `request.pathParams.key == "a/b" && request.rawPathParams.key == "a%2Fb"`}},
 		spec{"other", v1alpha1.RouteMatch{Path: templatePath("/v1/{item}")}},
-		spec{"plain", v1alpha1.RouteMatch{Path: exactPath("/v1/x"), When: `size(request.pathParams) == 0`}},
+		spec{"plain", v1alpha1.RouteMatch{Path: exactPath("/v1/x"), When: `size(request.pathParams) == 0 && size(request.rawPathParams) == 0`}},
 	)
 	f.expect(t, req{path: "/v1/7"}, "seven", p("id", "7"))
-	f.expect(t, req{path: "/v1/a%2Fb"}, "slash", p("key", "a/b"))
+	f.expect(t, req{path: "/v1/a%2fb"}, "slash", pr("key", "a/b", "a%2Fb"))
 	f.expect(t, req{path: "/v1/8"}, "other", p("item", "8"))
 	f.expect(t, req{path: "/v1/x"}, "plain")
 }
@@ -492,11 +493,14 @@ func TestListenerHostnames(t *testing.T) {
 	}
 }
 
-// TestCapturesAreDecoded checks that captures are percent-decoded.
+// TestCapturesAreDecoded checks that captures are percent-decoded for
+// request.pathParams and keep the normalized path's spelling for
+// request.rawPathParams.
 func TestCapturesAreDecoded(t *testing.T) {
 	f := newFixture(t, nil, spec{"files", v1alpha1.RouteMatch{Path: templatePath("/files/{dir}/{name}")}})
-	f.expect(t, req{path: "/files/a%2Fb/%C3%A9t%C3%A9"}, "files", p("dir", "a/b"), p("name", "été"))
-	f.expect(t, req{path: "/files/x/100%25"}, "files", p("dir", "x"), p("name", "100%"))
+	f.expect(t, req{path: "/files/a%2Fb/%C3%A9t%C3%A9"}, "files", pr("dir", "a/b", "a%2Fb"), pr("name", "été", "%C3%A9t%C3%A9"))
+	f.expect(t, req{path: "/files/x/100%25"}, "files", p("dir", "x"), pr("name", "100%", "100%25"))
+	f.expect(t, req{path: "/files/%7e/%c3%a9"}, "files", p("dir", "~"), pr("name", "é", "%C3%A9"))
 }
 
 // TestRouteWithSeveralHosts checks a Route reached through several host

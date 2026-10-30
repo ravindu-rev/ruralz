@@ -171,14 +171,16 @@ func newTemplate(t routematch.Template) *template {
 	return tp
 }
 
-// capture appends the decoded captures of path, which tp matches, to
-// params.
+// capture appends the captures of path, which tp matches, to params: each
+// decoded for request.pathParams and as the path holds it, still
+// percent-encoded, for request.rawPathParams (a substring of path, so it
+// costs no allocation).
 func (tp *template) capture(path string, params []expr.Param) []expr.Param {
 	k := 0
 	for i, seg := 1, 0; k < len(tp.segs) && i <= len(path); seg++ {
 		s, next := routematch.NextSegment(path, i)
 		if seg == tp.segs[k] {
-			params = append(params, expr.Param{Name: tp.names[k], Value: routematch.DecodeParam(s)})
+			params = append(params, expr.Param{Name: tp.names[k], Value: routematch.DecodeParam(s), Raw: s})
 			k++
 		}
 		i = next

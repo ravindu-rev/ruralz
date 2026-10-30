@@ -124,7 +124,8 @@ func (u *unit) path(base diag.Path, p *v1alpha1.PathMatch) {
 
 // composition checks the steps of a composition: no when on an aggregate
 // step, which runs whatever when says (RZ-CFG-005; when applies to the
-// sequential and conditional modes); the step count against
+// sequential and conditional modes); each step's path, target and group
+// (step, RZ-CFG-005); the step count against
 // limits.maxCompositionSteps (RZ-CFG-031, at the first step past it); and
 // the steps' maxBodyBytes against limits.maxResponseBodyBytes
 // (RZ-CFG-032): explicit values, in list order, must not total more than
@@ -140,6 +141,9 @@ func (u *unit) composition(c *v1alpha1.Composition) {
 					"remove when, or use mode sequential or conditional", nil)
 			}
 		}
+	}
+	for i := range c.Steps {
+		u.step(steps.Append(diag.Keyed("name", c.Steps[i].Name)), &c.Steps[i])
 	}
 	maxSteps := u.ix.maxSteps
 	if maxSteps.value >= 0 && int64(len(c.Steps)) > maxSteps.value {

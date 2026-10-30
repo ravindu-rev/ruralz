@@ -25,7 +25,10 @@
 //     endpoint the Node can dial, with tls only beside an https one;
 //     clientCertificate and clientKey together; Route path and header
 //     criteria the Router compiles and a non-empty grpc service; no when
-//     on an aggregate step; an Upstream Endpoint source, and Endpoint
+//     on an aggregate step; a literal step path that passes the hardening
+//     of the client path with no dot segment, a step target that is a dot
+//     path, and a non-empty group beside collection: true (step); an
+//     Upstream Endpoint source, and Endpoint
 //     addresses and dns discovery as internal/netaddr parses them for the
 //     Upstream layer; a Policy filterClass the registry accepts.
 //   - RZ-CFG-021: a Plugin image pinned by its full @sha256 digest.
@@ -44,7 +47,8 @@
 //   - RZ-CFG-041: one secret used with two destinations.
 //
 // The schema states, and stage F reports, ring-hash without hashKey,
-// a plugin Policy without plugin and a step maxBodyBytes below 1. The
+// a plugin Policy without plugin, a step maxBodyBytes below 1 and a step
+// with collection: true and no group. The
 // config of a plugin Policy against its Plugin's configSchema
 // (RZ-CFG-021) ships with the plugin Policy, Planned (M2); RZ-CFG-034
 // belongs to stage K and RZ-CFG-040 to the Node's serve check.

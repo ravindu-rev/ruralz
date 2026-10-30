@@ -282,8 +282,9 @@ type ProgramSet interface {
 type InputCaps struct {
 	// RequestHeaderBytes bounds every string, list and map of the client
 	// request as CEL reads it in the client leg: request.method, scheme,
-	// host, path, pathParams, query and headers, keys, values and entry
-	// counts alike, in bytes or entries. It is the snapshot's effective
+	// host, path, pathParams, rawPathParams (substrings of the path),
+	// query and headers, keys, values and entry counts alike, in bytes or
+	// entries. It is the snapshot's effective
 	// limits.maxRequestHeaderBytes, above which RZ-RT-002 refuses the
 	// request before any expression runs; that count includes the request
 	// target, the HTTP/1.1 request line or the HTTP/2 and HTTP/3
@@ -515,8 +516,13 @@ func (e *EvalError) Error() string { return "cel: " + string(e.Place) + ": " + e
 // Detail returns the library text; never send it to a client or a span.
 func (e *EvalError) Detail() string { return e.detail }
 
-// Param is one path template capture.
-type Param struct{ Name, Value string }
+// Param is one path template capture: Value is request.pathParams, the
+// capture percent-decoded, and Raw is request.rawPathParams, the same
+// capture as the normalized path holds it, still percent-encoded
+// (docs/architecture/02-configuration-model.md "Variables"), so a
+// composition pathExpression can splice it without re-encoding. Whoever
+// builds a Param sets both; the Router takes Raw from the path segment.
+type Param struct{ Name, Value, Raw string }
 
 // Request is the request view. Fields are set by the data plane; Header is
 // the live canonical header map (read-only while referenced by an
@@ -530,7 +536,9 @@ type Request struct {
 	Host string
 	// Path is the one normalized path.
 	Path string
-	// PathParams are template captures in template order.
+	// PathParams are template captures in template order:
+	// request.pathParams reads their Value, request.rawPathParams their
+	// Raw.
 	PathParams []Param
 	// Header holds request headers; CEL reads them lowercased and joined.
 	Header http.Header

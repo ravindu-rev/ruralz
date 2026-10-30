@@ -138,8 +138,9 @@ type Composition struct {
 }
 
 // CompositionStep is one Upstream call in a composition. Each step has
-// exactly one of path or pathExpression.
+// exactly one of path or pathExpression, and collection true needs group.
 // +ruralz:exactlyOneOf=path,pathExpression
+// +ruralz:requiredIf=group,collection=true
 type CompositionStep struct {
 	// Name identifies the step.
 	// +ruralz:required
@@ -150,19 +151,19 @@ type CompositionStep struct {
 	Upstream string `json:"upstream"`
 	// Method is the HTTP method; default the incoming method.
 	Method string `json:"method,omitempty"`
-	// Path is a literal path.
+	// Path is a literal path starting with / that passes the hardening of the client path, with no . or .. segment; its first ? starts the raw query sent, else the client's query is forwarded.
 	Path string `json:"path,omitempty"`
-	// PathExpression computes the path.
+	// PathExpression computes the path, under the rules of path; splice decoded captures with url.pathEscape or url.queryEscape, or read request.rawPathParams.
 	// +ruralz:cel=request,source,route,consumer,auth,now,steps:string
 	PathExpression string `json:"pathExpression,omitempty"`
-	// Target unwraps a nested object of the response first.
+	// Target is a dot path that unwraps a nested value of the response body first.
 	Target string `json:"target,omitempty"`
 	// Select is an allowlist of response fields.
 	// +ruralz:list=set
 	Select []string `json:"select,omitempty"`
 	// Rename renames response fields.
 	Rename map[string]string `json:"rename,omitempty"`
-	// Collection is true when the body is a JSON array.
+	// Collection is true when the value after target is a JSON array; it needs group.
 	// +ruralz:default=false
 	Collection *bool `json:"collection,omitempty"`
 	// Group is the key under which the body is merged.

@@ -122,8 +122,13 @@ func (f *fixture) expect(tb testing.TB, rq req, route string, params ...expr.Par
 	}
 }
 
-// p returns a capture.
-func p(name, value string) expr.Param { return expr.Param{Name: name, Value: value} }
+// p returns a capture whose path segment needs no decoding: its raw form
+// is its value.
+func p(name, value string) expr.Param { return expr.Param{Name: name, Value: value, Raw: value} }
+
+// pr returns a capture decoded to value from the percent-encoded segment
+// raw.
+func pr(name, value, raw string) expr.Param { return expr.Param{Name: name, Value: value, Raw: raw} }
 
 // prefixPath, exactPath, templatePath and regexPath return path criteria.
 func prefixPath(s string) *v1alpha1.PathMatch   { return &v1alpha1.PathMatch{Prefix: s} }

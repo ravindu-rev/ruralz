@@ -273,9 +273,9 @@ func (s *sizer) iterations(id int64) (uint64, bool) {
 // size returns the most entries of a list or map, or code points of a
 // string, e can hold: exact for a literal, derived for a map or filter
 // (at most one entry per iteration), split (one more entry than its
-// string's size), concatenation, a conditional and dyn, and the
-// estimator's size for a value reached from a Ruralz variable. Any other
-// value has no bound here.
+// string's size), concatenation, a conditional, dyn and the url escapes
+// (three times their input), and the estimator's size for a value reached
+// from a Ruralz variable. Any other value has no bound here.
 func (s *sizer) size(e ast.Expr) (uint64, bool) {
 	switch e.Kind() {
 	case ast.LiteralKind:
@@ -334,6 +334,11 @@ func (s *sizer) callSize(c ast.CallExpr) (n uint64, ok, derived bool) {
 		if len(args) == 1 {
 			n, ok = s.size(args[0])
 			return n, ok, true
+		}
+	case funcPathEscape, funcQueryEscape:
+		if len(args) == 1 {
+			n, ok = s.size(args[0])
+			return mulSat(n, escapeGrowth), ok, true
 		}
 	default:
 	}

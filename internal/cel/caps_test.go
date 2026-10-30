@@ -145,6 +145,8 @@ func TestCapOf(t *testing.T) {
 		{"request.host", true, caps, 1024, true},
 		{"request.path", true, caps, 1024, true},
 		{"request.pathParams.@values", true, caps, 1024, true},
+		{"request.rawPathParams.@values", true, caps, 1024, true},
+		{"request.rawPathParams", false, caps, 0, false},
 		{"request.query.@keys", true, caps, 1024, true},
 		{"request.headers", true, caps, 1024, true},
 		{"request.headers.@values", true, caps, 1024, true},

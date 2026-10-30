@@ -138,6 +138,7 @@ func (c *Compiler) env(vars expr.Var) (*celgo.Env, error) {
 		celgo.CustomTypeAdapter(c.provider),
 		ext.Strings(ext.StringsVersion(5)),
 		ext.Encoders(ext.EncodersVersion(1)),
+		celgo.Lib(urlLibrary{}),
 		// After ext.Strings, so these replace its split estimates.
 		celgo.CostEstimatorOptions(splitEstimates()...),
 		celgo.ASTValidators(

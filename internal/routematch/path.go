@@ -54,6 +54,10 @@ const (
 	RejectBadEscape
 	// RejectNotOriginForm is a non-empty path that does not start with "/".
 	RejectNotOriginForm
+	// RejectDotSegment is a "." or ".." segment, in any spelling, in a path
+	// Ruralz sends in place of the client's ([CheckForwardPath]); a client
+	// path loses its dot segments to normalization instead.
+	RejectDotSegment
 )
 
 // String returns a short description of the reason.
@@ -73,6 +77,8 @@ func (r RejectReason) String() string {
 		return "invalid percent escape"
 	case RejectNotOriginForm:
 		return "path does not start with /"
+	case RejectDotSegment:
+		return "dot segment"
 	default:
 		return "reason " + strconv.Itoa(int(r))
 	}

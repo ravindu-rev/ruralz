@@ -183,6 +183,7 @@ const (
 	reqHost
 	reqPath
 	reqPathParams
+	reqRawPathParams
 	reqQuery
 	reqHeaders
 	reqBody
@@ -249,10 +250,11 @@ func objectFields(k objKind) []fieldSpec {
 			reqScheme:     {"scheme", ftString},
 			reqHost:       {"host", ftString},
 			reqPath:       {"path", ftString},
-			reqPathParams: {"pathParams", ftStringMap},
-			reqQuery:      {"query", ftStringMap},
-			reqHeaders:    {"headers", ftStringMap},
-			reqBody:       {"body", ftDyn},
+			reqPathParams:    {"pathParams", ftStringMap},
+			reqRawPathParams: {"rawPathParams", ftStringMap},
+			reqQuery:         {"query", ftStringMap},
+			reqHeaders:       {"headers", ftStringMap},
+			reqBody:          {"body", ftDyn},
 		}
 	case kindSource:
 		return []fieldSpec{

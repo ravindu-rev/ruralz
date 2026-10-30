@@ -1,0 +1,3 @@
+extra.yaml:14:17 error RZ-CFG-005 Route/step-targets spec.composition.steps[name=empty-segment].target: target "data..id" is not a valid dot path (empty segment) ("." separates segments; "\." writes a literal dot, "\*" a literal star and "\\" a backslash)
+extra.yaml:18:17 error RZ-CFG-005 Route/step-targets spec.composition.steps[name=bad-escape].target: target "data\\q" is not a valid dot path (invalid escape) ("." separates segments; "\." writes a literal dot, "\*" a literal star and "\\" a backslash)
+extra.yaml:22:17 error RZ-CFG-005 Route/step-targets spec.composition.steps[name=bare-star].target: target "items*" is not a valid dot path (unescaped * inside a segment) ("." separates segments; "\." writes a literal dot, "\*" a literal star and "\\" a backslash)

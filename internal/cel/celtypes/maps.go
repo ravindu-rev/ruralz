@@ -300,6 +300,34 @@ func (s paramSource) raw() any {
 	return m
 }
 
+// rawParamSource is request.rawPathParams: the template captures by name
+// as the normalized path holds them, still percent-encoded (expr.Param.Raw;
+// the first capture wins if a name repeats, as for request.pathParams).
+type rawParamSource struct{ p *[]expr.Param }
+
+func (s rawParamSource) lookup(key string) (ref.Val, bool) {
+	for _, p := range *s.p {
+		if p.Name == key {
+			return types.String(p.Raw), true
+		}
+	}
+	return nil, false
+}
+
+func (s rawParamSource) sortedKeys() []string { return paramSource(s).sortedKeys() }
+
+func (s rawParamSource) size() int { return paramSource(s).size() }
+
+func (s rawParamSource) raw() any {
+	m := make(map[string]string, len(*s.p))
+	for _, p := range *s.p {
+		if _, dup := m[p.Name]; !dup {
+			m[p.Name] = p.Raw
+		}
+	}
+	return m
+}
+
 // stepsSource is the steps variable: completed composition steps by name.
 type stepsSource struct{ s *expr.Steps }
 

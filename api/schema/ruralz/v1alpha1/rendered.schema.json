@@ -1137,13 +1137,30 @@
               ]
             }
           ]
+        },
+        {
+          "if": {
+            "properties": {
+              "collection": {
+                "const": true
+              }
+            },
+            "required": [
+              "collection"
+            ]
+          },
+          "then": {
+            "required": [
+              "group"
+            ]
+          }
         }
       ],
-      "description": "CompositionStep is one Upstream call in a composition. Each step has exactly one of path or pathExpression.",
+      "description": "CompositionStep is one Upstream call in a composition. Each step has exactly one of path or pathExpression, and collection true needs group.",
       "properties": {
         "collection": {
           "default": false,
-          "description": "Collection is true when the body is a JSON array.",
+          "description": "Collection is true when the value after target is a JSON array; it needs group.",
           "type": "boolean"
         },
         "group": {
@@ -1170,11 +1187,11 @@
           "type": "boolean"
         },
         "path": {
-          "description": "Path is a literal path.",
+          "description": "Path is a literal path starting with / that passes the hardening of the client path, with no . or .. segment; its first ? starts the raw query sent, else the client's query is forwarded.",
           "type": "string"
         },
         "pathExpression": {
-          "description": "PathExpression computes the path.",
+          "description": "PathExpression computes the path, under the rules of path; splice decoded captures with url.pathEscape or url.queryEscape, or read request.rawPathParams.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1207,7 +1224,7 @@
           }
         },
         "target": {
-          "description": "Target unwraps a nested object of the response first.",
+          "description": "Target is a dot path that unwraps a nested value of the response body first.",
           "type": "string"
         },
         "upstream": {

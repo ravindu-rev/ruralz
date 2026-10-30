@@ -331,7 +331,36 @@ func TestRequest(t *testing.T) {
 		},
 		{name: "pathParams in", vars: withQuery("", expr.Param{Name: "id", Value: "9"}), src: `"id" in request.pathParams`, want: true},
 		{name: "has query", vars: withQuery("a=1"), src: `has(request.query.a) && !has(request.query.b)`, want: true},
+		// request.rawPathParams: the same captures, still percent-encoded.
+		{
+			name: "rawPathParams as received", vars: withQuery("", expr.Param{Name: "id", Value: "a/b", Raw: "a%2Fb"}),
+			src: `request.rawPathParams.id + " " + request.pathParams.id`, want: "a%2Fb a/b",
+		},
+		{
+			name: "rawPathParams first wins", vars: withQuery("", expr.Param{Name: "a", Value: "1", Raw: "%31"}, expr.Param{Name: "a", Value: "2", Raw: "%32"}),
+			src: `request.rawPathParams.a + string(request.rawPathParams.size())`, want: "%311",
+		},
+		{
+			name: "rawPathParams sorted", vars: withQuery("", expr.Param{Name: "b", Value: "2", Raw: "2"}, expr.Param{Name: "a", Value: "1", Raw: "1"}),
+			src: `request.rawPathParams.map(k, k).join(",")`, want: "a,b",
+		},
+		{name: "rawPathParams empty", vars: withQuery(""), src: `request.rawPathParams.size() == 0 && !has(request.rawPathParams.x)`, want: true},
+		{name: "has rawPathParams", vars: withQuery("", expr.Param{Name: "id", Value: "9", Raw: "9"}), src: `has(request.rawPathParams) && has(request.rawPathParams.id)`, want: true},
 	})
+}
+
+// TestRawPathParamsNative checks the Go value behind request.rawPathParams:
+// the raw captures by name, the first winning a repeated name.
+func TestRawPathParamsNative(t *testing.T) {
+	r := &expr.Request{PathParams: []expr.Param{{Name: "id", Value: "a/b", Raw: "a%2Fb"}, {Name: "id", Value: "x", Raw: "y"}}}
+	got, err := requestField(r, reqRawPathParams)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, ok := got.(ref.Val).Value().(map[string]string)
+	if !ok || len(m) != 1 || m["id"] != "a%2Fb" {
+		t.Errorf("Value() = %#v, want map[id:a%%2Fb]", got.(ref.Val).Value())
+	}
 }
 
 // TestSource checks source.ip forms, port, tlsVersion and the subject.

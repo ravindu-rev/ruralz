@@ -47,7 +47,7 @@ func TestObjectTypes(t *testing.T) {
 		typeName string
 		fields   []field
 	}{
-		{TypeRequest, []field{{"method", str}, {"scheme", str}, {"host", str}, {"path", str}, {"pathParams", smap}, {"query", smap}, {"headers", smap}, {"body", dyn}}},
+		{TypeRequest, []field{{"method", str}, {"scheme", str}, {"host", str}, {"path", str}, {"pathParams", smap}, {"rawPathParams", smap}, {"query", smap}, {"headers", smap}, {"body", dyn}}},
 		{TypeSource, []field{{"ip", str}, {"port", i64}, {"tlsVersion", str}, {"clientCertSubject", str}}},
 		{TypeRoute, []field{{"name", str}, {"labels", smap}}},
 		{TypeConsumer, []field{{"name", str}, {"tier", str}, {"tags", slst}, {"labels", smap}, {"quotas", slst}}},

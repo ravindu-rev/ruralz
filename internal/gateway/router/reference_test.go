@@ -143,7 +143,8 @@ func refPath(c *routematch.PathCriteria, path string) ([]expr.Param, bool) {
 		var params []expr.Param
 		for _, s := range t.Segments {
 			if s.Param != "" {
-				params = append(params, expr.Param{Name: s.Param, Value: routematch.DecodeParam(raw[len(params)])})
+				r := raw[len(params)]
+				params = append(params, expr.Param{Name: s.Param, Value: routematch.DecodeParam(r), Raw: r})
 			}
 		}
 		return params, true

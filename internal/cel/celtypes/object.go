@@ -321,6 +321,8 @@ func requestField(r *expr.Request, i int) (any, error) {
 		return types.String(r.Path), nil
 	case reqPathParams:
 		return mapView[paramSource]{paramSource{&r.PathParams}}, nil
+	case reqRawPathParams:
+		return mapView[rawParamSource]{rawParamSource{&r.PathParams}}, nil
 	case reqQuery:
 		return mapView[querySource]{querySource{r}}, nil
 	case reqHeaders:
@@ -341,7 +343,7 @@ func requestFieldSet(r *expr.Request, i int) bool {
 		return r.Host != ""
 	case reqPath:
 		return r.Path != ""
-	case reqPathParams:
+	case reqPathParams, reqRawPathParams:
 		return len(r.PathParams) > 0
 	case reqQuery:
 		return len(r.Query()) > 0

@@ -158,7 +158,7 @@ func TestRequestQueryConcurrent(t *testing.T) {
 func TestRequestReset(t *testing.T) {
 	h := http.Header{"X-A": {"1"}}
 	params := make([]Param, 0, 4)
-	r := &Request{Method: "GET", Scheme: "https", Host: "a.example", Path: "/x", Header: h, PathParams: append(params, Param{"id", "7"})}
+	r := &Request{Method: "GET", Scheme: "https", Host: "a.example", Path: "/x", Header: h, PathParams: append(params, Param{Name: "id", Value: "7", Raw: "7"})}
 	r.SetRawQuery("a=1")
 	_ = r.Query()
 	r.Reset()
