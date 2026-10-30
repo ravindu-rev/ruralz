@@ -272,9 +272,11 @@ func newUpstream(name string, addrs ...string) *v1alpha1.Upstream {
 	return u
 }
 
-// breakerAfterOne makes u's breaker open after one failed leg.
-func breakerAfterOne(u *v1alpha1.Upstream) *v1alpha1.Upstream {
-	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1), MinimumLegs: ptr[int32](1)}
+// breakerOnWindow makes u's breaker open on the first failed leg that
+// completes the fixed window guard: resilience.BreakerMinimumLegs counted
+// legs, at least resilience.BreakerFailurePercent of them failed.
+func breakerOnWindow(u *v1alpha1.Upstream) *v1alpha1.Upstream {
+	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{ConsecutiveFailures: ptr[int32](1)}
 	return u
 }
 

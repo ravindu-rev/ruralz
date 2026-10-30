@@ -10,24 +10,27 @@ import (
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// openBreaker runs one failing leg to the Upstream name of s, whose
-// breaker opens after one failed leg.
+// openBreaker runs resilience.BreakerMinimumLegs failing legs to the
+// Upstream name of s, whose breaker opens once that window is full.
 func openBreaker(t *testing.T, s *upstream.Set, name string) {
 	t.Helper()
 	u, ok := s.Upstream(name)
 	if !ok {
 		t.Fatalf("Upstream %q not compiled", name)
 	}
-	r, err := u.Leg(t.Context(), outbound(nil), upstream.Target{})
-	if err != nil {
-		t.Fatalf("failing leg to %s: %v", name, err)
+	for i := range resilience.BreakerMinimumLegs {
+		r, err := u.Leg(t.Context(), outbound(nil), upstream.Target{})
+		if err != nil {
+			t.Fatalf("failing leg %d to %s: %v", i+1, name, err)
+		}
+		readAll(t, r)
 	}
-	readAll(t, r)
 	if _, err := u.Leg(t.Context(), outbound(nil), upstream.Target{}); codeOf(err) != "RZ-UP-005" {
-		t.Fatalf("leg to %s after the failure = %v, want RZ-UP-005", name, err)
+		t.Fatalf("leg to %s after the failed window = %v, want RZ-UP-005", name, err)
 	}
 }
 
@@ -41,7 +44,7 @@ func TestForwardRealRefusals(t *testing.T) {
 		failing := newServer(t, http.StatusServiceUnavailable, "down")
 		other := newServer(t, http.StatusOK, "b")
 		fx := newFixture(t)
-		s := fx.activate(breakerAfterOne(newUpstream("a", failing.addr)), newUpstream("b", other.addr))
+		s := fx.activate(breakerOnWindow(newUpstream("a", failing.addr)), newUpstream("b", other.addr))
 		openBreaker(t, s, "a")
 		f, err := New("orders", []v1alpha1.RouteUpstream{entry("a", 1), entry("b", 0)}, s, noDraw{t})
 		if err != nil {
@@ -52,8 +55,8 @@ func TestForwardRealRefusals(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Forward: %v", err)
 		}
-		if body := readAll(t, r); body != "b" || r.Upstream != "b" || failing.hits.Load() != 1 {
-			t.Errorf("Forward = %q from %s with %d requests to a, want b from b and none past the first", body, r.Upstream, failing.hits.Load())
+		if body := readAll(t, r); body != "b" || r.Upstream != "b" || failing.hits.Load() != resilience.BreakerMinimumLegs {
+			t.Errorf("Forward = %q from %s with %d requests to a, want b from b and none past the failed window", body, r.Upstream, failing.hits.Load())
 		}
 		if got := h.list(); !slices.Equal(got, []string{"b"}) {
 			t.Errorf("leg Phases began for %v, want [b]", got)
@@ -122,7 +125,7 @@ func TestForwardRealRefusals(t *testing.T) {
 func TestForwardRealLastRefusal(t *testing.T) {
 	failing := newServer(t, http.StatusServiceUnavailable, "down")
 	fx := newFixture(t)
-	s := fx.activate(newUpstream("a"), breakerAfterOne(newUpstream("b", failing.addr)))
+	s := fx.activate(newUpstream("a"), breakerOnWindow(newUpstream("b", failing.addr)))
 	openBreaker(t, s, "b")
 	f, err := New("orders", []v1alpha1.RouteUpstream{entry("a", 1), entry("b", 0)}, s, noDraw{t})
 	if err != nil {
@@ -134,8 +137,8 @@ func TestForwardRealLastRefusal(t *testing.T) {
 	if r != nil || !errors.As(err, &le) || le.Upstream != "b" || le.Attempts != 0 || codeOf(err) != "RZ-UP-005" {
 		t.Fatalf("Forward = %+v, %v; want b's RZ-UP-005 without an attempt", r, err)
 	}
-	if got := h.list(); len(got) != 0 || failing.hits.Load() != 1 {
-		t.Errorf("leg Phases began for %v with %d requests to b, want none past the first", got, failing.hits.Load())
+	if got := h.list(); len(got) != 0 || failing.hits.Load() != resilience.BreakerMinimumLegs {
+		t.Errorf("leg Phases began for %v with %d requests to b, want none past the failed window", got, failing.hits.Load())
 	}
 }
 

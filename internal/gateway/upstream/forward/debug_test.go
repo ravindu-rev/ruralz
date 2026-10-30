@@ -215,7 +215,7 @@ func (f *fixture) debugBody() (body adminapi.Upstreams, raw string) {
 func TestDebugLiveManager(t *testing.T) {
 	srv := newServer(t, http.StatusOK, "b")
 	fx := newFixture(t)
-	a := breakerAfterOne(newUpstream("a", refusedAddr))
+	a := breakerOnWindow(newUpstream("a", refusedAddr))
 	a.Spec.HealthCheck = &v1alpha1.HealthCheck{Passive: &v1alpha1.PassiveHealthCheck{ConsecutiveErrors: ptr[int32](1)}}
 	s := fx.compile(a, newUpstream("b", srv.addr))
 	if _, raw := fx.debugBody(); raw != `{"upstreams":[]}` {
@@ -223,8 +223,10 @@ func TestDebugLiveManager(t *testing.T) {
 	}
 	s.Activate()
 	ua, _ := s.Upstream("a")
-	if _, err := ua.Leg(t.Context(), outbound(nil), upstream.Target{}); codeOf(err) != "RZ-UP-001" {
-		t.Fatalf("leg to the refused Endpoint = %v, want RZ-UP-001", err)
+	for i := range resilience.BreakerMinimumLegs {
+		if _, err := ua.Leg(t.Context(), outbound(nil), upstream.Target{}); codeOf(err) != "RZ-UP-001" {
+			t.Fatalf("leg %d to the refused Endpoint = %v, want RZ-UP-001", i+1, err)
+		}
 	}
 
 	body, _ := fx.debugBody()
@@ -237,8 +239,8 @@ func TestDebugLiveManager(t *testing.T) {
 		t.Errorf("a source %+v, panic %v; want static without error, panic", ga.Source, ga.Panic)
 	}
 	if br := ga.Breaker; br.State != adminapi.BreakerOpen || br.OpenedAt == nil || *br.OpenedAt != at(0) || br.OpenUntil == nil ||
-		br.WindowLegs != 1 || br.WindowFailures != 1 {
-		t.Errorf("a breaker = %+v, want open at %s with an open-until time and 1 failed leg of 1", br, at(0))
+		br.WindowLegs != resilience.BreakerMinimumLegs || br.WindowFailures != resilience.BreakerMinimumLegs {
+		t.Errorf("a breaker = %+v, want open at %s with an open-until time and every one of %d window legs failed", br, at(0), resilience.BreakerMinimumLegs)
 	}
 	if len(ga.Endpoints) != 1 {
 		t.Fatalf("a Endpoints = %+v, want one", ga.Endpoints)
