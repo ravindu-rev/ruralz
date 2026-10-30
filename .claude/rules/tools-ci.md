@@ -30,7 +30,7 @@ Authority: `docs/engineering/02-repository-layout-and-conventions.md` sections "
 
 ## Workflows (`.github/workflows/`)
 
-- Required checks: `pr-fast` (stages 1 to 6, plus a final `pr-fast` job that passes when every job in its `needs:` list passed or was path-skipped) and `pr-title`. Never rename these jobs.
+- Required checks: `pr-fast` (stages 1 to 6, plus a final `pr-fast` job that passes when every job in its `needs:` list passed or was path-skipped), `pr-full` (stages 8 and 9, with its final `pr-full` job) and `pr-title`. Never rename these jobs.
 - A new pr-fast job goes into the final job's `needs:` list. A new path filter is written in each `printf` line that appends to `$out` in `scripts/ci-changes.sh` and declared under `jobs.changes.outputs`; a missing output makes its job skip.
 - Reference every action by its full commit SHA with a `# vX.Y.Z` comment; a new action needs a row in the CI tooling table of the tech stack document. Keep `persist-credentials: false` on checkout and read-only `permissions`.
 - `setup-go` installs the `go.mod` toolchain line and exports `GOTOOLCHAIN=local`; do not set `GOTOOLCHAIN` at workflow level.

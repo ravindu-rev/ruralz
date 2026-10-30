@@ -48,7 +48,7 @@ Add `make integration` when integration-tagged tests changed. Without make: `go 
 - **Suppressions** name the linter and a reason, only where it reports: `//nolint:gosec // reason`.
 - **Generated schema.** Never hand-edit `api/schema/ruralz/v1alpha1/*.schema.json`: change `pkg/config/v1alpha1`, run `go generate ./pkg/config/v1alpha1`, commit both.
 - **Go 1.26 floor.** The code builds and tests on Go 1.26 with `GOEXPERIMENT=jsonv2`: no standard library API newer than Go 1.26.
-- **Tests** pass under `-race -shuffle=on` with cgo and with `CGO_ENABLED=0`, and never depend on wall-clock time, order, randomness or the network. `internal/cli`, `internal/buildinfo` and `pkg/` tests also run on Windows and macOS.
+- **Tests** pass under `-race -shuffle=on` with cgo and with `CGO_ENABLED=0`, and never depend on wall-clock time, order, randomness or the network. Suites that drive a built `ruralzd` meet the clock rule through the controllable-clock test build (`ruralz_testclock`); `docs/engineering/03-testing-and-quality-strategy.md` "Hermetic rule scope" names the suites that measure real time. `internal/cli`, `internal/buildinfo` and `pkg/` tests also run on Windows and macOS.
 - **No mutable package-level variables**, except sentinel errors, `go:embed` variables, the linker-set `internal/buildinfo` variables, tests and generated code.
 - **Line endings** are LF everywhere.
 

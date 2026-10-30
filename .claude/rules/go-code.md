@@ -21,7 +21,7 @@ Authority: `docs/engineering/02-repository-layout-and-conventions.md`. The hard 
 package x
 ```
 
-- A build constraint goes after the header and a blank line. Build tags are only platform, Go version, `goexperiment`, and `integration` or `e2e` on `_test.go` files; never feature tags.
+- A build constraint goes after the header and a blank line. Build tags are only platform, Go version, `goexperiment`, the test-only tags `integration`, `e2e`, `t5` and `compose` on `_test.go` files, and `ruralz_testclock` on the `internal/clock` pair that picks the process clock for the controllable-clock `ruralzd` test build; never feature tags.
 - Packages are lower-case, singular, no underscores, never `util`, `common` or `misc`. Files are `lower_snake.go` with tests beside them.
 - Imports: standard library, third-party, then `github.com/ravindu-rev/ruralz/...`, groups separated by a blank line (`make fmt`: goimports, then gofumpt).
 - Doc comments are full sentences starting with the identifier; exported identifiers are documented. American spelling (`license`, never `licence`). Comments explain why.
