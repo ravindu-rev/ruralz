@@ -174,6 +174,39 @@ func TestInNetNS(t *testing.T) { // InNetNS child sees only lo
 	}
 }
 
+// TestInNetNSUserChild runs inside the user and network namespace
+// RunInNetNS with User creates: the caller's user is root there and the
+// loopback interface is up.
+func TestInNetNSUserChild(t *testing.T) {
+	if !NetNSChild(t) {
+		t.Skip("run by TestInNetNSUser")
+	}
+	if uid, gid := os.Getuid(), os.Getgid(); uid != 0 || gid != 0 {
+		t.Fatalf("uid %d gid %d in the user namespace, want 0 and 0", uid, gid)
+	}
+	lo, err := net.InterfaceByName("lo")
+	if err != nil || lo.Flags&net.FlagUp == 0 {
+		t.Fatalf("lo = %+v, %v; want up", lo, err)
+	}
+}
+
+func TestInNetNSUser(t *testing.T) { // a user namespace maps the caller to root
+	probe := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^$", "-test.count=1") //nolint:gosec // G204: this test binary
+	probe.SysProcAttr = &syscall.SysProcAttr{
+		Cloneflags:  syscall.CLONE_NEWNET | syscall.CLONE_NEWUSER,
+		UidMappings: []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}},
+		GidMappings: []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}},
+	}
+	if err := probe.Run(); err != nil {
+		t.Skipf("user namespaces unavailable: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if code, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSUserChild", User: true}); err != nil || code != 0 {
+		t.Fatalf("RunInNetNS(User) = %d, %v", code, err)
+	}
+}
+
 func TestIsVerboseFlag(t *testing.T) {
 	for a, want := range map[string]bool{
 		"-test.v": true, "--test.v": true, "-test.v=false": true, "--test.v=test2json": true,

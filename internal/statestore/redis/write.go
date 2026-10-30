@@ -388,14 +388,12 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 }
 
 // seal returns the stored form of entry under k's partition and variant
-// field e:<V>: the entry, then its MAC tag when a key is set.
+// field e:<V>: the tagged-entry mark, the entry, then its MAC tag when a
+// key is set (keys.MAC.Seal).
 func (d *Driver) seal(k statestore.CacheKey, v statestore.Digest, entry []byte) string {
-	if d.mac == nil {
-		return string(entry)
-	}
 	var kb [keys.CachePartitionLen]byte
 	var fb [keys.FieldLen]byte
-	dst := make([]byte, 0, len(entry)+keys.TagSize)
+	dst := make([]byte, 0, d.mac.SealedLen(len(entry)))
 	return string(d.mac.Seal(dst, keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), entry))
 }
 

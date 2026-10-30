@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
+	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 )
 
 // Harness adapts one driver to RunConformance. Open and Advance are
@@ -49,6 +50,13 @@ type Harness struct {
 	// Tamper rewrites the stored entry of one cache variant, as a
 	// compromised State Store could; nil skips the MAC cases.
 	Tamper func(t *testing.T, d statestore.Driver, k statestore.CacheKey, v statestore.Digest, edit func(stored []byte) []byte)
+	// OpenPeer returns a second driver on the store driver d uses, with
+	// its own options and the time d sees, as another Node of the Cell
+	// opens it; nil skips the cases that need two drivers on one store,
+	// such as keyed and key-less Nodes sharing it. A driver whose store
+	// lives in its own process, as memory's does, has no peer. The suite
+	// closes the driver.
+	OpenPeer func(t *testing.T, d statestore.Driver, o OpenOptions) statestore.Driver
 }
 
 // OpenOptions configure one driver.
@@ -179,6 +187,22 @@ func newSuite(t *testing.T, h Harness, o OpenOptions) *suite {
 		unit = 10
 	}
 	return &suite{t: t, h: h, d: d, nonce: hex.EncodeToString(b[:]), model: NewModel(), unit: unit}
+}
+
+// peer returns the case's view of a second driver on s's store
+// (Harness.OpenPeer) opened with o: the same nonce, model and time, so
+// its keys and fixtures are the case's own.
+func (s *suite) peer(o OpenOptions) *suite {
+	s.t.Helper()
+	d := s.h.OpenPeer(s.t, s.d, o)
+	s.t.Cleanup(func() {
+		if err := d.Close(context.Background()); err != nil {
+			s.t.Errorf("Close peer: %v", err)
+		}
+	})
+	p := *s
+	p.d = d
+	return &p
 }
 
 func (s *suite) digest(name string) statestore.Digest {
@@ -1692,17 +1716,29 @@ func cacheCases() []conformanceCase {
 			}
 			put(1)
 			s.h.Tamper(s.t, s.d, f.k, f.v, func(b []byte) []byte {
+				if len(b) < 2 || b[0] != keys.MarkTagged {
+					s.t.Fatalf("stored entry %x not marked tagged", b)
+				}
 				b = bytes.Clone(b)
-				b[0] ^= 0xff
+				b[1] ^= 0xff
 				return b
 			})
 			if l := s.lookup("tampered", f.k, f.v); l.Found {
 				s.t.Fatal("tampered entry served")
 			}
 			put(2)
-			s.h.Tamper(s.t, s.d, f.k, f.v, func([]byte) []byte { return bytes.Clone(f.body) })
+			s.h.Tamper(s.t, s.d, f.k, f.v, func([]byte) []byte { return append([]byte{keys.MarkUntagged}, f.body...) })
 			if l := s.lookup("untagged", f.k, f.v); l.Found {
 				s.t.Fatal("entry without a tag served")
+			}
+			put(3)
+			s.h.Tamper(s.t, s.d, f.k, f.v, func(b []byte) []byte {
+				b = bytes.Clone(b)
+				b[0] = keys.MarkUntagged
+				return b
+			})
+			if l := s.lookup("relabeled untagged", f.k, f.v); l.Found {
+				s.t.Fatal("tagged entry relabeled untagged served")
 			}
 		}},
 		{name: "cache/no-mac-key", run: func(s *suite) {
@@ -1711,6 +1747,77 @@ func cacheCases() []conformanceCase {
 			s.put("store", f, "n", f.v, 1)
 			if l := s.lookup("untagged", f.k, f.v); !l.Found || !bytes.Equal(l.Entry, f.body) {
 				s.t.Fatalf("untagged entry: %+v", *l)
+			}
+		}},
+		{name: "cache/mac-mark-without-key", skip: func(h Harness) string {
+			if h.Tamper == nil {
+				return "harness cannot tamper with entries"
+			}
+			return ""
+		}, run: func(s *suite) {
+			// Every stored entry records whether it carries a tag, so a
+			// Node without the key reads an entry marked tagged as a miss
+			// (Security, "Secrets" rule 9), as it does an unknown mark.
+			f := s.fix("")
+			s.put("store", f, "n", f.v, 1)
+			for _, c := range []struct {
+				name string
+				edit func([]byte) []byte
+			}{
+				{"marked tagged", func(b []byte) []byte {
+					b = append([]byte{keys.MarkTagged}, b[1:]...)
+					return append(b, make([]byte, keys.TagSize)...)
+				}},
+				{"unknown mark", func(b []byte) []byte { return append([]byte{2}, b[1:]...) }},
+				{"empty", func([]byte) []byte { return []byte{} }},
+			} {
+				s.h.Tamper(s.t, s.d, f.k, f.v, func(b []byte) []byte {
+					if len(b) == 0 || b[0] != keys.MarkUntagged {
+						s.t.Fatalf("%s: stored entry %x not marked untagged", c.name, b)
+					}
+					return c.edit(bytes.Clone(b))
+				})
+				if l := s.lookup(c.name, f.k, f.v); l.Found {
+					s.t.Fatalf("%s: entry served by a Node without the key", c.name)
+				}
+				s.h.Tamper(s.t, s.d, f.k, f.v, func([]byte) []byte { return append([]byte{keys.MarkUntagged}, f.body...) })
+				if l := s.lookup(c.name+": restored", f.k, f.v); !l.Found || !bytes.Equal(l.Entry, f.body) {
+					s.t.Fatalf("%s: restored untagged entry: %+v", c.name, *l)
+				}
+			}
+		}},
+		{name: "cache/mac-mixed-nodes", opts: OpenOptions{MACKey: macKey}, skip: func(h Harness) string {
+			if h.OpenPeer == nil {
+				return "harness opens no second driver on one store"
+			}
+			return ""
+		}, run: func(s *suite) {
+			// A Cell's keyed and key-less Nodes on one State Store never
+			// serve each other's entries, in either direction, while
+			// Nodes holding the same key share theirs.
+			keyless := s.peer(OpenOptions{})
+			sameKey := s.peer(OpenOptions{MACKey: macKey})
+			f := s.fix("keyed")
+			if ok, _ := s.put("keyed store", f, "n", f.v, 1); !ok {
+				s.t.Fatal("keyed store not applied")
+			}
+			if l := sameKey.lookup("same key", f.k, f.v); !l.Found || !bytes.Equal(l.Entry, f.body) {
+				s.t.Fatalf("a Node with the same key misses the entry: %+v", *l)
+			}
+			if l := keyless.lookup("key-less reads tagged", f.k, f.v); l.Found {
+				s.t.Fatal("a key-less Node served a keyed Node's entry")
+			}
+			g := s.fix("keyless")
+			if ok, _ := keyless.put("key-less store", g, "n", g.v, 1); !ok {
+				s.t.Fatal("key-less store not applied")
+			}
+			if l := keyless.lookup("key-less reads its own", g.k, g.v); !l.Found || !bytes.Equal(l.Entry, g.body) {
+				s.t.Fatalf("a key-less Node misses its own entry: %+v", *l)
+			}
+			for _, keyed := range []*suite{s, sameKey} {
+				if l := keyed.lookup("keyed reads untagged", g.k, g.v); l.Found {
+					s.t.Fatal("a keyed Node served a key-less Node's entry")
+				}
 			}
 		}},
 		{name: "read/pipeline", run: func(s *suite) {

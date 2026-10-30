@@ -23,9 +23,10 @@ import (
 // layout, built independently of the memory driver. The conformance suite
 // passing on both shows it encodes the semantics rather than one
 // implementation's choices; its raw keys give the suite's Inspect and
-// Tamper cases a second backend.
+// Tamper cases a second backend. A peer (newRefPeer) shares the keys, the
+// lock and the clock with its own MAC key, as another Node of the Cell.
 type refDriver struct {
-	mu     sync.Mutex
+	mu     *sync.Mutex
 	clk    *clocktest.Fake
 	mac    *keys.MAC
 	model  *statestoretest.Model
@@ -50,7 +51,16 @@ func newRefDriver(clk *clocktest.Fake, macKey []byte) (*refDriver, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &refDriver{clk: clk, mac: mac, model: statestoretest.NewModel(), str: map[string]refValue{}, hash: map[string]*refHash{}}, nil
+	return &refDriver{mu: &sync.Mutex{}, clk: clk, mac: mac, model: statestoretest.NewModel(), str: map[string]refValue{}, hash: map[string]*refHash{}}, nil
+}
+
+// newRefPeer returns a driver on r's keys with its own MAC key.
+func newRefPeer(r *refDriver, macKey []byte) (*refDriver, error) {
+	mac, err := keys.NewMAC(macKey)
+	if err != nil {
+		return nil, err
+	}
+	return &refDriver{mu: r.mu, clk: r.clk, mac: mac, model: r.model, str: r.str, hash: r.hash}, nil
 }
 
 func (r *refDriver) nowMs() int64 { return r.clk.Now().UnixMilli() }
@@ -373,6 +383,16 @@ func TestConformanceReferenceDriver(t *testing.T) {
 		Exact: true, Parallel: true, DigestSlot: keys.DigestSlot,
 		Open: func(t *testing.T, o statestoretest.OpenOptions) statestore.Driver {
 			r, err := newRefDriver(clocktest.New(start()), o.MACKey)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			reg[r] = r
+			mu.Unlock()
+			return r
+		},
+		OpenPeer: func(t *testing.T, d statestore.Driver, o statestoretest.OpenOptions) statestore.Driver {
+			r, err := newRefPeer(get(d), o.MACKey)
 			if err != nil {
 				t.Fatal(err)
 			}

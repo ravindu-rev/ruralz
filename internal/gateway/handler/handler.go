@@ -89,9 +89,18 @@ type Deps struct {
 	// Tap receives the finished exchanges /tap subscribers sample; nil
 	// publishes none.
 	Tap *tap.Hub
-	// Clock times requests and sets the connection deadlines, so it must
-	// track wall time; nil means clock.Real().
+	// Clock times requests: the request start every Phase and CEL now
+	// see, the Route deadline the Upstream layer checks and the timer that
+	// ends it, durations and the Date field. ruralzd passes the process
+	// clock, which in the controllable-clock test build moves only on the
+	// harness's commands; nil means clock.Real().
 	Clock clock.Clock
+	// Wall dates the socket deadlines the Go runtime enforces, the
+	// connection's body read and response write deadlines a request sets,
+	// so they stay on real time in every build
+	// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+	// scope"); nil selects Clock.
+	Wall clock.Clock
 	// Logger records recovered faults at error, with their stack; it comes
 	// from internal/telemetry. nil discards.
 	Logger *slog.Logger
@@ -114,6 +123,7 @@ type Handler struct {
 	node   *emit.NodeMetrics
 	tap    *tap.Hub
 	clk    clock.Clock
+	wall   clock.Clock // dates the socket deadlines
 	log    *slog.Logger
 	connOf func(ctx context.Context) Conn
 
@@ -144,11 +154,14 @@ func New(d Deps) (*Handler, error) {
 	}
 	h := &Handler{
 		snaps: d.Snapshots, units: d.Units, pre: d.PreRouting, pool: d.Exchanges, exec: d.Executor,
-		tracer: d.Tracer, alog: d.AccessLog, node: d.Node, tap: d.Tap, clk: d.Clock, log: d.Logger, connOf: d.Conn,
+		tracer: d.Tracer, alog: d.AccessLog, node: d.Node, tap: d.Tap, clk: d.Clock, wall: d.Wall, log: d.Logger, connOf: d.Conn,
 		statuses: statusTable(),
 	}
 	if h.clk == nil {
 		h.clk = clock.Real()
+	}
+	if h.wall == nil {
+		h.wall = h.clk
 	}
 	if h.log == nil {
 		h.log = slog.New(slog.DiscardHandler)

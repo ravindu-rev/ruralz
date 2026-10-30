@@ -88,7 +88,7 @@ const maxVariants = 8
 type variant struct {
 	v     statestore.Digest
 	t     int64  // store time, server ms, less the write's receipt delay
-	entry []byte // stored form: entry, then its MAC tag when keyed
+	entry []byte // stored form: mark, entry, then its MAC tag when keyed
 }
 
 // partition is the hash rz:rc:{<U>:<P>}: names n, variants in store order

@@ -142,7 +142,14 @@
 // once at New into a table: errcode.Status builds the registry per call,
 // which the request path does not pay.
 //
-// Times come from the injected clock, which must track wall time since
-// the connection deadlines derive from it; tests drive the handler with
+// Times come from the injected clock, which ruralzd sets to the process
+// clock: the request start, the Route deadline the Upstream layer compares
+// with its own process clock, the deadline timer, durations and the Date
+// field share it, so in the controllable-clock test build they all move
+// only on the harness's commands. The connection's read and write
+// deadlines, which the Go runtime enforces, are dated on the injected wall
+// clock instead, at the same distance from the request start
+// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+// scope"); tests drive the handler with
 // internal/gateway/handler/handlertest.
 package handler

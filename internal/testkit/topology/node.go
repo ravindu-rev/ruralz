@@ -58,6 +58,14 @@ type NodeOptions struct {
 	// a "provider:name" file or one key of it, so the Node cannot resolve
 	// them (RZ-CFG-026).
 	MissingSecrets []string
+	// AuthoredSecrets lists references the test render keeps as authored,
+	// "provider:name#key" for one reference or "provider:name" for every
+	// key of a name: the harness neither rewrites them to files under
+	// RURALZ_SECRET_ROOT nor writes their values, so a case can exercise
+	// the env provider and the secret root and file mode rules. The test
+	// supplies their values, an environment variable through Env or a
+	// file it writes, each carrying a canary.
+	AuthoredSecrets []string
 	// StateStoreURLs maps references to State Store names
 	// (StartStateStore): each holds that State Store's URL through the
 	// Node's own proxies, with the ACL user's password canary.

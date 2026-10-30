@@ -60,6 +60,8 @@ type kitOptions struct {
 	preRouting int64
 	start      time.Time
 	noConn     bool
+	// wall, when set, is the handler's wall clock, apart from its clock.
+	wall *clocktest.Fake
 }
 
 // newKit returns a kit whose connection comes from 192.0.2.10:40000 on the
@@ -86,6 +88,9 @@ func newKit(t *testing.T, mods ...func(*kitOptions)) *kit {
 		Executor:  executor.New(executor.Deps{Clock: k.clk, Tracer: k.tracer}),
 		Tracer:    k.tracer, AccessLog: k.alog, Node: k.node.M, Tap: k.tap, Clock: k.clk,
 		Logger: slog.New(k.logs),
+	}
+	if o.wall != nil {
+		d.Wall = o.wall
 	}
 	if !o.noConn {
 		c := k.conn

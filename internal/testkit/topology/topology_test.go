@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -105,6 +106,79 @@ spec:
 	n := addNodes(t, topo, 1, o)[0]
 	if got := string(n.Render().Bytes); !strings.Contains(got, `value: "$${HOME}"`) || strings.Contains(got, "$$${") {
 		t.Errorf("test render holds\n%s\nwant the escape $${HOME} kept as it is", got)
+	}
+}
+
+// A Consumer API key's secretRef is a SecretRef field, the reference
+// itself rather than a {secretRef: ...} value, and the test render
+// rewrites it like every other reference. References
+// NodeOptions.AuthoredSecrets lists stay as authored, by their exact
+// reference or by provider and name for every key, and the harness writes
+// no file for them.
+func TestTestRenderRewritesSecretRefFieldsAndKeepsAuthored(t *testing.T) {
+	topo := standinTopology(t)
+	o := nodeOptions(t, topo)
+	o.Bundle = []byte(testBundle + `---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: app
+spec:
+  credentials:
+    apiKeys:
+      - name: rewritten
+        secretRef: {provider: file, name: /etc/ruralz/keys/app}
+      - name: authored-file
+        secretRef: {provider: file, name: /etc/ruralz/keys/authored}
+      - name: authored-keyed
+        secretRef: {provider: file, name: /etc/ruralz/keys/all.json, key: one}
+      - name: authored-env
+        secretRef: {provider: env, name: RURALZ_SECRET_APP_KEY}
+`)
+	o.AuthoredSecrets = []string{"file:/etc/ruralz/keys/authored", "file:/etc/ruralz/keys/all.json", "env:RURALZ_SECRET_APP_KEY"}
+	o.NoWait = true
+	n := addNodes(t, topo, 1, o)[0]
+	r := n.Render()
+	docs, diags, err := profile.Parse(t.Context(), r.Bytes, 1, "render", profile.FormatYAML, profile.Options{})
+	if err != nil || len(diags) > 0 {
+		t.Fatalf("the test render does not parse: %v %s", err, diagText(diags))
+	}
+	var refs []*tree.Node
+	for _, d := range docs {
+		collectRefs(d.Root, &refs)
+	}
+	got := map[string]string{}
+	for _, ref := range refs {
+		got[text(ref, "provider")+":"+text(ref, "name")+"#"+text(ref, "key")] = ""
+	}
+	for _, kept := range []string{"file:/etc/ruralz/keys/authored#", "file:/etc/ruralz/keys/all.json#one", "env:RURALZ_SECRET_APP_KEY#"} {
+		if _, ok := got[kept]; !ok {
+			t.Errorf("authored reference %s not kept; the render holds %v", kept, got)
+		}
+	}
+	path, ok := n.SecretPath("file:/etc/ruralz/keys/app")
+	if !ok || !strings.HasPrefix(path, n.SecretRoot()+string(filepath.Separator)) {
+		t.Fatalf("the API key's secretRef maps to %q (%v), want a file under the secret root", path, ok)
+	}
+	if _, ok := got["file:"+path+"#"]; !ok {
+		t.Errorf("the render does not name %s for the API key; it holds %v", path, got)
+	}
+	if v, err := os.ReadFile(path); err != nil || !topo.canaries.carries(v) { //nolint:gosec // G304: the harness's own secret file
+		t.Errorf("the API key's file holds %q (%v), want a canary", v, err)
+	}
+	for _, s := range r.Secrets {
+		if strings.Contains(s.Ref, "authored") || strings.Contains(s.Ref, "all.json") || strings.HasPrefix(s.Ref, "env:RURALZ_SECRET_APP_KEY") {
+			t.Errorf("the render lists the authored reference %s among the harness's secrets", s.Ref)
+		}
+	}
+	for _, name := range []string{"/etc/ruralz/keys/authored", "/etc/ruralz/keys/all.json"} {
+		p, err := secretPath(n.SecretRoot(), "file", name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
+			t.Errorf("the harness wrote %s for an authored reference (%v)", p, err)
+		}
 	}
 }
 

@@ -240,8 +240,9 @@ func (d *Driver) parseLookups(ctx context.Context, tr *trip, calls []*statestore
 // parseLookup reads the replies of the lookup starting at command i: the
 // GET unless SkipToken, the HMGET and the TIME. A missing generation key,
 // partition or variant is a miss; a generation key whose value is not a
-// token is unparsable (RZ-STS-002); an entry failing its MAC check is a
-// miss, logged at most once per interval.
+// token is unparsable (RZ-STS-002); an entry failing its MAC check, or
+// marked for the other key setting, is a miss, logged at most once per
+// interval.
 func (d *Driver) parseLookup(ctx context.Context, tr *trip, i int, l *statestore.CacheLookup) *statestore.Error {
 	if !l.SkipToken {
 		gm, gnull, err := tr.result(i)
@@ -295,21 +296,28 @@ func (d *Driver) parseLookup(ctx context.Context, tr *trip, i int, l *statestore
 		return statestore.ErrFailed
 	}
 	resident := time.Duration(max(nowMs-at, 0)) * time.Millisecond
-	l.Entry = append(l.Entry[:0], stored...)
+	// The payload, all after the tagged-entry mark, goes into the Call's
+	// storage, so the entry starts where the storage does.
+	var mark byte
+	l.Entry = l.Entry[:0]
+	if len(stored) > 0 {
+		mark = stored[0]
+		l.Entry = append(l.Entry, stored[1:]...)
+	}
 	buf := l.Entry
 	l.Entry = buf[:0]
-	entry := buf
-	if d.mac != nil {
+	var entry []byte
+	valid := false
+	if len(stored) > 0 {
 		var kb [keys.CachePartitionLen]byte
 		var fb [keys.FieldLen]byte
-		var valid bool
-		entry, valid = d.mac.Open(keys.AppendCachePartition(kb[:0], l.Key), keys.AppendField(fb[:0], keys.FieldEntry, l.Variant), buf)
-		if !valid {
-			if d.macLog.allow(d.clk.Now()) {
-				d.log.WarnContext(ctx, "state store cache entry failed its MAC check; served as a miss")
-			}
-			return nil
+		entry, valid = d.mac.OpenPayload(keys.AppendCachePartition(kb[:0], l.Key), keys.AppendField(fb[:0], keys.FieldEntry, l.Variant), mark, buf)
+	}
+	if !valid {
+		if d.macLog.allow(d.clk.Now()) {
+			d.log.WarnContext(ctx, d.mac.Refusal(mark))
 		}
+		return nil
 	}
 	l.Found, l.Entry, l.Resident = true, entry, resident
 	return nil

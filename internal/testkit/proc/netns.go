@@ -62,6 +62,12 @@ type NetNSOptions struct {
 	// Output receives the child's combined output as it runs; the last
 	// 64 KiB are also kept for the error of a failed child.
 	Output io.Writer
+	// User also puts the child in a new user namespace (CLONE_NEWUSER)
+	// that maps the caller's user and group to root, so a caller without
+	// CAP_SYS_ADMIN gets CAP_NET_ADMIN over the new network namespace
+	// where the kernel admits unprivileged user namespaces. Such a child
+	// cannot write every sysctl a root caller can.
+	User bool
 }
 
 // InNetNS re-executes the running test binary with -test.run matching
@@ -71,7 +77,8 @@ type NetNSOptions struct {
 // there. Success means exit 0 and a "--- PASS" line for testName. A child
 // that skips returns ErrChildSkipped with its reason; a child that fails,
 // runs no test or prints no result line returns ErrChildFailed with its
-// output tail. It needs root (or CAP_SYS_ADMIN) and Linux.
+// output tail. It needs root (or CAP_SYS_ADMIN) and Linux; RunInNetNS
+// with NetNSOptions.User needs unprivileged user namespaces instead.
 //
 //	func TestHandover(t *testing.T) {
 //		if proc.NetNSChild(t) {

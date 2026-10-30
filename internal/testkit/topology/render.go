@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -109,8 +110,19 @@ func (n *Node) renderBundle(ctx context.Context, src []byte) (*Render, error) {
 			if !c.Info.InSecret || c.Node.Kind != tree.KindMap {
 				return nil
 			}
+			// A SecretValue field holds {secretRef: {...}}; a SecretRef
+			// field, such as a Consumer API key's secretRef, holds the
+			// reference itself.
 			ref, ok := c.Node.Get("secretRef")
+			if !ok {
+				if _, isRef := c.Node.Get("provider"); isRef {
+					ref, ok = c.Node, true
+				}
+			}
 			if !ok || ref.Kind != tree.KindMap {
+				return schemaidx.ErrSkipChildren
+			}
+			if n.authored(text(ref, "provider"), text(ref, "name"), text(ref, "key")) {
 				return schemaidx.ErrSkipChildren
 			}
 			sr, err := n.rewriteRef(ref)
@@ -189,6 +201,14 @@ func (n *Node) rewritePorts(ctx context.Context, gw *tree.Node, r *Render) error
 	admin.Set("port", tree.Pos{}, intNode(n.adminPort))
 	r.AuthoredAdminPort, r.AdminPort = authored, n.adminPort
 	return nil
+}
+
+// authored reports whether NodeOptions.AuthoredSecrets keeps the reference
+// as authored: the list names it, or names its provider and name without
+// a key.
+func (n *Node) authored(provider, name, key string) bool {
+	return slices.Contains(n.opts.AuthoredSecrets, refString(provider, name, key)) ||
+		(key != "" && slices.Contains(n.opts.AuthoredSecrets, refString(provider, name, "")))
 }
 
 // rewriteRef turns the secretRef ref into a file reference under the

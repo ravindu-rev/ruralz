@@ -362,13 +362,14 @@ func TestCacheByteBound(t *testing.T) {
 	if l, _ := inspectLease(f.d, b); l {
 		t.Fatal("refused store took the fill lease")
 	}
-	// Replacing a variant counts only the difference.
+	// Replacing a variant counts only the difference. The bound counts
+	// stored bytes: the tagged-entry mark and the entry.
 	f.clk.Advance(2 * time.Second)
 	if w := f.store(a, "n", v, bytes.Repeat([]byte{2}, 90), 2); !w.Applied || w.Err != nil {
 		t.Fatalf("replacing store: %+v", *w)
 	}
-	if got := f.d.bytes.Load(); got != 90 {
-		t.Fatalf("bytes %d, want 90", got)
+	if got := f.d.bytes.Load(); got != 91 {
+		t.Fatalf("bytes %d, want 91", got)
 	}
 	// A refresh that grows past the bound is refused.
 	f.clk.Advance(2 * time.Second)
@@ -652,8 +653,8 @@ func TestMACAtDriver(t *testing.T) {
 	if !c.Lookup.Found || !bytes.Equal(c.Lookup.Entry, entry) {
 		t.Fatalf("tagged entry: %+v", c.Lookup)
 	}
-	if got := f.d.bytes.Load(); got != int64(len(entry)+keys.TagSize) {
-		t.Fatalf("stored %d bytes, want entry plus tag", got)
+	if got := f.d.bytes.Load(); got != int64(1+len(entry)+keys.TagSize) {
+		t.Fatalf("stored %d bytes, want the mark, the entry and the tag", got)
 	}
 	// The same state read under another key (a rotation) misses.
 	other, err := keys.NewMAC(bytes.Repeat([]byte{2}, 32))

@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/gateway/handler/handlertest"
@@ -238,6 +239,70 @@ func TestDeadlines(t *testing.T) {
 	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5 * time.Second)}
 	if !slices.EqualFunc(w.reads, want, time.Time.Equal) || !slices.EqualFunc(w.writes, want, time.Time.Equal) {
 		t.Errorf("read deadlines %v, write deadlines %v, want both %v", w.reads, w.writes, want)
+	}
+}
+
+// TestSplitClocks checks a handler whose clock is not its wall clock, as
+// in the controllable-clock test build, where the process clock moves only
+// on the harness's commands: the request start every Phase sees, the
+// Route deadline the Forwarder compares with the Upstream layer's process
+// clock, and the timer ending it all run on the handler's clock, while the
+// connection deadlines are dated on the wall clock at the same distance
+// from the request start. With the deadline on the wall clock, an Upstream
+// layer on the process clock found every Route deadline passed once the
+// harness advanced the process clock (504 RZ-RT-007).
+func TestSplitClocks(t *testing.T) {
+	wall := clocktest.New(epoch())
+	processStart := epoch().Add(time.Hour)
+	k := newKit(t, func(o *kitOptions) { o.start, o.wall = processStart, wall })
+	var seen atomic.Value
+	stamp := filterFunc(func(_ context.Context, _ phase.Phase, x filter.Exchange) filter.Result {
+		seen.Store(x.Now())
+		return filter.Next()
+	})
+	entered := make(chan context.Context, 1)
+	var got snapshot.Outbound
+	fwd := handlertest.ForwardFunc(func(ctx context.Context, o *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
+		got = *o
+		entered <- ctx
+		<-ctx.Done()
+		return nil, errcode.Wrap("RZ-UP-003", context.Cause(ctx))
+	})
+	k.publish(handlertest.Spec{Routes: []handlertest.Route{{
+		Name: "r", Timeout: 5 * time.Second, Forward: fwd,
+		Policies: []*snapshot.Policy{handlertest.Policy("jwt", phase.ClassAuth, v1alpha1.PolicyTypeAuthJWT, stamp, phase.OnRequestHeaders)},
+	}}})
+	w := newRecordingWriter()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	}()
+	ctx := <-entered
+	// The wall clock passing the Route timeout ends nothing.
+	wall.Advance(time.Minute)
+	if err := ctx.Err(); err != nil {
+		t.Fatalf("request context ended when the wall clock moved: %v", err)
+	}
+	if at, _ := seen.Load().(time.Time); !at.Equal(processStart) {
+		t.Errorf("Exchange.Now = %v, want the handler clock's %v", at, processStart)
+	}
+	if want := processStart.Add(5 * time.Second); !got.Deadline.Equal(want) {
+		t.Errorf("Outbound.Deadline = %v, want %v on the handler's clock", got.Deadline, want)
+	}
+	k.clk.Advance(5 * time.Second)
+	<-done
+	if !errors.Is(context.Cause(ctx), context.DeadlineExceeded) {
+		t.Errorf("context cause = %v, want context.DeadlineExceeded from the handler clock's timer", context.Cause(ctx))
+	}
+	if w.Code != http.StatusGatewayTimeout {
+		t.Errorf("status = %d, want 504", w.Code)
+	}
+	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5 * time.Second)}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if !slices.EqualFunc(w.reads, want, time.Time.Equal) || !slices.EqualFunc(w.writes, want, time.Time.Equal) {
+		t.Errorf("read deadlines %v, write deadlines %v, want both %v on the wall clock", w.reads, w.writes, want)
 	}
 }
 

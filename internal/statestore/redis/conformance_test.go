@@ -60,6 +60,26 @@ func fakeHarness(exact bool) statestoretest.Harness {
 			mu.Unlock()
 			return d
 		},
+		OpenPeer: func(t *testing.T, d statestore.Driver, o statestoretest.OpenOptions) statestore.Driver {
+			// Another Node on the same server and store time, with a Node
+			// clock of its own.
+			hs := get(d)
+			base := clock.Real()
+			if hs.fake != nil {
+				base = hs.fake
+			}
+			peer := &harnessState{srv: hs.srv, fake: hs.fake, node: &skewClock{base: base}}
+			pd, err := New(context.Background(), statestore.Config{Driver: statestore.DriverRedis, URL: hs.srv.url()},
+				statestore.Deps{Clock: peer.node, MACKey: o.MACKey, Logger: slog.New(slog.DiscardHandler)},
+				Options{Rand: lowRand})
+			if err != nil {
+				t.Fatal(err)
+			}
+			mu.Lock()
+			reg[pd] = peer
+			mu.Unlock()
+			return pd
+		},
 		Advance: func(t *testing.T, d statestore.Driver, by time.Duration) {
 			if hs := get(d); hs.fake != nil {
 				hs.fake.Advance(by)

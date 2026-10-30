@@ -66,6 +66,11 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 	out := io.MultiWriter(writers...)
 	cmd.Stdout, cmd.Stderr = out, out
 	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET, Pdeathsig: syscall.SIGKILL}
+	if o.User {
+		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUSER
+		cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}}
+		cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
+	}
 	cmd.WaitDelay = WaitDelay
 	runtime.LockOSThread()
 	err = cmd.Run()

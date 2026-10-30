@@ -9,7 +9,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/netip"
 )
+
+// PeerSuffix names the other end of the veth pair AddDevice creates on
+// Linux.
+const PeerSuffix = "-peer"
+
+// AddDevice needs Linux network devices.
+func AddDevice(string, netip.Prefix) error {
+	return fmt.Errorf("proc: network devices: %w", errors.ErrUnsupported)
+}
 
 // RunInNetNS needs Linux network namespaces.
 func RunInNetNS(context.Context, NetNSOptions) (int, error) {

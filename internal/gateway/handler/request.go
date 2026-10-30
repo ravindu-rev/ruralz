@@ -59,10 +59,13 @@ type state struct {
 	committed bool
 	done      bool
 
-	w             http.ResponseWriter
-	r             *http.Request
-	conn          Conn
+	w    http.ResponseWriter
+	r    *http.Request
+	conn Conn
+	// start is the request start on the handler's clock; wallStart the
+	// same instant on the wall clock, which dates the socket deadlines.
 	start         time.Time
+	wallStart     time.Time
 	stripe        emit.Stripe
 	cancel        context.CancelCauseFunc
 	cancelFn      context.CancelFunc
@@ -132,7 +135,7 @@ func (st *state) cancelRoot() {
 func (st *state) reset() {
 	st.rec.Committed, st.rec.Ended, st.rec.Cancel, st.rec.RC = false, snapshot.EndNone, nil, nil
 	st.rc = http.ResponseController{}
-	st.w, st.r, st.conn, st.start, st.stripe, st.cancel, st.deadlineTimer = nil, nil, nil, time.Time{}, 0, nil, nil
+	st.w, st.r, st.conn, st.start, st.wallStart, st.stripe, st.cancel, st.deadlineTimer = nil, nil, nil, time.Time{}, time.Time{}, 0, nil, nil
 	st.snap, st.view, st.lis, st.lm, st.x, st.run, st.route = nil, nil, nil, nil, nil, nil, nil
 	st.decision, st.span, st.spanEnded, st.tls, st.src, st.resp = emit.Decision{}, nil, false, filter.ConnTLS{}, filter.Source{}, filter.Response{}
 	st.deadline, st.listenerName, st.scheme, st.path, st.pathCode, st.hints = time.Time{}, "", "", "", "", false
@@ -166,6 +169,7 @@ func (st *state) serve(w http.ResponseWriter, r *http.Request, conn Conn, start 
 func (st *state) begin(w http.ResponseWriter, r *http.Request, conn Conn, start time.Time, cancel context.CancelCauseFunc) {
 	h := st.h
 	st.w, st.r, st.conn, st.start, st.cancel = w, r, conn, start, cancel
+	st.wallStart = h.wall.Now()
 	if conn != nil {
 		st.listenerName = conn.Listener()
 		// The sequence stands in for an HTTP/2 stream ID, which
@@ -189,7 +193,7 @@ func (st *state) begin(w http.ResponseWriter, r *http.Request, conn Conn, start 
 func (st *state) unpublished() {
 	h := st.h
 	h.tracer.Decide(st.r.Header, 0, &st.decision)
-	_ = st.rc.SetWriteDeadline(st.start.Add(AdmissionWindow))
+	_ = st.rc.SetWriteDeadline(st.wallStart.Add(AdmissionWindow))
 	h.writeBareProblem(st.w, st.r, codeDrain, &st.decision)
 	h.countBare(st.r, st.conn, codeDrain)
 }
@@ -412,18 +416,22 @@ func (st *state) connTLS() *filter.ConnTLS {
 }
 
 // extendDeadlines moves the connection's body read and response write
-// deadlines to t, under rec.Mu, unless the ending protocol already ended
-// the request (it moved them itself); false then.
+// deadlines to t, an instant on the handler's clock, under rec.Mu, unless
+// the ending protocol already ended the request (it moved them itself);
+// false then. The deadlines are socket deadlines the Go runtime enforces,
+// so they are dated on the wall clock: t's distance from the request
+// start, from the request's wall-clock start.
 func (st *state) extendDeadlines(t time.Time) bool {
 	st.rec.Mu.Lock()
 	defer st.rec.Mu.Unlock()
 	if st.rec.Ended != snapshot.EndNone {
 		return false
 	}
+	wt := st.wallStart.Add(t.Sub(st.start))
 	// A writer without deadlines (http.ErrNotSupported) is served without
 	// them.
-	_ = st.rc.SetReadDeadline(t)
-	_ = st.rc.SetWriteDeadline(t)
+	_ = st.rc.SetReadDeadline(wt)
+	_ = st.rc.SetWriteDeadline(wt)
 	return true
 }
 

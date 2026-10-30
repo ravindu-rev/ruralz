@@ -115,6 +115,14 @@ jobs:
           sudo systemctl disable --now redis-server
           echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
           redis-server --version
+      - name: Allow unprivileged user namespaces
+        # The security suite gives an admin client a non-loopback address
+        # inside a user and network namespace; Ubuntu's AppArmor otherwise
+        # denies capabilities in unprivileged user namespaces.
+        run: |
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
       - run: make integration
 
   gates:

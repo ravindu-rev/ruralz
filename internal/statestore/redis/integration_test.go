@@ -85,6 +85,15 @@ func liveHarness(dep *redisserver.Deployment, opts Options) statestoretest.Harne
 			mu.Unlock()
 			return d
 		},
+		OpenPeer: func(t *testing.T, _ statestore.Driver, o statestoretest.OpenOptions) statestore.Driver {
+			// Another Node of the Cell on the same deployment.
+			node := &skewClock{base: clock.Real()}
+			d := openLive(t, dep.Topology(), dep.URL(), statestore.Deps{Clock: node, MACKey: o.MACKey}, opts)
+			mu.Lock()
+			nodes[d] = node
+			mu.Unlock()
+			return d
+		},
 		Advance: func(t *testing.T, _ statestore.Driver, by time.Duration) {
 			if err := clock.Real().Sleep(t.Context(), by); err != nil {
 				t.Fatal(err)

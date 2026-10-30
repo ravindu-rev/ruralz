@@ -78,22 +78,21 @@ func (d *Driver) livePartition(s *shard, k statestore.CacheKey, nowMs int64) *pa
 }
 
 // sealEntry returns the stored form of entry under k's partition and
-// variant field e:<V>: a copy of entry, tagged when a MAC key is set.
+// variant field e:<V>: the tagged-entry mark and a copy of entry, tagged
+// when a MAC key is set (keys.MAC.Seal).
 func (d *Driver) sealEntry(k statestore.CacheKey, v statestore.Digest, entry []byte) []byte {
-	if d.mac == nil {
-		return append(make([]byte, 0, len(entry)), entry...)
-	}
 	var kb [keys.CachePartitionLen]byte
 	var fb [keys.FieldLen]byte
-	dst := make([]byte, 0, len(entry)+keys.TagSize)
+	dst := make([]byte, 0, d.mac.SealedLen(len(entry)))
 	return d.mac.Seal(dst, keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), entry)
 }
 
 // lookup is the pipelined lookup: GET rz:rc:{U}:gen (unless SkipToken),
 // HMGET rz:rc:{U:P} n t:<V> e:<V> and TIME on the partition's shard, the
-// injected server clock. The entry is copied into c.Entry's storage and
-// checked against its MAC; a missing or wrong tag is a miss, never an
-// error.
+// injected server clock. The stored entry's payload, all after its mark,
+// is copied into c.Entry's storage and opened by the mark and the MAC
+// (keys.MAC.OpenPayload): a missing or wrong tag, or an entry marked for
+// the other key setting, is a miss, never an error.
 func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now instant) {
 	k := c.Key
 	if !c.SkipToken {
@@ -108,14 +107,17 @@ func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now inst
 
 	ps := d.shardOf(int(keys.PartitionSlot(k)))
 	buf := c.Entry[:0]
-	names, part, found, stored := "", false, false, int64(0)
+	names, part, found, marked, mark, stored := "", false, false, false, byte(0), int64(0)
 	ps.mu.Lock()
 	if p := d.livePartition(ps, k, now.ms); p != nil {
 		names, part = p.names, true
 		if i := p.find(c.Variant); i >= 0 {
 			v := &p.variants[i]
 			stored, found = v.t, true
-			buf = append(buf, v.entry...)
+			if len(v.entry) > 0 {
+				marked, mark = true, v.entry[0]
+				buf = append(buf, v.entry[1:]...)
+			}
 		}
 	}
 	ps.mu.Unlock()
@@ -125,25 +127,26 @@ func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now inst
 		return
 	}
 	c.Resident = time.Duration(max(now.ms-stored, 0)) * time.Millisecond
-	entry := buf
-	if d.mac != nil {
-		var ok bool
-		if entry, ok = d.openEntry(k, c.Variant, buf); !ok {
-			if d.macLog.allow(d.node.Now()) {
-				d.logger.WarnContext(ctx, "state store cache entry failed its MAC check; served as a miss")
-			}
-			return
+	var entry []byte
+	ok := false
+	if marked {
+		entry, ok = d.openEntry(k, c.Variant, mark, buf)
+	}
+	if !ok {
+		if d.macLog.allow(d.node.Now()) {
+			d.logger.WarnContext(ctx, d.mac.Refusal(mark))
 		}
+		return
 	}
 	c.Found, c.Entry = true, entry
 }
 
-// openEntry checks a stored entry's MAC under k's partition key and the
-// variant's e:<V> field.
-func (d *Driver) openEntry(k statestore.CacheKey, v statestore.Digest, stored []byte) ([]byte, bool) {
+// openEntry opens a stored entry's mark and payload by the MAC under k's
+// partition key and the variant's e:<V> field.
+func (d *Driver) openEntry(k statestore.CacheKey, v statestore.Digest, mark byte, payload []byte) ([]byte, bool) {
 	var kb [keys.CachePartitionLen]byte
 	var fb [keys.FieldLen]byte
-	return d.mac.Open(keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), stored)
+	return d.mac.OpenPayload(keys.AppendCachePartition(kb[:0], k), keys.AppendField(fb[:0], keys.FieldEntry, v), mark, payload)
 }
 
 // generation runs the generation step (the library's n script) on uri's

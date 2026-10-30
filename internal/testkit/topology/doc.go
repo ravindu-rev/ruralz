@@ -13,8 +13,12 @@
 // ruralz test run --bundle does (docs/reference/01-cli-and-api-surface.md
 // "Local ruralzd launched by the CLI"): every listener port and admin.port
 // is rewritten to a free loopback port, kept across re-renders while an
-// added listener gets a new one, and every secretRef becomes a file
-// reference under the Node's own RURALZ_SECRET_ROOT that keeps its key.
+// added listener gets a new one, and every secretRef, a SecretValue's or
+// a Consumer API key's, becomes a file reference under the Node's own
+// RURALZ_SECRET_ROOT that keeps its key, but those NodeOptions.
+// AuthoredSecrets keeps as authored for a case that supplies their values
+// itself, such as the env provider and secret root cases of the security
+// suite.
 // That is how several Nodes share one host. A Node reports its test digest,
 // the Revision digest of the rewritten file it loads, beside the Revision
 // digest of the unmodified render; Config.Digest computes both, since the

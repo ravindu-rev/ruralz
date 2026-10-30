@@ -375,7 +375,7 @@ func (n *node) buildParts(ctx context.Context) *refusal {
 	h, err := handler.New(handler.Deps{
 		Snapshots: n.retirer, Units: n.units, PreRouting: admission.NewPreRouting(admission.DefaultPreRouting, n.p.wall),
 		Exchanges: exchanges, Executor: exec, Tracer: tracer, AccessLog: rt.AccessLog(), Node: nm, Tap: hub,
-		Clock: n.p.wall, Logger: rt.Logger(componentHandler),
+		Clock: clk, Wall: n.p.wall, Logger: rt.Logger(componentHandler),
 	})
 	if err != nil {
 		return fail("request handler: %w", err)

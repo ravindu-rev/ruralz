@@ -811,7 +811,8 @@ type Deps struct {
 	Limits  Limits
 	// MACKey is the optional entry MAC key read from
 	// RURALZ_STATE_STORE_MAC_KEY_FILE (at least 32 bytes); nil stores and
-	// accepts entries without a tag. A wrong or missing tag is a miss.
+	// accepts only entries marked untagged. A wrong or missing tag, and
+	// an entry marked for the other key setting, is a miss.
 	MACKey []byte
 	// Logger is from internal/telemetry; shards appear as ss-<8 hex>, never
 	// as the URL.
