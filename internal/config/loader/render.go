@@ -37,11 +37,29 @@ type Result struct {
 	Environment string
 	// Overlay names the overlay applied; "" when none was.
 	Overlay string
+
+	// text reads the bytes of a file of the load; nil for a load that
+	// read none.
+	text func(tree.FileID) ([]byte, bool)
 }
 
 // HasErrors reports an error among the diagnostics: such a load yields no
 // Revision.
 func (r *Result) HasErrors() bool { return r.Diagnostics.HasErrors() }
+
+// Text returns the bytes of the base or overlay file id exactly as the
+// load read them, before stage B normalized line breaks; false for any
+// other file, such as an environments file. Positions in Resources count
+// lines and columns in these bytes, so a caller can place a finding at a
+// character inside a scalar: stage J of the configuration pipeline places
+// a CEL finding at the character it names. The bytes are shared: treat
+// them as read-only.
+func (r *Result) Text(id tree.FileID) ([]byte, bool) {
+	if r.text == nil {
+		return nil, false
+	}
+	return r.text(id)
+}
 
 // Request names one load: a Bundle and the Environment it renders for.
 type Request struct {
@@ -118,7 +136,7 @@ func (b *Bundle) render(ctx context.Context, env *Environment, vars subst.Source
 	if extra != nil {
 		keep.merge(extra)
 	}
-	res := &Result{Files: b.files}
+	res := &Result{Files: b.files, text: b.text}
 	if env != nil {
 		res.Environment = env.Name
 	}

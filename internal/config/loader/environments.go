@@ -56,6 +56,8 @@ type Environments struct {
 	path   string
 	byName map[string]*Environment
 	names  []string
+	// order holds the same names in the order the file declares them.
+	order []string
 	// declared holds every Environment name a document of the file
 	// carries, checked or not; tainted reports a document lost before its
 	// name was read. Select reports a missing name only when neither
@@ -71,6 +73,12 @@ func (e *Environments) Diagnostics() diag.List { return e.keep.clone().result() 
 // Names returns the names of the Environments that passed every check,
 // sorted.
 func (e *Environments) Names() []string { return slices.Clone(e.names) }
+
+// FileOrder returns the names Names returns in the order the file
+// declares them: ruralz bundle validate with --environments and no --env
+// runs once per Environment in that order
+// (docs/reference/01-cli-and-api-surface.md "Global flags").
+func (e *Environments) FileOrder() []string { return slices.Clone(e.order) }
 
 // Path returns the file as given, slash-separated.
 func (e *Environments) Path() string { return e.path }
@@ -163,6 +171,7 @@ func (l *Loader) ReadEnvironments(ctx context.Context, src Source) (*Environment
 		if valid[i] {
 			env := environmentOf(r, files)
 			e.byName[env.Name] = env
+			e.order = append(e.order, env.Name)
 		}
 	}
 	e.names = slices.Sorted(maps.Keys(e.byName))

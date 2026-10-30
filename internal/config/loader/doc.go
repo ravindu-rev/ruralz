@@ -55,7 +55,9 @@
 // name (RZ-CFG-008), with acyclic promotion.from chains (RZ-CFG-022). A
 // Cluster is skipped and any other kind is RZ-CFG-007.
 // Environments.Select returns the Environment a render uses; a name the
-// file does not declare is RZ-CFG-009.
+// file does not declare is RZ-CFG-009. Environments.FileOrder lists the
+// Environments that passed every check in the order the file declares
+// them, the order a run per Environment takes.
 //
 // # Stages D and E: overlay and substitution
 //
@@ -67,7 +69,10 @@
 // renders for any number of Environments. An overlay can neither add nor
 // remove the Gateway (RZ-CFG-016). When stages A to C lost a base
 // document, an overlay document that may patch it is withheld rather than
-// added, since its findings would only repeat the loss.
+// added, since its findings would only repeat the loss. Result.Text
+// returns the bytes of each file the load read, in which the resources'
+// positions count, so the configuration pipeline can place a CEL finding
+// at a character inside a scalar.
 //
 // # Limits and diagnostics
 //

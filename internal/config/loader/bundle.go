@@ -4,6 +4,7 @@
 package loader
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -108,6 +109,23 @@ func (b *Bundle) Overlays() []string { return slices.Clone(b.overlayNames) }
 
 // Diagnostics returns the findings of stages A to C, sorted and capped.
 func (b *Bundle) Diagnostics() diag.List { return b.keep.clone().result() }
+
+// Stopped reports a Bundle whose stages A to C stopped the load, at a
+// limit or the diagnostics cap: every Render of it stops too, reporting
+// the Bundle's diagnostics alone.
+func (b *Bundle) Stopped() bool { return b.stopped || b.keep.full() }
+
+// text returns the bytes of the configuration file id as the load read
+// them; false for a file the Bundle did not read, such as an environments
+// file. The sources are in the order the load read them, which is the
+// order of their FileIDs, so a binary search finds one.
+func (b *Bundle) text(id tree.FileID) ([]byte, bool) {
+	i, ok := slices.BinarySearchFunc(b.sources, id, func(s *source, id tree.FileID) int { return cmp.Compare(s.id, id) })
+	if !ok || b.sources[i].data == nil {
+		return nil, false
+	}
+	return b.sources[i].data, true
+}
 
 // FileTable returns the file table every position of the Bundle's trees
 // refers to.
