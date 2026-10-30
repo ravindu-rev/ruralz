@@ -322,7 +322,7 @@ spec:
 
 ### RateLimit response headers
 
-Ruralz Gateway emits Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1) ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)). Each `ratelimit` and `quota` Policy records the limits it applied to a request, and the request handler writes the fields after `onResponse`, on every response of that request, generated responses included. A limit a skipped Policy, or a `limits[].when` that was false, did not apply is not listed, nor any limit of a `ratelimit` Policy with `config.responseHeaders: none`:
+Ruralz Gateway emits Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1) ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)). Each `ratelimit` and `quota` Policy records the limits it applied to a request, and the request handler writes the fields after `onResponse`, on every response of that request, generated responses included. They replace any `RateLimit-Policy` and `RateLimit` an Upstream or a Policy set, so a response states this Node's limits only; a response of a request without an applied limit keeps the Upstream's. A limit a skipped Policy, or a `limits[].when` that was false, did not apply is not listed, nor any limit of a `ratelimit` Policy with `config.responseHeaders: none`:
 
 | Field | Content | When |
 |---|---|---|

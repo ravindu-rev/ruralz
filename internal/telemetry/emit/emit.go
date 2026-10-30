@@ -358,8 +358,13 @@ type NodeMetrics struct {
 	GatewayDurationSkipped Counter
 	BufferedBytes          Gauge
 	TapEventsDropped       Counter
-	State                  StateMetrics
-	Config                 ConfigMetrics
+	// AccessLogCELErrors counts
+	// ruralz_telemetry_access_log_cel_errors_total: runtime errors of
+	// Gateway.spec.telemetry.accessLog.when, which the request handler
+	// records; each still writes its entry.
+	AccessLogCELErrors Counter
+	State              StateMetrics
+	Config             ConfigMetrics
 }
 
 // Shape is what admission needs from a compiled Revision.

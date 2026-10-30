@@ -52,7 +52,10 @@ const Shards = 8
 // and HTTP/2 over TLS for https, HTTP/1.1 and h2c by prior knowledge for
 // http; the Bounded resources limits; ReadTimeout and WriteTimeout unset,
 // since the handler sets body and write deadlines through
-// http.ResponseController.
+// http.ResponseController; and DisableGeneralOptionsHandler, so net/http
+// hands "OPTIONS *" to the handler, which answers it 404 RZ-RT-001 like
+// any request that matches no Route, instead of answering 200 itself
+// (docs/architecture/07-multi-protocol.md "HTTP intermediary behavior").
 func newHTTPServer(p v1alpha1.ListenerProtocol, h http.Handler, errorLog slog.Handler) *http.Server {
 	var protos http.Protocols
 	protos.SetHTTP1(true)
@@ -62,11 +65,12 @@ func newHTTPServer(p v1alpha1.ListenerProtocol, h http.Handler, errorLog slog.Ha
 		protos.SetUnencryptedHTTP2(true)
 	}
 	return &http.Server{
-		Handler:           h,
-		ReadHeaderTimeout: ReadHeaderTimeout,
-		IdleTimeout:       IdleTimeout,
-		MaxHeaderBytes:    MaxHeaderBytes,
-		Protocols:         &protos,
+		Handler:                      h,
+		DisableGeneralOptionsHandler: true,
+		ReadHeaderTimeout:            ReadHeaderTimeout,
+		IdleTimeout:                  IdleTimeout,
+		MaxHeaderBytes:               MaxHeaderBytes,
+		Protocols:                    &protos,
 		HTTP2: &http.HTTP2Config{
 			MaxConcurrentStreams:          MaxConcurrentStreams,
 			MaxReceiveBufferPerConnection: MaxReceiveBufferPerConnection,

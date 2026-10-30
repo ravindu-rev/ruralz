@@ -116,6 +116,7 @@ func m1Families() []family {
 		{TelemetryTracesUnsampledTotal, Counter, BoundsNone, "{traces}", []string{"reason=rate_cap_root|rate_cap_parent"}, L, false},
 		{TelemetryLogsTotal, Counter, BoundsNone, "{records}", []string{"stream=access|process"}, L, false},
 		{TelemetryLogsDroppedTotal, Counter, BoundsNone, "{records}", []string{"stream=access|process", "reason=queue_full|export_error"}, L, false},
+		{TelemetryAccessLogCELErrorsTotal, Counter, BoundsNone, "{errors}", nil, L, false},
 		{TelemetryFoldedLabelSets, Gauge, BoundsNone, "{label_sets}", []string{"instrument"}, L, false},
 		{TelemetrySeries, Gauge, BoundsNone, "{series}", []string{"state=live|retiring"}, L, false},
 		{TapEventsDroppedTotal, Counter, BoundsNone, "{events}", nil, L, false},

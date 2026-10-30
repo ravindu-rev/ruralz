@@ -68,8 +68,20 @@
 // capped Endpoints avoided while another remains; ejected and unhealthy
 // ones only in panic mode), runs onUpstreamRequest, and sends a fresh copy
 // of the client request: hop-by-hop fields stripped, forwarding fields
-// rewritten (clientaddr), trace context injected, the normalized path
-// unchanged, the Endpoint authority as Host. The attempt deadline is
+// rewritten (clientaddr), or only removed for a Response Cache replay
+// (snapshot.Outbound.Replay), the Outbound's Via entry after the client's
+// (docs/architecture/07-multi-protocol.md "HTTP intermediary behavior"),
+// trace context injected, the normalized path unchanged, the Endpoint
+// authority as Host. An attempt that sends the client body forwards the
+// client's declared trailer fields after it, without hop-by-hop and
+// framing fields (httpfield.IsForwardableTrailer), unframed so HTTP/1.1
+// can carry them. On a plain upstreams leg each 103 Early Hints an attempt
+// receives goes to snapshot.Outbound.Hints with the token the attempt took
+// as it started, so a 1xx that arrives late never reaches another request;
+// other 1xx responses stay on their hop. A streamed client body cut at
+// limits.maxRequestBodyBytes while an attempt sends it ends the leg with
+// 413 RZ-RT-003, without retry and as no Upstream failure: no attempt
+// count, breaker result or passive ejection. The attempt deadline is
 // retries.perTryTimeout or the leg time left divided by the retries left
 // plus one; it stops at response headers, so a slow body is not cut.
 // failureWhen feeds passive ejection and the breaker; the default retryOn
@@ -85,7 +97,9 @@
 // start. The final response runs onUpstreamResponseBody, its body capped by
 // the Target's MaxBodyBytes (a composition step's maxBodyBytes,
 // filter.Leg.MaxBodyBytes), and keeps its bulkhead slot until its body is
-// closed or read to the end. The round trips and the reads of the leg's
+// closed or read to the end; the body's Trailer method gives the
+// response's trailer section once it was read, fields the Upstream did not
+// declare included. The round trips and the reads of the leg's
 // response body, drains included, are Upstream I/O, excluded from
 // gateway-added time through snapshot.Outbound.Excluder. A leg without
 // a response is a *LegError with the code selection rule's RZ-UP code. An

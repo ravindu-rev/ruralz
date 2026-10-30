@@ -92,6 +92,36 @@ func TestIsHopByHop(t *testing.T) {
 	}
 }
 
+// TestIsForwardableTrailer checks the trailer rule of the data plane: every
+// field crosses the Node but the hop-by-hop and framing fields, in any
+// case.
+func TestIsForwardableTrailer(t *testing.T) {
+	tests := []struct {
+		name string
+		want bool
+	}{
+		{"Grpc-Status", true},
+		{"X-Checksum", true},
+		{"server-timing", true},
+		{"Content-Digest", true},
+		{"Content-Length", false},
+		{"content-LENGTH", false},
+		{"Transfer-Encoding", false},
+		{"Trailer", false},
+		{"TE", false},
+		{"Connection", false},
+		{"Keep-Alive", false},
+		{"Upgrade", false},
+		{"Proxy-Authorization", false},
+		{"", false},
+	}
+	for _, tt := range tests {
+		if got := IsForwardableTrailer(tt.name); got != tt.want {
+			t.Errorf("IsForwardableTrailer(%q) = %v, want %v", tt.name, got, tt.want)
+		}
+	}
+}
+
 func TestProtectionStringAndMessage(t *testing.T) {
 	tests := []struct {
 		p    Protection

@@ -157,6 +157,7 @@ const (
 	TelemetryTracesUnsampledTotal       = "ruralz_telemetry_traces_unsampled_total"
 	TelemetryLogsTotal                  = "ruralz_telemetry_logs_total"
 	TelemetryLogsDroppedTotal           = "ruralz_telemetry_logs_dropped_total"
+	TelemetryAccessLogCELErrorsTotal    = "ruralz_telemetry_access_log_cel_errors_total"
 	TelemetryFoldedLabelSets            = "ruralz_telemetry_folded_label_sets"
 	TelemetrySeries                     = "ruralz_telemetry_series"
 	TapEventsDroppedTotal               = "ruralz_tap_events_dropped_total"
@@ -280,6 +281,7 @@ func Families() []Family {
 		{TelemetryTracesUnsampledTotal, Counter, BoundsNone, "{traces}", []Label{{Name: "reason", Values: []string{"rate_cap_root", "rate_cap_parent"}}}, ClassListener, false},
 		{TelemetryLogsTotal, Counter, BoundsNone, "{records}", []Label{{Name: "stream", Values: []string{"access", "process"}}}, ClassListener, false},
 		{TelemetryLogsDroppedTotal, Counter, BoundsNone, "{records}", []Label{{Name: "stream", Values: []string{"access", "process"}}, {Name: "reason", Values: []string{"queue_full", "export_error"}}}, ClassListener, false},
+		{TelemetryAccessLogCELErrorsTotal, Counter, BoundsNone, "{errors}", nil, ClassListener, false},
 		{TelemetryFoldedLabelSets, Gauge, BoundsNone, "{label_sets}", []Label{{Name: "instrument"}}, ClassListener, false},
 		{TelemetrySeries, Gauge, BoundsNone, "{series}", []Label{{Name: "state", Values: []string{"live", "retiring"}}}, ClassListener, false},
 		{TapEventsDroppedTotal, Counter, BoundsNone, "{events}", nil, ClassListener, false},

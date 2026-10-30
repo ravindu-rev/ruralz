@@ -323,6 +323,48 @@ type Outbound struct {
 	// wait, dial, TLS, request write, awaiting headers) and each read of a
 	// leg's response body; nil marks nothing.
 	Excluder emit.Excluder
+	// Via is the entry every leg request gains after the Via entries the
+	// client sent (docs/architecture/07-multi-protocol.md "HTTP
+	// intermediary behavior"): the client hop's protocol version and the
+	// pseudonym ruralz, such as "1.1 ruralz" or "2 ruralz"; "" adds none,
+	// as for a Response Cache replay, which has no client hop.
+	Via string
+	// Trailer is the client request's trailer section
+	// (http.Request.Trailer): the field names the client declared, whose
+	// values net/http fills once the body was read to its end. A leg that
+	// sends the client body declares the names it forwards, every one but
+	// the hop-by-hop and framing fields, and sends their values after the
+	// body; nil forwards none.
+	Trailer http.Header
+	// Replay marks a Response Cache revalidation (internal/gateway/replay):
+	// every leg removes the forwarding fields and adds none.
+	Replay bool
+	// Hints relays the 103 Early Hints responses of a plain upstreams leg
+	// to the client before the final response; nil relays none, and a
+	// composition step never relays.
+	Hints EarlyHints
+	// Reached, when set, records that an attempt of the request reached an
+	// Upstream: the transport gave it a connection, connected and past
+	// TLS, so the Upstream may have served it. Composition steps share the
+	// pointer, so it holds for the whole request
+	// (filter.Final.UpstreamReached).
+	Reached *atomic.Bool
+}
+
+// EarlyHints relays an Upstream's 103 Early Hints responses to the client
+// of a plain upstreams leg before its final response
+// (docs/architecture/03-data-plane.md "Upstream layer"); the request
+// handler implements it. The Upstream layer takes a token as an attempt
+// starts and passes it with each 103 the attempt receives. RelayHints may
+// run on a transport goroutine, even after the attempt ended, so it writes
+// nothing once the token is stale or the final response is committed, and
+// it never keeps h, which the transport owns.
+type EarlyHints interface {
+	// HintsToken returns the token of the attempt that starts now.
+	HintsToken() uint64
+	// RelayHints writes the fields of h as a 103 response to the client
+	// while token is current and nothing final was written.
+	RelayHints(token uint64, h http.Header)
 }
 
 // ErrNotReplayable is returned by RequestBody.Open when the body cannot be

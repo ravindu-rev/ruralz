@@ -144,3 +144,15 @@ func Protect(name string) Protection {
 func IsHopByHop(name string) bool {
 	return Protect(name) == HopByHop
 }
+
+// IsForwardableTrailer reports whether a trailer field may cross the Node
+// to the next hop, compared without regard to ASCII case: every field but
+// the hop-by-hop ones ([IsHopByHop]) and the framing fields
+// Transfer-Encoding, Content-Length and Trailer, which a trailer section
+// never carries forward (docs/architecture/03-data-plane.md "Upstream
+// layer"; docs/architecture/07-multi-protocol.md "HTTP intermediary
+// behavior"). It applies to an Upstream's response trailers and to a
+// client's request trailers alike, and never allocates.
+func IsForwardableTrailer(name string) bool {
+	return name != "" && !IsHopByHop(name) && !lowerEq(name, "content-length")
+}

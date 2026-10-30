@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clientaddr"
@@ -42,6 +43,8 @@ type Conn struct {
 	tls      bool
 	proxy    bool
 	cache    filter.ConnCache
+	// requests numbers the requests the connection carried (NextRequest).
+	requests atomic.Uint32
 
 	// sniffing and sniffed track the h2c preface; only Read, which
 	// net/http never calls concurrently, touches them.
@@ -88,6 +91,18 @@ func (c *Conn) Peer() netip.AddrPort { return clientaddr.PeerOf(c) }
 // Cache returns the connection's memo (filter.ConnTLS.Cache), safe for
 // concurrent HTTP/2 streams.
 func (c *Conn) Cache() *filter.ConnCache { return &c.cache }
+
+// Metrics returns the handles of the listener that accepted the
+// connection, from the snapshot published at accept: the request handler
+// records a request it answers before pinning a snapshot, such as 503
+// RZ-RT-005, on them.
+func (c *Conn) Metrics() *emit.ListenerMetrics { return c.metrics }
+
+// NextRequest returns the connection's request sequence number, 0 for its
+// first request: the per-connection offset of the request's stripe
+// (retire.Holder.RequestStripe), so concurrent HTTP/2 streams of one
+// connection spread over the stripes. Safe for concurrent streams.
+func (c *Conn) NextRequest() uint32 { return c.requests.Add(1) - 1 }
 
 // NetConn returns the connection below the record.
 func (c *Conn) NetConn() net.Conn { return c.Conn }

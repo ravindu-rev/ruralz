@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptrace"
+	"net/textproto"
 	"net/url"
 	"sync/atomic"
 	"time"
@@ -25,6 +26,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/httpfield"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
+
+// codeRequestTooLarge is 413: the streamed client body passed
+// limits.maxRequestBodyBytes while an attempt sent it.
+const codeRequestTooLarge = "RZ-RT-003"
 
 // Leg errors without an Upstream cause.
 var (
@@ -166,7 +171,9 @@ type legState struct {
 	responded bool
 	cause     error
 	canceled  bool
-	delay     time.Duration
+	// over is set when the client body passed its limit during an attempt.
+	over  bool
+	delay time.Duration
 	// park holds a response the leg decided to retry, kept until the retry
 	// attempt runs: when the retry cannot start, the leg returns it.
 	park parked
@@ -206,7 +213,7 @@ func (m *Manager) putLeg(ls *legState) {
 	ls.fleg = filter.Leg{}
 	ls.conn.Store(nil)
 	ls.endpoint, ls.kind, ls.failed, ls.responded = "", resilience.KindNone, false, false
-	ls.cause, ls.canceled, ls.delay = nil, false, 0
+	ls.cause, ls.canceled, ls.over, ls.delay = nil, false, false, 0
 	ls.park = parked{}
 	m.legs.Put(ls)
 }
@@ -240,9 +247,15 @@ func (ls *legState) init(u *Upstream, o *snapshot.Outbound, t Target) {
 }
 
 // gotConn counts the attempt on the connection the transport gave it
-// (httptrace.ClientTrace.GotConn); a transport retry on another connection
-// moves the count.
+// (httptrace.ClientTrace.GotConn), and records in Outbound.Reached that
+// the request reached an Upstream; a transport retry on another
+// connection moves the count.
 func (ls *legState) gotConn(info httptrace.GotConnInfo) {
+	if r := ls.o.Reached; r != nil {
+		// A connection, connected and past TLS: the Upstream may serve
+		// the attempt (filter.Final.UpstreamReached).
+		r.Store(true)
+	}
 	c := trackedOf(info.Conn)
 	if c == nil || !c.begin() {
 		return
@@ -358,8 +371,8 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 	ls.tried = append(ls.tried, ep.identity)
 	sctx, span := m.tracer.StartUpstream(actx, u.spanName, emit.UpstreamAttrs{Attempt: a.Number, Endpoint: ep.identity, Step: ls.t.Step})
 	end.span = span
-	rctx := ls.traced(sctx)
 	end.rec = &attemptRecord{}
+	rctx := ls.traced(sctx, end.rec)
 	req := ls.newRequest(rctx, end.rec, ep, body, cl)
 	m.tracer.Inject(sctx, ls.o.Trace, req.Header)
 	ls.fleg = filter.Leg{Upstream: u.name, Step: ls.t.Step, Attempt: a.Number, Endpoint: ep.identity, Request: req, MaxBodyBytes: ls.t.MaxBodyBytes}
@@ -408,14 +421,34 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 	return ls.onResponse(ctx, sctx, a, resp, &end, tracked, ep.identity)
 }
 
-// traced returns ctx with the GotConn hook. The pooled hook set is used
-// unless ctx already carries a ClientTrace, which httptrace would compose
-// into it.
-func (ls *legState) traced(ctx context.Context) context.Context {
-	if httptrace.ContextClientTrace(ctx) != nil {
-		return httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: ls.gotConn})
+// traced returns ctx with the attempt's ClientTrace hooks: GotConn, and,
+// on a plain upstreams leg whose Outbound relays Early Hints, the
+// Got1xxResponse that relays each 103 with the token the attempt takes
+// now (attemptRecord.got1xx). The pooled hook set serves an attempt
+// without the relay unless ctx already carries a ClientTrace, which
+// httptrace would compose into it; the relay's hook set is rec's own.
+func (ls *legState) traced(ctx context.Context, rec *attemptRecord) context.Context {
+	t := &ls.trace
+	if h := ls.o.Hints; h != nil && ls.t.Step == "" {
+		rec.hints, rec.token = h, h.HintsToken()
+		rec.trace = httptrace.ClientTrace{GotConn: ls.trace.GotConn, Got1xxResponse: rec.got1xx}
+		t = &rec.trace
+	} else if httptrace.ContextClientTrace(ctx) != nil {
+		t = &httptrace.ClientTrace{GotConn: ls.gotConn}
 	}
-	return httptrace.WithClientTrace(ctx, &ls.trace)
+	return httptrace.WithClientTrace(ctx, t)
+}
+
+// got1xx relays a 103 Early Hints response the attempt received to the
+// client before the final response (docs/architecture/03-data-plane.md
+// "Upstream layer"); every other 1xx response stays on its hop. It runs on
+// a transport goroutine, possibly after the attempt ended, which is why
+// the relay checks the token it was given; it never fails the attempt.
+func (r *attemptRecord) got1xx(code int, h textproto.MIMEHeader) error {
+	if code == http.StatusEarlyHints {
+		r.hints.RelayHints(r.token, http.Header(h))
+	}
+	return nil
 }
 
 // choose picks the attempt's Endpoint on set, whose payload is tab, with
@@ -458,6 +491,18 @@ func (ls *legState) openBody() (io.ReadCloser, int64, error) {
 // replayable reports whether another attempt can send the body.
 func (ls *legState) replayable() bool { return ls.o.Body == nil || ls.o.Body.Replayable() }
 
+// bodyOver reports whether an attempt ended because the client body passed
+// limits.maxRequestBodyBytes while it was sent: the body reader's
+// filter.ErrTooLarge, which a transport may return wrapped or replace, or
+// the body's own record of it (body.Request.Exceeded).
+func (ls *legState) bodyOver(err error) bool {
+	if errors.Is(err, filter.ErrTooLarge) {
+		return true
+	}
+	ex, ok := ls.o.Body.(interface{ Exceeded() bool })
+	return ok && ex.Exceeded()
+}
+
 // onError handles an attempt that ended without response headers. An
 // attempt that was sent (it has an Endpoint) runs onUpstreamResponseHeaders
 // too, with no response and its error kind, on the leg's context (the
@@ -465,6 +510,19 @@ func (ls *legState) replayable() bool { return ls.o.Body == nil || ls.o.Body.Rep
 // does not decide (Provider Fallback), or fail closed, which ends the leg.
 func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, err error, end *attemptEnd, tracked bool, endpoint string) (step, *snapshot.UpstreamResponse, error) {
 	u := ls.u
+	if ls.bodyOver(err) {
+		// The streamed client body passed limits.maxRequestBodyBytes while
+		// the attempt sent it: the attempt ends without retry and counts as
+		// no Upstream failure, in neither the breaker nor passive ejection;
+		// the leg fails with 413 RZ-RT-003
+		// (docs/architecture/03-data-plane.md "Streaming").
+		if tracked {
+			ls.ha.Cancel()
+		}
+		end.finish()
+		ls.over, ls.cause, ls.endpoint = true, err, endpoint
+		return stepStop, nil, nil
+	}
 	kind, cause := classify(actx, err)
 	end.errType = kind.String()
 	if resilience.Canceled(actx) {
@@ -581,7 +639,7 @@ func (ls *legState) final(ctx context.Context, resp *http.Response, end attemptE
 	ls.leg.End(resilience.BreakerResult(ls.failed, o, 0, 0))
 	rec := end.rec
 	fb := &rec.body
-	fb.rc, fb.end, fb.ex, fb.clk = resp.Body, end, ls.o.Excluder, ls.u.rt.m.clk
+	fb.rc, fb.resp, fb.end, fb.ex, fb.clk = resp.Body, resp, end, ls.o.Excluder, ls.u.rt.m.clk
 	resp.Body = fb
 	ls.fleg.Response = resp
 	var replace *filter.Response
@@ -637,6 +695,12 @@ func (ls *legState) end(ctx context.Context) (*snapshot.UpstreamResponse, error)
 		return ls.final(ctx, p.resp, p.end), nil
 	}
 	u := ls.u
+	if ls.over {
+		attempts := ls.leg.Attempts()
+		ls.leg.End(resilience.LegNotCounted)
+		ls.endHooks(ctx)
+		return nil, &LegError{Upstream: u.name, Endpoint: ls.endpoint, Attempts: attempts, Err: errcode.Wrap(codeRequestTooLarge, ls.cause)}
+	}
 	if ls.canceled {
 		attempts := ls.leg.Attempts()
 		ls.leg.End(resilience.LegNotCounted)
@@ -748,11 +812,16 @@ func closeBody(r *http.Request) {
 
 // attemptRecord is the one allocation of an attempt: its request URL and,
 // when it is the leg's response, the body wrapper and the result, which
-// outlive the leg.
+// outlive the leg. An attempt that relays Early Hints also keeps its hook
+// set here, with the relay and the token it took, so a 1xx that arrives
+// after the leg's pooled state was reused still names this attempt.
 type attemptRecord struct {
-	url  url.URL
-	body finalBody
-	resp snapshot.UpstreamResponse
+	url   url.URL
+	body  finalBody
+	resp  snapshot.UpstreamResponse
+	trace httptrace.ClientTrace
+	hints snapshot.EarlyHints
+	token uint64
 }
 
 // attemptEnd is what an attempt holds until it ends: the bulkhead slot,
@@ -826,8 +895,11 @@ func (e *attemptEnd) finish() {
 // closed or read to its end (or fails), whichever is first: the bulkhead
 // slot is held for the whole response, streaming included.
 type finalBody struct {
-	rc  io.ReadCloser
-	end attemptEnd
+	rc io.ReadCloser
+	// resp is the leg's response, whose Trailer net/http completes as the
+	// body ends.
+	resp *http.Response
+	end  attemptEnd
 	// ex marks each read out of gateway-added time (Outbound.Excluder);
 	// nil marks nothing.
 	ex   emit.Excluder
@@ -865,6 +937,12 @@ func (b *finalBody) finish() {
 	}
 }
 
+// Trailer returns the trailer section of the leg's response as it stands:
+// complete once the body was read to its end, fields the response did not
+// declare included, since net/http adds those only then. Read it on the
+// goroutine that read the body.
+func (b *finalBody) Trailer() http.Header { return b.resp.Trailer }
+
 // joinedBody is a body a body Phase put in place of the Upstream's; its
 // Close also ends the attempt.
 type joinedBody struct {
@@ -878,3 +956,7 @@ func (b *joinedBody) Close() error {
 	_ = b.attempt.Close()
 	return err
 }
+
+// Trailer returns the trailer section of the Upstream's response
+// (finalBody.Trailer).
+func (b *joinedBody) Trailer() http.Header { return b.attempt.Trailer() }

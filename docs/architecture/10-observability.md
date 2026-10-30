@@ -112,7 +112,7 @@ spec:
 ### Naming and label rules
 
 - Names follow `ruralz_<component>_<name>_<unit>` (pack 2): base units, a counted noun for gauges, `total` for counters, `ratio` for fractions, `info` for 1-or-0 gauges. Instruments register UCUM units; `/metrics` MUST NOT append suffixes.
-- `route`, `upstream`, `policy`, `plugin` and `listener` are resource or listener names (`route="_unmatched"` without a match); `phase` is a Phase; `code` a registered `RZ` code; `status_class` `1xx` to `5xx`; `protocol` `http1`, `http2`, `http3`, `grpc`, `websocket` or `sse` (the last four Planned (M3)), or `kafka`, `nats` or `mqtt` (Planned (M4)). Other labels are enumerations in their row or a named registry.
+- `route`, `upstream`, `policy`, `plugin` and `listener` are resource or listener names (`route="_unmatched"` without a match); `phase` is a Phase; `code` a registered `RZ` code; `status_class` `1xx` to `5xx`, so a request whose client went away before any response, which has no status, counts in no `status_class` series; `protocol` `http1`, `http2`, `http3`, `grpc`, `websocket` or `sse` (the last four Planned (M3)), or `kafka`, `nats` or `mqtt` (Planned (M4)). Other labels are enumerations in their row or a named registry.
 - Never a label: Consumer, credential, client address, method, path, query, host, trace ID, `node.id` or any user-supplied string other than Plugin guest event names (O5). Tier is allowed (Bundle-bounded).
 - Histograms use five sets of 13 boundaries (16 series per label set); every SLO threshold is a boundary:
 
