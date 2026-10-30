@@ -76,7 +76,7 @@ func TestCompletionString(t *testing.T) {
 }
 
 func TestExitError(t *testing.T) {
-	if ExitOK != 0 || ExitNegative != 1 || ExitNoResult != 2 || ExitWaiting != 3 || ExitInterrupted != 130 {
+	if ExitOK != 0 || ExitNegative != 1 || ExitNoResult != 2 || ExitWaiting != 3 || ExitInterrupted != 130 || ExitTerminated != 143 {
 		t.Fatal("exit codes changed; they never change once released")
 	}
 	if got := (&ExitError{Code: 3}).Error(); got != "exit status 3" {

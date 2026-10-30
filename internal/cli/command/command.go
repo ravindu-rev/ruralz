@@ -4,9 +4,11 @@
 // Package command is the ruralz command framework: the command table model
 // (Spec, Arg, Command), interspersed standard library flag parsing with
 // flag specs for help and completion, the IO streams of one invocation,
-// exit codes, ExitError and Interrupted, the dispatcher Execute with help
-// and usage errors, the JSON and NDJSON writers and the atomic file write
-// behind --output-file.
+// exit codes (130 after SIGINT and 143 after SIGTERM, 128 plus the
+// signal's number), ExitError and Interrupted, the dispatcher Execute with
+// help and usage errors, the JSON and NDJSON writers, the atomic file write
+// behind --output-file, and the terminal check that decides whether human
+// output is colored (Colors).
 //
 // The package holds no state: the root package builds the command table
 // per call (cli.Registry) and hands it to Execute with the IO of the

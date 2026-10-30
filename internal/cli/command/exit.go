@@ -23,9 +23,18 @@ const (
 	ExitNoResult = 2
 	// ExitWaiting is waiting on a person; reserved for rollout in M2.
 	ExitWaiting = 3
-	// ExitInterrupted is an invocation ended by SIGINT or SIGTERM.
+	// ExitInterrupted is an invocation ended by SIGINT, 128 plus its
+	// number: Ctrl-C.
 	ExitInterrupted = 130
+	// ExitTerminated is an invocation ended by SIGTERM, 128 plus its
+	// number: a process manager or kill stopping the command.
+	ExitTerminated = 143
 )
+
+// signalExitBase is added to a signal's number for the exit code of an
+// invocation the signal ended (docs/reference/01-cli-and-api-surface.md
+// "Exit codes").
+const signalExitBase = 128
 
 // ExitError ends a command with a specific exit code. Execute prints Err
 // as "<program> <path>: <message>" when it is not nil; a nil Err means the
@@ -93,6 +102,22 @@ type Interrupted struct {
 // Error names the signal.
 func (i Interrupted) Error() string { return "interrupted by " + signalName(i.Signal) }
 
+// Code returns the exit code of an invocation the signal ended: 128 plus
+// the signal's number, so ExitInterrupted for SIGINT and ExitTerminated
+// for SIGTERM; a signal without a number, such as a nil one, counts as
+// SIGINT.
+func (i Interrupted) Code() int {
+	if s, ok := i.Signal.(syscall.Signal); ok && s > 0 {
+		return signalExitBase + int(s)
+	}
+	return ExitInterrupted
+}
+
+// isSignalCode reports whether code is the exit code of an invocation a
+// signal ended: ExitInterrupted, ExitTerminated or another 128 plus a
+// signal number.
+func isSignalCode(code int) bool { return code > signalExitBase && code < signalExitBase+65 }
+
 // signalName returns the conventional name of the two handled signals.
 func signalName(s os.Signal) string {
 	switch s {
@@ -118,12 +143,15 @@ type ProblemDocument interface {
 }
 
 // Code maps a command's result to the exit code: a context canceled with
-// cause Interrupted is 130 whatever err is; nil is 0; an ExitError
-// anywhere in err's chain gives its code; an Interrupted in the chain is
-// 130; anything else is 2.
+// cause Interrupted exits by that signal whatever err is, 130 for SIGINT
+// and 143 for SIGTERM; nil is 0; an ExitError anywhere in err's chain
+// gives its code; an Interrupted in the chain exits by its signal;
+// anything else is 2.
 func Code(ctx context.Context, err error) int {
-	if ctx != nil && interrupted(ctx) {
-		return ExitInterrupted
+	if ctx != nil {
+		if in, ok := interrupted(ctx); ok {
+			return in.Code()
+		}
 	}
 	if err == nil {
 		return ExitOK
@@ -131,17 +159,16 @@ func Code(ctx context.Context, err error) int {
 	if ee, ok := errors.AsType[*ExitError](err); ok {
 		return ee.Code
 	}
-	if _, ok := errors.AsType[Interrupted](err); ok {
-		return ExitInterrupted
+	if in, ok := errors.AsType[Interrupted](err); ok {
+		return in.Code()
 	}
 	return ExitNoResult
 }
 
-// interrupted reports whether ctx was canceled by SignalContext.
-func interrupted(ctx context.Context) bool {
+// interrupted returns the cause of ctx when SignalContext canceled it.
+func interrupted(ctx context.Context) (Interrupted, bool) {
 	if ctx.Err() == nil {
-		return false
+		return Interrupted{}, false
 	}
-	_, ok := errors.AsType[Interrupted](context.Cause(ctx))
-	return ok
+	return errors.AsType[Interrupted](context.Cause(ctx))
 }

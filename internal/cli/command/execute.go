@@ -108,7 +108,7 @@ func report(ctx context.Context, sio IO, path string, f *Flags, err error) int {
 	if err == nil {
 		return code
 	}
-	if code == ExitInterrupted && isCancellation(err) {
+	if isSignalCode(code) && isCancellation(err) {
 		return code
 	}
 	if pd, ok := errors.AsType[ProblemDocument](err); ok && f != nil {

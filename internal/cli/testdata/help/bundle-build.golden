@@ -1,0 +1,20 @@
+Usage: ruralz bundle build [DIR] [FLAGS]
+
+Build a Revision, print its digest.
+
+Builds the Revision of one Environment and prints rev-<12 hex> and its full
+digest. The online Plugin check runs unless --offline is set; fetching Plugin
+artifacts is Planned (M2), so a Bundle that holds a Plugin needs --offline.
+--output-file receives the ruralz.canonical.v1 content, which hashes to the
+digest.
+
+Arguments:
+  DIR  Bundle directory, one-file Bundle, or - for standard input (default .)
+
+Flags:
+  --env NAME           Render with this Environment's overlay and variables, read from --environments
+  --environments FILE  Local Environment resources
+  --help               Print this help
+  --offline            Skip the online Plugin check
+  --output text|json   Output format (text or json, default text)
+  --output-file PATH   Write the canonical content (ruralz.canonical.v1) to PATH

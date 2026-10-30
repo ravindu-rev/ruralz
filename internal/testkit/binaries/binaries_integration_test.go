@@ -34,7 +34,7 @@ func TestBuildRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := version(ctx, t, set.Ruralz)
-	if !strings.Contains(out, "version:     0.1.0-e2e.a\n") || !strings.Contains(out, "commit:      0123456789abcdef\n") {
+	if !strings.Contains(out, "version:      0.1.0-e2e.a\n") || !strings.Contains(out, "commit:       0123456789abcdef\n") {
 		t.Fatalf("ruralz version:\n%s", out)
 	}
 
@@ -60,7 +60,7 @@ func TestBuildRepository(t *testing.T) {
 		t.Fatal(err)
 	}
 	out = version(ctx, t, variant.Ruralz)
-	if !strings.Contains(out, "version:     0.1.0-e2e.b\n") || !strings.Contains(out, "ruralz/v1alpha1-overlay") {
+	if !strings.Contains(out, "version:      0.1.0-e2e.b\n") || !strings.Contains(out, "ruralz/v1alpha1-overlay") {
 		t.Fatalf("overlay ruralz version:\n%s", out)
 	}
 }

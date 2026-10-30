@@ -1,0 +1,9 @@
+Usage: ruralz dev <verb> [ARGS] [FLAGS]
+
+Run and observe a local ruralzd.
+
+Verbs:
+  run  Local ruralzd with Hot Reload
+  tap  Stream redacted /tap metadata
+
+Run 'ruralz dev <verb> --help' for details.

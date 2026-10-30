@@ -1,0 +1,26 @@
+Usage: ruralz dev run [DIR] [FLAGS]
+
+Local ruralzd with Hot Reload.
+
+Renders DIR for --env, or from the process environment, into a private
+directory and runs a local ruralzd on that test render, bound to loopback,
+with a generated operator token. Once ruralzd is ready the command prints
+its Revision, admin URL, listeners and a ruralz dev tap command line, then
+polls DIR, the --environments and --secret-overrides files and the files
+these name, and swaps in a new test render once a change has settled;
+ruralzd Hot Reloads it. Ctrl-C stops ruralzd through a Drain, and a second
+Ctrl-C ends the Drain at once.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --env NAME                Render with this Environment's overlay and variables, read from --environments
+  --environments FILE       Local Environment resources
+  --ephemeral-ports         Rewrite every listener port and admin.port to a free loopback port
+  --help                    Print this help
+  --memory-state-store      Replace the Gateway's stateStore with driver memory
+  --output text|json        Output format (text or json, default text)
+  --ready-timeout DURATION  How long to wait for /readyz after the launch and for each activation (default 30s)
+  --ruralzd PATH            The ruralzd to launch (default: beside ruralz, else on PATH)
+  --secret-overrides FILE   Local files replacing secretRefs: provider:name keys, file path values

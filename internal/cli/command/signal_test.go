@@ -114,6 +114,9 @@ func TestSignalContextSIGTERM(t *testing.T) {
 	if !ok || in.Signal != syscall.SIGTERM {
 		t.Fatalf("cause = %v, want Interrupted{SIGTERM}", context.Cause(ctx))
 	}
+	if Code(ctx, ctx.Err()) != ExitTerminated {
+		t.Errorf("Code = %d, want 143", Code(ctx, ctx.Err()))
+	}
 	if fs.resetCount() != 0 {
 		t.Errorf("SIGTERM then one SIGINT reset the handling")
 	}
@@ -154,6 +157,31 @@ func TestSignalContextParent(t *testing.T) {
 	waitDone(ctx, t)
 	if Code(ctx, ctx.Err()) != ExitNoResult {
 		t.Errorf("parent cancel is not an interruption")
+	}
+}
+
+// TestInterruptedCode: an invocation a signal ended exits 128 plus the
+// signal's number, 130 for SIGINT and 143 for SIGTERM.
+func TestInterruptedCode(t *testing.T) {
+	cases := []struct {
+		signal os.Signal
+		want   int
+	}{
+		{os.Interrupt, ExitInterrupted},
+		{syscall.SIGINT, 130},
+		{syscall.SIGTERM, ExitTerminated},
+		{syscall.SIGHUP, 129},
+		{nil, ExitInterrupted},
+	}
+	for _, c := range cases {
+		if got := (Interrupted{Signal: c.signal}).Code(); got != c.want {
+			t.Errorf("Interrupted{%v}.Code() = %d, want %d", c.signal, got, c.want)
+		}
+	}
+	for code, want := range map[int]bool{0: false, 1: false, 2: false, 3: false, 128: false, 129: true, 130: true, 143: true, 192: true, 193: false} {
+		if got := isSignalCode(code); got != want {
+			t.Errorf("isSignalCode(%d) = %v, want %v", code, got, want)
+		}
 	}
 }
 

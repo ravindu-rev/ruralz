@@ -618,7 +618,13 @@ func TestExitCodeTable(t *testing.T) {
 		},
 		{"waiting on a person", nil, nil, func(context.Context) error { return command.Exit(command.ExitWaiting) }, 3, "", ""},
 		{"interrupted by SIGINT", sigint, nil, context.Cause, 130, "", ""},
-		{"interrupted by SIGTERM", sigterm, nil, func(ctx context.Context) error { return ctx.Err() }, 130, "", ""},
+		{"interrupted by SIGTERM", sigterm, nil, func(ctx context.Context) error { return ctx.Err() }, 143, "", ""},
+		{"interrupted by SIGTERM, cause returned", sigterm, nil, context.Cause, 143, "", ""},
+		{"interrupted by SIGTERM, success", sigterm, nil, func(context.Context) error { return nil }, 143, "", ""},
+		{
+			"interrupted by SIGTERM, other error printed", sigterm, nil, func(context.Context) error { return errors.New("cleanup failed") }, 143, "",
+			"ruralz version: cleanup failed\n",
+		},
 		{"interrupted, success", sigint, nil, func(context.Context) error { return nil }, 130, "", ""},
 		{
 			"interrupted, other error printed", sigint, nil, func(context.Context) error { return errors.New("cleanup failed") }, 130, "",
@@ -631,6 +637,12 @@ func TestExitCodeTable(t *testing.T) {
 		{
 			"Interrupted returned", nil, nil,
 			func(context.Context) error { return fmt.Errorf("wait: %w", command.Interrupted{Signal: os.Interrupt}) }, 130, "", "",
+		},
+		{
+			"Interrupted by SIGTERM returned", nil, nil,
+			func(context.Context) error {
+				return fmt.Errorf("wait: %w", command.Interrupted{Signal: syscall.SIGTERM})
+			}, 143, "", "",
 		},
 		{
 			"problem document, text", nil, nil,
@@ -673,6 +685,8 @@ func TestExitCodeTable(t *testing.T) {
 func TestCode(t *testing.T) {
 	sigint, stop := context.WithCancelCause(context.Background())
 	stop(command.Interrupted{Signal: os.Interrupt})
+	sigterm, stopTERM := context.WithCancelCause(context.Background())
+	stopTERM(command.Interrupted{Signal: syscall.SIGTERM})
 	cases := []struct {
 		name string
 		ctx  context.Context
@@ -689,7 +703,13 @@ func TestCode(t *testing.T) {
 		{"wrapped", context.Background(), fmt.Errorf("a: %w", &command.ExitError{Code: 3}), 3},
 		{"interrupted context", sigint, nil, 130},
 		{"interrupted context wins", sigint, command.Negative(), 130},
-		{"interrupted error", context.Background(), command.Interrupted{Signal: syscall.SIGTERM}, 130},
+		{"terminated context", sigterm, nil, 143},
+		{"terminated context wins", sigterm, command.Negative(), 143},
+		{"terminated context wins over a returned interruption", sigterm, command.Interrupted{Signal: os.Interrupt}, 143},
+		{"interrupted error", context.Background(), command.Interrupted{Signal: os.Interrupt}, 130},
+		{"terminated error", context.Background(), command.Interrupted{Signal: syscall.SIGTERM}, 143},
+		{"wrapped terminated error", context.Background(), fmt.Errorf("wait: %w", command.Interrupted{Signal: syscall.SIGTERM}), 143},
+		{"interruption without a signal", context.Background(), command.Interrupted{}, 130},
 	}
 	for _, c := range cases {
 		if got := command.Code(c.ctx, c.err); got != c.want {

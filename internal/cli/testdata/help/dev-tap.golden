@@ -1,0 +1,20 @@
+Usage: ruralz dev tap [FLAGS]
+
+Stream redacted /tap metadata.
+
+Subscribes to the Node's /tap stream and prints one line per sampled
+exchange, its header values on indented lines (> request, < response),
+credentials redacted by the Node. --output json re-emits every line as
+received. When the Node ends the stream, the command subscribes again with
+backoff from 1s to 30s until Ctrl-C; a refused subscription exits 2.
+
+Flags:
+  --admin URL              Admin base URL of the Node (default $RURALZ_ADMIN_URL, else http://127.0.0.1:9901)
+  --admin-token-file PATH  Operator admin token file (default $RURALZ_ADMIN_TOKEN_FILE)
+  --ca-file PATH           Extra trust anchors (PEM), added to the system roots
+  --client-cert PATH       Client certificate (PEM) for admin mTLS over https
+  --client-key PATH        Unencrypted PEM key of --client-cert
+  --help                   Print this help
+  --output text|json       Output format (text or json, default text)
+  --route NAME             Only print the events of this Route (a client-side filter)
+  --sample RATE            Share of exchanges the Node samples, in (0, 1] (default 1)
