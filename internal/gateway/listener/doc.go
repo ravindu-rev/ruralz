@@ -33,6 +33,17 @@
 // quic-go, which is not an admitted module yet, so no listener serves
 // UDP.
 //
+// # Addresses
+//
+// A listener binds every interface with one socket, or one socket per
+// host of Options.Hosts, all on its port: with RURALZ_BIND_LOOPBACK=true
+// the wiring passes [LoopbackHosts], 127.0.0.1 and, where the host has
+// IPv6, ::1 ("Listeners and protocols"). The sockets of a listener share
+// its Server shards; each has its own dispatching listener and its own
+// reuseport group, which the kernel keys by address, so pinning and
+// steering cover every group. [BindAdminPorts] binds the admin port the
+// same way, one [AdminPort] per host.
+//
 // # Connections
 //
 // One goroutine per socket, the dispatching listener, accepts connections
@@ -68,7 +79,7 @@
 // # Hot Reload
 //
 // A Hot Reload never changes a running Server. [Set.Prepare], before the
-// snapshot swap, binds a new socket for every added listener and every
+// snapshot swap, binds new sockets for every added listener and every
 // listener whose identity (snapshot.ListenerKey: name, port, protocol,
 // proxyProtocol) changed, without listening on Linux, so a port error
 // rejects the Revision with RZ-CFG-039 while nothing queues on the new

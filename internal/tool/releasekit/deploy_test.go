@@ -97,7 +97,9 @@ const drainExitBound = 30
 // TimeoutStopSec=40 above the Drain exit bound; WatchdogSec=30s, which
 // ruralzd answers with WATCHDOG=1; reloads, which share the start timeout,
 // outlast the helper; both processes of a handover get the stop signal; a
-// crash, SIGKILL or watchdog kill restarts the Node.
+// crash, SIGKILL or watchdog kill restarts the Node; LimitNOFILE=65536,
+// above the connection ceilings (docs/architecture/03-data-plane.md
+// "Bounded resources").
 func TestSystemdUnit(t *testing.T) {
 	u := unitFile(t, readRepo(t, "deploy/systemd/ruralzd.service"))
 	s := u["Service"]
@@ -108,7 +110,7 @@ func TestSystemdUnit(t *testing.T) {
 		"ExecStart":       "/usr/local/bin/ruralzd",
 		"ExecReload":      "/usr/local/bin/ruralzd-handover /usr/local/bin/ruralzd",
 		"TimeoutStopSec":  "40", "KillMode": "control-group", "KillSignal": "SIGTERM", "Restart": "on-failure",
-		"WatchdogSec": "30s",
+		"WatchdogSec": "30s", "LimitNOFILE": "65536",
 	}
 	for k, v := range want {
 		if !slices.Equal(s[k], []string{v}) {

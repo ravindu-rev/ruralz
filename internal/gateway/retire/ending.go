@@ -216,7 +216,7 @@ func (h *Holder) mark(r *snapshot.PinnedRequest, reason snapshot.EndReason) (can
 			_ = rc.SetWriteDeadline(pastDeadline())
 		} else {
 			_ = rc.SetReadDeadline(pastDeadline())
-			_ = rc.SetWriteDeadline(h.clock.Now().Add(h.writeSlack))
+			_ = rc.SetWriteDeadline(h.wall.Now().Add(h.writeSlack))
 		}
 	}
 	return cancel, true

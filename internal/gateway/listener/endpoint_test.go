@@ -65,13 +65,15 @@ func (*errListener) Addr() net.Addr { return &net.TCPAddr{IP: net.IPv4(127, 0, 0
 func TestAcceptLoopBacksOff(t *testing.T) {
 	h := newHarness(t)
 	fl := &errListener{next: make(chan error), closed: make(chan struct{})}
-	ep := &endpoint{s: h.set, key: snapshot.ListenerKey{Name: "web"}, acc: fl, stopped: make(chan struct{}), unlinger: make(chan struct{})}
+	ep := &endpoint{s: h.set, key: snapshot.ListenerKey{Name: "web"}, stopped: make(chan struct{}), unlinger: make(chan struct{})}
+	sk := &socket{ep: ep, host: "127.0.0.1", acc: fl, local: fl.Addr()}
+	ep.socks = []*socket{sk}
 	ep.metrics.Store(metricsOf(httpListener("web", 0)))
 	done := make(chan struct{})
 	h.set.wg.Add(1)
 	go func() {
 		defer close(done)
-		ep.acceptLoop()
+		sk.acceptLoop()
 	}()
 	tooMany := errors.New("accept: too many open files")
 	calls := int64(1)

@@ -151,7 +151,7 @@ func (l *shardListener) Accept() (net.Conn, error) {
 }
 
 func (l *shardListener) closedErr() error {
-	return &net.OpError{Op: "accept", Net: "tcp", Addr: l.ep.local, Err: net.ErrClosed}
+	return &net.OpError{Op: "accept", Net: "tcp", Addr: l.ep.addr(), Err: net.ErrClosed}
 }
 
 // Close stops handing connections over; the socket stays open.
@@ -160,5 +160,5 @@ func (l *shardListener) Close() error {
 	return nil
 }
 
-// Addr returns the socket's address.
-func (l *shardListener) Addr() net.Addr { return l.ep.local }
+// Addr returns the address of the endpoint's first socket.
+func (l *shardListener) Addr() net.Addr { return l.ep.addr() }

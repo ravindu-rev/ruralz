@@ -118,7 +118,7 @@ func TestRealPartsDrainInWaves(t *testing.T) {
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "ok") }),
 		Conns:   limiter,
 		Clock:   clk,
-		Host:    "127.0.0.1",
+		Hosts:   []string{"127.0.0.1"},
 	})
 	if err != nil {
 		t.Fatal(err)

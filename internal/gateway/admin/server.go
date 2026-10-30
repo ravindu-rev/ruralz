@@ -15,6 +15,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
 	"github.com/ravindu-rev/ruralz/internal/adminauth"
+	"github.com/ravindu-rev/ruralz/internal/buildinfo"
 	"github.com/ravindu-rev/ruralz/internal/gateway/admission"
 	"github.com/ravindu-rev/ruralz/internal/gateway/readiness"
 	"github.com/ravindu-rev/ruralz/internal/gateway/tap"
@@ -87,7 +88,19 @@ type Config struct {
 	// ErrorLog receives net/http's own errors
 	// (telemetry.Runtime.ErrorLog); nil discards them.
 	ErrorLog slog.Handler
+	// Version is the Node's build version, which every response to an
+	// authenticated request carries as ruralz-version (HeaderVersion);
+	// empty means buildinfo.Get().Version.
+	Version string
 }
+
+// HeaderVersion is the response field that carries the Node's build
+// version on every response to an authenticated request, from which the
+// CLI warns about version skew (docs/architecture/03-data-plane.md "Admin
+// endpoints"; docs/reference/01-cli-and-api-surface.md "Admin API
+// conventions"). Open paths and refused requests do not carry it, so the
+// version reaches no unauthenticated client.
+const HeaderVersion = "Ruralz-Version"
 
 // Server is the admin server. It is safe for concurrent use.
 type Server struct {
@@ -97,6 +110,9 @@ type Server struct {
 	tls       bool
 	status    emit.NodeStatus
 	requestID func(*http.Request) string
+	// version is the ruralz-version value, one header value shared by
+	// every authenticated response.
+	version []string
 	// endpoints maps each served exact path to its handler.
 	endpoints map[string]http.Handler
 	// mutex and block are the profiling windows of /debug/pprof/.
@@ -120,12 +136,17 @@ func New(cfg Config) (*Server, error) {
 	case (cfg.TLS != nil) != cfg.Auth.Settings().TLS():
 		return nil, ErrTLSMismatch
 	}
+	version := cfg.Version
+	if version == "" {
+		version = buildinfo.Get().Version
+	}
 	base, stop := context.WithCancel(context.Background())
 	s := &Server{
 		limiter:   admission.NewConnLimiter(admission.AdminConnections),
 		tls:       cfg.TLS != nil,
 		status:    cfg.Status,
 		requestID: cfg.RequestID,
+		version:   []string{version},
 		mutex:     newProfileWindow(setMutexProfileFraction, MutexProfileFraction),
 		block:     newProfileWindow(setBlockProfileRate, BlockProfileRate),
 		stop:      stop,

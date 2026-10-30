@@ -36,7 +36,10 @@
 // included, takes the operator token or a client certificate and is off
 // without an operator token. Refusals are 401 problem documents with
 // RZ-AUTH-001 or RZ-AUTH-002, and every /tap and /config/dump use is
-// logged, so New refuses an Authenticator without its audit logger.
+// logged, so New refuses an Authenticator without its audit logger. Every
+// response to an authenticated request carries ruralz-version
+// (HeaderVersion), the Node's build version, from which the CLI warns
+// about version skew; open paths and refused requests carry none.
 //
 // # Profiles
 //

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/ravindu-rev/ruralz/internal/adminauth"
 	"github.com/ravindu-rev/ruralz/internal/problem"
 )
 
@@ -73,8 +74,13 @@ func (s *Server) buildEndpoints(cfg Config) map[string]http.Handler {
 
 // route dispatches an authenticated request by its exact path: 404
 // RZ-RT-020 for a path with no endpoint, then 405 RZ-RT-021 for a method
-// other than GET.
+// other than GET. Every response to a request the Authenticator admitted
+// with a credential carries ruralz-version, those problem documents
+// included; the open paths, /healthz and /readyz, never authenticate.
 func (s *Server) route(w http.ResponseWriter, r *http.Request) {
+	if _, ok := adminauth.PrincipalFrom(r.Context()); ok {
+		w.Header()[HeaderVersion] = s.version
+	}
 	h := s.endpoint(r.URL.Path)
 	if h == nil {
 		problem.Write(w, problem.New(CodeNotFound, s.requestID(r)), nil)

@@ -9,8 +9,9 @@
 // as *Error values and ruralzd exits 2 (ExitUsage) naming each setting.
 // Settings errors carry no RZ code.
 //
-// Load checks syntax, RURALZ_ZONE included, the configuration mode, the
-// secret root overlap rule and reads the State Store entry MAC key. The
+// Load checks syntax, RURALZ_ZONE and RURALZ_BIND_LOOPBACK included, the
+// configuration mode, the secret root overlap rule and reads the State
+// Store entry MAC key. The
 // owners of the other settings read their files later: internal/adminauth
 // the admin token files and TLS directory, internal/egress.ParseAllow the
 // fetch allow-list (whose syntax Load already checked, so both reject the
@@ -57,6 +58,9 @@ const (
 	// EnvZone is the Node's failure-zone name, which the State client
 	// compares with the State Store zone maps.
 	EnvZone = "RURALZ_ZONE"
+	// EnvBindLoopback binds every client listener and the admin port to
+	// loopback instead of every interface: true or false.
+	EnvBindLoopback = "RURALZ_BIND_LOOPBACK"
 	// EnvTrustPolicyFile is Planned (M2); unused in M1.
 	EnvTrustPolicyFile = "RURALZ_TRUST_POLICY_FILE"
 	// EnvEnrollmentTokenFile is Planned (M2); unused in M1.
@@ -107,6 +111,9 @@ once at start:
   RURALZ_ZONE                      failure zone of this Node, compared with
                                    the State Store zone maps: 1 to 63
                                    characters from [a-z0-9-] (default none)
+  RURALZ_BIND_LOOPBACK             true binds every listener and the admin
+                                   port to 127.0.0.1 and ::1 only, false to
+                                   every interface (default false)
   RURALZ_ADMIN_TOKEN_FILE          admin operator token
   RURALZ_ADMIN_METRICS_TOKEN_FILE  admin /metrics token
   RURALZ_ADMIN_TLS_DIR             admin TLS directory (tls.crt, tls.key, ca.crt)
@@ -134,6 +141,9 @@ var (
 	ErrFetchAllow = errors.New("invalid allow-list entry")
 	// ErrZone reports a RURALZ_ZONE outside its form.
 	ErrZone = errors.New("zone must be 1 to 63 characters from [a-z0-9-]")
+	// ErrBindLoopback reports a RURALZ_BIND_LOOPBACK other than true or
+	// false.
+	ErrBindLoopback = errors.New("must be true or false")
 	// ErrMACKeyFile reports a MAC key file that is not a readable regular
 	// file.
 	ErrMACKeyFile = errors.New("MAC key file is not a readable regular file")
@@ -273,6 +283,11 @@ type Settings struct {
 	// spec.stateStore.cache.zones, to label the call's duration same,
 	// cross or unknown.
 	Zone string
+	// BindLoopback is RURALZ_BIND_LOOPBACK=true: every client listener
+	// and the admin port bind 127.0.0.1 and, where the host has IPv6, ::1,
+	// one socket per address, instead of every interface
+	// (docs/architecture/03-data-plane.md "Listeners and protocols").
+	BindLoopback bool
 	// EnrollmentTokenFile is RURALZ_ENROLLMENT_TOKEN_FILE (M2, unused);
 	// kept for the secret root rule.
 	EnrollmentTokenFile string
@@ -349,6 +364,9 @@ func Load(args []string, lookupEnv func(string) (string, bool)) (Settings, error
 	}
 	if v := get(EnvZone); v != "" {
 		s.Zone = l.zone(v)
+	}
+	if v := get(EnvBindLoopback); v != "" {
+		s.BindLoopback = l.bindLoopback(v)
 	}
 	s.AdminTokenFile = l.absolute(EnvAdminTokenFile, get(EnvAdminTokenFile))
 	s.AdminMetricsTokenFile = l.absolute(EnvAdminMetricsTokenFile, get(EnvAdminMetricsTokenFile))
@@ -502,6 +520,19 @@ func (l *loader) zone(v string) string {
 		return ""
 	}
 	return v
+}
+
+// bindLoopback parses RURALZ_BIND_LOOPBACK: true or false as pack section
+// 2 spells them; any other value, another case included, refuses start.
+func (l *loader) bindLoopback(v string) bool {
+	switch v {
+	case "true":
+		return true
+	case "false":
+		return false
+	}
+	l.fail(EnvBindLoopback, fmt.Errorf("%w, got %q", ErrBindLoopback, echo(v)))
+	return false
 }
 
 // envProxyEntry opts Bundle fetches into the proxy variables.

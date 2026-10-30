@@ -89,6 +89,14 @@ type Config struct {
 	// Clock drives grace, ending and overdue timers and the deadlines of
 	// the ending protocol; nil selects clock.Real().
 	Clock clock.Clock
+	// Wall dates the write deadline the ending protocol gives an
+	// uncommitted request, a socket deadline the Go runtime enforces on
+	// real time, so it must track wall time in every build: the wiring
+	// passes clock.Real(), also in the controllable-clock ruralzd build,
+	// whose Clock moves only on the harness's commands
+	// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
+	// scope"). nil selects Clock.
+	Wall clock.Clock
 	// Logger receives transition logs; it comes from internal/telemetry.
 	// nil discards them.
 	Logger *slog.Logger
@@ -159,6 +167,7 @@ type Holder struct {
 
 	newStripe   func() emit.Stripe
 	clock       clock.Clock
+	wall        clock.Clock // dates the ending protocol's write deadline
 	log         *slog.Logger
 	k           int
 	grace       time.Duration
@@ -193,6 +202,7 @@ func New(cfg Config) *Holder {
 		stripes:     cfg.Stripes,
 		newStripe:   cfg.NewStripe,
 		clock:       cfg.Clock,
+		wall:        cfg.Wall,
 		log:         cfg.Logger,
 		k:           cfg.K,
 		grace:       cfg.Grace,
@@ -211,6 +221,9 @@ func New(cfg Config) *Holder {
 	h.stripes = min(h.stripes, 255)
 	if h.clock == nil {
 		h.clock = clock.Real()
+	}
+	if h.wall == nil {
+		h.wall = h.clock
 	}
 	if h.log == nil {
 		h.log = slog.New(slog.DiscardHandler)

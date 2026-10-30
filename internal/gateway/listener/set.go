@@ -11,9 +11,11 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"slices"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clientaddr"
@@ -77,9 +79,12 @@ type Options struct {
 	// Status, when set, receives the number of http listeners, the
 	// cleartext client hops (ruralz_security_cleartext_hops{hop="client"}).
 	Status emit.NodeStatus
-	// Host is the host listeners bind: empty for every interface, as
-	// ruralzd binds; an IP literal otherwise (tests use loopback).
-	Host string
+	// Hosts are the hosts every listener binds, one socket per host on the
+	// listener's port, each an IP literal: none binds every interface with
+	// one socket, as ruralzd binds by default, and RURALZ_BIND_LOOPBACK
+	// passes LoopbackHosts (docs/architecture/03-data-plane.md "Listeners
+	// and protocols"). Tests bind loopback.
+	Hosts []string
 	// Steer is set in the process holding the data-directory lock: each
 	// port's reuseport group is pinned to the socket serving it after every
 	// bind, and each port the Set does not serve yet is first probe-bound
@@ -101,10 +106,14 @@ type Set struct {
 
 	wg sync.WaitGroup
 
+	// hosts are the hosts each listener binds, Options.Hosts or the one
+	// empty host of every interface.
+	hosts []string
+
 	mu        sync.Mutex
 	active    map[snapshot.ListenerKey]*endpoint
-	ports     map[int]*endpoint        // the endpoint serving each bound port
-	groups    map[int]*reuseport.Group // per bound port with a listening socket
+	ports     map[int]*endpoint             // the endpoint serving each bound port
+	groups    map[groupKey]*reuseport.Group // per bound host and port with a listening socket
 	lingering map[*endpoint]struct{}
 	// unlingered is closed, and cleared, once no socket lingers; nil until
 	// WaitLingers waits.
@@ -116,6 +125,17 @@ type Set struct {
 	closed     bool
 }
 
+// groupKey names one reuseport group of the Set: the sockets bound to one
+// host and port. The kernel groups sockets by address, so 127.0.0.1 and
+// ::1 on one port are two groups, each pinned and steered on its own.
+type groupKey struct {
+	host string
+	port int
+}
+
+// String returns the group's address.
+func (k groupKey) String() string { return net.JoinHostPort(k.host, strconv.Itoa(k.port)) }
+
 // New returns a Set serving no listener.
 func New(o Options) (*Set, error) {
 	switch {
@@ -123,6 +143,10 @@ func New(o Options) (*Set, error) {
 		return nil, fmt.Errorf("%w: Handler is required", ErrOptions)
 	case o.Conns == nil:
 		return nil, fmt.Errorf("%w: Conns is required", ErrOptions)
+	}
+	hosts, err := checkHosts(o.Hosts)
+	if err != nil {
+		return nil, err
 	}
 	if o.Clock == nil {
 		o.Clock = clock.Real()
@@ -141,13 +165,35 @@ func New(o Options) (*Set, error) {
 		log:       log,
 		errLog:    slog.New(errH),
 		errH:      errH,
+		hosts:     hosts,
 		active:    make(map[snapshot.ListenerKey]*endpoint),
 		ports:     make(map[int]*endpoint),
-		groups:    make(map[int]*reuseport.Group),
+		groups:    make(map[groupKey]*reuseport.Group),
 		lingering: make(map[*endpoint]struct{}),
 		servers:   make(map[*server]struct{}),
 		steer:     o.Steer,
 	}, nil
+}
+
+// checkHosts returns the hosts a Set or the admin port binds: hosts, each
+// an IP literal named once, or the one empty host of every interface when
+// there are none.
+func checkHosts(hosts []string) ([]string, error) {
+	if len(hosts) == 0 {
+		return []string{""}, nil
+	}
+	seen := make(map[netip.Addr]bool, len(hosts))
+	for _, h := range hosts {
+		a, err := netip.ParseAddr(h)
+		if err != nil || a.Zone() != "" {
+			return nil, fmt.Errorf("%w: host %q is not an IP literal without a zone", ErrOptions, h)
+		}
+		if seen[a] {
+			return nil, fmt.Errorf("%w: host %q is named twice", ErrOptions, h)
+		}
+		seen[a] = true
+	}
+	return slices.Clone(hosts), nil
 }
 
 // stripe returns the stripe of a new connection.
@@ -177,8 +223,9 @@ type update struct {
 // Prepare readies the listeners of next before the snapshot swap: an
 // endpoint whose listener identity is unchanged is kept (with a new TLS
 // state when its TLS settings changed); every other listener binds a new
-// socket on its port, on every interface or Options.Host, after a probe
-// bind when the Set steers and does not serve the port yet. Two listeners
+// socket on its port for each of Options.Hosts, or one on every
+// interface, each after a probe bind when the Set steers and does not
+// serve that host and port yet. Two listeners
 // on one port, a listener on the admin port, a port another process
 // listens on and a port that cannot be bound are RZ-CFG-039; a TLS state
 // that cannot be built carries its tlsconf code (RZ-CFG-026 for
@@ -253,14 +300,21 @@ func checkPorts(next *snapshot.Snapshot) error {
 	return nil
 }
 
-// newEndpoint builds the endpoint of l: its TLS state on https, then its
-// socket, bound without listening where the platform can (Linux), else
-// listening. In the lock holder (steer) a port with none of the Set's
-// sockets is first probe-bound without SO_REUSEPORT, so a port another
-// process listens on, such as a ruralzd with another RURALZ_DATA_DIR,
-// refuses the Revision instead of joining that process's reuseport group
-// (docs/architecture/03-data-plane.md "Listeners and protocols"); port 0,
-// a free port, needs no probe. The caller holds s.mu.
+// freePortAttempts bounds the binds of a listener on port 0, a free port:
+// the kernel picks a port free on the first host, which a later host may
+// find taken, and the listener then binds again on another free port.
+const freePortAttempts = 8
+
+// newEndpoint builds the endpoint of l: its TLS state on https, then one
+// socket per host of the Set, each bound without listening where the
+// platform can (Linux), else listening. In the lock holder (steer) a host
+// and port with none of the Set's sockets is first probe-bound without
+// SO_REUSEPORT, so a port another process listens on, such as a ruralzd
+// with another RURALZ_DATA_DIR, refuses the Revision instead of joining
+// that process's reuseport group (docs/architecture/03-data-plane.md
+// "Listeners and protocols"); port 0 needs no probe on its first host,
+// which binds a free port that every later host then binds. The caller
+// holds s.mu.
 func (s *Set) newEndpoint(ctx context.Context, l *snapshot.Listener, secrets secret.Store) (*endpoint, error) {
 	ep := &endpoint{s: s, key: l.Key(), stopped: make(chan struct{}), unlinger: make(chan struct{})}
 	ep.metrics.Store(metricsOf(l))
@@ -277,33 +331,65 @@ func (s *Set) newEndpoint(ctx context.Context, l *snapshot.Listener, secrets sec
 	default:
 		return nil, errcode.Errorf(codeSchema, "listener %q: protocol %q is not http or https", l.Name, l.Protocol)
 	}
-	addr := net.JoinHostPort(s.opts.Host, strconv.Itoa(l.Port))
-	if s.steer && l.Port != 0 && s.groups[l.Port] == nil {
-		if err := reuseport.Probe(ctx, addr); err != nil {
+	for attempt := 1; ; attempt++ {
+		err := s.bindLocked(ctx, ep, l.Port)
+		if err == nil {
+			return ep, nil
+		}
+		ep.closeSockets()
+		retry := l.Port == 0 && len(s.hosts) > 1 && attempt < freePortAttempts && errors.Is(err, syscall.EADDRINUSE)
+		if !retry {
 			ep.discard()
 			if cerr := ctx.Err(); cerr != nil {
 				return nil, cerr
 			}
-			return nil, errcode.Wrap(codeBind, fmt.Errorf("listener %q: probe bind: %w", l.Name, err))
+			return nil, errcode.Wrap(codeBind, fmt.Errorf("listener %q: %w", l.Name, err))
 		}
 	}
-	sock, err := reuseport.Bind(ctx, addr)
-	if errors.Is(err, errors.ErrUnsupported) {
-		var tcp *net.TCPListener
-		if tcp, err = reuseport.Listen(ctx, addr); err == nil {
-			ep.tcp, ep.local = tcp, tcp.Addr()
+}
+
+// bindLocked binds ep's sockets on port, one per host of the Set, each
+// after its probe bind in the lock holder; on port 0 every host after the
+// first binds the port the first one got. On error the sockets bound so
+// far stay in ep.socks for the caller to close.
+func (s *Set) bindLocked(ctx context.Context, ep *endpoint, port int) error {
+	ep.socks = make([]*socket, 0, len(s.hosts))
+	for _, host := range s.hosts {
+		addr := net.JoinHostPort(host, strconv.Itoa(port))
+		if s.steer && port != 0 && s.groups[groupKey{host: host, port: port}] == nil {
+			if err := reuseport.Probe(ctx, addr); err != nil {
+				return fmt.Errorf("probe bind: %w", err)
+			}
 		}
-	} else if err == nil {
-		ep.sock, ep.local = sock, sock.Addr()
-	}
-	if err != nil {
-		ep.discard()
-		if cerr := ctx.Err(); cerr != nil {
-			return nil, cerr
+		sk := &socket{ep: ep, host: host}
+		sock, err := reuseport.Bind(ctx, addr)
+		if errors.Is(err, errors.ErrUnsupported) {
+			var tcp *net.TCPListener
+			if tcp, err = reuseport.Listen(ctx, addr); err == nil {
+				sk.tcp, sk.local = tcp, tcp.Addr()
+			}
+		} else if err == nil {
+			sk.sock, sk.local = sock, sock.Addr()
 		}
-		return nil, errcode.Wrap(codeBind, fmt.Errorf("listener %q: %w", l.Name, err))
+		if err != nil {
+			return err
+		}
+		ep.socks = append(ep.socks, sk)
+		if port == 0 {
+			port = portOfAddr(sk.local)
+		}
 	}
-	return ep, nil
+	ep.bound = port
+	return nil
+}
+
+// portOfAddr returns the port of a bound TCP address, 0 for another
+// address.
+func portOfAddr(a net.Addr) int {
+	if t, ok := a.(*net.TCPAddr); ok {
+		return t.Port
+	}
+	return 0
 }
 
 // Commit applies the plan right after the snapshot swap: new sockets
@@ -373,44 +459,59 @@ func (p *Plan) release() {
 	}
 }
 
-// startLocked makes ep listen and serve: the ceiling and PROXY v2 wrappers,
-// its first group of Server shards, its dispatching accept loop, and its
-// place in the port's reuseport group.
+// startLocked makes ep listen and serve: every socket listens, takes the
+// ceiling and PROXY v2 wrappers and its place in its reuseport group; then
+// ep's first group of Server shards and one dispatching accept loop per
+// socket start. A socket that cannot listen closes every socket of ep.
 func (s *Set) startLocked(ep *endpoint) error {
-	if ep.tcp == nil {
-		tcp, err := ep.sock.Listen()
+	for _, sk := range ep.socks {
+		if sk.tcp != nil {
+			continue
+		}
+		tcp, err := sk.sock.Listen()
 		if err != nil {
 			ep.discard()
 			s.log.Error("listener cannot listen", catalog.KeyListener, ep.key.Name, catalog.KeyError, err.Error())
 			return fmt.Errorf("listener %q: %w", ep.key.Name, err)
 		}
-		ep.tcp, ep.sock = tcp, nil
+		sk.tcp, sk.sock = tcp, nil
 	}
-	ep.acc = s.opts.Conns.Wrap(ep.tcp)
-	if ep.key.ProxyProtocol {
-		pl, err := clientaddr.NewListener(ep.acc, clientaddr.ListenerOptions{Clock: s.clk})
-		if err != nil {
-			_ = ep.acc.Close()
-			ep.discard()
-			return fmt.Errorf("listener %q: %w", ep.key.Name, err)
+	for i, sk := range ep.socks {
+		acc := s.opts.Conns.Wrap(sk.tcp)
+		if ep.key.ProxyProtocol {
+			pl, err := clientaddr.NewListener(acc, clientaddr.ListenerOptions{Clock: s.clk})
+			if err != nil {
+				for _, done := range ep.socks[:i] {
+					_ = done.acc.Close()
+				}
+				_ = acc.Close()
+				ep.discard()
+				return fmt.Errorf("listener %q: %w", ep.key.Name, err)
+			}
+			acc = pl
 		}
-		ep.acc = pl
+		sk.acc = acc
 	}
 	s.active[ep.key] = ep
 	port := ep.port()
 	s.ports[port] = ep
-	g := s.groups[port]
-	if g == nil {
-		g = new(reuseport.Group)
-		s.groups[port] = g
+	for _, sk := range ep.socks {
+		key := sk.groupKey()
+		g := s.groups[key]
+		if g == nil {
+			g = new(reuseport.Group)
+			s.groups[key] = g
+		}
+		g.Add(sk.tcp)
 	}
-	g.Add(ep.tcp)
 	if s.steer {
 		s.pinLocked(port)
 	}
 	ep.group.Store(s.newGroupLocked(ep))
-	s.wg.Add(1)
-	go ep.acceptLoop()
+	for _, sk := range ep.socks {
+		s.wg.Add(1)
+		go sk.acceptLoop()
+	}
 	s.log.Info("listener serving", catalog.KeyListener, ep.key.Name)
 	return nil
 }
@@ -456,9 +557,9 @@ func (s *Set) lingerLocked(ep *endpoint) {
 	}()
 }
 
-// stopLocked closes ep's socket once, which closes its dispatching
-// listener, updates its port's reuseport group (pinning the group to the
-// socket now serving the port) and, with shutdown, shuts its current
+// stopLocked closes ep's sockets once, which closes their dispatching
+// listeners, updates their reuseport groups (pinning each group to the
+// socket now serving its port) and, with shutdown, shuts ep's current
 // Server shards down under ctx so their connections finish.
 func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 	ep.stopOnce.Do(func() {
@@ -467,20 +568,27 @@ func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 			close(s.unlingered)
 			s.unlingered = nil
 		}
-		if ep.acc != nil {
-			_ = ep.acc.Close()
-		}
 		port := ep.port()
-		if g := s.groups[port]; g != nil && ep.tcp != nil {
-			g.Remove(ep.tcp)
-			if g.Len() == 0 {
-				delete(s.groups, port)
-			} else if s.steer {
-				s.pinLocked(port)
+		repin := false
+		for _, sk := range ep.socks {
+			if sk.acc != nil {
+				_ = sk.acc.Close()
+			}
+			key := sk.groupKey()
+			if g := s.groups[key]; g != nil && sk.tcp != nil {
+				g.Remove(sk.tcp)
+				if g.Len() == 0 {
+					delete(s.groups, key)
+				} else {
+					repin = true
+				}
 			}
 		}
 		if s.ports[port] == ep {
 			delete(s.ports, port)
+		}
+		if repin && s.steer {
+			s.pinLocked(port)
 		}
 		if st := ep.tls.Load(); st != nil {
 			st.close()
@@ -495,14 +603,21 @@ func (s *Set) stopLocked(ctx context.Context, ep *endpoint, shutdown bool) {
 	}
 }
 
-// pinLocked steers port's group to the socket serving the port.
+// pinLocked steers each of port's groups, one per host, to the socket of
+// the endpoint serving the port.
 func (s *Set) pinLocked(port int) {
-	ep, g := s.ports[port], s.groups[port]
-	if ep == nil || g == nil || ep.tcp == nil {
+	ep := s.ports[port]
+	if ep == nil {
 		return
 	}
-	if err := g.Pin(ep.tcp); err != nil && !errors.Is(err, errors.ErrUnsupported) {
-		s.log.Warn("listener steering failed", catalog.KeyListener, ep.key.Name, catalog.KeyError, err.Error())
+	for _, sk := range ep.socks {
+		g := s.groups[sk.groupKey()]
+		if g == nil || sk.tcp == nil {
+			continue
+		}
+		if err := g.Pin(sk.tcp); err != nil && !errors.Is(err, errors.ErrUnsupported) {
+			s.log.Warn("listener steering failed", catalog.KeyListener, ep.key.Name, catalog.KeyError, err.Error())
+		}
 	}
 }
 
@@ -598,14 +713,27 @@ func (s *Set) reportHopsLocked() {
 	s.opts.Status.SetCleartextHops(catalog.HopClient, n)
 }
 
-// Addr returns the bound address of the serving listener named name, or
-// nil.
+// Addr returns the bound address of the serving listener named name, the
+// socket of its first host, or nil.
 func (s *Set) Addr(name string) net.Addr {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for key, ep := range s.active {
 		if key.Name == name {
-			return ep.local
+			return ep.addr()
+		}
+	}
+	return nil
+}
+
+// Addrs returns the bound addresses of the serving listener named name,
+// one per host in Options.Hosts order, or nil.
+func (s *Set) Addrs(name string) []net.Addr {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for key, ep := range s.active {
+		if key.Name == name {
+			return ep.addrs()
 		}
 	}
 	return nil
@@ -623,9 +751,11 @@ func (s *Set) Pin() error {
 	defer s.mu.Unlock()
 	s.steer = true
 	var errs []error
-	for port, ep := range s.ports {
-		if err := s.groups[port].Pin(ep.tcp); err != nil {
-			errs = append(errs, fmt.Errorf("listener %q: %w", ep.key.Name, err))
+	for _, ep := range s.ports {
+		for _, sk := range ep.socks {
+			if err := s.groups[sk.groupKey()].Pin(sk.tcp); err != nil {
+				errs = append(errs, fmt.Errorf("listener %q: %w", ep.key.Name, err))
+			}
 		}
 	}
 	return errors.Join(errs...)
@@ -668,9 +798,9 @@ func (s *Set) SteerToSuccessor() error {
 	defer s.mu.Unlock()
 	s.steer = false
 	var errs []error
-	for port, g := range s.groups {
+	for key, g := range s.groups {
 		if err := g.SteerTo(g.Len()); err != nil {
-			errs = append(errs, fmt.Errorf("port %d: %w", port, err))
+			errs = append(errs, fmt.Errorf("%s: %w", key, err))
 		}
 	}
 	return errors.Join(errs...)

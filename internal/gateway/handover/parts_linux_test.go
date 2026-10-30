@@ -198,7 +198,7 @@ func newPartsNode(t *testing.T, clk *clocktest.Fake, ev *events, tag string, ste
 	t.Helper()
 	ctx := t.Context()
 	n := &partsNode{conns: admission.NewConnLimiter(admission.DefaultConnections), lock: NewLock(), done: make(chan int, 1)}
-	set, err := listener.New(listener.Options{Handler: tagHandler(tag), Conns: n.conns, Clock: clk, Host: "127.0.0.1", Steer: steer})
+	set, err := listener.New(listener.Options{Handler: tagHandler(tag), Conns: n.conns, Clock: clk, Hosts: []string{"127.0.0.1"}, Steer: steer})
 	if err != nil {
 		t.Fatal(err)
 	}

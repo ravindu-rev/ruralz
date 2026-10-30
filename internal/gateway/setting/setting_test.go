@@ -111,6 +111,7 @@ func TestLoadValid(t *testing.T) {
 		EnvStateStoreMACKeyFile, f.key,
 		EnvStateStoreURL, "redis://user:pw@127.0.0.1:6379",
 		EnvZone, "eu-west-1a",
+		EnvBindLoopback, "true",
 	).lookup)
 	if err != nil {
 		t.Fatal(err)
@@ -127,6 +128,7 @@ func TestLoadValid(t *testing.T) {
 		AdminTLSDir:           filepath.Join(f.base, "admin", "tls"),
 		MACKeyFile:            f.key,
 		Zone:                  "eu-west-1a",
+		BindLoopback:          true,
 	}
 	key := s.MACKey
 	s.MACKey = MACKey{}
@@ -147,7 +149,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if s.Mode != ModeFile || s.Config != "/srv/bundle" || s.DataDir != DefaultDataDir ||
 		s.LogLevel != LogInfo || s.SecretRoot != DefaultSecretRoot || s.MACKey.IsSet() ||
-		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" || s.Zone != "" {
+		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" || s.Zone != "" || s.BindLoopback {
 		t.Fatalf("Load = %+v", s)
 	}
 	if DefaultDataDir != nodedir.DefaultRoot {
@@ -334,6 +336,17 @@ func TestLoadExit2(t *testing.T) {
 		{name: "zone trailing newline", env: good.with(EnvZone, "lab-a\n"), setting: EnvZone, want: ErrZone},
 		{name: "zone non-ASCII", env: good.with(EnvZone, "zoné"), setting: EnvZone, want: ErrZone},
 		{name: "zone long echo bounded", env: good.with(EnvZone, strings.Repeat("Z", 200)), setting: EnvZone, want: ErrZone, msg: `..."`},
+		// RURALZ_BIND_LOOPBACK: true or false; any other value refuses
+		// start.
+		{name: "bind loopback true", env: good.with(EnvBindLoopback, "true"), want: nil},
+		{name: "bind loopback false", env: good.with(EnvBindLoopback, "false"), want: nil},
+		{name: "bind loopback empty is unset", env: good.with(EnvBindLoopback, ""), want: nil},
+		{name: "bind loopback 1", env: good.with(EnvBindLoopback, "1"), setting: EnvBindLoopback, want: ErrBindLoopback, msg: `true or false, got "1"`},
+		{name: "bind loopback uppercase", env: good.with(EnvBindLoopback, "TRUE"), setting: EnvBindLoopback, want: ErrBindLoopback},
+		{name: "bind loopback capitalized", env: good.with(EnvBindLoopback, "False"), setting: EnvBindLoopback, want: ErrBindLoopback},
+		{name: "bind loopback yes", env: good.with(EnvBindLoopback, "yes"), setting: EnvBindLoopback, want: ErrBindLoopback},
+		{name: "bind loopback padded", env: good.with(EnvBindLoopback, " true"), setting: EnvBindLoopback, want: ErrBindLoopback},
+		{name: "bind loopback long echo bounded", env: good.with(EnvBindLoopback, strings.Repeat("t", 200)), setting: EnvBindLoopback, want: ErrBindLoopback, msg: `..."`},
 		// M2 settings only warn.
 		{name: "M2 settings set", env: good.with(EnvTrustPolicyFile, "p", EnvEnrollmentTokenFile, "/run/enroll", EnvRegistryAuthFile, "a"), want: nil},
 	}
@@ -474,6 +487,7 @@ func TestLoadReportsEverySetting(t *testing.T) {
 		EnvStateStoreMACKeyFile: "rel",
 		EnvAdminTLSDir:          "tls",
 		EnvZone:                 "Zone A",
+		EnvBindLoopback:         "on",
 	}.lookup)
 	var got []string
 	for _, e := range err.(interface{ Unwrap() []error }).Unwrap() {
@@ -483,7 +497,7 @@ func TestLoadReportsEverySetting(t *testing.T) {
 		}
 		got = append(got, se.Setting)
 	}
-	want := []string{EnvConfig, EnvLogLevel, EnvFetchAllow, EnvZone, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvDataDir}
+	want := []string{EnvConfig, EnvLogLevel, EnvFetchAllow, EnvZone, EnvBindLoopback, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvDataDir}
 	if !slices.Equal(got, want) {
 		t.Fatalf("settings reported %v, want %v", got, want)
 	}
@@ -596,7 +610,8 @@ func TestExitCode(t *testing.T) {
 	if (&Error{Err: ErrUsage}).Error() != ErrUsage.Error() {
 		t.Error("usage error text")
 	}
-	if !strings.HasPrefix(Usage, "usage: ruralzd\n") || !strings.Contains(Usage, EnvStateStoreMACKeyFile) || !strings.Contains(Usage, EnvZone) {
+	if !strings.HasPrefix(Usage, "usage: ruralzd\n") || !strings.Contains(Usage, EnvStateStoreMACKeyFile) || !strings.Contains(Usage, EnvZone) ||
+		!strings.Contains(Usage, EnvBindLoopback) {
 		t.Error("Usage text")
 	}
 }
@@ -620,14 +635,15 @@ func TestLoadOSEnvironment(t *testing.T) {
 	for _, name := range []string{
 		EnvConfig, EnvDataDir, EnvLogLevel, EnvSecretRoot, EnvFetchAllow,
 		EnvAdminTokenFile, EnvAdminMetricsTokenFile, EnvAdminTLSDir, EnvStateStoreMACKeyFile, EnvZone,
-		EnvTrustPolicyFile, EnvEnrollmentTokenFile, EnvRegistryAuthFile,
+		EnvBindLoopback, EnvTrustPolicyFile, EnvEnrollmentTokenFile, EnvRegistryAuthFile,
 	} {
 		t.Setenv(name, "")
 	}
 	t.Setenv(EnvConfig, "/srv/os-bundle")
 	t.Setenv(EnvZone, "lab-a")
+	t.Setenv(EnvBindLoopback, "true")
 	s, err := Load(nil, nil)
-	if err != nil || s.Config != "/srv/os-bundle" || s.Zone != "lab-a" {
+	if err != nil || s.Config != "/srv/os-bundle" || s.Zone != "lab-a" || !s.BindLoopback {
 		t.Fatalf("Load = %+v, %v", s, err)
 	}
 }

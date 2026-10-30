@@ -30,7 +30,7 @@ func TestPrepareBindsBeforeTheSwap(t *testing.T) {
 	if len(p.added) != 1 || p.added[0].key.Name != "b" {
 		t.Fatalf("added = %v, want b", p.added)
 	}
-	addr := p.added[0].local.String()
+	addr := p.added[0].addr().String()
 	if h.set.Addr("b") != nil {
 		t.Fatal("b serves before Commit")
 	}
@@ -132,17 +132,19 @@ func TestAbortReleasesWhatPrepareBuilt(t *testing.T) {
 	if p.secrets.watches.Load() == 0 {
 		t.Fatal("the https listener's TLS state watches nothing")
 	}
+	socks := plan.added[0].socks
 	plan.Abort()
 	if n := p.secrets.watches.Load(); n != 0 {
 		t.Errorf("%d secret watches left after Abort", n)
 	}
-	ep := plan.added[0]
-	if ep.sock != nil {
-		if _, err := ep.sock.Listen(); !errors.Is(err, net.ErrClosed) {
-			t.Errorf("Listen on the aborted socket = %v, want net.ErrClosed", err)
+	for _, sk := range socks {
+		if sk.sock != nil {
+			if _, err := sk.sock.Listen(); !errors.Is(err, net.ErrClosed) {
+				t.Errorf("Listen on the aborted socket = %v, want net.ErrClosed", err)
+			}
+		} else if _, err := sk.tcp.Accept(); err == nil {
+			t.Error("the aborted socket still accepts")
 		}
-	} else if _, err := ep.tcp.Accept(); err == nil {
-		t.Error("the aborted socket still accepts")
 	}
 	if err := plan.Commit(); !errors.Is(err, ErrPlanDone) {
 		t.Errorf("Commit after Abort = %v, want ErrPlanDone", err)

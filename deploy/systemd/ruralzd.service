@@ -61,6 +61,10 @@ KillMode=control-group
 KillSignal=SIGTERM
 # A crash or SIGKILL restarts the Node, which boots Last-Known-Good.
 Restart=on-failure
+# File descriptors above the client and admin connection ceilings, 20,256,
+# plus the Upstream connections and a 1,024 reserve (target); ruralzd warns
+# at start and at each activation when its limit is lower.
+LimitNOFILE=65536
 
 # Hardening. ruralzd writes only under RURALZ_DATA_DIR and binds listener
 # ports, below 1024 too.

@@ -11,6 +11,7 @@ import (
 	"net"
 	"strconv"
 	"sync"
+	"syscall"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/gateway/reuseport"
@@ -102,6 +103,56 @@ func BindAdminPort(ctx context.Context, o AdminPortOptions) (*AdminPort, error) 
 		}
 	}
 	return p, nil
+}
+
+// BindAdminPorts binds the admin port once per host, all on o.Port, with
+// BindAdminPort and o's other options: none binds every interface with
+// one socket, and RURALZ_BIND_LOOPBACK passes LoopbackHosts, so the admin
+// listener binds 127.0.0.1 and, where the host has IPv6, ::1, one socket
+// per address, as every client listener does
+// (docs/architecture/03-data-plane.md "Listeners and protocols"). On port
+// 0 every host after the first binds the port the first one got, binding
+// again on another free port when a later host finds it taken. Each
+// AdminPort keeps its own reuseport group, since the kernel groups sockets
+// by address: the handover pins and steers each. On error none stays
+// bound.
+func BindAdminPorts(ctx context.Context, hosts []string, o AdminPortOptions) ([]*AdminPort, error) {
+	hosts, err := checkHosts(hosts)
+	if err != nil {
+		return nil, err
+	}
+	for attempt := 1; ; attempt++ {
+		ports, err := bindAdminHosts(ctx, hosts, o)
+		if err == nil {
+			return ports, nil
+		}
+		retry := o.Port == 0 && len(hosts) > 1 && attempt < freePortAttempts && errors.Is(err, syscall.EADDRINUSE) && ctx.Err() == nil
+		if !retry {
+			return nil, err
+		}
+	}
+}
+
+// bindAdminHosts binds one AdminPort per host on o.Port, or on port 0 the
+// port the first host got; on error it closes those it bound.
+func bindAdminHosts(ctx context.Context, hosts []string, o AdminPortOptions) ([]*AdminPort, error) {
+	out := make([]*AdminPort, 0, len(hosts))
+	for _, host := range hosts {
+		ho := o
+		ho.Host = host
+		p, err := BindAdminPort(ctx, ho)
+		if err != nil {
+			for _, q := range out {
+				q.StopAccepting()
+			}
+			return nil, err
+		}
+		out = append(out, p)
+		if o.Port == 0 {
+			o.Port = portOfAddr(p.Addr())
+		}
+	}
+	return out, nil
 }
 
 // bindError returns ctx's error when ctx ended, else err as RZ-CFG-039.

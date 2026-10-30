@@ -74,6 +74,29 @@ func TestUncommittedDeadlines(t *testing.T) {
 	}
 }
 
+// TestUncommittedDeadlineOnWallClock: the write deadline of an uncommitted
+// ended request is dated on Config.Wall, the real clock a socket deadline
+// runs on, while grace runs on Config.Clock: in the controllable-clock
+// build Clock lags or leads real time, and a deadline dated on it would
+// fall in the past and keep the handler from writing its 503.
+func TestUncommittedDeadlineOnWallClock(t *testing.T) {
+	wall := clocktest.New(epoch().Add(time.Hour))
+	x := newHarness(t, Config{K: 1, Wall: wall}, true)
+	x.publish(newSnap("a", nil))
+	w := &deadlineWriter{}
+	var cancels atomic.Int32
+	rec := &snapshot.PinnedRequest{Cancel: func() { cancels.Add(1) }, RC: http.NewResponseController(w)}
+	s := x.h.Pin(0, rec)
+	cleanup := toEnding(t, x)
+	defer cleanup()
+	waitFor(t, "cancel", func() bool { return cancels.Load() == 1 })
+	_, write := w.deadlines()
+	if want := wall.Now().Add(DefaultWriteSlack); len(write) != 1 || !write[0].Equal(want) {
+		t.Fatalf("write deadlines = %v, want the wall clock plus 5 s (%v), not the Holder clock's %v", write, want, x.clock.Now().Add(DefaultWriteSlack))
+	}
+	x.h.Unpin(s, 0, rec)
+}
+
 // TestCommittedDeadlines: after commit both deadlines move to the
 // past (stream reset or connection closed).
 func TestCommittedDeadlines(t *testing.T) {

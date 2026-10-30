@@ -35,23 +35,26 @@ func nextAcceptRetry(prev time.Duration) time.Duration {
 	return min(max(2*prev, acceptRetryMin), acceptRetryMax)
 }
 
-// endpoint is one listening socket of a listener identity
-// (snapshot.ListenerKey) and its dispatching listener: one accept loop
-// that hands each connection round-robin to the channel-fed listeners of
-// the Shards servers it feeds (docs/architecture/03-data-plane.md
-// "Sources, Last-Known-Good and Drain"). It feeds one group of shards at a
-// time, a new group after a change of the client-certificate request mode.
+// endpoint is the listening sockets of a listener identity
+// (snapshot.ListenerKey), one per host the Set binds and all on one port,
+// and their dispatching listeners: each socket's accept loop hands each
+// connection round-robin to the channel-fed listeners of the Shards
+// servers the endpoint feeds (docs/architecture/03-data-plane.md "Sources,
+// Last-Known-Good and Drain"), so a listener bound to 127.0.0.1 and ::1
+// under RURALZ_BIND_LOOPBACK serves both sockets through one group of
+// shards. It feeds one group of shards at a time, a new group after a
+// change of the client-certificate request mode.
 type endpoint struct {
 	s     *Set
 	key   snapshot.ListenerKey
 	https bool
 
-	// Set before the endpoint starts and fixed after; sock is the bound,
-	// not listening, socket of Linux until start.
-	sock  *reuseport.Socket
-	tcp   *net.TCPListener
-	acc   net.Listener // the ceiling and PROXY v2 wrappers over tcp
-	local net.Addr
+	// socks are the sockets, one per host of the Set in its order; set
+	// before the endpoint starts and fixed after.
+	socks []*socket
+	// bound is the port every socket holds: the listener's, or the one
+	// the kernel chose for port 0.
+	bound int
 
 	metrics atomic.Pointer[emit.ListenerMetrics] // the latest snapshot's
 	tls     atomic.Pointer[tlsState]             // https only
@@ -62,19 +65,43 @@ type endpoint struct {
 	next atomic.Uint64
 
 	stopOnce sync.Once
-	// stopped is closed once the socket closed.
+	// stopped is closed once the sockets closed.
 	stopped chan struct{}
 	// unlinger ends a linger early (StopAccepting, Shutdown, Close).
 	unlinger     chan struct{}
 	unlingerOnce sync.Once
 }
 
+// socket is one listening socket of an endpoint, on one host of the Set,
+// and its dispatching listener's accept loop.
+type socket struct {
+	ep   *endpoint
+	host string
+	// Set before the endpoint starts and fixed after; sock is the bound,
+	// not listening, socket of Linux until start.
+	sock  *reuseport.Socket
+	tcp   *net.TCPListener
+	acc   net.Listener // the ceiling and PROXY v2 wrappers over tcp
+	local net.Addr
+}
+
+// groupKey returns the key of the socket's reuseport group.
+func (sk *socket) groupKey() groupKey { return groupKey{host: sk.host, port: sk.ep.bound} }
+
 // port returns the bound port.
-func (ep *endpoint) port() int {
-	if a, ok := ep.local.(*net.TCPAddr); ok {
-		return a.Port
+func (ep *endpoint) port() int { return ep.bound }
+
+// addr returns the bound address of the endpoint's first socket, the one
+// Set.Addr reports.
+func (ep *endpoint) addr() net.Addr { return ep.socks[0].local }
+
+// addrs returns the bound addresses of every socket, in host order.
+func (ep *endpoint) addrs() []net.Addr {
+	out := make([]net.Addr, len(ep.socks))
+	for i, sk := range ep.socks {
+		out[i] = sk.local
 	}
-	return 0
+	return out
 }
 
 // handshakeState returns the TLS state a handshake reads now
@@ -91,21 +118,31 @@ func (ep *endpoint) endLinger() { ep.unlingerOnce.Do(func() { close(ep.unlinger)
 
 // discard releases an endpoint that never started.
 func (ep *endpoint) discard() {
-	if ep.sock != nil {
-		_ = ep.sock.Close()
-	}
-	if ep.tcp != nil {
-		_ = ep.tcp.Close()
-	}
+	ep.closeSockets()
 	if st := ep.tls.Load(); st != nil {
 		st.close()
 	}
 }
 
-// acceptLoop is the dispatching listener: it accepts connections until
-// the socket closes and hands each to a shard of the current group. Its
-// goroutine is counted in Set.wg.
-func (ep *endpoint) acceptLoop() {
+// closeSockets closes the sockets of an endpoint that never started and
+// forgets them.
+func (ep *endpoint) closeSockets() {
+	for _, sk := range ep.socks {
+		if sk.sock != nil {
+			_ = sk.sock.Close()
+		}
+		if sk.tcp != nil {
+			_ = sk.tcp.Close()
+		}
+	}
+	ep.socks = nil
+}
+
+// acceptLoop is the socket's dispatching listener: it accepts connections
+// until the socket closes and hands each to a shard of the endpoint's
+// current group. Its goroutine is counted in Set.wg.
+func (sk *socket) acceptLoop() {
+	ep := sk.ep
 	s := ep.s
 	defer s.wg.Done()
 	defer func() {
@@ -115,7 +152,7 @@ func (ep *endpoint) acceptLoop() {
 	}()
 	var delay time.Duration
 	for {
-		c, err := ep.acc.Accept()
+		c, err := sk.acc.Accept()
 		if err != nil {
 			if errors.Is(err, net.ErrClosed) {
 				return
@@ -132,7 +169,7 @@ func (ep *endpoint) acceptLoop() {
 	}
 }
 
-// wait sleeps d on the Set's clock; false means the socket closed first.
+// wait sleeps d on the Set's clock; false means the sockets closed first.
 func (ep *endpoint) wait(d time.Duration) bool {
 	t := ep.s.clk.NewTimer(d)
 	defer t.Stop()

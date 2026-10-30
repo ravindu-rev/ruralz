@@ -123,7 +123,7 @@ func newNode(t *testing.T, clk *clocktest.Fake, dir *nodedir.Dir, lock *nodedir.
 	n.holder = retire.New(retire.Config{Clock: clk, Stripes: 1})
 	n.set, err = listener.New(listener.Options{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "served") }),
-		Conns:   admission.NewConnLimiter(admission.DefaultConnections), Clock: clk, Host: "127.0.0.1", Steer: true,
+		Conns:   admission.NewConnLimiter(admission.DefaultConnections), Clock: clk, Hosts: []string{"127.0.0.1"}, Steer: true,
 	})
 	if err != nil {
 		t.Fatal(err)

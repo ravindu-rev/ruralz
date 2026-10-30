@@ -296,7 +296,7 @@ func newHarness(t *testing.T, mod ...func(*Options)) *harness {
 		handler: newTestHandler("set"),
 		status:  &fakeStatus{},
 	}
-	o := Options{Handler: h.handler, Conns: h.conns, Clock: h.clk, Host: "127.0.0.1", Status: h.status}
+	o := Options{Handler: h.handler, Conns: h.conns, Clock: h.clk, Hosts: []string{"127.0.0.1"}, Status: h.status}
 	for _, m := range mod {
 		m(&o)
 	}

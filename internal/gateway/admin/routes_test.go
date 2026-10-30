@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/adminauth"
+	"github.com/ravindu-rev/ruralz/internal/buildinfo"
 	"github.com/ravindu-rev/ruralz/internal/config/revision"
 	"github.com/ravindu-rev/ruralz/internal/problem"
 )
@@ -219,5 +220,56 @@ func TestProblemDocumentFormat(t *testing.T) {
 	want := string(problem.Append(nil, problem.New(CodeNotFound, testRequestID)))
 	if got := w.Body.String(); got != want {
 		t.Fatalf("body %s, want %s", got, want)
+	}
+}
+
+// TestVersionOnAuthenticatedResponses checks ruralz-version of
+// docs/architecture/03-data-plane.md "Admin endpoints": every response to
+// an authenticated request carries the Node's build version, the router's
+// 404 and 405 problem documents and the /tap stream included, under every
+// admitted credential; the open paths and refused requests carry none.
+func TestVersionOnAuthenticatedResponses(t *testing.T) {
+	const version = "1.4.2-test"
+	f := newFixture(t, func(c *Config) { c.Version = version })
+	for _, tc := range []struct {
+		name, method, path, token string
+		want                      string
+	}{
+		{name: "metrics with the metrics token", method: http.MethodGet, path: PathMetrics, token: metricsToken, want: version},
+		{name: "metrics with the operator token", method: http.MethodGet, path: PathMetrics, token: operatorToken, want: version},
+		{name: "config dump", method: http.MethodGet, path: PathConfigDump, token: operatorToken, want: version},
+		{name: "snapshots", method: http.MethodGet, path: PathSnapshots, token: operatorToken, want: version},
+		{name: "upstreams", method: http.MethodGet, path: PathUpstreams, token: operatorToken, want: version},
+		{name: "profile index", method: http.MethodGet, path: PathPprof, token: operatorToken, want: version},
+		{name: "unknown path 404", method: http.MethodGet, path: "/nope", token: operatorToken, want: version},
+		{name: "method 405", method: http.MethodPost, path: PathConfigDump, token: operatorToken, want: version},
+		{name: "healthz open", method: http.MethodGet, path: PathHealthz},
+		{name: "healthz with a token", method: http.MethodGet, path: PathHealthz, token: operatorToken},
+		{name: "readyz open", method: http.MethodGet, path: PathReadyz},
+		{name: "no credential 401", method: http.MethodGet, path: PathConfigDump},
+		{name: "invalid token 401", method: http.MethodGet, path: PathConfigDump, token: "wrong-canary-0123456789abcdef"},
+		{name: "metrics token off its path 401", method: http.MethodGet, path: PathConfigDump, token: metricsToken},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := f.do(t, tc.method, tc.path, tc.token)
+			got := w.Header().Values(HeaderVersion)
+			if tc.want == "" && len(got) != 0 || tc.want != "" && (len(got) != 1 || got[0] != tc.want) {
+				t.Errorf("%s %s: ruralz-version %q (status %d), want %q", tc.method, tc.path, got, w.Code, tc.want)
+			}
+		})
+	}
+
+	// The default is the binary's build version.
+	def := newFixture(t, nil)
+	if got := def.do(t, http.MethodGet, PathConfigDump, operatorToken).Header().Get("ruralz-version"); got != buildinfo.Get().Version {
+		t.Errorf("default ruralz-version %q, want the build version %q", got, buildinfo.Get().Version)
+	}
+
+	// A stream carries it in its header section.
+	base := serve(t, f.srv, "http")
+	resp := clientGet(t, http.DefaultClient, base+PathTap, operatorToken)
+	defer func() { _ = resp.Body.Close() }()
+	if got := resp.Header.Get("Ruralz-Version"); resp.StatusCode != http.StatusOK || got != version {
+		t.Errorf("/tap = %d with ruralz-version %q, want 200 with %q", resp.StatusCode, got, version)
 	}
 }

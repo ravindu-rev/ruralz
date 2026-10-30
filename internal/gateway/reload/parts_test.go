@@ -108,7 +108,7 @@ func adminCompiled(port int) Compiled {
 func newAdminSocket(t *testing.T, steer bool, fail func(error)) (*AdminSocket, *testServer) {
 	t.Helper()
 	srv := &testServer{}
-	a, err := NewAdminSocket(AdminSocketConfig{Server: srv, Host: "127.0.0.1", Steer: steer, Fail: fail})
+	a, err := NewAdminSocket(AdminSocketConfig{Server: srv, Hosts: []string{"127.0.0.1"}, Steer: steer, Fail: fail})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestAdminSocketBeforeBind(t *testing.T) {
 func TestListenerPart(t *testing.T) {
 	set, err := listener.New(listener.Options{
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, "client") }),
-		Conns:   admission.NewConnLimiter(admission.DefaultConnections), Host: "127.0.0.1", Steer: true,
+		Conns:   admission.NewConnLimiter(admission.DefaultConnections), Hosts: []string{"127.0.0.1"}, Steer: true,
 	})
 	if err != nil {
 		t.Fatal(err)

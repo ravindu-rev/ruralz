@@ -58,7 +58,7 @@ func TestCommitSteersPortToNewSocket(t *testing.T) {
 		t.Fatalf("after the Linger: %v, want all %d connections on the new socket", got, connections)
 	}
 	h.set.mu.Lock()
-	g := h.set.groups[portOf(t, addr)]
+	g := h.set.groups[groupKey{host: "127.0.0.1", port: portOf(t, addr)}]
 	h.set.mu.Unlock()
 	if g == nil || g.Len() != 1 {
 		t.Fatalf("group after the Linger = %v, want the new socket alone", g)
