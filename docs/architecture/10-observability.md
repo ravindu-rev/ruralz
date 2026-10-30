@@ -182,7 +182,7 @@ Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, 
 | `ruralz_ingress_paused_partitions` | Gauge | partitions | `route`, `protocol` | Paused by poison messages |
 | `ruralz_ingress_hold_expiries_total` | Counter | holds | `route`, `protocol` | Backpressure holds that ended so `AckWait` redelivers |
 | `ruralz_config_revision_info` | Gauge | info | `revision`, `role` | active, lkg |
-| `ruralz_config_activations_total` | Counter | activations | `result`, `code` | activated, rejected; a rejected file-mode load counts once with its first diagnostic's code, parse and schema stages included, and a load that renders the active digest counts nothing |
+| `ruralz_config_activations_total` | Counter | activations | `result`, `code` | activated, rejected; a rejected file-mode load counts once with its first error's code, parse and schema stages included, and a load that renders the active digest counts nothing |
 | `ruralz_config_activation_duration_seconds` | Histogram, control | seconds | `stage`, `size_class` | SLI of SLO-GW-6 |
 | `ruralz_config_retired_snapshots` | Gauge | snapshots | none | Pinned retired |
 | `ruralz_snapshot_retirement_ended_total` | Counter | requests | none | Ended by `RZ-RT-014` |

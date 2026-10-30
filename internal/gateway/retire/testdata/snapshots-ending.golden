@@ -34,5 +34,6 @@
     }
   ],
   "pending": null,
-  "lastKnownGood": null
+  "lastKnownGood": null,
+  "lastRejected": null
 }

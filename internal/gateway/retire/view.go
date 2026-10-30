@@ -14,7 +14,8 @@ import (
 // digest, pin count and times (RFC 3339 UTC; retiredAt once retired,
 // graceEndsAt once closing). pending and lastKnownGood are the digests
 // ("sha256:…") of the loader's pending Revision and the Last-Known-Good
-// pointer; "" encodes null.
+// pointer; "" encodes null. lastRejected stays null: the activation
+// loader, which rejects loads, sets it.
 func (h *Holder) View(pending, lastKnownGood string) adminapi.Snapshots {
 	h.mu.Lock()
 	defer h.mu.Unlock()

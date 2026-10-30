@@ -202,6 +202,7 @@ func (h *Holder) Close(ctx context.Context) error {
 	h.mu.Unlock()
 	for {
 		h.reconcile(ctx)
+		h.answerPings()
 		h.mu.Lock()
 		done := len(h.live) == 0 && h.tasks == 0
 		ch := h.changed

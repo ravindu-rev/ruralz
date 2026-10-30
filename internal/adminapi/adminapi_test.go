@@ -68,8 +68,17 @@ func TestGoldens(t *testing.T) {
 			},
 			Pending:       ptr("sha256:0e1f2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0"),
 			LastKnownGood: ptr("sha256:68f782530463d5c1f0e2b9a7c4d8e6f1a3b5c7d9e0f2a4b6c8d0e2f4a6b8c0d2"),
+			LastRejected: &Rejection{
+				Digest: ptr("sha256:9a8b7c6d5e4f30211203f4e5d6c7b8a99a8b7c6d5e4f30211203f4e5d6c7b8a9"),
+				Code:   "RZ-CFG-026", At: "2026-09-26T12:05:00Z",
+			},
 		}},
 		{"snapshots-no-pending.json", Snapshots{Snapshots: []SnapshotInfo{}}},
+		// A load that failed before it had a digest, such as a parse
+		// failure: lastRejected.digest is null.
+		{"snapshots-rejected-parse.json", Snapshots{Snapshots: []SnapshotInfo{}, LastRejected: &Rejection{
+			Code: "RZ-CFG-001", At: "2026-09-26T12:05:00.25Z",
+		}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.file, func(t *testing.T) {
@@ -122,7 +131,8 @@ func TestTapEventMemberOrder(t *testing.T) {
 }
 
 func TestSnapshotsPendingNull(t *testing.T) {
-	// pending and lastKnownGood are always present: a digest or null.
+	// pending, lastKnownGood and lastRejected are always present: a
+	// digest, or a rejection, or null.
 	b, err := json.Marshal(Snapshots{Snapshots: []SnapshotInfo{{State: StateEnding, Revision: "rev-a", Digest: "sha256:a", ActivatedAt: "t"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -131,11 +141,11 @@ func TestSnapshotsPendingNull(t *testing.T) {
 	if err := json.Unmarshal(b, &m); err != nil {
 		t.Fatal(err)
 	}
-	if string(m["pending"]) != "null" || string(m["lastKnownGood"]) != "null" {
-		t.Fatalf("pending %s, lastKnownGood %s; want null", m["pending"], m["lastKnownGood"])
+	if string(m["pending"]) != "null" || string(m["lastKnownGood"]) != "null" || string(m["lastRejected"]) != "null" {
+		t.Fatalf("pending %s, lastKnownGood %s, lastRejected %s; want null", m["pending"], m["lastKnownGood"], m["lastRejected"])
 	}
 	var s Snapshots
-	if err := json.Unmarshal(b, &s); err != nil || s.Pending != nil || s.LastKnownGood != nil {
+	if err := json.Unmarshal(b, &s); err != nil || s.Pending != nil || s.LastKnownGood != nil || s.LastRejected != nil {
 		t.Fatalf("decoded %+v, %v", s, err)
 	}
 	// A zero pins count is still written.
@@ -148,6 +158,18 @@ func TestSnapshotsPendingNull(t *testing.T) {
 	}
 	if _, ok := info["retiredAt"]; ok {
 		t.Fatal("empty retiredAt was written")
+	}
+}
+
+func TestRejectionMembers(t *testing.T) {
+	// lastRejected is {"digest","code","at"}, in that order; the digest is
+	// always present, null when the load failed before one.
+	b, err := json.Marshal(Rejection{Code: "RZ-CFG-005", At: "2026-09-26T12:00:00Z"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := `{"digest":null,"code":"RZ-CFG-005","at":"2026-09-26T12:00:00Z"}`; string(b) != want {
+		t.Fatalf("json.Marshal(Rejection) = %s, want %s", b, want)
 	}
 }
 

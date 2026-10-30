@@ -34,5 +34,6 @@
     }
   ],
   "pending": "sha256:0e1f2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0",
-  "lastKnownGood": "sha256:4b7ce0b8e9845ea42b17cb3f6ad629edb858be1dc5a2e3ac64b90f06bb7d2e62"
+  "lastKnownGood": "sha256:4b7ce0b8e9845ea42b17cb3f6ad629edb858be1dc5a2e3ac64b90f06bb7d2e62",
+  "lastRejected": null
 }

@@ -31,6 +31,7 @@ func (h *Holder) Run(ctx context.Context) error {
 	defer h.waitTasks()
 	for {
 		next := h.reconcile(ctx)
+		h.answerPings()
 		var (
 			t    clock.Timer
 			fire <-chan time.Time
@@ -51,6 +52,42 @@ func (h *Holder) Run(ctx context.Context) error {
 		if t != nil {
 			t.Stop()
 		}
+	}
+}
+
+// Ping returns nil once the retirer has made a pass after the call
+// began: Run, or Close at shutdown, applied every due transition. It is
+// the retirer's watchdog probe (sdnotify.Probe): a retirer stuck in a
+// pass, or not running, never answers, and Ping returns ctx's error when
+// ctx ends first.
+func (h *Holder) Ping(ctx context.Context) error {
+	ch := make(chan struct{})
+	h.pingMu.Lock()
+	if h.pings == nil {
+		h.pings = make(map[chan struct{}]struct{})
+	}
+	h.pings[ch] = struct{}{}
+	h.pingMu.Unlock()
+	h.wake()
+	select {
+	case <-ch:
+		return nil
+	case <-ctx.Done():
+		h.pingMu.Lock()
+		delete(h.pings, ch)
+		h.pingMu.Unlock()
+		return fmt.Errorf("retire: ping: %w", ctx.Err())
+	}
+}
+
+// answerPings answers every Ping waiting for this pass.
+func (h *Holder) answerPings() {
+	h.pingMu.Lock()
+	ps := h.pings
+	h.pings = nil
+	h.pingMu.Unlock()
+	for ch := range ps {
+		close(ch)
 	}
 }
 

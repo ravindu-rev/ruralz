@@ -3,7 +3,8 @@
 
 // Package adminapi holds the JSON wire shapes of the Ruralz Gateway admin
 // API (port 9901) that ruralzd serves and the ruralz CLI reads: /readyz,
-// /tap events and drop notices, /debug/snapshots, /debug/upstreams.
+// /tap events and drop notices, /debug/snapshots with the last rejected
+// load, /debug/upstreams.
 // /config/dump is the RFC 8785 document of internal/config/canonical.
 // Shapes are versioned surfaces: members are only added, and readers
 // ignore unknown members.
@@ -70,11 +71,24 @@ const (
 	StateEnding  = "ending"
 )
 
-// Snapshots is the /debug/snapshots body.
+// Snapshots is the /debug/snapshots body: every live snapshot, the
+// pending and Last-Known-Good digests ("sha256:…") or null, and the last
+// rejected load or null. pending, lastKnownGood and lastRejected are
+// always present.
 type Snapshots struct {
 	Snapshots     []SnapshotInfo `json:"snapshots"`
 	Pending       *string        `json:"pending"`
 	LastKnownGood *string        `json:"lastKnownGood"`
+	LastRejected  *Rejection     `json:"lastRejected"`
+}
+
+// Rejection is the last load the activation loader rejected: its digest,
+// null when the load failed before one (a parse or schema failure), the
+// code of its first error and its time in RFC 3339 UTC.
+type Rejection struct {
+	Digest *string `json:"digest"`
+	Code   string  `json:"code"`
+	At     string  `json:"at"`
 }
 
 // SnapshotInfo describes one live snapshot; times are RFC 3339 UTC.

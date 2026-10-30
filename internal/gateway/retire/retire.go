@@ -22,7 +22,8 @@
 // until every snapshot is freed. At the Drain deadline the supervisor calls
 // EndAll(ctx, snapshot.EndDrain) first and Close second: EndAll ends every
 // pinned request and every request that pins after it, so Close waits only
-// for handlers that are already answering.
+// for handlers that are already answering. Ping is the retirer's watchdog
+// probe: it returns once Run, or Close, has made a pass.
 //
 // Resources and State Store handles follow one rule: an instance is closed
 // or released exactly once, when the last live snapshot holding it is
@@ -179,6 +180,10 @@ type Holder struct {
 	degraded bool
 	tasks    int
 	changed  chan struct{} // closed and replaced on every state change
+
+	// pings are the Ping calls waiting for the next pass of Run or Close.
+	pingMu sync.Mutex
+	pings  map[chan struct{}]struct{}
 }
 
 // New returns a Holder with no published snapshot.
