@@ -38,9 +38,10 @@ func nextAcceptRetry(prev time.Duration) time.Duration {
 // endpoint is the listening sockets of a listener identity
 // (snapshot.ListenerKey), one per host the Set binds and all on one port,
 // and their dispatching listeners: each socket's accept loop hands each
-// connection round-robin to the channel-fed listeners of the Shards
-// servers the endpoint feeds (docs/architecture/03-data-plane.md "Sources,
-// Last-Known-Good and Drain"), so a listener bound to 127.0.0.1 and ::1
+// connection round-robin, in the Set's one turn order, to the channel-fed
+// listeners of the Shards servers the endpoint feeds
+// (docs/architecture/03-data-plane.md "Sources, Last-Known-Good and
+// Drain"), so a listener bound to 127.0.0.1 and ::1
 // under RURALZ_BIND_LOOPBACK serves both sockets through one group of
 // shards. It feeds one group of shards at a time, a new group after a
 // change of the client-certificate request mode.
@@ -60,9 +61,6 @@ type endpoint struct {
 	tls     atomic.Pointer[tlsState]             // https only
 	tlsCfg  *tls.Config                          // https only; reads tls per handshake
 	group   atomic.Pointer[shardGroup]
-	// next counts the connections dispatched: connection n goes to shard
-	// n modulo Shards, or to the next shard still taking connections.
-	next atomic.Uint64
 
 	stopOnce sync.Once
 	// stopped is closed once the sockets closed.
@@ -206,12 +204,12 @@ func (ep *endpoint) admit(c net.Conn) {
 }
 
 // deliver hands nc to the shard whose turn it is, round-robin over the
-// current group. A shard that stopped taking connections, as one the
-// Drain shut down, passes its turn to the next shard still taking them; a
-// group whose every shard stopped passes nc to its replacement, else nc
-// closes.
+// current group in the turn order every endpoint of the Set shares
+// (Set.turn). A shard that stopped taking connections, as one the Drain
+// shut down, passes its turn to the next shard still taking them; a group
+// whose every shard stopped passes nc to its replacement, else nc closes.
 func (ep *endpoint) deliver(nc net.Conn) {
-	turn := ep.next.Add(1) - 1
+	turn := ep.s.turn.Add(1) - 1
 	for {
 		g := ep.group.Load()
 		if g.offer(nc, turn) {

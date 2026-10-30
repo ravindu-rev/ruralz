@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -109,6 +110,12 @@ type Set struct {
 	// hosts are the hosts each listener binds, Options.Hosts or the one
 	// empty host of every interface.
 	hosts []string
+	// turn counts the connections every client listener dispatched:
+	// connection n of the Node goes to shard n modulo Shards of its
+	// listener, so shard i of every listener, the i-th wave of a Drain,
+	// holds an equal share of the Node's connections, however they spread
+	// over the listeners.
+	turn atomic.Uint64
 
 	mu        sync.Mutex
 	active    map[snapshot.ListenerKey]*endpoint

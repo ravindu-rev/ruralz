@@ -256,3 +256,36 @@ func TestBound(t *testing.T) {
 		t.Error("Bound after StopAccepting")
 	}
 }
+
+// TestShardTurnsSpanListeners checks that the dispatch turn order spans
+// every client listener: of three connections to each of two listeners,
+// dialed alternately, the Node's connection n goes to shard n modulo
+// Shards, so each shard's shutdown closes exactly that one connection
+// while the later ones keep serving: no shard holds more than an eighth
+// of the Node's six, rounded up, as a Drain wave must
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Drain
+// timeline defaults").
+func TestShardTurnsSpanListeners(t *testing.T) {
+	h := newHarness(t)
+	h.activate(t, snap(httpListener("web", 0), httpListener("api", 0)), nil)
+	web, api := h.addr(t, "web"), h.addr(t, "api")
+	var conns []*rawConn
+	for k := range 6 {
+		addr := web
+		if k%2 == 1 {
+			addr = api
+		}
+		conns = append(conns, dialServed(t, addr, 1)...)
+	}
+	for shard := range len(conns) {
+		h.set.ShutdownShard(shard)
+		if !conns[shard].closedByPeer(t) {
+			t.Errorf("connection %d stayed open after shard %d shut down", shard, shard)
+		}
+		for k := shard + 1; k < len(conns); k++ {
+			if !servedKeptAlive(t, conns[k]) {
+				t.Fatalf("connection %d closed when shard %d shut down, want shard %d alone to hold it", k, shard, k)
+			}
+		}
+	}
+}

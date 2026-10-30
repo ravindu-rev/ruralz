@@ -53,14 +53,16 @@
 //
 // The driver's dialer opens every connection, to the URL's hosts and the
 // servers their cluster or sentinels announce: it paces the dials of a
-// shard (full jitter, base 100 ms, cap 5 s, at most 4 a second), and the
-// sentinel dials together, so a dial the pacer refuses fails at once
-// without touching the network; then, within the dial timeout, it
-// connects, runs the TLS handshake and, except on a sentinel, sends AUTH
-// and SCRIPT LOAD before rueidis takes the connection. Each dial, TLS or
-// load I/O failure counts toward the shard breaker's 5 consecutive connect
-// failures, and a sentinel dial's toward the primary's while no client
-// exists.
+// shard, at most 4 a second, each server address backing off after its
+// own connect failures (full jitter, base 100 ms, cap 5 s), so a dial to
+// the primary the sentinels name after a failover never waits out the
+// dead primary's backoff, and the sentinel dials together; a dial the
+// pacer refuses fails at once without touching the network; then, within
+// the dial timeout, it connects, runs the TLS handshake and, except on a
+// sentinel, sends AUTH and SCRIPT LOAD before rueidis takes the
+// connection. Each dial, TLS or load I/O failure counts toward the shard
+// breaker's 5 consecutive connect failures, and a sentinel dial's toward
+// the primary's while no client exists.
 //
 // A READONLY reply, from a primary a failover demoted, closes the shard's
 // connections, at most once per minRefreshGap: standalone redials reach

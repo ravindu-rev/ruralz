@@ -241,6 +241,56 @@ func TestHTTP1ConnectionBound(t *testing.T) {
 	}
 }
 
+// A light HTTP/1.1 load keeps few connections of a pool busy, since the
+// pool takes its most recently used idle connection first; with
+// RoundRobin, requests spread over Connections by sequence number, so the
+// same light load uses every connection, each carrying one request at a
+// time.
+func TestHTTP1RoundRobin(t *testing.T) {
+	var s saw
+	srv := serve(t, s.handler(200, ""))
+	pool := newTarget(t, HTTPConfig{URL: srv.url, Connections: 3})
+	for seq := range uint64(6) {
+		if resp := pool.Do(t.Context(), Request{Seq: seq}); resp.Outcome != Success {
+			t.Fatalf("pool request %d: %+v", seq, resp)
+		}
+	}
+	if srv.conns.Load() != 1 {
+		t.Errorf("a sequential load opened %d pool connections, want 1", srv.conns.Load())
+	}
+	spread := serve(t, s.handler(200, ""))
+	tg := newTarget(t, HTTPConfig{URL: spread.url, Connections: 3, RoundRobin: true})
+	locals := map[uint64]string{}
+	for seq := range uint64(6) {
+		resp := tg.Do(t.Context(), Request{Seq: seq})
+		if resp.Outcome != Success || resp.Proto != "HTTP/1.1" {
+			t.Fatalf("round-robin request %d: %+v", seq, resp)
+		}
+		locals[seq] = resp.Conn.Local
+	}
+	if spread.conns.Load() != 3 || locals[0] != locals[3] || locals[1] != locals[4] || locals[2] != locals[5] || locals[0] == locals[1] || locals[1] == locals[2] {
+		t.Errorf("%d connections, by sequence %v; want 3, seq%%3 sharing one", spread.conns.Load(), locals)
+	}
+
+	// A round-robin connection carries one request at a time: request 3
+	// waits for request 0's connection while the others are free.
+	release := make(chan struct{})
+	var inHandler atomic.Int64
+	slow := serve(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		inHandler.Add(1)
+		<-release
+	}))
+	tg = newTarget(t, HTTPConfig{URL: slow.url, Connections: 3, RoundRobin: true})
+	go tg.Do(t.Context(), Request{Seq: 0})
+	waitFor(t, "request 0 in its handler", func() bool { return inHandler.Load() == 1 })
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if resp := tg.Do(ctx, Request{Seq: 3}); resp.Outcome != Canceled || resp.Status != 0 {
+		t.Errorf("request on a busy round-robin connection: %+v, want Canceled before sending", resp)
+	}
+	close(release)
+}
+
 // HTTP/2 requests spread over Connections by sequence number, and each
 // connection carries at most StreamsPerConn at once.
 func TestHTTP2LanesAndStreamBound(t *testing.T) {
@@ -367,6 +417,7 @@ func TestNewHTTPRejects(t *testing.T) {
 		{"keys without header", HTTPConfig{URL: "http://127.0.0.1/", Keys: keys}},
 		{"streams on HTTP/1.1", HTTPConfig{URL: "http://127.0.0.1/", StreamsPerConn: 2}},
 		{"keep-alives on HTTP/2", HTTPConfig{URL: "http://127.0.0.1/", Protocol: H2C, DisableKeepAlives: true}},
+		{"round robin on HTTP/2", HTTPConfig{URL: "http://127.0.0.1/", Protocol: H2C, RoundRobin: true}},
 		{"negative connections", HTTPConfig{URL: "http://127.0.0.1/", Connections: -1}},
 		{"bad method", HTTPConfig{URL: "http://127.0.0.1/", Method: "BAD METHOD"}},
 	} {
@@ -381,6 +432,10 @@ func TestNewHTTPRejects(t *testing.T) {
 	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/"})
 	if err != nil || len(tg.groups) != 1 || tg.groups[0][0].tr.MaxConnsPerHost != DefaultHTTP1Connections {
 		t.Errorf("HTTP/1.1 default connections %d, err %v; want PBB S1's 256", tg.groups[0][0].tr.MaxConnsPerHost, err)
+	}
+	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/", RoundRobin: true})
+	if err != nil || len(tg.groups) != 1 || len(tg.groups[0]) != DefaultHTTP1Connections || tg.groups[0][0].tr.MaxConnsPerHost != 1 || tg.groups[0][0].sem != nil {
+		t.Errorf("round-robin HTTP/1.1 defaults: %d lanes, err %v; want PBB S1's 256 of one connection each", len(tg.groups[0]), err)
 	}
 }
 

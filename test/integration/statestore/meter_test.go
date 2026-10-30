@@ -35,10 +35,12 @@ func setupCommand(name string) bool {
 }
 
 // foreignCommand reports a command the other clients of a primary send
-// it, which INFO commandstats counts beside the Node's and which no State
-// client sends: a replica's replication handshake and acknowledgments,
-// one REPLCONF ACK a second, and a sentinel's hello messages, one PUBLISH
-// every 2 s, on the channel it subscribes to.
+// it, which no State client sends: a replica's replication handshake and
+// acknowledgments, one REPLCONF ACK a second, and a sentinel's hello
+// messages, one PUBLISH every 2 s, on the channel it subscribes to. INFO
+// commandstats counts them beside the Node's commands, and so do the
+// counting proxies a process cluster's primaries announce, since each
+// primary's replica replicates through its proxy.
 func foreignCommand(name string) bool {
 	first, _, _ := strings.Cut(name, " ")
 	switch first {
@@ -51,8 +53,8 @@ func foreignCommand(name string) bool {
 // meter counts the commands the Node of a test sends one State Store:
 // through the counting RESP proxies that carry every command of a
 // deployment the counted function admits, else by INFO commandstats and
-// errorstats deltas on its primaries, read per serial phase, less the
-// commands their other clients send them.
+// errorstats deltas on its primaries, read per serial phase, either way
+// less the commands their other clients send them.
 type meter struct {
 	e     *env
 	store *topology.StateStore
@@ -202,7 +204,7 @@ func (m *meter) since(earlier reading) delta {
 	now := m.read()
 	d := delta{requestPath: map[string]int64{}, all: map[string]int64{}, errors: map[string]int64{}, trips: -1, scripted: !m.proxied()}
 	for k, v := range now.byName {
-		if !m.proxied() && foreignCommand(k) {
+		if foreignCommand(k) {
 			continue
 		}
 		if n := v - earlier.byName[k]; n != 0 {
@@ -226,7 +228,7 @@ func (m *meter) since(earlier reading) delta {
 			seq = earlier.seqs[i]
 		}
 		for _, c := range p.LogSince(seq) {
-			if !setupCommand(c.Name) {
+			if !setupCommand(c.Name) && !foreignCommand(c.Name) {
 				d.log = append(d.log, logged{proxy: i, Command: c})
 			}
 		}
@@ -352,11 +354,13 @@ func withoutScriptCommands(counts map[string]int64) map[string]int64 {
 }
 
 // TestMeterLeavesOutOtherClients checks, on the sentinel kinds, whose
-// commands INFO commandstats counts, that the meter leaves out what the
-// primary's other clients send it: once its replica or sentinel has sent
-// a command, a phase without any Node counts no request-path command.
+// commands INFO commandstats counts, and on the process cluster, whose
+// replicas replicate through the counting proxies the primaries announce,
+// that the meter leaves out what the primaries' other clients send them:
+// once a replica or sentinel has sent a command, a phase without any Node
+// counts no request-path command and logs none.
 func TestMeterLeavesOutOtherClients(t *testing.T) {
-	for _, k := range []redisserver.Kind{redisserver.ProcessSentinel, redisserver.Redis8Sentinel, redisserver.Valkey9Sentinel} {
+	for _, k := range []redisserver.Kind{redisserver.ProcessSentinel, redisserver.Redis8Sentinel, redisserver.Valkey9Sentinel, redisserver.ProcessCluster} {
 		t.Run(string(k), func(t *testing.T) {
 			e := newEnv(t, envOptions{kind: k})
 			m := e.meter("main")
@@ -371,8 +375,8 @@ func TestMeterLeavesOutOtherClients(t *testing.T) {
 				}
 				return false
 			})
-			if d := m.since(before); d.total() != 0 {
-				t.Errorf("a phase without a Node counted %s on the request path, want none", d.commands())
+			if d := m.since(before); d.total() != 0 || len(d.log) != 0 {
+				t.Errorf("a phase without a Node counted %s on the request path and logged %v, want none", d.commands(), d.log)
 			}
 		})
 	}

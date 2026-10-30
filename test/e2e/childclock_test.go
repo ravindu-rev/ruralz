@@ -28,11 +28,16 @@ import (
 // is not close-on-exec in ruralz, so the ruralzd it launches inherits it
 // there (docs/engineering/03-testing-and-quality-strategy.md "Hermetic
 // rule scope": the commands are lines on file descriptor 3, the first
-// extra file, a socket). Its methods are safe for concurrent use.
+// extra file, a socket). The suite writes the start command first, at the
+// real time it makes the socket, which ruralzd reads before its first
+// reading. Its methods are safe for concurrent use.
 type childClock struct {
 	mu   sync.Mutex
 	conn net.Conn
 	r    *bufio.Reader
+	// started is set once the start's answer was read, before the first
+	// command's.
+	started bool
 }
 
 // newChildClock returns the suite's end of a new clock command socket and
@@ -58,6 +63,9 @@ func newChildClock(t testing.TB) (*childClock, *os.File) {
 	}
 	child := os.NewFile(uintptr(fds[1]), "clock-ruralzd")
 	t.Cleanup(func() { _ = conn.Close(); _ = child.Close() })
+	if _, err := io.WriteString(conn, clock.CommandStart+" "+time.Now().UTC().Format(clock.CommandTimeLayout)+"\n"); err != nil {
+		t.Fatal(err)
+	}
 	return &childClock{conn: conn, r: bufio.NewReaderSize(conn, clock.MaxCommandBytes)}, child
 }
 
@@ -70,6 +78,17 @@ func (c *childClock) do(line string) (time.Time, error) {
 	if _, err := io.WriteString(c.conn, line+"\n"); err != nil {
 		return time.Time{}, err
 	}
+	if !c.started {
+		if _, err := c.answer(clock.CommandStart); err != nil {
+			return time.Time{}, err
+		}
+		c.started = true
+	}
+	return c.answer(line)
+}
+
+// answer reads the answer to line and returns the time it names.
+func (c *childClock) answer(line string) (time.Time, error) {
 	answer, err := c.r.ReadString('\n')
 	if err != nil {
 		return time.Time{}, err

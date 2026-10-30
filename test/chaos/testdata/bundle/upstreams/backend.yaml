@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: chaos-backend
+spec:
+  protocol: http
+  endpoints:                            # three mock Upstreams; default retries, breaker and passive health
+    - address: "${BACKEND_1}"
+    - address: "${BACKEND_2}"
+    - address: "${BACKEND_3}"

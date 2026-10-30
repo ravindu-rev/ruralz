@@ -67,11 +67,119 @@ func TestSelectedKinds(t *testing.T) {
 			slotsServed := 0
 			for _, r := range mustDo(t, nodes[0], "CLUSTER", "SLOTS").Elems {
 				slotsServed += int(r.Elems[1].Int-r.Elems[0].Int) + 1
+				// Each shard lists its primary, then its one replica.
+				if len(r.Elems) != 4 {
+					t.Errorf("CLUSTER SLOTS shard %v lists %d servers, want a primary and one replica", r.Elems[:2], len(r.Elems)-2)
+				}
 			}
 			if slotsServed != slots {
 				t.Errorf("CLUSTER SLOTS serves %d slots, want %d", slotsServed, slots)
 			}
+			for i, r := range d.Replicas() {
+				if info := mustInfo(t, r, "replication"); info["role"] != "slave" || info["master_link_status"] != "up" {
+					t.Errorf("replica %d: role %q, link %q", i, info["role"], info["master_link_status"])
+				}
+			}
 		})
+	}
+}
+
+// keyOnShard returns a key whose slot lies in the slot range of shard
+// i of a three-primary cluster, asking s with CLUSTER KEYSLOT.
+func keyOnShard(t *testing.T, s *Server, i int) string {
+	t.Helper()
+	r := slotRanges(3)[i]
+	for n := 0; ; n++ {
+		k := "ruralz:k" + strconv.Itoa(n)
+		slot := int(mustDo(t, s, "CLUSTER", "KEYSLOT", k).Int)
+		if r[0] <= slot && slot <= r[1] {
+			return k
+		}
+	}
+}
+
+// TestProcessClusterFailoverLive checks the cluster failover on real
+// servers with TLS and users: a key written on shard 1 and replicated
+// (WAIT) survives a SIGKILL of the shard's primary and the promotion of
+// its replica with CLUSTER FAILOVER TAKEOVER, which takes writes and
+// which the other primaries map the shard to; the killed primary,
+// restarted, rejoins as the replica of the promoted one.
+func TestProcessClusterFailoverLive(t *testing.T) {
+	d := Start(t, ProcessCluster, Options{TLS: true, Users: []User{{Name: "ruralz", Password: "s3cret pw"}}})
+	primary, replica := d.Nodes()[1], d.Replicas()[1]
+	k := keyOnShard(t, primary, 1)
+	mustDo(t, primary, "SET", k, "v")
+	mustDo(t, primary, "WAIT", "1", "5000")
+	if err := primary.Kill(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ClusterFailover(t.Context(), 1); err != nil {
+		t.Fatal(err)
+	}
+	if d.Nodes()[1] != replica || d.Replicas()[1] != primary {
+		t.Fatalf("after ClusterFailover: primary %s, replica %s", d.Nodes()[1].Name(), d.Replicas()[1].Name())
+	}
+	if v := mustDo(t, replica, "GET", k); v.Str != "v" {
+		t.Errorf("promoted replica GET %s = %v, want the replicated value", k, v)
+	}
+	mustDo(t, replica, "SET", k, "v2")
+	r := slotRanges(3)[1]
+	if owner, err := slotOwner(t.Context(), d.Nodes()[0], r[0]); err != nil || owner != replica.ClientAddr() {
+		t.Errorf("shard 0 maps slot %d to %s (%v), want the promoted %s", r[0], owner, err, replica.ClientAddr())
+	}
+	if err := primary.Restart(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitUntil(t.Context(), "the former primary to rejoin as a replica", func(ctx context.Context) error {
+		info, err := primary.Info(ctx, "replication")
+		if err != nil {
+			return err
+		}
+		if info["role"] != "slave" || info["master_link_status"] != "up" {
+			return fmt.Errorf("role %q, link %q", info["role"], info["master_link_status"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestProcessSentinelAutoFailoverLive checks the failover a sentinel
+// starts on its own: after a SIGKILL of the primary, the sentinel
+// promotes the replica once the primary is down past its
+// down-after-milliseconds, AwaitFailover follows it, and the restarted
+// former primary becomes the new primary's replica.
+func TestProcessSentinelAutoFailoverLive(t *testing.T) {
+	d := Start(t, ProcessSentinel, Options{Users: []User{{Name: "ruralz", Password: "pw"}}})
+	primary, replica := d.Primary(), d.Replica()
+	mustDo(t, primary, "SET", "k", "v")
+	mustDo(t, primary, "WAIT", "1", "5000")
+	if err := primary.Kill(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.AwaitFailover(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if d.Primary() != replica {
+		t.Fatalf("after AwaitFailover the primary is %s", d.Primary().Name())
+	}
+	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
+		t.Errorf("promoted GET = %v", v)
+	}
+	if err := primary.Restart(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := waitUntil(t.Context(), "the former primary to follow", func(ctx context.Context) error {
+		info, err := primary.Info(ctx, "replication")
+		if err != nil {
+			return err
+		}
+		if info["role"] != "slave" || info["master_link_status"] != "up" {
+			return fmt.Errorf("role %q, link %q", info["role"], info["master_link_status"])
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -188,6 +296,8 @@ func TestProcessSentinelFailoverLive(t *testing.T) {
 // TestProcessClusterBehindProxies checks Options.Announce on a real
 // cluster: each primary announces a counting RESP proxy, so CLUSTER
 // SLOTS names the proxies and commands sent through them are counted.
+// The replicas replicate through the announced proxies too, so the test
+// counts a command no replication link sends.
 func TestProcessClusterBehindProxies(t *testing.T) {
 	proxies := map[int]*respproxy.Proxy{} // the last start attempt of each node wins
 	d := Start(t, ProcessCluster, Options{Announce: func(node int, addr string) string {
@@ -210,8 +320,8 @@ func TestProcessClusterBehindProxies(t *testing.T) {
 		}
 	}
 	through := &Server{name: "via-proxy", addr: nodes[0].ClientAddr(), client: nodes[0].ClientAddr(), acc: access{scheme: "redis"}}
-	mustDo(t, through, "PING")
-	if s := proxies[0].Snapshot(); s.Count("PING") != 1 {
+	mustDo(t, through, "ECHO", "ruralz-probe")
+	if s := proxies[0].Snapshot(); s.Count("ECHO") != 1 {
 		t.Errorf("proxy of node 0 counted %v", s.ByName)
 	}
 }

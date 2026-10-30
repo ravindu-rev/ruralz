@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -87,17 +88,25 @@ func buildURL(a access, addrs []string, masterSet string) string {
 	return u.String()
 }
 
-// errNotSentinel is returned by Failover outside the sentinel kinds, and
-// errSentinelPromote by Promote within them.
+// clusterPrimaries is the number of primaries of the cluster kinds, each
+// with one replica.
+const clusterPrimaries = 3
+
+// errNotSentinel is returned by Failover outside the sentinel kinds,
+// errSentinelPromote by Promote within them, errClusterPromote by Promote
+// on a cluster, and errNotCluster by ClusterFailover outside the cluster
+// kinds.
 var (
 	errNotSentinel     = errors.New("redisserver: Failover needs a sentinel kind")
 	errSentinelPromote = errors.New("redisserver: a sentinel deployment fails over with Failover, not Promote")
+	errClusterPromote  = errors.New("redisserver: a cluster fails over with ClusterFailover, not Promote")
+	errNotCluster      = errors.New("redisserver: ClusterFailover needs a cluster kind")
 )
 
 // Deployment is a running State Store: one primary (and an optional
-// replica), the three primaries of a cluster, or a primary, its replica
-// and a sentinel monitoring them. Its methods are safe for concurrent
-// use.
+// replica), the three primaries of a cluster with one replica each, or a
+// primary, its replica and a sentinel monitoring them. Its methods are
+// safe for concurrent use.
 type Deployment struct {
 	kind   Kind
 	acc    access
@@ -108,6 +117,9 @@ type Deployment struct {
 	replica   *Server
 	sentinels []*Server
 	masterSet string // the sentinel kinds' MasterSet
+	// shardReplicas holds a cluster's replicas, shardReplicas[i] that of
+	// nodes[i].
+	shardReplicas []*Server
 }
 
 // Kind returns the deployment's kind.
@@ -154,6 +166,22 @@ func (d *Deployment) MasterSet() string { return d.masterSet }
 // the former primary, which the sentinel turns into its replica. Only the
 // sentinel kinds fail over this way.
 func (d *Deployment) Failover(ctx context.Context) error {
+	return d.sentinelFailover(ctx, true)
+}
+
+// AwaitFailover waits for the failover the sentinel starts on its own
+// once the primary stopped answering for sentinelDownAfter, as after a
+// SIGKILL of the primary (Server.Kill), until the sentinel names the
+// replica and the replica reports role master; Primary and Replica then
+// swap as after Failover, and a restart of the former primary makes it
+// the new primary's replica. Only the sentinel kinds fail over this way.
+func (d *Deployment) AwaitFailover(ctx context.Context) error {
+	return d.sentinelFailover(ctx, false)
+}
+
+// sentinelFailover runs SENTINEL FAILOVER when force is set, then waits
+// for the switch and records the new roles.
+func (d *Deployment) sentinelFailover(ctx context.Context, force bool) error {
 	d.mu.Lock()
 	if len(d.sentinels) == 0 || d.replica == nil {
 		d.mu.Unlock()
@@ -163,8 +191,10 @@ func (d *Deployment) Failover(ctx context.Context) error {
 	d.mu.Unlock()
 	ctx, cancel := context.WithTimeout(ctx, startTimeout)
 	defer cancel()
-	if _, err := s.Do(ctx, "SENTINEL", "FAILOVER", set); err != nil {
-		return err
+	if force {
+		if _, err := s.Do(ctx, "SENTINEL", "FAILOVER", set); err != nil {
+			return err
+		}
 	}
 	if err := waitUntil(ctx, s.name+" to promote "+replica.name, func(ctx context.Context) error {
 		got, err := masterAddr(ctx, s, set)
@@ -217,24 +247,85 @@ func (d *Deployment) Nodes() []*Server {
 	return append([]*Server(nil), d.nodes...)
 }
 
-// Replica returns the replica of Options.Replica; nil without one or
-// after Promote.
+// Replica returns the replica of Options.Replica or of a sentinel kind;
+// nil without one, after Promote, and for a cluster, whose replicas
+// Replicas returns.
 func (d *Deployment) Replica() *Server {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return d.replica
 }
 
+// Replicas returns every replica: a cluster's, Replicas()[i] being the
+// replica of Nodes()[i], else the one Replica returns, if any.
+func (d *Deployment) Replicas() []*Server {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if len(d.shardReplicas) > 0 {
+		return append([]*Server(nil), d.shardReplicas...)
+	}
+	if d.replica != nil {
+		return []*Server{d.replica}
+	}
+	return nil
+}
+
+// ClusterFailover promotes the replica of a cluster's shard (an index of
+// Nodes, in slot order) with CLUSTER FAILOVER TAKEOVER, which needs no
+// agreement from the primary or the other primaries: the cluster
+// failover of the cluster kinds, run after a SIGKILL of the shard's
+// primary (Server.Kill). It waits until the replica reports role master
+// and every other primary maps the shard's slots to it. Nodes()[shard]
+// then returns the promoted replica, and Replicas()[shard] the former
+// primary, which rejoins as its replica when restarted (Server.Restart),
+// as its cluster configuration file keeps its node identity. A container
+// cluster is promoted the same way, its primary left running.
+func (d *Deployment) ClusterFailover(ctx context.Context, shard int) error {
+	d.mu.Lock()
+	if len(d.shardReplicas) == 0 || shard < 0 || shard >= len(d.nodes) {
+		d.mu.Unlock()
+		if len(d.shardReplicas) == 0 {
+			return errNotCluster
+		}
+		return fmt.Errorf("redisserver: no shard %d of %d", shard, len(d.nodes))
+	}
+	primary, replica := d.nodes[shard], d.shardReplicas[shard]
+	var others []*Server
+	for i, n := range d.nodes {
+		if i != shard {
+			others = append(others, n)
+		}
+	}
+	d.mu.Unlock()
+	ctx, cancel := context.WithTimeout(ctx, startTimeout)
+	defer cancel()
+	if _, err := replica.Do(ctx, "CLUSTER", "FAILOVER", "TAKEOVER"); err != nil {
+		return err
+	}
+	if err := waitPromoted(ctx, replica, slotRanges(clusterPrimaries)[shard][0], others); err != nil {
+		return err
+	}
+	d.mu.Lock()
+	d.nodes[shard], d.shardReplicas[shard] = replica, primary
+	d.mu.Unlock()
+	return nil
+}
+
 // Promote makes the replica the primary (REPLICAOF NO ONE), the scripted
 // failover of the process flavor: Primary returns it from then on, also
 // across its restarts, and Replica returns nil. The former primary keeps
 // running, unchanged, unless the test killed it; a proxy standing for
-// the primary's endpoint is switched by the test (SetUpstream).
+// the primary's endpoint is switched by the test (SetUpstream). A
+// sentinel deployment fails over with Failover, a cluster with
+// ClusterFailover.
 func (d *Deployment) Promote(ctx context.Context) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	if len(d.sentinels) > 0 {
 		return errSentinelPromote
+	}
+	if len(d.shardReplicas) > 0 {
+		return errClusterPromote
 	}
 	r := d.replica
 	if r == nil {
@@ -338,6 +429,22 @@ func (s *Server) Kill(ctx context.Context) error {
 	case <-ctx.Done():
 		return fmt.Errorf("redisserver: kill %s: %w", s.name, ctx.Err())
 	}
+}
+
+// Signal sends sig to a redis-server process, such as SIGSTOP and
+// SIGCONT for the frozen State Store fault, whose sockets stay open.
+// Containers return errors.ErrUnsupported.
+func (s *Server) Signal(sig os.Signal) error {
+	if s.l == nil {
+		return fmt.Errorf("redisserver: signal %s: %w", s.name, errors.ErrUnsupported)
+	}
+	s.mu.Lock()
+	p := s.proc
+	s.mu.Unlock()
+	if err := p.Signal(sig); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	return nil
 }
 
 // Restart kills a running redis-server process and starts it again on

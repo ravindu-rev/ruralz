@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockidp"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
@@ -191,6 +192,10 @@ func refusedStart(t *testing.T, env []string) (int, string) {
 	}
 	harness, child := os.NewFile(uintptr(fds[0]), "clock harness"), os.NewFile(uintptr(fds[1]), "clock")
 	defer func() { _ = harness.Close() }()
+	// The clock starts at the start command, which ruralzd reads first.
+	if _, err := harness.WriteString(clock.CommandStart + " " + time.Now().UTC().Format(clock.CommandTimeLayout) + "\n"); err != nil {
+		t.Fatal(err)
+	}
 	p, err := proc.Start(t.Context(), proc.Spec{Name: "refused", Path: bins.Ruralzd, Env: env, ExtraFiles: []*os.File{child}})
 	_ = child.Close()
 	if err != nil {

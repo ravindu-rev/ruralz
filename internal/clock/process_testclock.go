@@ -13,11 +13,13 @@ package clock
 const TestClockBuild = true
 
 // Process returns the clock a process runs on: in this build a Commanded
-// clock that starts at the real time of the call and moves only on the
-// harness's commands on file descriptor CommandFD. ruralzd calls it once
-// at start, before anything opens a descriptor, and exits 2 when it
-// returns ErrNoCommandDescriptor: a controllable-clock build started
-// without its command socket.
+// clock on file descriptor CommandFD that waits for the harness's first
+// command, start, starts at the time it names and moves only on the
+// harness's commands (OpenCommanded). ruralzd calls it once at start,
+// before anything opens a descriptor or reads the time, and exits 2 when
+// it returns ErrNoCommandDescriptor, a controllable-clock build started
+// without its command socket, and 1 when the stream ends or begins
+// without start (ErrNoStart).
 func Process() (Clock, error) {
 	c, err := OpenCommanded(CommandFD)
 	if err != nil {

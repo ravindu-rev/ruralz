@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"os"
 	"slices"
 	"testing"
 
@@ -189,6 +190,9 @@ func TestServerHelpers(t *testing.T) {
 	}
 	if err := s.Restart(t.Context()); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Restart of a server without a process = %v, want ErrUnsupported", err)
+	}
+	if err := s.Signal(os.Interrupt); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("Signal to a server without a process = %v, want ErrUnsupported", err)
 	}
 	f.close()
 	if _, err := s.Do(t.Context(), "PING"); err == nil {

@@ -30,7 +30,8 @@ type CounterConfig struct {
 	// LogSize bounds the command log; default DefaultLogSize. A negative
 	// size keeps no log.
 	LogSize int
-	// Clock times reply delays; default clock.Real().
+	// Clock times reply delays and stamps each command's At; default
+	// clock.Real().
 	Clock clock.Clock
 }
 
@@ -53,6 +54,9 @@ type Command struct {
 	Args []string
 	Argc int64
 	Cut  bool
+	// At is when the Counter read the command, on its clock: a chaos run
+	// counts a key's calls per window by it.
+	At time.Time
 	// Reply is the reply, once read.
 	Reply Reply
 }
@@ -393,7 +397,7 @@ func (cs *connState) onCommand(args [][]byte, argc int64, cut bool) {
 		c.roundTrips++
 		cs.roundTrip = c.roundTrips
 	}
-	seq := c.record(Command{Conn: cs.id, RoundTrip: cs.roundTrip, Name: name, Args: strs, Argc: argc, Cut: cut})
+	seq := c.record(Command{Conn: cs.id, RoundTrip: cs.roundTrip, Name: name, Args: strs, Argc: argc, Cut: cut, At: c.clk.Now()})
 	c.mu.Unlock()
 	cs.due++
 	switch {

@@ -52,24 +52,26 @@ func (d *Driver) tlsFor(host string) *tls.Config {
 // dial is the rueidis DialCtxFn: every connection of the State client is
 // dialed here, to dst only and without proxies: a URL host or a server
 // its cluster or sentinels announce. The shard's pacer may refuse the
-// dial. The dialer connects, runs the TLS handshake for rediss:// and,
-// except on a sentinel, authenticates and loads the library on the new
-// connection before rueidis takes it, so SCRIPT LOAD runs at every
-// connect, reconnect and failover. A dial, TLS or load I/O failure counts
-// toward the shard breaker's consecutive connect failures; a sentinel's
-// counts toward the primary's only while no client exists, as calls then
-// wait on it.
+// dial: its per-second limit, or dst's own backoff after connect
+// failures, never another address's, so the primary a sentinel failover
+// promotes is dialed at once. The dialer connects, runs the TLS handshake
+// for rediss:// and, except on a sentinel, authenticates and loads the
+// library on the new connection before rueidis takes it, so SCRIPT LOAD
+// runs at every connect, reconnect and failover. A dial, TLS or load I/O
+// failure counts toward the shard breaker's consecutive connect failures;
+// a sentinel's counts toward the primary's only while no client exists,
+// as calls then wait on it.
 func (d *Driver) dial(ctx context.Context, dst string, dialer *net.Dialer, tlsCfg *tls.Config) (net.Conn, error) {
 	if d.closed.Load() {
 		return nil, errClosed
 	}
 	sentinel := d.sentinelMark != nil && tlsCfg == d.sentinelMark
 	sh := d.dialShard(dst, sentinel)
-	if !sh.pace.TryDial() {
+	if !sh.pace.TryDialAddr(dst) {
 		return nil, errPaced
 	}
 	nc, err := d.connect(ctx, dst, sh, dialer, !sentinel)
-	sh.pace.Result(err == nil)
+	sh.pace.ResultAddr(dst, err == nil)
 	if err != nil {
 		switch {
 		case !sentinel:

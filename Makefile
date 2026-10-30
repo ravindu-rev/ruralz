@@ -85,7 +85,9 @@ FUZZ_SHARD ?= -1
 FUZZ_SHARDS ?= 0
 FUZZ_REPORT ?= $(DIST)/fuzz/report.json
 CHAOS_SCALE ?= reduced
-CHAOS_TIMEOUT ?= 170m
+# The nightly Chaos job's 180 minutes bound the nightly profile; the
+# reduced profile's three Nodes take V-3's 1,000 handovers in more rounds.
+CHAOS_TIMEOUT ?= $(if $(filter reduced,$(CHAOS_SCALE)),240m,170m)
 # The Functional job: the benchmark functional variants on the loopback
 # profile, whose fixed ports allow one package at a time (-p 1).
 FUNCTIONAL_TIMEOUT ?= 110m
@@ -335,7 +337,10 @@ chaos: ## Stage 11 Chaos job: CE experiments, failure rows and drills (tag e2e, 
 ifeq ($(call has_tests,test/chaos),)
 	@echo "chaos: skip: test/chaos has no suite yet"
 else
-	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
+	@# Each run starts dist/chaos empty, so the records it uploads, and the
+	@# saturation record a later package reads, are this run's alone.
+	rm -rf $(DIST)/chaos
+	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) RURALZ_CHAOS_RECORDS=$(DIST)/chaos go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
 endif
 
 chaos-scale: ## Chaos at target scale on RH-1 (CE-5 at 100 Nodes, CE-12, CE-15), run by chaos-scale.yml

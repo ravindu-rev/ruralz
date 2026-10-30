@@ -400,6 +400,42 @@ func TestSettleGivesUpAtMax(t *testing.T) {
 	}
 }
 
+// Progress reports the measured phase's start once the warm-up's end is
+// decided: at Start without Settle, and only after the settling
+// checkpoint with it, where Settled tells a settled warm-up from one that
+// gave up at Settle.Max.
+func TestProgressReportsTheMeasureStart(t *testing.T) {
+	fk := clocktest.New(epoch())
+	plain := start(t, ok(), Config{Rate: 10, Warmup: time.Second, Duration: time.Second, Clock: fk})
+	if p := plain.Progress(); !p.MeasureStart.Equal(epoch().Add(time.Second)) || !p.Settled {
+		t.Errorf("without Settle: MeasureStart %v, settled %v; want 1s after the start, settled", p.MeasureStart, p.Settled)
+	}
+	drive(t, plain, fk, every(ms(100)))
+	for _, c := range []struct {
+		name    string
+		jumpy   func(sec int) bool
+		want    time.Duration
+		settled bool
+	}{
+		{"settles at the second checkpoint", func(sec int) bool { return sec == 0 }, 4 * time.Second, true},
+		{"gives up at the maximum", func(sec int) bool { return sec%2 == 0 }, 6 * time.Second, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			fk := clocktest.New(epoch())
+			g := start(t, ok(), settleConfig(fk))
+			if p := g.Progress(); !p.MeasureStart.IsZero() {
+				t.Fatalf("MeasureStart before any checkpoint = %v, want zero", p.MeasureStart)
+			}
+			res := drive(t, g, fk, settleStep(fk, c.jumpy))
+			p := g.Progress()
+			if !p.MeasureStart.Equal(epoch().Add(c.want)) || p.Settled != c.settled || !p.MeasureStart.Equal(res.MeasureStart) {
+				t.Errorf("MeasureStart %v, settled %v; want %v after the start, settled %v, as the result's %v",
+					p.MeasureStart.Sub(epoch()), p.Settled, c.want, c.settled, res.MeasureStart.Sub(epoch()))
+			}
+		})
+	}
+}
+
 // A Stop during a settle warm-up leaves it unsettled and the measured
 // phase empty.
 func TestStopDuringSettle(t *testing.T) {

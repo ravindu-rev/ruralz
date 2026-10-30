@@ -1,0 +1,128 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: apikey-chaos}
+spec:
+  type: auth.api-key
+  config: {header: x-api-key}           # looked up against Consumer apiKeys by hash
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: quota-chaos}
+spec:
+  type: quota
+  failureMode: open
+  config:
+    consumerQuota: chaos-requests       # keyed by consumer.name
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: quota-chaos-closed}
+spec:
+  type: quota
+  failureMode: closed
+  config:
+    consumerQuota: chaos-requests
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: validation-refund}
+spec:
+  type: validation.json-schema
+  config:
+    schema: false                       # rejects every body after the quota charged it, so the quota refunds
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-limited}
+spec:
+  type: ratelimit
+  failureMode: open
+  config:
+    # Not consumer.name, the quota's key: the two keys sit in different
+    # hash slots, so each makes its own State Store call.
+    key: '"rl:" + consumer.name'
+    limits:
+      - requests: ${LIMITED_REQUESTS}
+        window: 1s
+        perNodeCeiling: ${LIMITED_CEILING}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-limited-closed}
+spec:
+  type: ratelimit
+  failureMode: closed
+  config:
+    key: '"rl:" + consumer.name'
+    limits:
+      - requests: ${LIMITED_REQUESTS}
+        window: 1s
+        perNodeCeiling: ${LIMITED_CEILING}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-undeclared}
+spec:
+  type: ratelimit
+  failureMode: open
+  config:
+    key: 'request.headers["x-chaos-key"]'
+    limits:                             # no perNodeCeiling: the full limit in file mode
+      - requests: ${UNDECLARED_REQUESTS}
+        window: 1s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: cache-chaos}
+spec:
+  type: cache
+  stateStoreTimeout: ${CACHE_STATE_STORE_TIMEOUT}   # lookups and post-commit writes
+  config: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-hot}
+spec:
+  type: ratelimit
+  config:
+    key: '"hot"'                        # one constant key
+    limits:
+      - requests: ${HOT_REQUESTS}
+        window: 1s
+        perNodeCeiling: ${HOT_CEILING}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-hot-local}
+spec:
+  type: ratelimit
+  config:
+    key: '"hot-local"'
+    localOnly: true                     # local buckets alone decide
+    limits:
+      - requests: ${HOT_LOCAL_REQUESTS}
+        window: 1s
+        perNodeCeiling: ${HOT_LOCAL_CEILING}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-cotenant}
+spec:
+  type: ratelimit
+  config:
+    key: '"cotenant-2"'                 # on the hot key's shard
+    limits:
+      - requests: ${COTENANT_REQUESTS}
+        window: 1s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: ratelimit-flood}
+spec:
+  type: ratelimit
+  config:
+    key: 'request.headers["x-chaos-key"]'   # a new value on every request
+    limits:
+      - requests: ${FLOOD_REQUESTS}
+        window: 1s
+        perNodeCeiling: ${FLOOD_CEILING}

@@ -270,7 +270,7 @@ func knownDirectives() map[string]bool {
 		"tls-replication": true, "tls-cluster": true, "user": true, "replicaof": true, "masteruser": true,
 		"masterauth": true, "cluster-enabled": true, "cluster-config-file": true, "cluster-port": true,
 		"cluster-announce-ip": true, "cluster-announce-port": true, "cluster-announce-tls-port": true,
-		"maxmemory": true, "sentinel": true,
+		"maxmemory": true, "sentinel": true, "repl-diskless-sync-delay": true,
 	}
 }
 
@@ -410,6 +410,7 @@ func isAddrInUse(err error) bool {
 // tests send.
 type fakeRedis struct {
 	conf [][]string
+	id   string // the cluster node ID, from the port
 
 	mu       sync.Mutex
 	data     map[string]string
@@ -422,6 +423,13 @@ type fakeRedis struct {
 
 func newFakeRedis(conf [][]string) *fakeRedis {
 	r := &fakeRedis{conf: conf, data: map[string]string{}, users: map[string]string{}, noAuth: true}
+	port, _ := lookup(conf, "port")
+	if tp, ok := lookup(conf, "tls-port"); ok {
+		port = tp
+	}
+	if len(port) == 1 && len(port[0]) <= 40 {
+		r.id = strings.Repeat("0", 40-len(port[0])) + port[0]
+	}
 	for _, d := range conf {
 		switch d[0] {
 		case "user":
@@ -507,8 +515,30 @@ func (r *fakeRedis) handle(s *session, args []string) string {
 		if !r.clusterd {
 			return "-ERR This instance has cluster support disabled\r\n"
 		}
-		if strings.EqualFold(args[1], "INFO") {
-			return bulk("cluster_state:ok\r\ncluster_slots_ok:16384\r\ncluster_known_nodes:3\r\n")
+		switch strings.ToUpper(args[1]) {
+		case "INFO":
+			// Every node of a cluster kind: three primaries and their
+			// replicas.
+			return bulk("cluster_state:ok\r\ncluster_slots_ok:16384\r\ncluster_known_nodes:6\r\n")
+		case "MYID":
+			return bulk(r.id)
+		case "REPLICATE":
+			if len(args) != 3 || len(args[2]) != 40 {
+				return "-ERR Unknown node\r\n"
+			}
+			r.replica = true
+			return "+OK\r\n"
+		case "FAILOVER":
+			r.replica = false
+			return "+OK\r\n"
+		case "SLOTS":
+			// Three shards, each with a primary and one replica; the
+			// launcher reads only the shape.
+			out := "*3\r\n"
+			for _, rg := range slotRanges(3) {
+				out += fmt.Sprintf("*4\r\n:%d\r\n:%d\r\n*2\r\n%s:0\r\n*2\r\n%s:0\r\n", rg[0], rg[1], bulk("127.0.0.1"), bulk("127.0.0.1"))
+			}
+			return out
 		}
 		return "+OK\r\n"
 	}

@@ -112,6 +112,54 @@ func TestPacerResetOnSuccess(t *testing.T) {
 	}
 }
 
+// TestPacerBackoffPerAddress checks that the backoff after connect
+// failures belongs to the address that failed: the primary shard of a
+// sentinel deployment dials the replica the sentinels promote at once,
+// while the dead primary's dials keep backing off, and the per-second
+// limit stays the shard's (CE-5's reconnection bound, under sentinel).
+func TestPacerBackoffPerAddress(t *testing.T) {
+	clk := clocktest.New(start())
+	p := NewPacer(clk, DefaultPacerConfig(), fixed(5*time.Second))
+	for range 3 {
+		if !p.TryDialAddr("primary:6379") {
+			t.Fatal("a dial to the primary refused before its backoff")
+		}
+		p.ResultAddr("primary:6379", false)
+		clk.Advance(5 * time.Second)
+	}
+	p.ResultAddr("primary:6379", false) // a failure that starts a fresh 5 s backoff
+	if p.TryDialAddr("primary:6379") {
+		t.Fatal("a dial to the failing primary allowed inside its backoff")
+	}
+	if !p.TryDialAddr("replica:6380") {
+		t.Fatal("the promoted replica waits out the dead primary's backoff")
+	}
+	p.ResultAddr("replica:6380", true)
+	if p.TryDialAddr("primary:6379") || p.Failures() != 4 {
+		t.Fatalf("a success on the replica cleared the primary's backoff (failures %d)", p.Failures())
+	}
+	// The per-second limit counts every address's dials.
+	for i := range 3 {
+		if !p.TryDialAddr("replica:6380") {
+			t.Fatalf("replica dial %d refused within the per-second limit", i)
+		}
+	}
+	if p.TryDialAddr("other:6381") {
+		t.Fatal("a fifth dial of the shard within 1 s allowed for another address")
+	}
+	// The kept backoffs stay bounded.
+	for i := range MaxPacedAddrs + 4 {
+		clk.Advance(time.Second)
+		addr := "server-" + string(rune('a'+i)) + ":6379"
+		if p.TryDialAddr(addr) {
+			p.ResultAddr(addr, false)
+		}
+	}
+	if n := len(p.backoffs); n > MaxPacedAddrs {
+		t.Errorf("the pacer keeps %d addresses' backoffs, want at most %d", n, MaxPacedAddrs)
+	}
+}
+
 func TestPacedRefusalIsNotConnectFailure(t *testing.T) {
 	// A dial refused by pacing fails at once without touching the
 	// network and does not count toward the breaker's 5 connect

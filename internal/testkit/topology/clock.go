@@ -94,9 +94,13 @@ func (c *Clock) Advance(ctx context.Context, d time.Duration) error {
 	return nil
 }
 
-// attach adds a started process's command socket and brings its clock to
-// the topology's time, or the topology's other Nodes to its start when it
-// started later. The first process sets the clock's reading.
+// attach adds a started process's command socket and starts its clock at
+// the topology's time with the start command, which the process waits
+// for before it reads the time, so a process started while the clock
+// leads real time, as after a walk, arms no timer from an earlier time.
+// The first process's start, the real time of its attach, sets the
+// clock's reading. No advance runs between the reading and the start, as
+// both hold the clock.
 func (c *Clock) attach(ctx context.Context, name string, p *proc.Process, conn net.Conn) error {
 	m := &member{name: name, proc: p, conn: conn, r: bufio.NewReaderSize(conn, clock.MaxCommandBytes)}
 	c.mu.Lock()
@@ -104,29 +108,19 @@ func (c *Clock) attach(ctx context.Context, name string, p *proc.Process, conn n
 	if c.broken != nil {
 		return c.broken
 	}
-	start, err := c.exchange(ctx, m, clock.CommandNow)
+	start := c.now
+	if !c.set {
+		start = time.Now().UTC().Round(0)
+	}
+	got, err := c.exchange(ctx, m, startLine(start))
+	if err == nil && !got.Equal(start) {
+		err = fmt.Errorf("answered %v, want %v", got, start)
+	}
 	if err != nil {
-		return fmt.Errorf("topology: clock of %s: %w", name, err)
+		return fmt.Errorf("topology: starting the clock of %s at the topology's time: %w", name, err)
 	}
-	m.reading = start
-	switch {
-	case !c.set:
-		c.now, c.set = start, true
-	case start.Before(c.now):
-		got, err := c.exchange(ctx, m, advanceLine(c.now.Sub(start)))
-		if err == nil && !got.Equal(c.now) {
-			err = fmt.Errorf("answered %v, want %v", got, c.now)
-		}
-		if err != nil {
-			return fmt.Errorf("topology: bringing the clock of %s to the topology's time: %w", name, err)
-		}
-		m.reading = got
-	case start.After(c.now):
-		if err := c.advanceLocked(ctx, c.activeLocked(nil), start.Sub(c.now), start); err != nil {
-			return err
-		}
-		c.now = start
-	}
+	m.reading = got
+	c.now, c.set = start, true
 	c.members = append(c.members, m)
 	return nil
 }
@@ -294,3 +288,8 @@ func (c *Clock) exchange(ctx context.Context, m *member, line string) (time.Time
 
 // advanceLine is the advance command for d.
 func advanceLine(d time.Duration) string { return clock.CommandAdvance + " " + d.String() }
+
+// startLine is the start command for at.
+func startLine(at time.Time) string {
+	return clock.CommandStart + " " + at.UTC().Format(clock.CommandTimeLayout)
+}

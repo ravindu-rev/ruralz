@@ -332,6 +332,7 @@ func TestCommandedRefusesBadCommands(t *testing.T) {
 		{"malformed duration", "advance soon", "invalid duration"},
 		{"negative duration", "advance -1s", "negative duration"},
 		{"overlong line", "advance " + strings.Repeat("1", MaxCommandBytes), "longer than"},
+		{"start once the clock started", "start " + epoch().Add(time.Hour).Format(CommandTimeLayout), "comes first only"},
 	}
 	h := newCommander(t, epoch())
 	var fired atomic.Bool

@@ -7,8 +7,11 @@
 #   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
 #            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
 #            artifact and restored the next night.
-#   Chaos    every M1 chaos experiment, failure row and drill against at
-#            least 10 Nodes (CHAOS_SCALE=nightly).
+#   Chaos    every M1 chaos experiment, failure row, lab gate and drill
+#            against at least 10 Nodes (CHAOS_SCALE=nightly), as root so
+#            each handover gets a network namespace of its own; it uploads
+#            the ruralz.chaos.v1 records as chaos-records (90 days) and, on
+#            failure, the harness's evidence.
 #   Functional  the benchmark functional variants: every M1 scenario and
 #            constants run at reduced scale on the loopback profile with
 #            the release build, asserting only criteria that hold on any
@@ -229,7 +232,47 @@ jobs:
           sudo systemctl disable --now redis-server
           echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
           redis-server --version
-      - run: make nightly NIGHTLY_JOB=chaos
+      - name: Chaos suite as root
+        # Root lets V-3 set net.ipv4.tcp_migrate_req in network namespaces
+        # of its own; the runner's Go and caches are kept. make chaos
+        # writes the ruralz.chaos.v1 records and interval logs to
+        # dist/chaos (RURALZ_CHAOS_RECORDS), and a failed test leaves the
+        # harness's evidence in a directory named after it under
+        # RURALZ_TEST_ARTIFACT_DIR (testing strategy, "Result records" and
+        # "Process harness").
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+        run: |
+          sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make nightly NIGHTLY_JOB=chaos
+      - name: Hand the records and evidence to the runner user
+        # The suite ran as root, so root owns the files.
+        if: always()
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+        run: |
+          for d in dist/chaos "$RURALZ_TEST_ARTIFACT_DIR"; do
+            if [[ -d "$d" ]]; then
+              sudo chown -R "$(id -u):$(id -g)" "$d"
+            fi
+          done
+      - name: Upload the chaos records
+        # A failed run's records are its evidence too.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chaos-records
+          path: dist/chaos/
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Upload the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chaos-evidence
+          path: ${{ runner.temp }}/chaos-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
 
   functional:
     name: 11. Functional

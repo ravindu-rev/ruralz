@@ -53,11 +53,11 @@
 // clock command socket as file descriptor 3 (internal/clock.CommandFD) and
 // keeps one clock for all of them, handover successors included: Advance
 // moves every Node's clock and returns once each answered that every timer
-// due by then has fired, and Now reads it. A process's clock starts at the
-// real time the process starts, and a clock never moves backwards, so the
-// harness brings a new process forward to the topology's time at once, or,
-// when the process started later than that time, moves every other Node
-// forward to the new process's start. A Node stopped with Signal(SIGSTOP)
+// due by then has fired, and Now reads it. A process's clock waits for the
+// harness's start command and starts at the topology's time, the first
+// process's at the real time it starts, so a process started while the
+// clock leads real time, as after a walk, reads no earlier time and arms
+// no timer from one. A Node stopped with Signal(SIGSTOP)
 // misses advances and catches up when Signal(SIGCONT) resumes it. External
 // processes (the State Store, the balancer, the mocks) run in real time;
 // the harness waits for them, and for Nodes to act on what a timer
@@ -75,7 +75,9 @@
 // counting RESP proxies, each primary of a process cluster also announces
 // a counting proxy of its own, shared by every Node (StateStore.Proxies),
 // so the commands a cluster's slot map sends to the servers directly are
-// counted too. The harness chooses TLS from
+// counted too; the primaries' replicas replicate through those proxies,
+// so their handshakes and acknowledgments (PING, AUTH, REPLCONF, PSYNC)
+// count beside the Nodes' commands. The harness chooses TLS from
 // internal/testkit/pki and credentials on every hop it owns: rediss:// with
 // an ACL user, an https OTLP sink, and admin TLS through
 // RURALZ_ADMIN_TLS_DIR with operator and metrics tokens. Transport turns

@@ -66,21 +66,21 @@ func TestNodeDirectives(t *testing.T) {
 		n    nodeConfig
 		want []string
 	}{
-		{"standalone", nodeConfig{port: 7000, dir: "/d"}, []string{"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 7000"}},
+		{"standalone", nodeConfig{port: 7000, dir: "/d"}, []string{"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000"}},
 		{"TLS", nodeConfig{port: 7000, dir: "/d", tls: files}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 0", "tls-port 7000", "tls-cert-file /d/server.crt",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 0", "tls-port 7000", "tls-cert-file /d/server.crt",
 			"tls-key-file /d/server.key", "tls-ca-cert-file /d/ca.crt", "tls-auth-clients no", "tls-replication yes",
 		}},
 		{"users and replica", nodeConfig{port: 7001, dir: "/d", users: users, primary: "127.0.0.1:7000"}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 7001", "user ruralz reset on >pw ~* &* +@all",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7001", "user ruralz reset on >pw ~* &* +@all",
 			"user default off", "replicaof 127.0.0.1 7000", "masteruser ruralz", "masterauth pw",
 		}},
 		{"sentinel primary with users", nodeConfig{port: 7000, dir: "/d", users: users, linkAuth: true}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 7000", "user ruralz reset on >pw ~* &* +@all",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000", "user ruralz reset on >pw ~* &* +@all",
 			"user default off", "masteruser ruralz", "masterauth pw",
 		}},
 		{"sentinel primary without users", nodeConfig{port: 7000, dir: "/d", linkAuth: true}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 7000",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000",
 		}},
 		{"sentinel", nodeConfig{port: 26379, dir: "/d", sentinel: &sentinelConfig{masterSet: "ruralz", primary: "127.0.0.1:7000"}}, []string{
 			"bind 127.0.0.1", "dir /d", "port 26379", "sentinel monitor ruralz 127.0.0.1 7000 1",
@@ -94,11 +94,11 @@ func TestNodeDirectives(t *testing.T) {
 			"sentinel failover-timeout ruralz 10000", "sentinel auth-user ruralz ruralz", "sentinel auth-pass ruralz pw",
 		}},
 		{"announced cluster node", nodeConfig{port: 7000, busPort: 17000, dir: "/d", announce: "127.0.0.2:8000"}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 7000", "cluster-enabled yes", "cluster-config-file nodes.conf",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000", "cluster-enabled yes", "cluster-config-file nodes.conf",
 			"cluster-port 17000", "cluster-announce-ip 127.0.0.2", "cluster-announce-port 8000",
 		}},
 		{"announced TLS cluster node", nodeConfig{port: 7000, busPort: 17000, dir: "/d", tls: files, announce: "127.0.0.2:8000"}, []string{
-			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "port 0", "tls-port 7000", "tls-cert-file /d/server.crt",
+			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 0", "tls-port 7000", "tls-cert-file /d/server.crt",
 			"tls-key-file /d/server.key", "tls-ca-cert-file /d/ca.crt", "tls-auth-clients no", "tls-replication yes",
 			"cluster-enabled yes", "cluster-config-file nodes.conf", "cluster-port 17000", "tls-cluster yes",
 			"cluster-announce-ip 127.0.0.2", "cluster-announce-port 8000", "cluster-announce-tls-port 8000",

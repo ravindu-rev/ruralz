@@ -40,14 +40,16 @@ type Options struct {
 	// authenticate.
 	Users []User
 	// Replica adds a replica of the standalone primary, for a scripted
-	// failover (Deployment.Promote). The sentinel kinds always have one.
+	// failover (Deployment.Promote). The sentinel kinds always have one,
+	// and the cluster kinds one per primary.
 	Replica bool
 	// Announce, when set, returns the address clients dial for a primary
 	// ("host:port"), such as a proxy forwarding to addr. URLs name it,
 	// and a cluster node announces it (cluster-announce-ip and
 	// cluster-announce-port), so redirects and CLUSTER SLOTS name it too;
 	// "" keeps addr. It is called once per primary and start attempt,
-	// before the primary starts.
+	// before the primary starts. A cluster's replicas announce their own
+	// addresses, so a promoted replica is reached directly.
 	Announce func(node int, addr string) string
 	// Config holds extra configuration directives, one per element, such
 	// as "maxmemory 64mb". They follow the generated directives, so a
@@ -74,7 +76,7 @@ func (o Options) validate(k Kind) error {
 	switch k.Topology() {
 	case statestore.TopologyCluster:
 		if o.Replica {
-			return fmt.Errorf("redisserver: %s takes no replica", k)
+			return fmt.Errorf("redisserver: %s has a replica per primary already", k)
 		}
 	case statestore.TopologySentinel:
 		if o.Replica {
@@ -167,6 +169,9 @@ func (n nodeConfig) directives() ([]directive, error) {
 		{"dir", n.dir},
 		{"save", ""},
 		{"appendonly", "no"},
+		// A replica's full sync starts at once instead of after the
+		// default 5 s wait for more replicas.
+		{"repl-diskless-sync-delay", "0"},
 	}
 	ds = append(ds, n.listener()...)
 	ds = append(ds, userDirectives(n.users)...)

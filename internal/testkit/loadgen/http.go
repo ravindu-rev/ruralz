@@ -94,6 +94,14 @@ type HTTPConfig struct {
 	// DefaultHTTP1Connections), or sets the HTTP/2 connections requests
 	// spread over (default DefaultHTTP2Connections).
 	Connections int
+	// RoundRobin spreads HTTP/1.1 requests over Connections by sequence
+	// number, as HTTP/2 requests spread, each connection carrying one
+	// request at a time, so a light load still uses every connection:
+	// behind an L4 balancer, which balances connections, it reaches every
+	// backend. Without it Connections bounds a pool that takes its most
+	// recently used idle connection first, so a light load keeps few
+	// connections busy.
+	RoundRobin bool
 	// StreamsPerConn bounds concurrent streams per HTTP/2 connection;
 	// default DefaultHTTP2Streams.
 	StreamsPerConn int
@@ -133,8 +141,9 @@ func LoopbackAddrs(n int) ([]netip.Addr, error) {
 
 // HTTPTarget sends HTTP requests. It never follows redirects and never
 // asks for compression, so each response is the one the server sent.
-// Requests spread over HTTP/2 connections by sequence number; with
-// SourceAddrs they first spread over the source addresses.
+// Requests spread over HTTP/2 connections, and with RoundRobin over
+// HTTP/1.1 connections, by sequence number; with SourceAddrs they first
+// spread over the source addresses.
 type HTTPTarget struct {
 	cfg HTTPConfig
 	// groups holds one group of lanes per source address, or one group
@@ -142,8 +151,9 @@ type HTTPTarget struct {
 	groups [][]*lane
 }
 
-// lane is one connection pool: every HTTP/1.1 connection, or one HTTP/2
-// connection with its stream bound.
+// lane is one connection pool: every HTTP/1.1 connection, or one
+// round-robin HTTP/1.1 connection, or one HTTP/2 connection with its
+// stream bound.
 type lane struct {
 	tr     *http.Transport
 	client *http.Client
@@ -174,6 +184,8 @@ func NewHTTP(c HTTPConfig) (*HTTPTarget, error) {
 		return nil, errors.New("loadgen: StreamsPerConn applies to HTTP/2")
 	case c.Protocol != HTTP1 && c.DisableKeepAlives:
 		return nil, errors.New("loadgen: DisableKeepAlives applies to HTTP/1.1")
+	case c.Protocol != HTTP1 && c.RoundRobin:
+		return nil, errors.New("loadgen: RoundRobin applies to HTTP/1.1; HTTP/2 requests always spread")
 	}
 	if c.Method == "" {
 		c.Method = http.MethodGet
@@ -208,10 +220,13 @@ func NewHTTP(c HTTPConfig) (*HTTPTarget, error) {
 		if g < c.Connections%groups {
 			share++
 		}
-		if c.Protocol == HTTP1 {
+		if c.Protocol == HTTP1 && !c.RoundRobin {
 			t.groups = append(t.groups, []*lane{t.newLane(src, share, 0)})
 			continue
 		}
+		// One lane per connection: an HTTP/2 connection with its stream
+		// bound, or a round-robin HTTP/1.1 connection, whose transport
+		// queues a request while its one connection is busy.
 		var lanes []*lane
 		for range share {
 			lanes = append(lanes, t.newLane(src, 1, c.StreamsPerConn))

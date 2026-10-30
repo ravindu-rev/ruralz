@@ -18,11 +18,14 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
 // The controllable-clock build exits 2 without its command socket, and
-// with it runs on the commanded clock: a 10 s timer fires only once the
-// harness advances the clock past it.
+// with it runs on the commanded clock from the start the harness sends
+// first: a 10 s timer fires only once the harness advances the clock past
+// it.
 func TestTestClockBuildFollowsCommands(t *testing.T) {
 	t.Setenv(EnvBinDir, "")
 	set, err := Build(t.Context(), clockFixture(t), filepath.Join(t.TempDir(), "bin"), BuildOptions{TestClock: true, Commands: []string{Ruralzd}})
@@ -76,7 +79,13 @@ func TestTestClockBuildFollowsCommands(t *testing.T) {
 		}
 		return at
 	}
-	start := ask("now")
+	start := time.Date(2001, 2, 3, 4, 5, 6, 0, time.UTC)
+	if got := ask(clock.CommandStart + " " + start.Format(clock.CommandTimeLayout)); !got.Equal(start) {
+		t.Fatalf("start answered %v, want %v", got, start)
+	}
+	if got := ask("now"); !got.Equal(start) {
+		t.Fatalf("now = %v, want the start %v", got, start)
+	}
 	if got := ask("advance 9s"); got.Sub(start) != 9*time.Second {
 		t.Fatalf("advance 9s moved the clock by %v", got.Sub(start))
 	}

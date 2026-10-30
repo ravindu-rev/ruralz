@@ -144,7 +144,10 @@ func TestStateStoreRESPProxy(t *testing.T) {
 
 // With RESPProxy each primary of a process cluster announces a counting
 // proxy of its own: the cluster's slot map names the proxies, so commands
-// a cluster client sends to the servers directly are counted too.
+// a cluster client sends to the servers directly are counted too. The
+// primaries' replicas replicate through the same proxies, so their
+// handshakes count there as well; the test counts the PING it sends
+// beside them.
 func TestClusterRESPProxiesCountEveryCommand(t *testing.T) {
 	topo := standinTopology(t)
 	ss := topo.StartStateStore("cluster", StateStoreOptions{Kind: redisserver.ProcessCluster, RESPProxy: true})
@@ -167,8 +170,9 @@ func TestClusterRESPProxiesCountEveryCommand(t *testing.T) {
 			t.Errorf("the slot map %v does not name the proxy %s of primary %d", slots, p.Addr(), i)
 		}
 		u := &url.URL{Scheme: "redis", Host: p.Addr(), User: url.UserPassword(StateStoreUser, storePassword(t, ss))}
+		before := p.Snapshot()
 		ping(t, topo, u)
-		if got := p.Snapshot().Count("PING"); got != 1 {
+		if got := p.Snapshot().Sub(before).Count("PING"); got != 1 {
 			t.Errorf("the proxy of primary %d counted %d PING commands, want 1", i, got)
 		}
 	}

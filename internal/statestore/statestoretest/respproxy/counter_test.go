@@ -407,3 +407,26 @@ func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 	cn.up(cmd("GET", "k"))
 	cn.down("$-1\r\n") // the refused delay set nothing
 }
+
+// TestCommandAt checks that each logged command carries the time the
+// Counter read it, on the injected clock.
+func TestCommandAt(t *testing.T) {
+	clk := clocktest.New(time.Unix(100, 0))
+	c := NewCounter(CounterConfig{Clock: clk})
+	cn := newConn(c, 1)
+	cn.up(cmd("GET", "a"))
+	cn.down("$-1\r\n")
+	clk.Advance(250 * time.Millisecond)
+	cn.up(cmd("GET", "b"))
+	cn.down("$-1\r\n")
+	log := c.Log()
+	if len(log) != 2 {
+		t.Fatalf("Log holds %d commands, want 2", len(log))
+	}
+	if want := time.Unix(100, 0); !log[0].At.Equal(want) {
+		t.Errorf("first command At = %v, want %v", log[0].At, want)
+	}
+	if want := time.Unix(100, 250*int64(time.Millisecond)); !log[1].At.Equal(want) {
+		t.Errorf("second command At = %v, want %v", log[1].At, want)
+	}
+}

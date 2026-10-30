@@ -101,10 +101,15 @@ type nodeClock struct {
 	conn net.Conn
 	r    *bufio.Reader
 	gone bool
+	// started is set once the start's answer was read, before the first
+	// advance's.
+	started bool
 }
 
 // commandSocket returns a connected stream socket pair: the test's end,
-// and the child's, which the launcher passes as file descriptor 3.
+// and the child's, which the launcher passes as file descriptor 3. The
+// test's end carries the start command first, at the real time of the
+// call, which the child reads before its first reading.
 func commandSocket(t *testing.T) (*nodeClock, *os.File) {
 	t.Helper()
 	syscall.ForkLock.RLock()
@@ -125,6 +130,9 @@ func commandSocket(t *testing.T) (*nodeClock, *os.File) {
 	}
 	child := os.NewFile(uintptr(fds[1]), "clock-child")
 	t.Cleanup(func() { _ = conn.Close(); _ = child.Close() })
+	if _, err := io.WriteString(conn, clock.CommandStart+" "+time.Now().UTC().Format(clock.CommandTimeLayout)+"\n"); err != nil {
+		t.Fatal(err)
+	}
 	return &nodeClock{conn: conn, r: bufio.NewReaderSize(conn, clock.MaxCommandBytes)}, child
 }
 
@@ -140,6 +148,17 @@ func (c *nodeClock) advance(t *testing.T, d time.Duration) {
 	if _, err := io.WriteString(c.conn, clock.CommandAdvance+" "+d.String()+"\n"); err != nil {
 		c.gone = true
 		return
+	}
+	if !c.started {
+		line, err := c.r.ReadString('\n')
+		if err != nil {
+			c.gone = true
+			return
+		}
+		if strings.HasPrefix(line, clock.AnswerError) {
+			t.Fatalf("the child's clock refused its start: %s", line)
+		}
+		c.started = true
 	}
 	line, err := c.r.ReadString('\n')
 	if err != nil {

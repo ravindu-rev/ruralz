@@ -149,7 +149,10 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 	cluster := k.Topology() == statestore.TopologyCluster
 	n := 1
 	if cluster {
-		n = 3
+		n = clusterPrimaries
+		// Every cluster node holds the replica link credentials: a
+		// replica needs them, and a primary once a failover demotes it.
+		cfg.linkAuth = true
 	}
 	var nodes []clusterNode
 	for i := range n {
@@ -170,6 +173,19 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 	}
 	if cluster {
 		if err := bootstrapCluster(ctx, nodes); err != nil {
+			return nil, err
+		}
+		// One replica per primary, announcing its own address.
+		var replicas []clusterNode
+		for i := range n {
+			s, err := l.startNode(ctx, base, fmt.Sprintf("%s-%d-replica", k, i), cfg, d.acc, true, nil)
+			if err != nil {
+				return nil, err
+			}
+			d.shardReplicas = append(d.shardReplicas, s)
+			replicas = append(replicas, clusterNode{srv: s, host: "127.0.0.1", port: s.node.port, busPort: s.node.busPort})
+		}
+		if err := attachReplicas(ctx, nodes, replicas); err != nil {
 			return nil, err
 		}
 	}

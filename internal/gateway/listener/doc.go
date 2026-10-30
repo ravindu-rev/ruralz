@@ -11,14 +11,15 @@
 //
 // Each client listener serves through K = [Shards] Server shards that
 // share the handler ("Sources, Last-Known-Good and Drain"): the socket's
-// dispatching listener, one accept loop, hands connection n to shard n
-// modulo K through the shard's channel-fed listener, so the shards hold
-// equal shares of the connections. Server.Shutdown sends all of a
-// Server's GOAWAYs at once and ignores hijacked connections, so the Drain
-// shuts the shards down one at a time and clients reconnect in K waves,
-// without a per-connection GOAWAY API or the x/net/http2 Server. A shard
-// that stopped taking connections passes its turn to the next shard
-// still serving.
+// dispatching listener, one accept loop, hands the Node's connection n,
+// counted over every client listener, to shard n modulo K through the
+// shard's channel-fed listener, so shard i of every listener together,
+// one Drain wave, holds an equal share of the Node's connections.
+// Server.Shutdown sends all of a Server's GOAWAYs at once and ignores
+// hijacked connections, so the Drain shuts the shards down one at a time
+// and clients reconnect in K waves, without a per-connection GOAWAY API
+// or the x/net/http2 Server. A shard that stopped taking connections
+// passes its turn to the next shard still serving.
 //
 // Every Server is configured once, at start, with the Bounded resources
 // values: ReadHeaderTimeout (which net/http also applies to the TLS

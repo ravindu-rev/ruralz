@@ -117,7 +117,10 @@ type standinServer struct {
 
 // standIn is the stand-in process.
 type standIn struct {
-	clk        clock.Clock
+	clk clock.Clock
+	// start is the clock's first reading, which a ruralzd process takes
+	// as its start.
+	start      time.Time
 	cfgPath    string
 	secretRoot string
 	auth       *adminauth.Authenticator
@@ -153,6 +156,7 @@ func runStandIn() int {
 		}
 		s.clk = c
 	}
+	s.start = s.clk.Now()
 	s.cfgPath, s.secretRoot = os.Getenv(envConfig), os.Getenv(envSecretRoot)
 	dataDir := os.Getenv(envDataDir)
 	if s.cfgPath == "" || s.secretRoot == "" || dataDir == "" || os.Getenv(envBindLoopback) != "true" {
@@ -545,6 +549,7 @@ func (s *standIn) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Standin-Revision", rev)
 	w.Header().Set("X-Standin-Pid", strconv.Itoa(os.Getpid()))
 	w.Header().Set("X-Standin-Now", s.clk.Now().UTC().Format(clock.CommandTimeLayout))
+	w.Header().Set("X-Standin-Start", s.start.UTC().Format(clock.CommandTimeLayout))
 	w.Header().Set("X-Standin-Timer", timer)
 	w.Header().Set("X-Standin-Client", client)
 	_, _ = io.WriteString(w, "stand-in "+rev+"\n")

@@ -376,6 +376,12 @@ type Progress struct {
 	// once it lies after the clock's time, every due request has been
 	// dispatched.
 	Next time.Time
+	// MeasureStart is the measured phase's start by intended send time
+	// once the warm-up's end is decided, at Start without Settle, when a
+	// checkpoint settles or Settle.Max passes with it; zero before.
+	// Settled reports whether that warm-up settled.
+	MeasureStart time.Time
+	Settled      bool
 }
 
 // Generator is a running load generator.
@@ -403,6 +409,10 @@ type Generator struct {
 	scheduled, finished, missed atomic.Int64
 	next                        atomic.Int64 // offset of the next request to schedule
 	measuring                   atomic.Bool
+	// boundary is the warm-up's end offset once decided, else -1;
+	// settled is stored before it.
+	boundary atomic.Int64
+	settled  atomic.Bool
 	// pending is the offset of the checkpoint awaiting a settle decision,
 	// or -1; workers finishing a request before it wake the scheduler.
 	pending atomic.Int64
@@ -444,8 +454,19 @@ func Start(ctx context.Context, t Target, c Config) (*Generator, error) {
 	g.ph = newPhases(&g.cfg)
 	g.rec = newRecorder(&g.cfg, g.ph.segmentStarts())
 	g.pending.Store(-1)
+	g.boundary.Store(-1)
+	g.publishBoundary()
 	go g.run(ctx)
 	return g, nil
+}
+
+// publishBoundary makes the warm-up's end visible to Progress once it is
+// decided; only the scheduler goroutine calls it after Start.
+func (g *Generator) publishBoundary() {
+	if g.ph.decided && g.boundary.Load() < 0 {
+		g.settled.Store(g.ph.settled)
+		g.boundary.Store(int64(g.ph.boundary))
+	}
 }
 
 // Stop ends the schedule: requests already due are still sent, those in
@@ -473,7 +494,7 @@ func (g *Generator) Progress() Progress {
 	g.mu.Lock()
 	inFlight, backlog := g.inFlight, len(g.backlog)
 	g.mu.Unlock()
-	return Progress{
+	p := Progress{
 		Scheduled: g.scheduled.Load(),
 		Done:      g.finished.Load(),
 		Missed:    g.missed.Load(),
@@ -482,6 +503,10 @@ func (g *Generator) Progress() Progress {
 		Measuring: g.measuring.Load(),
 		Next:      g.start.Add(time.Duration(g.next.Load())),
 	}
+	if b := g.boundary.Load(); b >= 0 {
+		p.MeasureStart, p.Settled = g.start.Add(time.Duration(b)), g.settled.Load()
+	}
+	return p
 }
 
 // StartTime returns the time the schedule began: the intended send time
@@ -524,6 +549,7 @@ func (g *Generator) schedule(ctx context.Context) (time.Duration, error) {
 			// The context ends the run at once; nothing more is sent.
 			end := g.clk.Since(g.start)
 			g.ph.stop(end)
+			g.publishBoundary()
 			return end, err
 		}
 		if stopAt < 0 && g.stopped() {
@@ -531,9 +557,11 @@ func (g *Generator) schedule(ctx context.Context) (time.Duration, error) {
 		}
 		off := g.offset(seq)
 		g.ph.decide(g, off)
+		g.publishBoundary()
 		if stopAt >= 0 && off >= stopAt {
 			// Requests due before the stop instant were still sent.
 			g.ph.stop(stopAt)
+			g.publishBoundary()
 			return stopAt, nil
 		}
 		switch g.ph.admit(seq, off) {
@@ -545,6 +573,7 @@ func (g *Generator) schedule(ctx context.Context) (time.Duration, error) {
 			// the run is stopping.
 			if stopAt >= 0 {
 				g.ph.stop(off)
+				g.publishBoundary()
 				return off, nil
 			}
 			g.waitWake(ctx, timer, -1)
