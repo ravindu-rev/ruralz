@@ -33,10 +33,11 @@ func quietLimits() statestore.Limits {
 }
 
 // TestSentinelFindsThePrimary: topology sentinel asks the URL's sentinel
-// for master_set's primary, checks its ROLE and sends every call there;
-// the sentinel connection gets no credentials and no script load, which
-// the primary's gets before its first EVALSHA, and the primary is one
-// shard whatever its address.
+// for master_set's primary, checks its ROLE and sends every call there,
+// and subscribes to its events, which the sentinel client does on a
+// goroutine of its own; the sentinel connection gets no credentials and
+// no script load, which the primary's gets before its first EVALSHA, and
+// the primary is one shard whatever its address.
 func TestSentinelFindsThePrimary(t *testing.T) {
 	f := newFixture(t, fixtureOptions{sentinel: 2, limits: quietLimits()})
 	f.ready()
@@ -44,6 +45,7 @@ func TestSentinelFindsThePrimary(t *testing.T) {
 	if f.consume(c); c.Err != nil || !c.Done {
 		t.Fatalf("call through the sentinel: Done %v Err %v", c.Done, c.Err)
 	}
+	waitFor(t, "the event subscription", func() bool { return f.sent.subscribers() > 0 })
 	if f.nodes[0].count("EVALSHA") != 1 || f.nodes[1].count("EVALSHA") != 0 {
 		t.Fatalf("EVALSHA on the primary %d, on the other server %d; want 1, 0", f.nodes[0].count("EVALSHA"), f.nodes[1].count("EVALSHA"))
 	}

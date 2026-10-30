@@ -90,12 +90,16 @@
 // (statestore.Deps.Zone): same, cross, or unknown for a host without an
 // entry, a slot without a known owner or a Node without a zone. A slot map
 // change labels the slot's next call by its new primary; under sentinel,
-// every dial of the primary the sentinels named, and every maintenance
-// pass reading the primary the client sends to, moves the primary shard to
-// that server's zone. A pipelined round trip over several servers is cross
-// when any of them is, else unknown when any of them is. SetZones replaces
-// the zone map, which a Hot Reload may change without reopening the
-// driver, and touches no connection.
+// every dial of the primary the sentinels named moves the primary shard to
+// that server's zone at once, before the ROLE check after which the client
+// sends there. A maintenance pass that finds the client sending to another
+// server moves the shard to that server's zone only when the next pass
+// finds the same dial still unconfirmed, as after a failed ROLE check or a
+// redial of the previous primary, so a pass racing a switch never takes
+// the shard back to the old primary. A pipelined round trip over several
+// servers is cross when any of them is, else unknown when any of them is.
+// SetZones replaces the zone map, which a Hot Reload may change without
+// reopening the driver, and touches no connection.
 //
 // Consume merges the longest prefix of calls sharing a hash slot into one
 // EVALSHA of the ruralz_v1.lua library (script_multi when longer than one).

@@ -54,6 +54,13 @@ type Options struct {
 	Tick time.Duration
 	// AdminTimeout bounds maintenance commands (DefaultAdminTimeout).
 	AdminTimeout time.Duration
+	// Dropped, when set, runs each time the State client has dropped a
+	// connection that ended: no later call goes out on it, and a call
+	// rueidis would have sent on it dials a new connection instead.
+	// rueidis notices a closed connection on its own goroutine, so a test
+	// that closes connections under the client waits for it before its
+	// next call; nil in production.
+	Dropped func()
 }
 
 // DefaultOptions returns the production options.
@@ -121,6 +128,10 @@ type Driver struct {
 	// lastRefresh is when the maintenance goroutine last read the slot
 	// map; it owns the field.
 	lastRefresh time.Time
+	// unconfirmed is the sentinel primary's recorded host, by identity,
+	// that the last maintenance pass found the client not sending to;
+	// the maintenance goroutine owns the field (followPrimary).
+	unconfirmed *string
 
 	trips sync.Pool
 

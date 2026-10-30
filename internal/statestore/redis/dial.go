@@ -98,7 +98,7 @@ func (d *Driver) dial(ctx context.Context, dst string, dialer *net.Dialer, tlsCf
 			// Every other connection of the sentinel topology goes to the
 			// primary the sentinels named: its host labels the primary
 			// shard's calls from this answer on.
-			d.single.setHost(dst)
+			d.single.recordDial(dst)
 		}
 	}
 	tc := &trackedConn{Conn: nc, d: d, sh: sh, sentinel: sentinel}

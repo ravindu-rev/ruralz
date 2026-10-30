@@ -160,6 +160,9 @@ type fixture struct {
 	m     *metrics
 	logs  *logRecorder
 	gate  *statestore.InFlight
+	// dropped counts the connections the State client dropped
+	// (Options.Dropped).
+	dropped atomic.Int64
 }
 
 // fixtureOptions adjust a fixture.
@@ -268,6 +271,9 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 	if o.opts.Rand == nil {
 		o.opts.Rand = lowRand
 	}
+	if o.opts.Dropped == nil {
+		o.opts.Dropped = func() { f.dropped.Add(1) }
+	}
 	d, err := New(t.Context(), statestore.Config{
 		Role: o.role, Driver: statestore.DriverRedis, Topology: o.topology, URL: url, DefaultTimeout: o.timeout, TLS: o.tls,
 		Zones: o.zones,
@@ -297,6 +303,32 @@ func (f *fixture) ready() {
 	case <-time.After(10 * time.Second):
 		f.t.Fatal("the State client was not created")
 	}
+}
+
+// awaitIdle waits until the maintenance goroutine finished its pass and
+// armed its next tick, the one timer a driver without a call or probe in
+// flight holds on the fake clock, so the next advance fires that tick
+// and never overtakes a pass still running.
+func (f *fixture) awaitIdle() {
+	f.t.Helper()
+	ctx, cancel := context.WithTimeout(f.t.Context(), 10*time.Second)
+	defer cancel()
+	if err := f.clk.BlockUntil(ctx, 1); err != nil {
+		f.t.Fatalf("the maintenance goroutine never armed its next tick: %v", err)
+	}
+}
+
+// awaitDropped waits until the State client dropped every connection it
+// opened to the standalone server, one per HELLO the server answered,
+// after the test or the server closed them all while no maintenance pass
+// was sending. rueidis notices a closed connection on its own goroutine:
+// until then a call can still go out on it and fail with a connection
+// error instead of dialing anew.
+func (f *fixture) awaitDropped() {
+	f.t.Helper()
+	waitFor(f.t, "the client to drop its closed connections", func() bool {
+		return f.dropped.Load() == int64(f.srv.count("HELLO"))
+	})
 }
 
 // waitFor polls cond on real time until it holds.

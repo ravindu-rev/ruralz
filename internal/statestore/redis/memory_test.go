@@ -108,8 +108,8 @@ func TestFailedReadingRetriedAfterOneSecond(t *testing.T) {
 	}})
 	f.ready()
 	waitFor(t, "the first reading attempt", func() bool { return f.srv.count("INFO") == 1 && !f.d.single.mem.due(f.clk.Now()) })
-	if got := f.nextReading(); got < time.Second || got > time.Second+250*time.Millisecond {
-		t.Fatalf("failed reading retried after %v, want 1 s", got)
+	if got := f.nextReading(); got != time.Second {
+		t.Fatalf("failed reading retried after %v, want 1s", got)
 	}
 }
 
@@ -154,17 +154,31 @@ func TestStoresSkipAbove70Percent(t *testing.T) {
 	if f.d.AdmitStoreBytes(cacheKey(), 0) {
 		t.Fatal("a store was admitted above 70% of maxmemory")
 	}
-	if got := f.nextReading(); got < time.Second || got > time.Second+250*time.Millisecond {
-		t.Fatalf("next reading after %v above 50%%, want 1 s", got)
+	if got := f.nextReading(); got != time.Second {
+		t.Fatalf("next reading after %v above 50%%, want 1s", got)
 	}
 }
 
-// nextReading advances the fake clock in maintenance ticks until the next
-// INFO arrives and returns the fake time it took.
+// maxReadingTicks bounds the maintenance ticks nextReading steps through:
+// 100 s of fake time, ten slow reading intervals.
+const maxReadingTicks = 400
+
+// nextReading steps the fake clock one maintenance tick at a time until
+// the next INFO arrives and returns the fake time it took. Each step
+// waits until the maintenance goroutine finished its pass and armed its
+// next tick, then advances exactly to that tick, so the time measured is
+// the reading's interval, never an advance that overtook a pass.
 func (f *fixture) nextReading() time.Duration {
 	f.t.Helper()
+	f.awaitIdle()
 	from, infos := f.clk.Now(), f.srv.count("INFO")
-	f.advanceWhile("the next reading", func() bool { return f.srv.count("INFO") > infos }, 250*time.Millisecond)
+	for i := 0; f.srv.count("INFO") == infos; i++ {
+		if i == maxReadingTicks {
+			f.t.Fatalf("no reading within %d maintenance ticks", maxReadingTicks)
+		}
+		f.clk.Advance(f.d.opts.Tick)
+		f.awaitIdle()
+	}
 	return f.clk.Now().Sub(from)
 }
 
@@ -174,8 +188,8 @@ func TestPollCadence(t *testing.T) {
 	f := newFixture(t, fixtureOptions{fake: fakeOptions{info: memInfo(100, 10_000, noEviction)}})
 	f.ready()
 	f.readingOf(100, 0)
-	if got := f.nextReading(); got < 10*time.Second || got > 10*time.Second+250*time.Millisecond {
-		t.Fatalf("next reading after %v at 1%%, want 10 s", got)
+	if got := f.nextReading(); got != 10*time.Second {
+		t.Fatalf("next reading after %v at 1%%, want 10s", got)
 	}
 }
 

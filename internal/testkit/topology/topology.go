@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
+	"github.com/ravindu-rev/ruralz/internal/gateway/reuseport"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockidp"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/otlpsink"
@@ -127,9 +128,12 @@ type Topology struct {
 	canaries *canarySet
 	captures *captureStore
 
-	mu         sync.Mutex
-	nodes      []*Node
-	ports      map[int]bool // every port handed out
+	mu    sync.Mutex
+	nodes []*Node
+	ports map[int]bool // every port handed out
+	// held keeps the ports handed out bound until the teardown
+	// (freePort).
+	held       []*reuseport.Socket
 	stores     map[string]*StateStore
 	balancers  []*Balancer
 	mocks      []*mockup.Server
@@ -301,35 +305,90 @@ func (t *Topology) writeBundle() error {
 
 // freePort returns a loopback port free on 127.0.0.1 and, where the host
 // has IPv6, on ::1 (a Node under RURALZ_BIND_LOOPBACK binds both) that the
-// topology has not handed out before.
+// topology has not handed out before. On Linux the topology holds the port
+// until its teardown with sockets bound to it that never listen
+// (reservePort): the kernel gives a bound port to no connection's
+// ephemeral port and no bind of port 0, while a Node, whose sockets set
+// SO_REUSEADDR, binds it and listens all the same. So no other socket
+// takes the port between the render that names it and the Node's bind, or
+// between a Node's exit and its restart.
 func (t *Topology) freePort(ctx context.Context) (int, error) {
 	const attempts = 100
 	for range attempts {
-		ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
-		if err != nil {
-			return 0, fmt.Errorf("topology: free port: %w", err)
-		}
-		port := ln.Addr().(*net.TCPAddr).Port
-		v6, err := (&net.ListenConfig{}).Listen(ctx, "tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
-		if err == nil {
-			_ = v6.Close()
-		}
-		_ = ln.Close()
-		// Any other failure means the host has no IPv6 loopback.
+		port, held, err := reservePort(ctx)
 		if errors.Is(err, syscall.EADDRINUSE) {
 			continue
 		}
+		if err != nil {
+			return 0, fmt.Errorf("topology: free port: %w", err)
+		}
 		t.mu.Lock()
-		taken := t.ports[port]
-		if !taken {
+		torn, taken := t.torn, t.ports[port]
+		if !torn && !taken {
 			t.ports[port] = true
+			t.held = append(t.held, held...)
 		}
 		t.mu.Unlock()
-		if !taken {
+		switch {
+		case torn:
+			closeAll(held)
+			return 0, errTorn
+		case !taken:
 			return port, nil
 		}
+		closeAll(held)
 	}
 	return 0, fmt.Errorf("topology: no free loopback port in %d attempts", attempts)
+}
+
+// reservePort binds sockets that never listen to 127.0.0.1 on a port the
+// kernel picks and, where the host has IPv6, to ::1 on the same port, and
+// returns the port and the sockets holding it; an error matching
+// syscall.EADDRINUSE means ::1 already uses the port. Where only listening
+// sockets bind (reuseport.Bind is Linux only), it probes the port with
+// listeners it closes at once and holds nothing.
+func reservePort(ctx context.Context) (int, []*reuseport.Socket, error) {
+	v4, err := reuseport.Bind(ctx, "127.0.0.1:0")
+	if errors.Is(err, errors.ErrUnsupported) {
+		port, err := probePort(ctx)
+		return port, nil, err
+	}
+	if err != nil {
+		return 0, nil, err
+	}
+	port := v4.Addr().(*net.TCPAddr).Port
+	v6, err := reuseport.Bind(ctx, net.JoinHostPort("::1", strconv.Itoa(port)))
+	switch {
+	case err == nil:
+		return port, []*reuseport.Socket{v4, v6}, nil
+	case errors.Is(err, syscall.EADDRINUSE):
+		_ = v4.Close()
+		return 0, nil, err
+	default:
+		// Any other failure means the host has no IPv6 loopback.
+		return port, []*reuseport.Socket{v4}, nil
+	}
+}
+
+// probePort returns a port free on 127.0.0.1 and, where the host has
+// IPv6, on ::1, found with listeners it closes at once; an error matching
+// syscall.EADDRINUSE means ::1 already uses the port.
+func probePort(ctx context.Context) (int, error) {
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp4", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = ln.Close() }()
+	port := ln.Addr().(*net.TCPAddr).Port
+	v6, err := (&net.ListenConfig{}).Listen(ctx, "tcp6", net.JoinHostPort("::1", strconv.Itoa(port)))
+	switch {
+	case err == nil:
+		_ = v6.Close()
+	case errors.Is(err, syscall.EADDRINUSE):
+		return 0, err
+	}
+	// Any other failure means the host has no IPv6 loopback.
+	return port, nil
 }
 
 // Nodes returns the Nodes in creation order.

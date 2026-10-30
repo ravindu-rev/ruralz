@@ -82,6 +82,17 @@ func (sh *shard) setHost(addr string) {
 	}
 }
 
+// recordDial records the host of addr, a primary the sentinel client
+// dials, as the sentinel topology's primary shard's server host: a new
+// recording at every dial, even of the host already recorded, since
+// followPrimary tells recordings apart by identity and starts over at
+// each one. The host stays when addr has none.
+func (sh *shard) recordDial(addr string) {
+	if h := hostOf(addr); h != nil {
+		sh.host.Store(h)
+	}
+}
+
 // tripZone returns the zone label of tr's round trip, from the servers of
 // the shards its commands go to, read before it is sent: the shard's
 // primary in the slot map, the standalone endpoint or the primary the
@@ -107,16 +118,33 @@ func (d *Driver) tripZone(tr *trip) int {
 	return zone
 }
 
-// followPrimary records the address of the primary the sentinel client
-// sends to as the sentinel topology's primary shard's server host. The
-// dialer records every primary dial at once; this reading corrects a dial
-// to a server whose ROLE check then failed, or a redial of the previous
-// primary racing the switch.
+// followPrimary keeps the sentinel topology's primary shard's server host
+// on the primary the sentinel client sends to. The dialer records every
+// primary dial's host at once (recordDial), so a sentinel answer labels
+// the next call by its new primary as soon as the client dials it, before
+// the ROLE check after which the client sends there. A pass that finds the
+// client sending elsewhere may be racing that switch, so it leaves the
+// recording the first time and corrects it only when the next pass finds
+// the same recording still unconfirmed: a dial to a server whose ROLE
+// check then failed, or a redial of the previous primary racing the
+// switch. A dial meanwhile, during the pass included, makes a new
+// recording, which starts over.
 func (d *Driver) followPrimary(c rueidis.Client) {
 	if d.topo != statestore.TopologySentinel || c == nil {
 		return
 	}
+	sh := d.single
+	cur := sh.host.Load()
 	for addr := range c.Nodes() {
-		d.single.setHost(addr)
+		primary := hostOf(addr)
+		switch {
+		case primary == nil, cur != nil && *cur == *primary:
+			d.unconfirmed = nil
+		case cur != d.unconfirmed:
+			d.unconfirmed = cur
+		default:
+			sh.host.CompareAndSwap(cur, primary)
+			d.unconfirmed = nil
+		}
 	}
 }

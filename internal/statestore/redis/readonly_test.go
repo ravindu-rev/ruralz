@@ -15,7 +15,10 @@ import (
 // demoted behind an endpoint that now names the new primary, fails its
 // call (RZ-STS-002), closes the shard's connections and logs once; a
 // second READONLY within minRefreshGap closes nothing, one after it closes
-// again, and the redial reaches the new primary.
+// again, and the redial reaches the new primary. Each call after the
+// connections closed waits until the client dropped them, so it dials
+// anew instead of going out on a closed connection, whichever of the two
+// pipelined connections rueidis picks.
 func TestReadOnlyReconnects(t *testing.T) {
 	f := newFixture(t, fixtureOptions{limits: quietLimits()})
 	f.ready()
@@ -32,6 +35,7 @@ func TestReadOnlyReconnects(t *testing.T) {
 		t.Fatalf("%d connections open after READONLY, want 0", n)
 	}
 	waitFor(t, "the server to see its connections close", func() bool { return f.srv.open() == 0 })
+	f.awaitDropped()
 
 	// Within minRefreshGap the next READONLY keeps its redialed connection.
 	if c := gcraCall(statestore.DigestOf("k"), oneLimit()); f.consume(c) == 0 || c.Err != statestore.ErrFailed {
@@ -55,6 +59,7 @@ func TestReadOnlyReconnects(t *testing.T) {
 	// The endpoint now reaches the new primary.
 	f.srv.setReplica(false)
 	f.clk.Advance(time.Second)
+	f.awaitDropped()
 	accepted := f.srv.connections()
 	c = gcraCall(statestore.DigestOf("k"), oneLimit())
 	if f.consume(c); c.Err != nil {

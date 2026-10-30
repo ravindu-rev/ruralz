@@ -23,6 +23,9 @@ type Fake struct {
 	mu     sync.Mutex
 	now    time.Time
 	timers []*fakeTimer
+	// changed is closed, then cleared, whenever the armed timers change,
+	// waking BlockUntil; nil while nobody waits.
+	changed chan struct{}
 }
 
 // New returns a Fake set to start.
@@ -84,6 +87,7 @@ func (f *Fake) Set(t time.Time) {
 		}
 		ft := f.timers[0]
 		f.timers = f.timers[1:]
+		f.changedLocked()
 		f.now = ft.at
 		at := ft.at
 		f.mu.Unlock()
@@ -98,6 +102,41 @@ func (f *Fake) Pending() int {
 	return len(f.timers)
 }
 
+// BlockUntil blocks until exactly n timers are armed, the count Pending
+// returns, or until ctx is done, returning ctx.Err() then. A test calls it
+// before Advance to wait until the goroutines it drives have armed the
+// timers they block on: the advance then fires exactly those timers, and
+// never races a goroutine that is still running, as advancing after a
+// real-time sleep does.
+func (f *Fake) BlockUntil(ctx context.Context, n int) error {
+	for {
+		f.mu.Lock()
+		if len(f.timers) == n {
+			f.mu.Unlock()
+			return nil
+		}
+		if f.changed == nil {
+			f.changed = make(chan struct{})
+		}
+		changed := f.changed
+		f.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// changedLocked wakes the BlockUntil callers after the armed timers
+// changed; the caller holds f.mu.
+func (f *Fake) changedLocked() {
+	if f.changed != nil {
+		close(f.changed)
+		f.changed = nil
+	}
+}
+
 // add arms ft to fire after d; d <= 0 fires it at once without arming.
 // ft.at is written only under f.mu, and the fire time is read under it too,
 // so a Reset on one goroutine never races an Advance on another.
@@ -107,6 +146,7 @@ func (f *Fake) add(ft *fakeTimer, d time.Duration) *fakeTimer {
 	at := ft.at
 	if d > 0 {
 		f.timers = append(f.timers, ft)
+		f.changedLocked()
 	}
 	f.mu.Unlock()
 	if d <= 0 {
@@ -123,6 +163,7 @@ func (f *Fake) remove(ft *fakeTimer) bool {
 		return false
 	}
 	f.timers = slices.Delete(f.timers, i, i+1)
+	f.changedLocked()
 	return true
 }
 

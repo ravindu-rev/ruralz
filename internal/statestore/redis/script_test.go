@@ -91,15 +91,19 @@ func (f *fixture) warmConns() {
 
 // TestScriptReloadedOnReconnect checks failover: the server loses its
 // scripts and every connection, and the reconnect's SCRIPT LOAD lets the
-// first call after it succeed without NOSCRIPT.
+// first call after it succeed without NOSCRIPT. The connections drop only
+// once the first maintenance pass, whose memory reading would otherwise
+// dial a connection the drop misses, has ended, and the call waits until
+// the client dropped them, so it dials anew instead of going out on one.
 func TestScriptReloadedOnReconnect(t *testing.T) {
 	f := newFixture(t, fixtureOptions{})
 	f.ready()
 	f.consume(gcraCall(statestore.DigestOf("k"), oneLimit()))
+	f.awaitIdle()
 	before := f.srv.count("SCRIPT LOAD")
 	f.srv.flushScripts()
 	f.srv.dropConns()
-	waitFor(t, "the dropped connections to close", func() bool { return f.d.conns.len() == 0 })
+	f.awaitDropped()
 	c := gcraCall(statestore.DigestOf("k2"), oneLimit())
 	f.consume(c)
 	if c.Err != nil || !c.Done {

@@ -15,8 +15,8 @@ import (
 )
 
 // Tests for Fake ordering, Stop and Reset results, AfterFunc in Advance,
-// Sleep cancellation, and zero or negative durations firing at once like
-// clock.Real.
+// Sleep cancellation, zero or negative durations firing at once like
+// clock.Real, and BlockUntil waking on every change to the armed timers.
 
 var _ clock.Clock = (*Fake)(nil)
 
@@ -479,5 +479,115 @@ func TestFireTimeIsDeadlineAtFire(t *testing.T) {
 		}
 	default:
 		t.Fatal("timer did not fire")
+	}
+}
+
+// waiting reports whether a BlockUntil call is blocked on f, waiting for
+// the armed timers to change.
+func waiting(f *Fake) bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.changed != nil
+}
+
+// blockUntil runs f.BlockUntil(ctx, n) in a goroutine, waits until it
+// blocks, and returns the channel that receives its result.
+func blockUntil(ctx context.Context, t *testing.T, f *Fake, n int) <-chan error {
+	t.Helper()
+	errc := make(chan error, 1)
+	go func() { errc <- f.BlockUntil(ctx, n) }()
+	waitFor(t, "BlockUntil to block", func() bool { return waiting(f) })
+	return errc
+}
+
+// returned waits for a BlockUntil result.
+func returned(t *testing.T, errc <-chan error) error {
+	t.Helper()
+	select {
+	case err := <-errc:
+		return err
+	case <-time.After(10 * time.Second):
+		t.Fatal("BlockUntil did not return")
+		return nil
+	}
+}
+
+// BlockUntil returns at once when exactly n timers are armed, even on a
+// done context, since nothing is left to wait for.
+func TestBlockUntilReturnsAtOnceWhenArmed(t *testing.T) {
+	f := New(epoch())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := f.BlockUntil(ctx, 0); err != nil {
+		t.Fatalf("BlockUntil(0) on a clock without timers = %v, want nil", err)
+	}
+	f.NewTimer(time.Second)
+	f.AfterFunc(time.Minute, func() {})
+	if err := f.BlockUntil(ctx, 2); err != nil {
+		t.Fatalf("BlockUntil(2) with 2 armed timers = %v, want nil", err)
+	}
+}
+
+// BlockUntil wakes when a goroutine arms the timer it then blocks on, so
+// the advance that follows fires that timer.
+func TestBlockUntilWaitsForAGoroutineToArm(t *testing.T) {
+	f := New(epoch())
+	errc := blockUntil(t.Context(), t, f, 1)
+	slept := make(chan error, 1)
+	go func() { slept <- f.Sleep(t.Context(), time.Minute) }()
+	if err := returned(t, errc); err != nil {
+		t.Fatalf("BlockUntil(1) = %v, want nil", err)
+	}
+	if f.Pending() != 1 {
+		t.Fatalf("Pending after BlockUntil(1) = %d, want 1", f.Pending())
+	}
+	f.Advance(time.Minute)
+	select {
+	case err := <-slept:
+		if err != nil {
+			t.Fatalf("Sleep = %v, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the advance after BlockUntil did not end the Sleep")
+	}
+}
+
+// BlockUntil wakes for each way a timer stops being armed: Stop, firing
+// in Advance, and Reset to a non-positive duration.
+func TestBlockUntilCountsDisarmedTimers(t *testing.T) {
+	f := New(epoch())
+	stopped := f.NewTimer(time.Hour)
+	fired := f.AfterFunc(time.Second, func() {})
+	reset := f.NewTimer(time.Hour)
+	steps := []struct {
+		name   string
+		disarm func()
+	}{
+		{"Stop", func() { stopped.Stop() }},
+		{"Advance", func() { f.Advance(time.Second) }},
+		{"Reset(0)", func() { reset.Reset(0) }},
+	}
+	for i, step := range steps {
+		want := len(steps) - 1 - i
+		errc := blockUntil(t.Context(), t, f, want)
+		step.disarm()
+		if err := returned(t, errc); err != nil {
+			t.Fatalf("after %s: BlockUntil(%d) = %v, want nil", step.name, want, err)
+		}
+	}
+	if fired.Stop() {
+		t.Fatal("the AfterFunc timer was still armed after its Advance")
+	}
+}
+
+// BlockUntil returns ctx.Err() once its context ends while the count
+// differs.
+func TestBlockUntilCancellation(t *testing.T) {
+	f := New(epoch())
+	ctx, cancel := context.WithCancel(t.Context())
+	errc := blockUntil(ctx, t, f, 1)
+	cancel()
+	if err := returned(t, errc); !errors.Is(err, context.Canceled) {
+		t.Fatalf("BlockUntil after cancel = %v, want context.Canceled", err)
 	}
 }

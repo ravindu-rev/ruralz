@@ -274,8 +274,48 @@ func TestZoneSentinelFollowsSwitchMaster(t *testing.T) {
 	}
 }
 
-// TestZoneSentinelTickFollowsPrimary checks that the maintenance pass
-// sets the primary shard's server host to the primary the sentinel client
+// TestZoneSentinelPassKeepsASwitchInProgress checks a maintenance pass
+// racing a sentinel answer: the switch's dial records the new primary's
+// host before the client sends there, and a pass that still finds the
+// client on the old primary leaves it, so the call after the switch is
+// labeled by the new primary at once. A recording two passes in a row
+// find unconfirmed is corrected to the primary the client sends to, and a
+// dial between two passes, of the recorded host too, starts over.
+func TestZoneSentinelPassKeepsASwitchInProgress(t *testing.T) {
+	f := newFixture(t, fixtureOptions{sentinel: 2, hosts: []string{"127.0.0.1", "127.0.0.2"}, limits: quietLimits()})
+	f.ready()
+	f.awaitIdle()
+	c := f.d.loadClient()
+	host := func() string {
+		if h := f.d.single.host.Load(); h != nil {
+			return *h
+		}
+		return ""
+	}
+	steps := []struct {
+		name string
+		dial string // the address a primary dial records first, if any
+		want string
+	}{
+		{"a pass during the switch", f.nodes[1].addr, "127.0.0.2"},
+		{"a pass after a redial of the recorded host", f.nodes[1].addr, "127.0.0.2"},
+		{"a pass after a dial of another host", "127.0.0.3:6379", "127.0.0.3"},
+		{"a second pass on one recording", "", "127.0.0.1"},
+		{"a pass on the primary", "", "127.0.0.1"},
+	}
+	for _, s := range steps {
+		if s.dial != "" {
+			f.d.single.recordDial(s.dial)
+		}
+		f.d.followPrimary(c)
+		if got := host(); got != s.want {
+			t.Fatalf("%s: primary host %q, want %q", s.name, got, s.want)
+		}
+	}
+}
+
+// TestZoneSentinelTickFollowsPrimary checks that the maintenance passes
+// set the primary shard's server host to the primary the sentinel client
 // sends to, correcting a host a dial recorded for a server that did not
 // become the primary.
 func TestZoneSentinelTickFollowsPrimary(t *testing.T) {

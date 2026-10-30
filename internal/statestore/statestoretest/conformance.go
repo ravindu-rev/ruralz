@@ -1016,8 +1016,11 @@ func quotaWindowCases() []conformanceCase {
 			})
 		}},
 		{name: "quota/refund-after-expiry", skip: needInspect, run: func(s *suite) {
-			// A refund after the window's key expired creates no key.
-			w := time.Second
+			// A refund after the window's key expired creates no key. The
+			// window scales with real time like every case's, as half of
+			// it is the time the reserve may take before the store refuses
+			// its candidate windows as skewed.
+			w := time.Second * s.unit
 			n, d := s.name("q"), s.digest("k")
 			q := s.quota("reserve", n, w, 10, d)
 			s.advance(q.WindowStart.Add(2*w).Sub(q.ServerNow) + 50*time.Millisecond*s.unit)

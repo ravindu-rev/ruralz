@@ -133,7 +133,7 @@ func TestConformanceFakeClock(t *testing.T) {
 
 func TestConformanceRealClock(t *testing.T) {
 	if testing.Short() {
-		t.Skip("sleeps about 10 s of real time")
+		t.Skip("sleeps about 20 s of real time")
 	}
 	statestoretest.RunConformance(t, fakeHarness(false))
 }

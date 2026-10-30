@@ -36,6 +36,7 @@ func (t *Topology) tearDown() {
 	slices.SortFunc(stores, func(a, b *StateStore) int { return strings.Compare(a.name, b.name) })
 	mocks, idps, sinks := slices.Clone(t.mocks), slices.Clone(t.idps), slices.Clone(t.sinks)
 	balancers, transports := slices.Clone(t.balancers), slices.Clone(t.transports)
+	held := slices.Clone(t.held)
 	t.mu.Unlock()
 	ctx := t.ctx
 
@@ -97,6 +98,8 @@ func (t *Topology) tearDown() {
 	t.clock.close()
 	t.cancel()
 	t.watchers.Wait()
+	// Every Node has exited: no restart binds the held ports any more.
+	closeAll(held)
 	if err := os.RemoveAll(t.root); err != nil {
 		t.t.Errorf("topology: %v", err)
 	}

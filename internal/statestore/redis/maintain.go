@@ -44,6 +44,18 @@ func (d *Driver) options() rueidis.ClientOption {
 	}
 	opt.DialFn = nil
 	opt.DialCtxFn = d.dial
+	opt.OnInvalidations = nil
+	if dropped := d.opts.Dropped; dropped != nil {
+		// rueidis invalidates every key a connection tracked, a nil
+		// invalidation, once the connection ended and its client stopped
+		// routing calls to it; with client-side caching off, no other
+		// invalidation arrives.
+		opt.OnInvalidations = func(keys []rueidis.RedisMessage) {
+			if keys == nil {
+				dropped()
+			}
+		}
+	}
 	opt.DisableCache = true
 	opt.DisableRetry = true
 	opt.AlwaysPipelining = true
