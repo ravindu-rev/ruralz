@@ -78,7 +78,7 @@ const (
 	varMockImage      = "RURALZ_COMPOSE_MOCK_IMAGE"
 	varRun            = "RURALZ_COMPOSE_RUN"
 	varValkeyImage    = "RURALZ_COMPOSE_VALKEY_IMAGE"
-	varValkeyPassword = "RURALZ_COMPOSE_VALKEY_PASSWORD"
+	varValkeyPassword = "RURALZ_COMPOSE_VALKEY_PASSWORD" //nolint:gosec // G101: the name of the variable, not a credential
 	varCollectorImage = "RURALZ_COMPOSE_COLLECTOR_IMAGE"
 	varUID            = "RURALZ_COMPOSE_UID"
 	varGID            = "RURALZ_COMPOSE_GID"
@@ -95,7 +95,7 @@ const (
 	svcOld       = "ruralzd-old"
 	svcNew       = "ruralzd-new"
 	svcProbe     = "probe"
-	svcIdP       = "idp"
+	svcIDP       = "idp"
 	svcValkey    = "valkey"
 	svcCollector = "otel-collector"
 )
@@ -116,7 +116,7 @@ const (
 	nodeDataDir     = "/var/lib/ruralz"
 	nodeBundleDir   = "/etc/ruralz-bundle"
 	nodeAdminDir    = "/run/ruralz-admin"
-	nodeSecretRoot  = "/etc/ruralz"
+	nodeSecretRoot  = "/etc/ruralz" //nolint:gosec // G101: a directory path, not a credential
 	nodeCABundle    = "/etc/ssl/certs/ca-certificates.crt"
 	nodeResolvConf  = "/etc/resolv.conf"
 	stopGracePeriod = "40s"

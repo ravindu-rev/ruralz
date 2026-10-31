@@ -83,7 +83,7 @@ func TestRunProbe(t *testing.T) {
 	defer ns.Close()
 	sink := newTestSink(t)
 	ctl := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, sink.Log())
+		writeJSON(w, sink.Log())
 	}))
 	defer ctl.Close()
 

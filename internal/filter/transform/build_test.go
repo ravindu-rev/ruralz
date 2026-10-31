@@ -55,12 +55,18 @@ func TestBuildRefusesFindings(t *testing.T) {
 		cfg  any
 		want string
 	}{
-		{&v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("path", "p", `"/a"`), reqSet("header", "host", `"a"`)}},
-			"transform.request: config.set[0].name: target path takes no name"},
-		{&v1alpha1.TransformResponseConfig{Set: []v1alpha1.TransformResponseSet{respSet("query", "a", `"b"`)}},
-			`transform.response: config.set[0].target: target "query" is not header or body`},
-		{&v1alpha1.TransformResponseConfig{ContentType: ptr("json")},
-			`transform.response: config.contentType: "json" is not an RFC 9110 media type`},
+		{
+			&v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("path", "p", `"/a"`), reqSet("header", "host", `"a"`)}},
+			"transform.request: config.set[0].name: target path takes no name",
+		},
+		{
+			&v1alpha1.TransformResponseConfig{Set: []v1alpha1.TransformResponseSet{respSet("query", "a", `"b"`)}},
+			`transform.response: config.set[0].target: target "query" is not header or body`,
+		},
+		{
+			&v1alpha1.TransformResponseConfig{ContentType: ptr("json")},
+			`transform.response: config.contentType: "json" is not an RFC 9110 media type`,
+		},
 	}
 	for _, tc := range tests {
 		_, err := Build(context.Background(), buildEnv(t, tc.cfg, phase.ScopeRoute), specOf(t, tc.cfg))
@@ -98,14 +104,22 @@ func TestBuildCompilesCEL(t *testing.T) {
 		code  string
 		want  string
 	}{
-		{"header int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("header", "x-a", "1")}}, phase.ScopeRoute,
-			CodeCEL, "transform.request: config.set[0].valueExpression: CEL transform.request config.set[].valueExpression: expression has type int, want string"},
-		{"query int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("query", "q", "1")}}, phase.ScopeRoute,
-			CodeCEL, "config.set[0].valueExpression"},
-		{"path int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("path", "", "1")}}, phase.ScopeRoute,
-			CodeCEL, "config.set[0].valueExpression"},
-		{"response header int", &v1alpha1.TransformResponseConfig{Set: []v1alpha1.TransformResponseSet{respSet("header", "x-a", "response.status")}}, phase.ScopeRoute,
-			CodeCEL, "config.set[0].valueExpression"},
+		{
+			"header int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("header", "x-a", "1")}}, phase.ScopeRoute,
+			CodeCEL, "transform.request: config.set[0].valueExpression: CEL transform.request config.set[].valueExpression: expression has type int, want string",
+		},
+		{
+			"query int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("query", "q", "1")}}, phase.ScopeRoute,
+			CodeCEL, "config.set[0].valueExpression",
+		},
+		{
+			"path int", &v1alpha1.TransformRequestConfig{Set: []v1alpha1.TransformRequestSet{reqSet("path", "", "1")}}, phase.ScopeRoute,
+			CodeCEL, "config.set[0].valueExpression",
+		},
+		{
+			"response header int", &v1alpha1.TransformResponseConfig{Set: []v1alpha1.TransformResponseSet{respSet("header", "x-a", "response.status")}}, phase.ScopeRoute,
+			CodeCEL, "config.set[0].valueExpression",
+		},
 		{"syntax", &v1alpha1.TransformRequestConfig{Body: "request.body +"}, phase.ScopeRoute, CodeCEL, "transform.request: config.body: CEL"},
 		{"upstream outside Upstream scope", &v1alpha1.TransformResponseConfig{Body: "upstream.name"}, phase.ScopeRoute, CodeCEL, "undeclared reference to 'upstream'"},
 		{"response in a request transform", &v1alpha1.TransformRequestConfig{Body: "response.body"}, phase.ScopeUpstream, CodeCEL, "undeclared reference to 'response'"},

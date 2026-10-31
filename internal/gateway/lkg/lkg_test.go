@@ -111,7 +111,7 @@ func (r *rig) files() []string {
 // pointerOf decodes the pointer file name.
 func (r *rig) pointerOf(name string) Pointer {
 	r.t.Helper()
-	data, err := os.ReadFile(r.s.Path(name)) //nolint:gosec // G304: a test file under the test's data directory.
+	data, err := os.ReadFile(r.s.Path(name))
 	if err != nil {
 		r.t.Fatal(err)
 	}

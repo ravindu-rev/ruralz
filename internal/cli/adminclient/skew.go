@@ -45,10 +45,10 @@ func outsideSkew(cli, node string) bool {
 	if !ok {
 		return false
 	}
-	switch {
-	case cmaj == nmaj:
+	switch cmaj {
+	case nmaj:
 		return cmin-nmin >= 2
-	case cmaj == nmaj+1:
+	case nmaj + 1:
 		return cmin >= 1
 	default:
 		return cmaj > nmaj+1

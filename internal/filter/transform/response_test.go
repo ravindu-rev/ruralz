@@ -151,7 +151,7 @@ func TestValidators(t *testing.T) {
 	h["Accept-Ranges"] = []string{"bytes"}
 	x, m := onResponse(t, http.StatusOK, h, `{"x": 1, "y": 2}`)
 	wantNext(t, "rewritten", f.Handle(context.Background(), phase.OnResponse, x))
-	if string(m.Raw) != `{"y":2}` || !slices.Equal(h["Etag"], []string{`W/"abc"`, `W/"def"`}) || h["etag"] != nil || h["Accept-Ranges"] != nil {
+	if string(m.Raw) != `{"y":2}` || !slices.Equal(h["Etag"], []string{`W/"abc"`, `W/"def"`}) || h["etag"] != nil || h["Accept-Ranges"] != nil { //nolint:staticcheck // SA1008: the test set the non-canonical etag key and checks the merge removed it.
 		t.Errorf("body %s, header %v", m.Raw, h)
 	}
 	h = jsonHeader()
@@ -191,7 +191,7 @@ func TestUpstreamResponse(t *testing.T) {
 	if string(m.Raw) != `{"a":1,"from":"orders"}` || m.Hdr.Get("X-S") != "200" {
 		t.Errorf("body %s, header %v", m.Raw, m.Hdr)
 	}
-	x, m = onResponse(t, http.StatusOK, jsonHeader(), `{"a": 1}`)
+	x, _ = onResponse(t, http.StatusOK, jsonHeader(), `{"a": 1}`)
 	x.LegV = leg(http.MethodGet, 10)
 	x.VarsV.Upstream = &expr.Upstream{Name: "orders"}
 	wantUndecided(t, "step cap", f.Handle(context.Background(), phase.OnUpstreamResponseBody, x), errTypeOutputCap)

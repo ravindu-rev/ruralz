@@ -373,7 +373,7 @@ func answer(msg []byte, q question, rcode int) []byte {
 	out := make([]byte, dnsHeaderLen, dnsHeaderLen+max(q.end-dnsHeaderLen, 0))
 	copy(out[0:2], msg[0:2])
 	out[2] = 0x80 | msg[2]&0x78 | msg[2]&0x01 // QR, the opcode, RD
-	out[3] = byte(rcode)
+	out[3] = byte(rcode & 0x0f)               // RA and Z clear, the 4-bit RCODE
 	if q.end > 0 {
 		binary.BigEndian.PutUint16(out[4:6], 1)
 		out = append(out, msg[dnsHeaderLen:q.end]...)

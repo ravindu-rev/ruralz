@@ -117,7 +117,7 @@ func caseHeaderTimeout(t *testing.T, g *gateway, p proto) {
 	c := g.dialH1(t, p)
 	defer c.close()
 	c.write([]byte("GET " + upH1.path(bOK) + " HTTP/1.1\r\nHost: x\r\n"))
-	closed, _ := c.waitClosed(deadlineWait)
+	closed := c.waitClosed(deadlineWait)
 	if !closed {
 		t.Fatalf("the connection stayed open %v with an unfinished request head", deadlineWait)
 	}
@@ -149,7 +149,7 @@ func caseIdleH1(t *testing.T, g *gateway, p proto) {
 	start := time.Now()
 	c.write(req.h1Bytes(g.addr(p)))
 	wantOK(t, c.read(guard(t, exchangeGuard), req.method()))
-	closed, _ := c.waitClosed(deadlineWait)
+	closed := c.waitClosed(deadlineWait)
 	if !closed {
 		t.Fatalf("the idle connection stayed open %v", deadlineWait)
 	}
@@ -236,7 +236,7 @@ func caseWriteH1(t *testing.T, g *gateway, p proto) {
 		t.Fatalf("no access record of the stalled response: %v", err)
 	}
 	wantExpiry(t, "the response write deadline", time.Since(start), routeDeadline)
-	if closed, _ := c.waitClosed(exchangeGuard); !closed {
+	if !c.waitClosed(exchangeGuard) {
 		t.Error("the connection stayed open after the write deadline")
 	}
 }

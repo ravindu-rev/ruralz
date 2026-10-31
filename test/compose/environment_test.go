@@ -59,7 +59,7 @@ func copyFile(src, dst string, mode os.FileMode) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(dst, data, mode)
+	return os.WriteFile(dst, data, mode) //nolint:gosec // G703: a copy of a repository file into the test's directory
 }
 
 // runCLI runs the ruralz CLI in process and returns its exit code and

@@ -264,7 +264,7 @@ func (r *run) decodeForSteps(i int) error {
 	case errors.Is(err, expr.ErrTooLarge):
 		return errcode.Errorf(CodeStepFailed, "decoded body over %d times maxBodyBytes: %w", filter.DecodedLimitFactor, err)
 	case err != nil, v == nil:
-		return nil
+		return nil //nolint:nilerr // a body that is not valid JSON reads as JSON null, not as a failed step.
 	}
 	if err := res.acct.ReserveDecoded(built, st.maxBody); err != nil {
 		return chargeError(err)

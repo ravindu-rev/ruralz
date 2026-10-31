@@ -162,7 +162,7 @@ func writeFile(t testing.TB, dir, name string, data []byte) string {
 	if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(p, data, 0o600); err != nil {
+	if err := os.WriteFile(p, data, 0o600); err != nil { //nolint:gosec // G703: a file the test writes under its own directory
 		t.Fatal(err)
 	}
 	return p
@@ -284,11 +284,8 @@ func lines(s string) []string {
 	return strings.Split(s, "\n")
 }
 
-// revRE matches a display Revision and digestRE a full digest.
-var (
-	revRE    = regexp.MustCompile(`^rev-[0-9a-f]{12}$`)
-	digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
-)
+// digestRE matches a full digest.
+var digestRE = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 
 // displayRevision returns the rev-<12 hex> form of a full digest.
 func displayRevision(t testing.TB, digest string) string {

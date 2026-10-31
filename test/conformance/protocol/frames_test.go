@@ -7,6 +7,7 @@ package protocol
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -282,7 +283,7 @@ func caseFrameSize(t *testing.T, g *gateway, p proto) {
 // wantConnEnd fails t unless the server ends the connection.
 func wantConnEnd(t testing.TB, c *h2Conn) {
 	t.Helper()
-	if ev, ok := c.waitEvent(guard(t, exchangeGuard), func(h2Event) bool { return false }); ok || ev.Err == nil || ev.Err == context.DeadlineExceeded {
+	if ev, ok := c.waitEvent(guard(t, exchangeGuard), func(h2Event) bool { return false }); ok || ev.Err == nil || errors.Is(ev.Err, context.DeadlineExceeded) {
 		t.Errorf("the connection did not end: %+v", ev)
 	}
 }

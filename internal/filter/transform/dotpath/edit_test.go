@@ -20,8 +20,8 @@ import (
 // allocating nothing beyond the growth of dst.
 type literal struct{ old, new []byte }
 
-// lit returns the literal replacer of old with new.
-func lit(old, new string) literal { return literal{[]byte(old), []byte(new)} }
+// lit returns the literal replacer of old with repl.
+func lit(old, repl string) literal { return literal{[]byte(old), []byte(repl)} }
 
 func (r literal) Replace(dst, s []byte) ([]byte, bool) {
 	i := bytes.Index(s, r.old)

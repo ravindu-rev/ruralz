@@ -447,11 +447,13 @@ func entry(hdr http.Header) *testEntry {
 }
 
 // bump moves k's URI to a new generation token, as an invalidation does.
-func (h *harness) bump(k statestore.CacheKey) {
+func (h *harness) bump(ctx context.Context, k statestore.CacheKey) {
 	h.t.Helper()
-	w := &statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: k.URI,
-		Bump: statestore.Token{0xb0, 0x0b}}
-	h.mem.Write(context.Background(), []*statestore.Write{w})
+	w := &statestore.Write{
+		Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: k.URI,
+		Bump: statestore.Token{0xb0, 0x0b},
+	}
+	h.mem.Write(ctx, []*statestore.Write{w})
 	if w.Err != nil || !w.Applied {
 		h.t.Fatalf("bumping %v: err %v, applied %v", k, w.Err, w.Applied)
 	}

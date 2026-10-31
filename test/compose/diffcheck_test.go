@@ -131,7 +131,7 @@ func TestTimeoutDiffChecks(t *testing.T) {
 		t.Fatal(err)
 	}
 	changed := filepath.Join(dir, "changed.yaml")
-	if err := os.WriteFile(changed, changedData, 0o600); err != nil {
+	if err := os.WriteFile(changed, changedData, 0o600); err != nil { //nolint:gosec // G703: a changed copy of the test's render under t.TempDir
 		t.Fatal(err)
 	}
 	if _, err := changeTimeout(changedData); err == nil {

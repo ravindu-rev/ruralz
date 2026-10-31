@@ -245,7 +245,7 @@ func notifySocket(t *testing.T) (string, *notes) {
 func upstreamServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = io.WriteString(w, "orders:"+r.URL.Path)
+		_, _ = io.WriteString(w, "orders:"+r.URL.Path) //nolint:gosec // G705: a plain-text test answer.
 	}))
 	t.Cleanup(up.Close)
 	return up

@@ -66,7 +66,7 @@ func TestViaEntryAndProtocol(t *testing.T) {
 		{2, 0, "2 ruralz", protoHTTP2, emit.ProtoHTTP2},
 	}
 	for _, tt := range tests {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		r.ProtoMajor, r.ProtoMinor = tt.major, tt.minor
 		if got := viaEntry(r); got != tt.via {
 			t.Errorf("viaEntry(HTTP/%d.%d) = %q, want %q", tt.major, tt.minor, got, tt.via)
@@ -84,7 +84,7 @@ func TestUpgradesToWebSocket(t *testing.T) {
 		"websocket": true, "WebSocket": true, "h2c, websocket": true, "websocket/13": true,
 		"h2c": false, "": false, "websockets": false,
 	} {
-		r := httptest.NewRequest(http.MethodGet, "/", nil)
+		r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 		if v != "" {
 			r.Header.Set("Upgrade", v)
 		}
@@ -101,8 +101,12 @@ func TestBodyAllowed(t *testing.T) {
 		status int
 		want   bool
 	}{
-		{http.MethodGet, 200, true}, {http.MethodHead, 200, false}, {http.MethodGet, 103, false},
-		{http.MethodGet, 204, false}, {http.MethodGet, 304, false}, {http.MethodPost, 500, true},
+		{http.MethodGet, 200, true},
+		{http.MethodHead, 200, false},
+		{http.MethodGet, 103, false},
+		{http.MethodGet, 204, false},
+		{http.MethodGet, 304, false},
+		{http.MethodPost, 500, true},
 	}
 	for _, tt := range tests {
 		if got := bodyAllowed(tt.method, tt.status); got != tt.want {

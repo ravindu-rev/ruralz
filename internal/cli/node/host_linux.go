@@ -36,7 +36,7 @@ func (procHost) pidNamespace() (string, error) {
 // procStat reads /proc/<pid>/stat. A process that goes away between the
 // open and the read fails the read with ESRCH, which counts as no process.
 func (procHost) procStat(pid int) ([]byte, error) {
-	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat") //nolint:gosec // G304: a /proc path built from a positive PID.
+	b, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if errors.Is(err, syscall.ESRCH) {
 		return nil, fmt.Errorf("process %d: %w: %w", pid, fs.ErrNotExist, err)
 	}

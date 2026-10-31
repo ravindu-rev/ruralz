@@ -81,11 +81,10 @@ func TestOutgoingHeaderSharesClientValues(t *testing.T) {
 		return okResponse(r, "ok"), nil
 	}))
 	x := exchange(http.MethodGet, "/v1/orders")
-	xa := make([]string, 1, 4)
-	xa[0] = "a"
-	via := make([]string, 1, 4)
-	via[0] = "1.1 edge"
-	x.Hdr["X-A"], x.Hdr["Via"], x.Hdr["Keep-Alive"] = xa, via, []string{"timeout=5"}
+	// The client's arrays: one value each, with spare capacity.
+	var xa, via [4]string
+	xa[0], via[0] = "a", "1.1 edge"
+	x.Hdr["X-A"], x.Hdr["Via"], x.Hdr["Keep-Alive"] = xa[:1], via[:1], []string{"timeout=5"}
 	h := &hooks{onRequest: func(leg *filter.Leg) *filter.Response {
 		leg.Request.Header["X-A"] = append(leg.Request.Header["X-A"], "b")
 		return nil
@@ -104,7 +103,7 @@ func TestOutgoingHeaderSharesClientValues(t *testing.T) {
 	if got := sent["Via"]; !slices.Equal(got, []string{"1.1 edge", "1.1 ruralz"}) {
 		t.Errorf("sent Via = %v", got)
 	}
-	if xa[:2][1] != "" || via[:2][1] != "" {
+	if xa[1] != "" || via[1] != "" {
 		t.Errorf("the client's arrays were written: X-A %q, Via %q", xa[:2], via[:2])
 	}
 	if len(x.Hdr["X-A"]) != 1 || len(x.Hdr["Via"]) != 1 {

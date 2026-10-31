@@ -121,10 +121,10 @@ func byteRange(h, stored http.Header, n int) (first, last int, k rangeKind) {
 			return 0, 0, rangeUnsatisfiable
 		case n == 0:
 			return 0, 0, rangeWhole
-		case s >= uint64(n):
+		case clampInt(s) >= n:
 			return 0, n - 1, rangePart
 		default:
-			return n - int(s), n - 1, rangePart
+			return n - clampInt(s), n - 1, rangePart
 		}
 	}
 	lo, ok := digits(a)
@@ -137,10 +137,19 @@ func byteRange(h, stored http.Header, n int) (first, last int, k rangeKind) {
 			return 0, 0, rangeWhole
 		}
 	}
-	if lo >= uint64(n) {
+	if clampInt(lo) >= n {
 		return 0, 0, rangeUnsatisfiable
 	}
-	return int(lo), int(min(hi, uint64(n-1))), rangePart
+	return clampInt(lo), min(clampInt(hi), n-1), rangePart
+}
+
+// clampInt converts a range position to an int, saturating at the
+// largest int, which no body length exceeds.
+func clampInt(v uint64) int {
+	if v > math.MaxInt {
+		return math.MaxInt
+	}
+	return int(v)
 }
 
 // digits parses a non-empty run of ASCII digits, saturating at the

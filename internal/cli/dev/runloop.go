@@ -195,7 +195,7 @@ func (r *runner) signal(s os.Signal) {
 func (r *runner) awaitReady(ctx context.Context) error {
 	deadline := r.clock.Now().Add(r.readyTimeout)
 	held := false
-	last := "no answer from " + r.admin.URL()
+	var last string
 	for {
 		switch r.wait(ctx, r.clock.NewTimer(launch.ReadyInterval)) {
 		case evStop:

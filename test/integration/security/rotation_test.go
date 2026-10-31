@@ -63,7 +63,11 @@ func TestListenerCertificateRotation(t *testing.T) {
 	// the secure listener is served.
 	served := func() *big.Int {
 		t.Helper()
-		resp, err := tlsClient(t, top, nil, false).Get(n.URL("secure") + "/")
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, n.URL("secure")+"/", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := tlsClient(t, top, nil, false).Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -72,14 +72,6 @@ func (u upstream) String() string {
 	}
 }
 
-// proto is the protocol the Upstream sees on its side of the hop.
-func (u upstream) proto() string {
-	if u == upH2 {
-		return "HTTP/2.0"
-	}
-	return "HTTP/1.1"
-}
-
 // path returns the request path of behavior on the plain Route to u:
 // /up/<transport>/<behavior>.
 func (u upstream) path(behavior string) string { return "/up/" + u.String() + "/" + behavior }

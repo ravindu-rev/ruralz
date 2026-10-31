@@ -4,7 +4,6 @@
 package composition
 
 import (
-	"context"
 	"io"
 	"net"
 	"net/http"
@@ -77,9 +76,7 @@ func TestOverUpstreamLayer(t *testing.T) {
 	audit := newRecorder(t, `{"logged":true}`)
 	f := newFixture(t)
 	var d net.Dialer
-	m := upstream.NewManager(upstream.Options{Clock: f.clk, Rand: fixedSource{}, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
-		return d.DialContext(ctx, network, address)
-	}})
+	m := upstream.NewManager(upstream.Options{Clock: f.clk, Rand: fixedSource{}, Dial: d.DialContext})
 	ups := func(name, addr string) upstream.Config {
 		return upstream.Config{Upstream: &v1alpha1.Upstream{
 			Metadata: v1alpha1.ObjectMeta{Name: name},

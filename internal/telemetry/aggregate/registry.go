@@ -338,11 +338,12 @@ func (r *Registry) buildNode() error {
 	}
 	n := &emit.NodeMetrics{}
 	counter := func(name string, i int) emit.Counter { return r.nodeGroup(name).shared.counter(i) }
-	gauge := func(name string, i int) emit.Gauge { return r.nodeGroup(name).shared.gauge(i) }
+	// The Node-wide gauges carry no labels: each is one series.
+	gauge := func(name string) emit.Gauge { return r.nodeGroup(name).shared.gauge(0) }
 	hist := func(name string, i int) emit.Histogram { return r.nodeGroup(name).shared.hist(i) }
 	n.NodeResponses = &codeH{t: r.nodeGroup(catalog.HTTPNodeResponsesTotal).code.table}
 	n.GatewayDurationSkipped = counter(catalog.HTTPGatewayDurationSkippedTotal, 0)
-	n.BufferedBytes = gauge(catalog.NodeBufferedBytes, 0)
+	n.BufferedBytes = gauge(catalog.NodeBufferedBytes)
 	n.TapEventsDropped = counter(catalog.TapEventsDroppedTotal, 0)
 	n.AccessLogCELErrors = counter(catalog.TelemetryAccessLogCELErrorsTotal, 0)
 	for op := range emit.NumStateOps {
@@ -357,12 +358,12 @@ func (r *Registry) buildNode() error {
 	for k := range emit.NumWriteKinds {
 		n.State.WritesDropped[k] = counter(catalog.StateWritesDroppedTotal, k)
 	}
-	n.State.QueueItems = gauge(catalog.StateWriteQueueItems, 0)
-	n.State.InFlight = gauge(catalog.StateInflightCalls, 0)
+	n.State.QueueItems = gauge(catalog.StateWriteQueueItems)
+	n.State.InFlight = gauge(catalog.StateInflightCalls)
 	act := r.nodeGroup(catalog.ConfigActivationsTotal)
 	n.Config.Activated = act.shared.counter(0)
 	n.Config.Rejected = &codeH{t: act.code.table}
-	n.Config.RetiredSnapshots = gauge(catalog.ConfigRetiredSnapshots, 0)
+	n.Config.RetiredSnapshots = gauge(catalog.ConfigRetiredSnapshots)
 	n.Config.RetirementEnded = counter(catalog.SnapshotRetirementEndedTotal, 0)
 	dur := r.byName[catalog.ConfigActivationDurationSeconds]
 	durGroup := r.nodeGroup(catalog.ConfigActivationDurationSeconds)

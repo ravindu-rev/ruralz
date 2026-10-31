@@ -112,7 +112,7 @@ func refusedRuralzd(t *testing.T) string {
 		}
 		repl := filepath.Join(dir, "message.go")
 		variant := bytes.Replace(src, from, []byte("const Format = "+strconv.Quote(refusedMarker)), 1)
-		if err := os.WriteFile(repl, variant, 0o600); err != nil {
+		if err := os.WriteFile(repl, variant, 0o600); err != nil { //nolint:gosec // G703: the edited copy of a repository file under the build directory
 			return "", err
 		}
 		set, err := binaries.Build(ctx, root, filepath.Join(dir, "bin"), binaries.BuildOptions{

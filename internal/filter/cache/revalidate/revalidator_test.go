@@ -437,8 +437,8 @@ func TestLeaseWritesNeedTheEntryToken(t *testing.T) {
 			h := newHarness(t)
 			k := testKey(1)
 			h.seed(k)
-			h.rp.setReply(func(context.Context, *http.Request) (*http.Response, error) {
-				h.bump(k)
+			h.rp.setReply(func(ctx context.Context, _ *http.Request) (*http.Response, error) {
+				h.bump(ctx, k)
 				return &http.Response{StatusCode: tt.status, Header: tt.hdr.Clone(), Body: http.NoBody}, nil
 			})
 			h.run()

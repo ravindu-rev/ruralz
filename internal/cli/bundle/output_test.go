@@ -29,14 +29,27 @@ func TestColorSeverity(t *testing.T) {
 		d    diag.Diagnostic
 		want string
 	}{
-		{"full location", diag.Diagnostic{Code: "RZ-CFG-009", Severity: diag.SeverityError,
-			Location: diag.Location{File: "a b/error.yaml", Line: 3, Column: 7}, Message: "error here"},
-			"a b/error.yaml:3:7 " + ansiRed + "error" + ansiReset + " RZ-CFG-009: error here"},
-		{"line only", diag.Diagnostic{Code: "RZ-CFG-013", Severity: diag.SeverityWarning,
-			Location: diag.Location{File: "x.yaml", Line: 3}, Message: "m"},
-			"x.yaml:3 " + ansiYellow + "warning" + ansiReset + " RZ-CFG-013: m"},
-		{"no file", diag.Diagnostic{Code: "RZ-CFG-007", Severity: diag.SeverityError, Message: "m"},
-			"- " + ansiRed + "error" + ansiReset + " RZ-CFG-007: m"},
+		{
+			"full location",
+			diag.Diagnostic{
+				Code: "RZ-CFG-009", Severity: diag.SeverityError,
+				Location: diag.Location{File: "a b/error.yaml", Line: 3, Column: 7}, Message: "error here",
+			},
+			"a b/error.yaml:3:7 " + ansiRed + "error" + ansiReset + " RZ-CFG-009: error here",
+		},
+		{
+			"line only",
+			diag.Diagnostic{
+				Code: "RZ-CFG-013", Severity: diag.SeverityWarning,
+				Location: diag.Location{File: "x.yaml", Line: 3}, Message: "m",
+			},
+			"x.yaml:3 " + ansiYellow + "warning" + ansiReset + " RZ-CFG-013: m",
+		},
+		{
+			"no file",
+			diag.Diagnostic{Code: "RZ-CFG-007", Severity: diag.SeverityError, Message: "m"},
+			"- " + ansiRed + "error" + ansiReset + " RZ-CFG-007: m",
+		},
 	} {
 		got := string(colorSeverity(tc.d.AppendText(nil), tc.d))
 		if got != tc.want {

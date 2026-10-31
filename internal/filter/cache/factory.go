@@ -5,6 +5,7 @@ package cache
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -178,9 +179,8 @@ func (f *Factory) newToken() statestore.Token {
 	var t statestore.Token
 	for t.IsZero() {
 		a, b := f.uint64(), f.uint64()
-		for i := range 8 {
-			t[i], t[8+i] = byte(a>>(8*i)), byte(b>>(8*i))
-		}
+		binary.LittleEndian.PutUint64(t[:8], a)
+		binary.LittleEndian.PutUint64(t[8:], b)
 	}
 	return t
 }
@@ -286,7 +286,7 @@ const (
 	fieldProxyAuthorization = "Proxy-Authorization"
 	fieldCookie             = "Cookie"
 	// defaultAPIKeyHeader is auth.api-key's config.header default.
-	defaultAPIKeyHeader = "X-Api-Key"
+	defaultAPIKeyHeader = "X-Api-Key" //nolint:gosec // G101: a header name, not a credential.
 )
 
 // credentialFields returns the canonical names of the credential fields:

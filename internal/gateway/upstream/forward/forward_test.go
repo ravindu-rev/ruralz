@@ -209,8 +209,10 @@ func TestForwardWeightZeroIsLastResort(t *testing.T) {
 // a leg Filter's generated response are returned as they are, and no
 // other entry runs.
 func TestForwardFinalOutcomes(t *testing.T) {
-	connect := &upstream.LegError{Upstream: "a", Endpoint: "10.0.0.1:80", Attempts: 1, Kind: resilience.KindConnect,
-		Err: resilience.Outcome{Kind: resilience.KindConnect, Attempts: 1}.Err(errors.New("connection refused"))}
+	connect := &upstream.LegError{
+		Upstream: "a", Endpoint: "10.0.0.1:80", Attempts: 1, Kind: resilience.KindConnect,
+		Err: resilience.Outcome{Kind: resilience.KindConnect, Attempts: 1}.Err(errors.New("connection refused")),
+	}
 	tests := []struct {
 		name string
 		resp *snapshot.UpstreamResponse
@@ -218,19 +220,29 @@ func TestForwardFinalOutcomes(t *testing.T) {
 		code string
 	}{
 		{name: "connect error", err: connect, code: "RZ-UP-001"},
-		{name: "retries failed", err: &upstream.LegError{Upstream: "a", Attempts: 2, Kind: resilience.KindReset,
-			Err: resilience.Outcome{Kind: resilience.KindReset, Attempts: 2}.Err(errors.New("reset"))}, code: "RZ-UP-007"},
-		{name: "attempt timeout", err: &upstream.LegError{Upstream: "a", Attempts: 1, Kind: resilience.KindTimeout,
-			Err: resilience.Outcome{Kind: resilience.KindTimeout, Attempts: 1}.Err(context.DeadlineExceeded)}, code: "RZ-UP-003"},
+		{name: "retries failed", err: &upstream.LegError{
+			Upstream: "a", Attempts: 2, Kind: resilience.KindReset,
+			Err: resilience.Outcome{Kind: resilience.KindReset, Attempts: 2}.Err(errors.New("reset")),
+		}, code: "RZ-UP-007"},
+		{name: "attempt timeout", err: &upstream.LegError{
+			Upstream: "a", Attempts: 1, Kind: resilience.KindTimeout,
+			Err: resilience.Outcome{Kind: resilience.KindTimeout, Attempts: 1}.Err(context.DeadlineExceeded),
+		}, code: "RZ-UP-003"},
 		{name: "gate cause after an attempt", err: &upstream.LegError{Upstream: "a", Attempts: 1, Err: resilience.GateBulkhead.Err()}, code: "RZ-UP-006"},
-		{name: "Route deadline passed", err: &upstream.LegError{Upstream: "a", Kind: resilience.KindTimeout,
-			Err: errcode.Wrap(resilience.CodeRouteTimeout, errors.New("upstream: Route timeout expired before any attempt"))}, code: "RZ-RT-007"},
-		{name: "canceled", err: &upstream.LegError{Upstream: "a", Attempts: 1, Kind: resilience.KindTimeout,
-			Err: resilience.Outcome{Kind: resilience.KindTimeout, Attempts: 1}.Err(context.Canceled)}, code: "RZ-UP-003"},
+		{name: "Route deadline passed", err: &upstream.LegError{
+			Upstream: "a", Kind: resilience.KindTimeout,
+			Err: errcode.Wrap(resilience.CodeRouteTimeout, errors.New("upstream: Route timeout expired before any attempt")),
+		}, code: "RZ-RT-007"},
+		{name: "canceled", err: &upstream.LegError{
+			Upstream: "a", Attempts: 1, Kind: resilience.KindTimeout,
+			Err: resilience.Outcome{Kind: resilience.KindTimeout, Attempts: 1}.Err(context.Canceled),
+		}, code: "RZ-UP-003"},
 		{name: "not a leg error", err: errors.New("upstream: leg without an Outbound exchange")},
 		{name: "upstream 503", resp: &snapshot.UpstreamResponse{Status: http.StatusServiceUnavailable, Upstream: "a", Attempts: 1}},
-		{name: "generated", resp: &snapshot.UpstreamResponse{Status: http.StatusUnauthorized, Upstream: "a",
-			Generated: &filter.Response{Status: http.StatusUnauthorized, Code: "RZ-AUTH-020"}}},
+		{name: "generated", resp: &snapshot.UpstreamResponse{
+			Status: http.StatusUnauthorized, Upstream: "a",
+			Generated: &filter.Response{Status: http.StatusUnauthorized, Code: "RZ-AUTH-020"},
+		}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -286,8 +298,12 @@ func TestForwardConcurrent(t *testing.T) {
 			o := outbound(nil)
 			for range 500 {
 				r, err := f.Forward(context.Background(), o)
-				if err != nil || r.Upstream != "b" {
-					errs <- fmt.Errorf("Forward = %+v, %v; want b", r, err)
+				if err != nil {
+					errs <- fmt.Errorf("Forward: %w; want b", err)
+					return
+				}
+				if r.Upstream != "b" {
+					errs <- fmt.Errorf("Forward = %+v; want b", r)
 					return
 				}
 			}

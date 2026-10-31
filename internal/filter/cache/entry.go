@@ -92,9 +92,9 @@ func appendPrefix(dst []byte, e *entry) []byte {
 	return appendBlock(dst, e.header)
 }
 
-// appendEntry appends the whole encoding of e.
-func appendEntry(dst []byte, e *entry) []byte {
-	return append(appendPrefix(dst, e), e.body...)
+// encodeEntry returns the whole encoding of e.
+func encodeEntry(e *entry) []byte {
+	return append(appendPrefix(nil, e), e.body...)
 }
 
 // appendString appends a length-prefixed byte string.

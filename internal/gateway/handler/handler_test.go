@@ -193,7 +193,7 @@ func TestDrainEndsRequestAtPin(t *testing.T) {
 func TestEndedWhileForwarding(t *testing.T) {
 	k := newKit(t)
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("all", handlertest.ForwardFunc(func(ctx context.Context, _ *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
-		if _, err := k.holder.EndAll(context.Background(), snapshot.EndDrain); err != nil {
+		if _, err := k.holder.EndAll(context.WithoutCancel(ctx), snapshot.EndDrain); err != nil {
 			t.Errorf("EndAll: %v", err)
 		}
 		<-ctx.Done()
@@ -236,7 +236,7 @@ func TestDeadlines(t *testing.T) {
 	k := newKit(t)
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "r", Timeout: 5 * time.Second, Forward: ok()}}})
 	w := newRecordingWriter()
-	k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5 * time.Second)}
 	if !slices.EqualFunc(w.reads, want, time.Time.Equal) || !slices.EqualFunc(w.writes, want, time.Time.Equal) {
 		t.Errorf("read deadlines %v, write deadlines %v, want both %v", w.reads, w.writes, want)
@@ -277,7 +277,7 @@ func TestSplitClocks(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+		k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 	}()
 	ctx := <-entered
 	// The wall clock passing the Route timeout ends nothing.
@@ -367,6 +367,7 @@ type staleServer struct{}
 func (staleServer) Handle(context.Context, phase.Phase, filter.Exchange) filter.Result {
 	return filter.Next()
 }
+
 func (staleServer) Substitute(context.Context, filter.Exchange) *filter.Response {
 	return &filter.Response{Status: http.StatusOK, Header: http.Header{"X-Cache": {"stale"}}, Body: []byte("stale"), Cached: true}
 }
@@ -407,7 +408,7 @@ func TestRequestBodyTooLarge(t *testing.T) {
 	k := newKit(t)
 	k.publish(handlertest.Spec{Limits: snapshot.Limits{MaxRequestBodyBytes: 100}, Routes: []handlertest.Route{route("r", ok())}})
 	b := &countingReader{r: strings.NewReader(strings.Repeat("x", 200))}
-	r := httptest.NewRequest(http.MethodPost, "/", b)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", b)
 	r.ContentLength = 200
 	res := k.do(r)
 	wantProblem(t, res, http.StatusRequestEntityTooLarge, codeBodyTooLarge)
@@ -454,7 +455,7 @@ func TestStreamedBodyCutWhileForwarding(t *testing.T) {
 		return nil, &upstream.LegError{Upstream: "orders", Err: errcode.Wrap(codeBodyTooLarge, err)}
 	})
 	k.publish(handlertest.Spec{Limits: snapshot.Limits{MaxRequestBodyBytes: 100}, Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodPut, "/", strings.NewReader(strings.Repeat("x", 1000)))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", strings.NewReader(strings.Repeat("x", 1000)))
 	r.ContentLength = -1
 	res := k.do(r)
 	wantProblem(t, res, http.StatusRequestEntityTooLarge, codeBodyTooLarge)
@@ -478,7 +479,7 @@ func TestStreamedBodyBrokenWhileForwarding(t *testing.T) {
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
 	short := errors.New("request declared a Content-Length of 10 but only wrote 4 bytes")
-	r := httptest.NewRequest(http.MethodPut, "/", io.MultiReader(strings.NewReader("data"), iotest.ErrReader(short)))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPut, "/", io.MultiReader(strings.NewReader("data"), iotest.ErrReader(short)))
 	r.ContentLength = 10
 	res := k.do(r)
 	if !res.aborted || res.Body.Len() != 0 {
@@ -502,7 +503,7 @@ func TestWebSocketUpgradeRejected(t *testing.T) {
 			return filter.Next()
 		}), phase.OnRequestHeaders),
 	)}})
-	r := httptest.NewRequest(http.MethodGet, "/chat", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/chat", nil)
 	r.Header.Set("Connection", "Upgrade")
 	r.Header.Set("Upgrade", "WebSocket")
 	res := k.do(r)
@@ -510,7 +511,7 @@ func TestWebSocketUpgradeRejected(t *testing.T) {
 	if res.Header().Get("X-Resp") != "1" || requestPhase.Load() {
 		t.Errorf("onResponse ran %t, onRequestHeaders ran %t, want true and false", res.Header().Get("X-Resp") == "1", requestPhase.Load())
 	}
-	other := httptest.NewRequest(http.MethodGet, "/", nil)
+	other := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	other.Header.Set("Upgrade", "h2c")
 	if res := k.do(other); res.Code != http.StatusOK {
 		t.Errorf("Upgrade: h2c status = %d, want 200 served as HTTP/1.1", res.Code)
@@ -535,7 +536,7 @@ func TestStripsConnectionOptions(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{}, Body: http.NoBody}, nil
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	r.Header.Set("Connection", "X-Secret")
 	r.Header.Set("X-Secret", "1")
 	r.Header.Set("X-Keep", "1")
@@ -550,7 +551,7 @@ func TestStripsConnectionOptions(t *testing.T) {
 func TestTrustedProxySource(t *testing.T) {
 	k := newKit(t)
 	k.publish(handlertest.Spec{TrustedProxies: mustPrefixes(t, "192.0.2.0/24"), Routes: []handlertest.Route{route("r", ok())}})
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	r.Header.Set("X-Forwarded-For", "203.0.113.9")
 	k.do(r)
 	if rec := k.record(); rec.ClientAddress != "203.0.113.9" {
@@ -568,7 +569,7 @@ func TestRequestTrailersReachForwarder(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{}, Body: http.NoBody}, nil
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader("x"))
 	r.Trailer = http.Header{"X-Sum": nil}
 	k.do(r)
 	if _, ok := tr["X-Sum"]; !ok {
@@ -588,7 +589,7 @@ func TestRequestTrailersWithoutConnectionOptions(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{}, Body: http.NoBody}, nil
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("x"))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader("x"))
 	r.Header.Set("Connection", "keep-alive, X-Hop-Sum")
 	r.Trailer = http.Header{"X-Sum": nil, "X-Hop-Sum": nil}
 	k.do(r)
@@ -610,7 +611,7 @@ func TestHTTP10ClientGetsNoHints(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{}, Body: http.NoBody}, nil
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodGet, "/", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 	r.Proto, r.ProtoMajor, r.ProtoMinor = "HTTP/1.0", 1, 0
 	k.do(r)
 	if got.Hints != nil || got.Via != "1.0 ruralz" {
@@ -652,7 +653,7 @@ func TestClientGoneBeforeResponse(t *testing.T) {
 		return nil, errcode.Wrap("RZ-UP-003", c.Err())
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	res := k.do(httptest.NewRequest(http.MethodGet, "/", nil).WithContext(ctx))
+	res := k.do(httptest.NewRequestWithContext(ctx, http.MethodGet, "/", nil))
 	if !res.aborted || res.Body.Len() != 0 {
 		t.Errorf("aborted %t, body %q, want an abort writing nothing", res.aborted, res.Body.String())
 	}

@@ -161,7 +161,8 @@ func TestReadArchive(t *testing.T) {
 	}
 	good := []tar.Header{
 		reg("LICENSE", "license"), reg("ruralzd", "binary"),
-		{Name: "deploy/", Typeflag: tar.TypeDir}, {Name: "deploy/systemd/", Typeflag: tar.TypeDir},
+		{Name: "deploy/", Typeflag: tar.TypeDir},
+		{Name: "deploy/systemd/", Typeflag: tar.TypeDir},
 		reg("deploy/systemd/99-ruralzd.conf", "sysctl"), reg("deploy/systemd/ruralzd-handover", "helper"),
 		reg("deploy/systemd/ruralzd.env", "env"), reg("deploy/systemd/ruralzd.service", "unit"),
 		reg("deploy/systemd/ruralzd.sysusers", "sysusers"),

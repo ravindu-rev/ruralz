@@ -119,8 +119,10 @@ func caseOversizedBody(t *testing.T, g *gateway) {
 		eachPairing(t, protos(), func(t *testing.T, p proto, u upstream) {
 			// More than net/http's 256 KiB drain of an unread body stays
 			// unread past the limit, so the HTTP/1.1 connection closes.
-			req := request{Method: http.MethodPost, Target: u.path(bOK), Chunked: true,
-				Header: withCase(g.origin.newCase()), Body: bytes.Repeat([]byte("x"), 1<<20)}
+			req := request{
+				Method: http.MethodPost, Target: u.path(bOK), Chunked: true,
+				Header: withCase(g.origin.newCase()), Body: bytes.Repeat([]byte("x"), 1<<20),
+			}
 			if p.isH2() {
 				wantProblem(t, g.do(t, p, req), http.StatusRequestEntityTooLarge, "RZ-RT-003")
 				return
@@ -129,7 +131,7 @@ func caseOversizedBody(t *testing.T, g *gateway) {
 			defer c.close()
 			wantProblem(t, c.exchange(guard(t, exchangeGuard), req.method(), req.h1Bytes(g.addr(p))),
 				http.StatusRequestEntityTooLarge, "RZ-RT-003")
-			if closed, _ := c.waitClosed(settleGuard); !closed {
+			if !c.waitClosed(settleGuard) {
 				t.Error("the HTTP/1.1 connection stayed open after a body read in part")
 			}
 		})
@@ -140,8 +142,10 @@ func caseOversizedBody(t *testing.T, g *gateway) {
 			// 256 KiB drain, so the connection is kept.
 			c := g.dialH1(t, p)
 			defer c.close()
-			req := request{Method: http.MethodPost, Target: upH1.path(bOK), Chunked: true,
-				Header: withCase(g.origin.newCase()), Body: bytes.Repeat([]byte("x"), bodyLimit+(100<<10))}
+			req := request{
+				Method: http.MethodPost, Target: upH1.path(bOK), Chunked: true,
+				Header: withCase(g.origin.newCase()), Body: bytes.Repeat([]byte("x"), bodyLimit+(100<<10)),
+			}
 			r := c.exchange(guard(t, exchangeGuard), req.method(), req.h1Bytes(g.addr(p)))
 			wantProblem(t, r, http.StatusRequestEntityTooLarge, "RZ-RT-003")
 			if r.Close {
@@ -154,8 +158,10 @@ func caseOversizedBody(t *testing.T, g *gateway) {
 	t.Run("gated", func(t *testing.T) {
 		eachProto(t, protos(), func(t *testing.T, p proto) {
 			id := g.origin.newCase()
-			req := request{Method: http.MethodPost, Target: "/gated/" + bOK, Chunked: true,
-				Header: withCase(id), Body: bytes.Repeat([]byte("x"), bodyLimit+1)}
+			req := request{
+				Method: http.MethodPost, Target: "/gated/" + bOK, Chunked: true,
+				Header: withCase(id), Body: bytes.Repeat([]byte("x"), bodyLimit+1),
+			}
 			wantProblem(t, g.do(t, p, req), http.StatusRequestEntityTooLarge, "RZ-RT-003")
 			if n := len(g.origin.requests(id)); n != 0 {
 				t.Errorf("the origin saw %d requests", n)
@@ -174,8 +180,10 @@ func caseOversizedBody(t *testing.T, g *gateway) {
 		dense := []byte("[" + strings.Repeat("[],", 19999) + "[]]")
 		eachProto(t, protos(), func(t *testing.T, p proto) {
 			id := g.origin.newCase()
-			req := request{Method: http.MethodPost, Target: "/decoded/" + bOK, Body: dense,
-				Header: withCase(id, [2]string{"Content-Type", "application/json"})}
+			req := request{
+				Method: http.MethodPost, Target: "/decoded/" + bOK, Body: dense,
+				Header: withCase(id, [2]string{"Content-Type", "application/json"}),
+			}
 			wantProblem(t, g.do(t, p, req), http.StatusRequestEntityTooLarge, "RZ-RT-003")
 			if n := len(g.origin.requests(id)); n != 0 {
 				t.Errorf("the origin saw %d requests", n)
@@ -260,8 +268,10 @@ func casePathConfusion(t *testing.T, g *gateway) {
 	})
 	t.Run("refused", func(t *testing.T) {
 		eachProto(t, protos(), func(t *testing.T, p proto) {
-			for _, target := range []string{"/up/h1/a%00b", "/up/h1/a%5Cb", "/up/h1/a%5cb", "/up/h1/a\\b",
-				"/up/h1/a%01b", "/up/h1/a%7Fb"} {
+			for _, target := range []string{
+				"/up/h1/a%00b", "/up/h1/a%5Cb", "/up/h1/a%5cb", "/up/h1/a\\b",
+				"/up/h1/a%01b", "/up/h1/a%7Fb",
+			} {
 				id := g.origin.newCase()
 				r := g.do(t, p, request{Target: target, Header: withCase(id)})
 				if r.Status != http.StatusBadRequest || !r.isProblem() {

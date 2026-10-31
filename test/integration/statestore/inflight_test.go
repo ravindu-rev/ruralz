@@ -39,7 +39,7 @@ func TestInFlightCeiling(t *testing.T) {
 	e.warmUp("/limited", "x-client", "hot")
 	m := e.meter("main")
 	before := e.metrics()
-	release := m.hold("EVALSHA", queueHold)
+	release := m.hold(queueHold)
 	defer release()
 	client := h2cClient(e)
 

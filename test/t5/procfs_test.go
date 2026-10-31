@@ -63,7 +63,7 @@ func parseStat(stat []byte) (state string, start uint64, err error) {
 // lookupProc returns the live process pid; ok is false when none runs
 // with it or it is a zombie, whose exit only its parent has yet to reap.
 func lookupProc(pid int) (p proc, ok bool) {
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat")) //nolint:gosec // G304: a procfs path built from a PID
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {
 		return proc{}, false
 	}
@@ -104,7 +104,7 @@ func parseStatus(status []byte) map[string]string {
 
 // procStatus returns /proc/<pid>/status.
 func procStatus(pid int) (map[string]string, error) {
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status")) //nolint:gosec // G304: a procfs path built from a PID
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "status"))
 	if err != nil {
 		return nil, err
 	}

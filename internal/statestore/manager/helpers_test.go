@@ -65,7 +65,7 @@ type driver struct {
 	blockWrite   chan struct{}
 	writeEntered chan struct{}
 	// blockConsume, when set, holds Consume until it is closed, after
-	// signalling consumeEntered.
+	// signaling consumeEntered.
 	blockConsume   chan struct{}
 	consumeEntered chan struct{}
 	blockClose     bool

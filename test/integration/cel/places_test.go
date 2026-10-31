@@ -53,7 +53,7 @@ const (
 	stopStep  = 10 * time.Millisecond
 	stopBound = 5 * time.Second
 	// apiKey is the Consumer's API key.
-	apiKey = "cel-suite-key"
+	apiKey = "cel-suite-key" //nolint:gosec // G101: the suite's test Consumer key, not a credential
 )
 
 // boolExpr is the expression of every case, over the headers of prefix p.
@@ -69,12 +69,13 @@ func boolExpr(p string) string {
 		`request.headers["` + p + `a"].contains(request.headers["` + p + `b"])`
 }
 
-// stringExpr, intExpr, dynExpr and pathExpr are boolExpr in the places of
-// those result types: "yes", 1, {"r": "yes"} and "/c/yes" when true.
-func stringExpr(p string) string { return "(" + boolExpr(p) + `) ? "yes" : "no"` }
-func intExpr(p string) string    { return "(" + boolExpr(p) + ") ? 1 : 2" }
-func dynExpr(p string) string    { return "(" + boolExpr(p) + `) ? {"r": "yes"} : {"r": "no"}` }
-func pathExpr(p string) string   { return "(" + boolExpr(p) + `) ? "/c/yes" : "/c/no"` }
+// stringExpr, intExpr, dynExpr and pathExpr are boolExpr over celPrefix in
+// the places of those result types: "yes", 1, {"r": "yes"} and "/c/yes"
+// when true.
+func stringExpr() string { return "(" + boolExpr(celPrefix) + `) ? "yes" : "no"` }
+func intExpr() string    { return "(" + boolExpr(celPrefix) + ") ? 1 : 2" }
+func dynExpr() string    { return "(" + boolExpr(celPrefix) + `) ? {"r": "yes"} : {"r": "no"}` }
+func pathExpr() string   { return "(" + boolExpr(celPrefix) + `) ? "/c/yes" : "/c/no"` }
 
 // quoted is s as a YAML single-quoted scalar.
 func quoted(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }

@@ -100,13 +100,13 @@ func runDog(t *testing.T, parts ...Part) *dog {
 	return d
 }
 
-// answer takes the next call of ctl's probe, answers it with err and waits
-// until the Watchdog recorded the result, so its time is the current fake
-// time.
-func (d *dog) answer(t *testing.T, name string, ctl *probeCtl, err error) {
+// answer takes the next call of ctl's probe, answers it with success and
+// waits until the Watchdog recorded the result, so its time is the current
+// fake time.
+func (d *dog) answer(t *testing.T, name string, ctl *probeCtl) {
 	t.Helper()
 	reply := recv(t, "a "+name+" probe", ctl.calls)
-	reply <- err
+	reply <- nil
 	d.settle(t, name)
 }
 
@@ -260,13 +260,13 @@ func TestWatchdogPingsEveryHalfInterval(t *testing.T) {
 func TestWatchdogPingsWhileEveryPartRuns(t *testing.T) {
 	admin, retirer := newProbeCtl(), newProbeCtl()
 	d := runDog(t, Part{Name: "admin", Probe: admin.probe}, Part{Name: "retirer", Probe: retirer.probe})
-	d.answer(t, "admin", admin, nil)
-	d.answer(t, "retirer", retirer, nil)
+	d.answer(t, "admin", admin)
+	d.answer(t, "retirer", retirer)
 	d.wantPings(t)
 	for range 3 {
 		d.tick(t)
-		d.answer(t, "admin", admin, nil)
-		d.answer(t, "retirer", retirer, nil)
+		d.answer(t, "admin", admin)
+		d.answer(t, "retirer", retirer)
 	}
 	d.wantPings(t, 15*time.Second, 30*time.Second, 45*time.Second)
 }
@@ -277,18 +277,18 @@ func TestWatchdogPingsWhileEveryPartRuns(t *testing.T) {
 func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 	fine, stuck := newProbeCtl(), newProbeCtl()
 	d := runDog(t, Part{Name: "fine", Probe: fine.probe}, Part{Name: "stuck", Probe: stuck.probe})
-	d.answer(t, "fine", fine, nil)
-	d.answer(t, "stuck", stuck, nil) // last success at 0 s
+	d.answer(t, "fine", fine)
+	d.answer(t, "stuck", stuck) // last success at 0 s
 
 	d.tick(t) // 15 s: ping; the stuck probe hangs from here
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	held := recv(t, "the stuck probe", stuck.calls)
 	d.tick(t) // 30 s: 0 s is within the interval: ping
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	d.tick(t) // 45 s: no ping
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	d.tick(t) // 60 s: no ping
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	d.wantPings(t, 15*time.Second, 30*time.Second)
 	if n := d.logs.count("ERROR", "watchdog part has not run within the interval", "part=stuck"); n != 1 {
 		t.Errorf("%d records of the stuck part, want 1", n)
@@ -297,8 +297,8 @@ func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 	held <- nil // the stuck part runs again at 60 s
 	d.settle(t, "stuck")
 	d.tick(t) // 75 s: ping
-	d.answer(t, "fine", fine, nil)
-	d.answer(t, "stuck", stuck, nil)
+	d.answer(t, "fine", fine)
+	d.answer(t, "stuck", stuck)
 	d.wantPings(t, 15*time.Second, 30*time.Second, 75*time.Second)
 }
 
@@ -307,15 +307,15 @@ func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 func TestWatchdogNeverRunPartBlocksPings(t *testing.T) {
 	fine, never := newProbeCtl(), newProbeCtl()
 	d := runDog(t, Part{Name: "fine", Probe: fine.probe}, Part{Name: "activation", Probe: never.probe})
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	recv(t, "the activation probe", never.calls) // never answered
 	d.tick(t)                                    // 15 s
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	if n := d.logs.count("watchdog part has not run within the interval"); n != 0 {
 		t.Errorf("a part was reported half an interval after the start")
 	}
 	d.tick(t) // 30 s
-	d.answer(t, "fine", fine, nil)
+	d.answer(t, "fine", fine)
 	d.wantPings(t)
 	if n := d.logs.count("ERROR", "watchdog part has not run within the interval", "part=activation"); n != 1 {
 		t.Errorf("%d records of the part that never ran, want 1", n)
@@ -417,7 +417,7 @@ func TestWatchdogThroughHeldNotifier(t *testing.T) {
 	go func() { done <- w.Run(ctx) }()
 	defer func() {
 		cancel()
-		recv(t, "Run to return", done)
+		_ = recv(t, "Run to return", done)
 	}()
 	if err := recv(t, "the first ping", p.attempts); err != nil {
 		t.Fatalf("held ping = %v, want nil", err)

@@ -66,7 +66,7 @@ func pushMetrics(t *testing.T, top *topology.Topology, sink *otlpsink.Sink) {
 	if err := top.Advance(t.Context(), metricPush); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 30*time.Second, "a metric push after one interval", func() bool {
+	eventually(t, "a metric push after one interval", func() bool {
 		return sink.Stats().MetricRequests > before
 	})
 }
@@ -86,7 +86,7 @@ func TestHotReloadKeepsCountersAndConnection(t *testing.T) {
 		t.Fatal(err)
 	}
 	gw := gatewayDoc(otlpBlock(sink.URL(), ""))
-	n := startNode(t, top, topology.NodeOptions{Bundle: []byte(gw + upstreamDoc("u", mock.Addr()) + routeDoc("orders", "/orders", "u", ""))})
+	n := startNode(t, top, topology.NodeOptions{Bundle: []byte(gw + upstreamDoc(mock.Addr()) + routeDoc("orders", "/orders", ""))})
 	requests(t, top, n, "/orders", 5)
 	pushMetrics(t, top, sink)
 	if v := value(t, scrape(t, top, n), catalog.HTTPRequestsTotal, "route", "orders", "status_class", "2xx"); v != 5 {
@@ -94,7 +94,7 @@ func TestHotReloadKeepsCountersAndConnection(t *testing.T) {
 	}
 	conns := sink.Stats().Connections
 
-	reload(t, n, gw+upstreamDoc("u", mock.Addr())+routeDoc("orders", "/orders", "u", "")+routeDoc("items", "/items", "u", ""))
+	reload(t, n, gw+upstreamDoc(mock.Addr())+routeDoc("orders", "/orders", "")+routeDoc("items", "/items", ""))
 	requests(t, top, n, "/orders", 3)
 	requests(t, top, n, "/items", 2)
 	set := scrape(t, top, n)
@@ -167,7 +167,7 @@ func TestEndpointChangeSwapsWithinFiveSeconds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rest := upstreamDoc("u", mock.Addr()) + routeDoc("orders", "/orders", "u", "")
+	rest := upstreamDoc(mock.Addr()) + routeDoc("orders", "/orders", "")
 	n := startNode(t, top, topology.NodeOptions{Bundle: []byte(gatewayDoc(otlpBlock(a.URL(), "")) + rest)})
 	requests(t, top, n, "/orders", 2)
 	pushMetrics(t, top, a)
@@ -183,12 +183,12 @@ func TestEndpointChangeSwapsWithinFiveSeconds(t *testing.T) {
 	// moved the clock since.
 	activated := top.Now()
 	requests(t, top, n, "/orders", 2)
-	eventually(t, 30*time.Second, "the old pipeline's final export reaching A", func() bool { return a.Stats().Stalled > 0 })
+	eventually(t, "the old pipeline's final export reaching A", func() bool { return a.Stats().Stalled > 0 })
 	// The new requests' spans leave for B within the 1 s batch interval.
 	if err := top.Advance(t.Context(), time.Second+time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 30*time.Second, "spans at collector B", func() bool { return len(b.Spans()) > 0 })
+	eventually(t, "spans at collector B", func() bool { return len(b.Spans()) > 0 })
 	if a.Stats().OpenConnections != 1 {
 		t.Fatalf("collector A closed 1 s after the swap: %+v", a.Stats())
 	}
@@ -201,7 +201,7 @@ func TestEndpointChangeSwapsWithinFiveSeconds(t *testing.T) {
 	if err := top.Advance(t.Context(), 20*time.Millisecond); err != nil {
 		t.Fatal(err)
 	}
-	eventually(t, 30*time.Second, "the old connection closing at the 5 s bound", func() bool { return a.Stats().OpenConnections == 0 })
+	eventually(t, "the old connection closing at the 5 s bound", func() bool { return a.Stats().OpenConnections == 0 })
 	if b.Stats().OpenConnections != 1 {
 		t.Errorf("collector B: %+v, want one open connection", b.Stats())
 	}
@@ -222,7 +222,7 @@ func TestTLSChangeSwapsConnection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rest := upstreamDoc("u", mock.Addr()) + routeDoc("orders", "/orders", "u", "")
+	rest := upstreamDoc(mock.Addr()) + routeDoc("orders", "/orders", "")
 	n := startNode(t, top, topology.NodeOptions{
 		Bundle:  []byte(gatewayDoc(otlpBlock(sink.URL(), "")) + rest),
 		Secrets: map[string][]byte{"file:" + otlpCA: top.WithCanary(top.CA().CertPEM)},
@@ -234,7 +234,7 @@ func TestTLSChangeSwapsConnection(t *testing.T) {
 	before := len(sink.Requests())
 	tls := "      tls:\n        caCertificate:\n          secretRef:\n            provider: file\n            name: " + otlpCA + "\n"
 	reload(t, n, gatewayDoc(otlpBlock(sink.URL(), tls))+rest)
-	eventually(t, 30*time.Second, "the old connection closing", func() bool { return sink.Stats().OpenConnections == 0 })
+	eventually(t, "the old connection closing", func() bool { return sink.Stats().OpenConnections == 0 })
 	requests(t, top, n, "/orders", 1)
 	pushMetrics(t, top, sink)
 	if st := sink.Stats(); st.Connections != 2 || st.OpenConnections != 1 {

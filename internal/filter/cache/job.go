@@ -50,7 +50,7 @@ func (j *jobEntry) Token() statestore.Token { return j.e.token }
 func (j *jobEntry) Refresh(r *revalidate.Refreshed) ([]byte, error) {
 	e := *j.e
 	e.header, e.initialAge = r.Header, r.InitialAge
-	b := appendEntry(nil, &e)
+	b := encodeEntry(&e)
 	if len(b) > MaxEntry {
 		return nil, errTooLarge
 	}
@@ -64,5 +64,5 @@ func (j *jobEntry) Refresh(r *revalidate.Refreshed) ([]byte, error) {
 func (j *jobEntry) Replace(r *revalidate.Replacement) ([]byte, error) {
 	e := *j.e
 	e.status, e.header, e.initialAge, e.body = r.Status, storedHeader(r.Header, r.Received), r.InitialAge, r.Body
-	return appendEntry(nil, &e), nil
+	return encodeEntry(&e), nil
 }

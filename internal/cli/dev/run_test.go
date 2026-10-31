@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -110,6 +111,11 @@ func TestRunRefusedInputs(t *testing.T) {
 	noEnv := writeFile(t, dir, "empty-envs.yaml", "")
 	badOverrides := writeFile(t, dir, "overrides.yaml", "nocolon: x\n")
 	empty := t.TempDir()
+	// The file name the search looks for on this platform.
+	ruralzd := "ruralzd"
+	if runtime.GOOS == "windows" {
+		ruralzd += ".exe"
+	}
 	for _, c := range []struct {
 		name   string
 		args   []string
@@ -118,7 +124,7 @@ func TestRunRefusedInputs(t *testing.T) {
 		{"missing source", []string{missing}, "ruralz dev run: cannot read " + missing + ": "},
 		{"no Environment", []string{src, "--env", "dev", "--environments", noEnv}, "ruralz dev run: no Environment in " + noEnv + "\n"},
 		{"unusable overrides", []string{src, "--secret-overrides", badOverrides}, "ruralz dev run: --secret-overrides " + badOverrides + ": "},
-		{"no ruralzd", []string{src}, "ruralz dev run: no ruralzd beside ruralz in " + empty + " or on PATH; name it with --ruralzd PATH\n"},
+		{"no ruralzd", []string{src}, "ruralz dev run: no " + ruralzd + " beside ruralz in " + empty + " or on PATH; name it with --ruralzd PATH\n"},
 		{"missing --ruralzd", []string{src, "--ruralzd", missing}, "ruralz dev run: --ruralzd " + missing + ": "},
 	} {
 		o := runOptions(t, clocktest.New(epoch()))
@@ -136,7 +142,10 @@ func TestRunRefusedInputs(t *testing.T) {
 // 130 and the private directory is removed.
 func TestRunWatchesInvalidFirstRender(t *testing.T) {
 	tmp := t.TempDir()
+	// os.TempDir reads TMPDIR on Unix and TMP, then TEMP, on Windows.
 	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
 	clk := clocktest.New(epoch())
 	dir := t.TempDir()
 	bad := strings.Replace(quickstart, "    - name: hello\n", "    - name: missing\n", 1)
@@ -228,7 +237,7 @@ func TestRunFailureColors(t *testing.T) {
 
 // TestShellWord checks the quoting of the dev tap command line.
 func TestShellWord(t *testing.T) {
-	for in, want := range map[string]string{
+	for in, want := range map[string]string{ //nolint:gosec // G101: token file paths, not credentials.
 		"http://127.0.0.1:9901":   "http://127.0.0.1:9901",
 		"/tmp/ruralz-dev-1/token": "/tmp/ruralz-dev-1/token",
 		"/tmp/a b/token":          "'/tmp/a b/token'",

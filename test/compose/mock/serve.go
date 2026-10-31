@@ -158,7 +158,7 @@ func startParts(ctx context.Context, c serveConfig) (_ *parts, err error) {
 		}
 	}
 	if c.idp != "" {
-		if p.idp, err = startIdP(ctx, c); err != nil {
+		if p.idp, err = startIDP(ctx, c); err != nil {
 			return nil, err
 		}
 	}
@@ -255,8 +255,8 @@ func (a Answer) behavior() mockup.Behavior {
 	return b
 }
 
-// startIdP starts the mock IdP over TLS as c sets it up.
-func startIdP(ctx context.Context, c serveConfig) (*mockidp.Server, error) {
+// startIDP starts the mock IdP over TLS as c sets it up.
+func startIDP(ctx context.Context, c serveConfig) (*mockidp.Server, error) {
 	certPEM, err := readFile(c.idpCert)
 	if err != nil {
 		return nil, err
@@ -355,28 +355,28 @@ func (p *parts) startControl(ctx context.Context, addr string) error {
 func (p *parts) controlHandler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		writeJSON(w, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("GET /requests", func(w http.ResponseWriter, _ *http.Request) {
 		if p.upstream == nil {
 			http.Error(w, "no mock Upstream", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, requestLog(p.upstream))
+		writeJSON(w, requestLog(p.upstream))
 	})
 	mux.HandleFunc("GET /dns", func(w http.ResponseWriter, _ *http.Request) {
 		if p.dns == nil {
 			http.Error(w, "no DNS sink", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, p.dns.Log())
+		writeJSON(w, p.dns.Log())
 	})
 	mux.HandleFunc("GET /idp", func(w http.ResponseWriter, _ *http.Request) {
 		if p.idp == nil {
 			http.Error(w, "no mock IdP", http.StatusNotFound)
 			return
 		}
-		writeJSON(w, http.StatusOK, idpLog(p.idp))
+		writeJSON(w, idpLog(p.idp))
 	})
 	return mux
 }
@@ -394,8 +394,8 @@ func requestLog(s *mockup.Server) RequestLog {
 }
 
 // idpLog converts the mock IdP's record, leaving the client secrets out.
-func idpLog(s *mockidp.Server) IdPLog {
-	out := IdPLog{JWKSFetches: s.Stats().JWKSFetches, TokenRequests: []TokenRequest{}}
+func idpLog(s *mockidp.Server) IDPLog {
+	out := IDPLog{JWKSFetches: s.Stats().JWKSFetches, TokenRequests: []TokenRequest{}}
 	for _, r := range s.TokenRequests() {
 		out.TokenRequests = append(out.TokenRequests, TokenRequest{
 			ClientID: r.ClientID, AuthMethod: r.AuthMethod, GrantType: r.GrantType, Scope: r.Scope,
@@ -405,9 +405,9 @@ func idpLog(s *mockidp.Server) IdPLog {
 	return out
 }
 
-// writeJSON writes v as the JSON body of a response with status.
-func writeJSON(w http.ResponseWriter, status int, v any) {
+// writeJSON writes v as the JSON body of a 200 response.
+func writeJSON(w http.ResponseWriter, v any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
+	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(v)
 }

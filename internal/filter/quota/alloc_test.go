@@ -54,7 +54,7 @@ func newAdmitLoop(tb testing.TB) *admitLoop {
 }
 
 // run admits one request, or stops the test.
-func (l *admitLoop) run(tb testing.TB, ctx context.Context) {
+func (l *admitLoop) run(ctx context.Context, tb testing.TB) {
 	l.x.RateLimits = l.x.RateLimits[:0]
 	l.rb = statestore.NewRequestBudget(time.Second, 0)
 	l.x.StateDeadline = &l.rb
@@ -81,9 +81,9 @@ func TestAdmitAllocatesNothing(t *testing.T) {
 	l := newAdmitLoop(t)
 	ctx := t.Context()
 	for range 10 {
-		l.run(t, ctx)
+		l.run(ctx, t)
 	}
-	if n := testing.AllocsPerRun(500, func() { l.run(t, ctx) }); n != 0 {
+	if n := testing.AllocsPerRun(500, func() { l.run(ctx, t) }); n != 0 {
 		t.Errorf("an admitted request allocates %v per run", n)
 	}
 }
@@ -94,6 +94,6 @@ func BenchmarkAdmit(b *testing.B) {
 	ctx := b.Context()
 	b.ReportAllocs()
 	for b.Loop() {
-		l.run(b, ctx)
+		l.run(ctx, b)
 	}
 }

@@ -511,7 +511,7 @@ func (flt *Filter) evaluate(ctx context.Context, x filter.Exchange, st *reqState
 				continue
 			}
 		}
-		st.idx[st.n] = uint8(i) //nolint:gosec // G115: at most MaxLimits limits.
+		st.idx[st.n] = uint8(i)
 		st.n++
 	}
 	if first == nil && st.cost < 1 {

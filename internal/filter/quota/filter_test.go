@@ -42,8 +42,8 @@ func wantField(t *testing.T, what string, o outcome, field filter.RateLimitField
 
 // wantDenied fails unless o is a 429 RZ-RL-003 whose Retry-After lies from
 // end seconds to end plus spread seconds, listed in its field with r =
-// units, and returns the Retry-After.
-func wantDenied(t *testing.T, what string, o outcome, units, end, spread int64) int64 {
+// units.
+func wantDenied(t *testing.T, what string, o outcome, units, end, spread int64) {
 	t.Helper()
 	ra := o.retryAfter()
 	if o.status() != http.StatusTooManyRequests || o.code() != CodeExhausted || ra < end || ra > end+spread {
@@ -53,7 +53,6 @@ func wantDenied(t *testing.T, what string, o outcome, units, end, spread int64) 
 	if len(fs) != 1 || !fs[0].Denied || !fs[0].Known || fs[0].R != units || fs[0].T != ra {
 		t.Errorf("%s: fields %+v; want the denied quota with r=%d t=%d", what, fs, units, ra)
 	}
-	return ra
 }
 
 // TestAdmitThenExhaust covers a window's units: each admission reserves

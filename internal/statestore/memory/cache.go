@@ -134,7 +134,7 @@ func (d *Driver) lookup(ctx context.Context, c *statestore.CacheLookup, now inst
 	}
 	if !ok {
 		if d.macLog.allow(d.node.Now()) {
-			d.logger.WarnContext(ctx, d.mac.Refusal(mark))
+			d.logger.WarnContext(ctx, d.mac.Refusal(mark)) //nolint:sloglint // Refusal returns one of two constant warnings, which tests match verbatim.
 		}
 		return
 	}

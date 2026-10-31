@@ -93,7 +93,7 @@ func (st *state) count(status int, end time.Time, dur time.Duration) {
 		rm.Requests.Inc(s, status)
 		st.lm.Requests.Inc(s, protoIndex(st.r), status, emit.OriginOf(st.code, st.fromUpstream))
 	}
-	if d := uint64(max(dur, 0)); st.decision.Sampled { //nolint:gosec // G115: not negative.
+	if d := uint64(max(dur, 0)); st.decision.Sampled {
 		rm.Duration.RecordExemplar(s, d, emit.Exemplar{TraceID: st.decision.TraceID, SpanID: st.decision.ServerSpanID, Time: end})
 	} else {
 		rm.Duration.Record(s, d)
@@ -101,8 +101,8 @@ func (st *state) count(status int, end time.Time, dur time.Duration) {
 	if st.generated && st.code != "" {
 		h.node.NodeResponses.Inc(s, st.code)
 	}
-	st.lm.RequestBody.Record(s, uint64(max(st.x.RequestBody().BytesRead(), 0))) //nolint:gosec // G115: not negative.
-	st.lm.ResponseBody.Record(s, uint64(max(st.respBytes, 0)))                  //nolint:gosec // G115: not negative.
+	st.lm.RequestBody.Record(s, uint64(max(st.x.RequestBody().BytesRead(), 0)))
+	st.lm.ResponseBody.Record(s, uint64(max(st.respBytes, 0)))
 }
 
 // accessRecord writes the access record when the snapshot's

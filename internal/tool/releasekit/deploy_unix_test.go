@@ -6,7 +6,6 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"os"
 	"os/exec"
@@ -36,15 +35,26 @@ func runHelper(t *testing.T, dataDir string, env []string, args ...string) (int,
 	helper := filepath.Join(repoRoot(), "deploy", "systemd", "ruralzd-handover")
 	cmd := exec.CommandContext(t.Context(), "bash", append([]string{helper}, args...)...) //nolint:gosec // The repository's helper with test arguments.
 	cmd.Env = append(append(os.Environ(), "RURALZ_DATA_DIR="+dataDir), env...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err := cmd.Run()
+	// A file, not a pipe: the process the helper leaves running inherits
+	// its standard error, and a pipe it holds would keep Run waiting for
+	// that process to exit.
+	stderr, err := os.CreateTemp(t.TempDir(), "helper-stderr-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stderr.Close() }()
+	cmd.Stderr = stderr
+	err = cmd.Run()
+	out, rerr := os.ReadFile(stderr.Name())
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
 	var ee *exec.ExitError
 	switch {
 	case err == nil:
-		return 0, stderr.String()
+		return 0, string(out)
 	case errors.As(err, &ee):
-		return ee.ExitCode(), stderr.String()
+		return ee.ExitCode(), string(out)
 	default:
 		t.Fatal(err)
 		return 0, ""

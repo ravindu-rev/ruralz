@@ -352,6 +352,8 @@ func FuzzEvalCapped(f *testing.F) {
 			_, err = prg.EvalString(ctx, v)
 		case expr.ResultDyn:
 			_, err = prg.EvalValue(ctx, v)
+		case expr.ResultInt:
+			_, err = prg.EvalInt(ctx, v)
 		}
 		var ee *expr.EvalError
 		if err != nil && !errors.As(err, &ee) {

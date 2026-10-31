@@ -112,7 +112,7 @@ func untilTerm() int {
 // ready creates the envStandInReady file, when one is named.
 func ready() {
 	if p := os.Getenv(envStandInReady); p != "" {
-		_ = os.WriteFile(p, nil, 0o600)
+		_ = os.WriteFile(p, nil, 0o600) //nolint:gosec // G703: the ready file the test names
 	}
 }
 
@@ -150,8 +150,8 @@ func writeHolder() error {
 	}
 	content := strings.ReplaceAll(os.Getenv(envStandInHolder), "%d", strconv.Itoa(os.Getpid()))
 	tmp := filepath.Join(dir, ".holder.json.standin")
-	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil { //nolint:gosec // G703: a fixed name under the data directory the test names
 		return err
 	}
-	return os.Rename(tmp, filepath.Join(dir, "holder.json"))
+	return os.Rename(tmp, filepath.Join(dir, "holder.json")) //nolint:gosec // G703: fixed names under the data directory the test names
 }

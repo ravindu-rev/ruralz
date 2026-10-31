@@ -73,8 +73,13 @@ func TestFlags(t *testing.T) {
 		t.Errorf("drain flags = %v, want %v", got, drain)
 	}
 	dump := []flag{
-		{"admin", ""}, {"admin-token-file", ""}, {"ca-file", ""}, {"client-cert", ""}, {"client-key", ""},
-		{"output-file", ""}, {"timeout", "5m"},
+		{"admin", ""},
+		{"admin-token-file", ""},
+		{"ca-file", ""},
+		{"client-cert", ""},
+		{"client-key", ""},
+		{"output-file", ""},
+		{"timeout", "5m"},
 	}
 	if got := flags(DumpSpec(Options{})); !slices.Equal(got, dump) {
 		t.Errorf("dump flags = %v, want %v", got, dump)

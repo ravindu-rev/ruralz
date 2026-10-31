@@ -61,8 +61,11 @@ func TestBuildsReachedAttachmentsOnce(t *testing.T) {
 		got = append(got, builtAt{env.Policy.Metadata.Name, env.Scope})
 	}
 	want := []builtAt{
-		{"audit-hdr", phase.ScopeUpstream}, {"gw-cors", phase.ScopeGateway}, {"hdr", phase.ScopeRoute},
-		{"rl", phase.ScopeRoute}, {"up-hdr", phase.ScopeUpstream},
+		{"audit-hdr", phase.ScopeUpstream},
+		{"gw-cors", phase.ScopeGateway},
+		{"hdr", phase.ScopeRoute},
+		{"rl", phase.ScopeRoute},
+		{"up-hdr", phase.ScopeUpstream},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("builds = %v, want %v", got, want)

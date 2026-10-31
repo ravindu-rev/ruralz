@@ -90,10 +90,15 @@ func TestRegistryIsValid(t *testing.T) {
 // m1Paths are the runnable commands of milestone M1.
 func m1Paths() [][]string {
 	return [][]string{
-		{"bundle", "build"}, {"bundle", "diff"}, {"bundle", "render"}, {"bundle", "validate"},
+		{"bundle", "build"},
+		{"bundle", "diff"},
+		{"bundle", "render"},
+		{"bundle", "validate"},
 		{"completion"},
-		{"dev", "run"}, {"dev", "tap"},
-		{"node", "drain"}, {"node", "dump"},
+		{"dev", "run"},
+		{"dev", "tap"},
+		{"node", "drain"},
+		{"node", "dump"},
 		{"version"},
 	}
 }

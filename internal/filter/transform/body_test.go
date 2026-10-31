@@ -28,13 +28,19 @@ func TestBodyField(t *testing.T) {
 		want, wantType          string
 		kind                    string
 	}{
-		{name: "SOAP envelope", body: `"<soap:Envelope>" + request.body.id + "</soap:Envelope>"`, contentType: "text/xml",
-			in: `{"id": "7"}`, want: "<soap:Envelope>7</soap:Envelope>", wantType: "text/xml"},
+		{
+			name: "SOAP envelope", body: `"<soap:Envelope>" + request.body.id + "</soap:Envelope>"`, contentType: "text/xml",
+			in: `{"id": "7"}`, want: "<soap:Envelope>7</soap:Envelope>", wantType: "text/xml",
+		},
 		{name: "bytes", body: `b"raw\x00\xff"`, contentType: "application/octet-stream", in: `{}`, want: "raw\x00\xff", wantType: "application/octet-stream"},
-		{name: "map", body: `{"b": 1, "a": [1.5, "x<&>", null, true]}`, in: `{}`,
-			want: `{"a":[1.5,"x<&>",null,true],"b":1}`, wantType: "application/json"},
-		{name: "decoded body", body: "request.body", in: `{"z": 1.0e2, "a": 12345678901234567890, "m": {"y": 0.50}}`,
-			want: `{"a":12345678901234567890,"m":{"y":0.50},"z":1.0e2}`, wantType: "application/json"},
+		{
+			name: "map", body: `{"b": 1, "a": [1.5, "x<&>", null, true]}`, in: `{}`,
+			want: `{"a":[1.5,"x<&>",null,true],"b":1}`, wantType: "application/json",
+		},
+		{
+			name: "decoded body", body: "request.body", in: `{"z": 1.0e2, "a": 12345678901234567890, "m": {"y": 0.50}}`,
+			want: `{"a":12345678901234567890,"m":{"y":0.50},"z":1.0e2}`, wantType: "application/json",
+		},
 		{name: "JSON string", body: `"{\"a\": 1}"`, in: `{}`, want: `{"a": 1}`, wantType: "application/json"},
 		{name: "JSON string under a +json type", body: `"[1]"`, contentType: "application/vnd.api+json", in: `{}`, want: `[1]`, wantType: "application/vnd.api+json"},
 		{name: "deep map", body: deep, in: `{}`, want: strings.Repeat(`{"a":`, 70) + "1" + strings.Repeat("}", 70), wantType: "application/json"},
@@ -188,20 +194,26 @@ func TestBodyRemove(t *testing.T) {
 // path_error for append.
 func TestBodyMoveAppend(t *testing.T) {
 	runBodyCases(t, []bodyCase{
-		{"move flattens", ops(arrayOp("move", "items.*.sku", "skus")), `{"items": [{"sku": "A", "q": 1}, {"sku": "B"}, {"q": 2}]}`,
-			`{"items":[{"q":1},{},{"q":2}],"skus":["A","B"]}`, ""},
+		{
+			"move flattens", ops(arrayOp("move", "items.*.sku", "skus")), `{"items": [{"sku": "A", "q": 1}, {"sku": "B"}, {"q": 2}]}`,
+			`{"items":[{"q":1},{},{"q":2}],"skus":["A","B"]}`, "",
+		},
 		{"move a value", ops(arrayOp("move", "a", "b.c")), `{"a": {"x": 1}, "z": 1}`, `{"z":1,"b":{"c":{"x":1}}}`, ""},
 		{"move replaces to", ops(arrayOp("move", "a", "b")), `{"a": [1], "b": "old"}`, `{"b":[1]}`, ""},
 		{"move a missing value", ops(arrayOp("move", "missing", "b")), `{"a": 1}`, `{"a": 1}`, ""},
 		{"move over an empty array", ops(arrayOp("move", "items.*.sku", "skus")), `{"items": []}`, `{"items": []}`, ""},
 		{"move into a scalar", ops(arrayOp("move", "a", "z.b")), `{"a": 1, "z": 1}`, "", errTypePath},
-		{"append matches", ops(arrayOp("append", "items.*.sku", "all")), `{"items": [{"sku": "A"}, {"sku": "B"}], "all": ["Z"]}`,
-			`{"items":[{"sku":"A"},{"sku":"B"}],"all":["Z","A","B"]}`, ""},
+		{
+			"append matches", ops(arrayOp("append", "items.*.sku", "all")), `{"items": [{"sku": "A"}, {"sku": "B"}], "all": ["Z"]}`,
+			`{"items":[{"sku":"A"},{"sku":"B"}],"all":["Z","A","B"]}`, "",
+		},
 		{"append creates the array", ops(arrayOp("append", "x", "out.list")), `{"x": [1, 2]}`, `{"x":[1,2],"out":{"list":[[1,2]]}}`, ""},
 		{"append a missing value", ops(arrayOp("append", "missing", "list")), `{"list": []}`, `{"list": []}`, ""},
 		{"append to an object", ops(arrayOp("append", "x", "o")), `{"x": 1, "o": {}}`, "", errTypePath},
-		{"in order", ops(arrayOp("move", "a", "b"), arrayOp("append", "b", "list"), arrayOp("delete", "list.0", "")), `{"a": 1, "list": [0]}`,
-			`{"list":[1],"b":1}`, ""},
+		{
+			"in order", ops(arrayOp("move", "a", "b"), arrayOp("append", "b", "list"), arrayOp("delete", "list.0", "")), `{"a": 1, "list": [0]}`,
+			`{"list":[1],"b":1}`, "",
+		},
 	})
 }
 
@@ -211,8 +223,10 @@ func TestBodyMoveAppend(t *testing.T) {
 // path, the raw body.
 func TestBodyReplace(t *testing.T) {
 	runBodyCases(t, []bodyCase{
-		{"pattern with a group", replaces(pattern("customer.email", "^([^@]+)@", "<$1>@")), `{"customer": {"email": "jane@example.com"}}`,
-			`{"customer":{"email":"<jane>@example.com"}}`, ""},
+		{
+			"pattern with a group", replaces(pattern("customer.email", "^([^@]+)@", "<$1>@")), `{"customer": {"email": "jane@example.com"}}`,
+			`{"customer":{"email":"<jane>@example.com"}}`, "",
+		},
 		{"named group", replaces(pattern("a", "(?P<x>b+)", "[${x}]")), `{"a": "abbc"}`, `{"a":"a[bb]c"}`, ""},
 		{"literal", replaces(literally("a", "$1", "x")), `{"a": "p$1q$1"}`, `{"a":"pxqx"}`, ""},
 		{"literal empty pattern", replaces(literally("a", "", "-")), `{"a": "ab"}`, `{"a":"-a-b-"}`, ""},
@@ -344,14 +358,19 @@ func TestContentTypeOrder(t *testing.T) {
 		in   string
 		want string
 	}{
-		{"header after body", &v1alpha1.TransformRequestConfig{Body: `"<a/>"`, ContentType: ptr("text/xml"),
-			Set: []v1alpha1.TransformRequestSet{reqSet("header", "content-type", `"application/xml"`)}}, `{}`, "application/xml"},
+		{"header after body", &v1alpha1.TransformRequestConfig{
+			Body: `"<a/>"`, ContentType: ptr("text/xml"),
+			Set: []v1alpha1.TransformRequestSet{reqSet("header", "content-type", `"application/xml"`)},
+		}, `{}`, "application/xml"},
 		{"created body after header", &v1alpha1.TransformRequestConfig{
-			Set: []v1alpha1.TransformRequestSet{reqSet("header", "Content-Type", `"text/plain"`), reqSet("body", "x", "1")}}, "", "application/json"},
+			Set: []v1alpha1.TransformRequestSet{reqSet("header", "Content-Type", `"text/plain"`), reqSet("body", "x", "1")},
+		}, "", "application/json"},
 		{"header after created body", &v1alpha1.TransformRequestConfig{
-			Set: []v1alpha1.TransformRequestSet{reqSet("body", "x", "1"), reqSet("header", "Content-Type", `"text/plain"`)}}, "", "text/plain"},
+			Set: []v1alpha1.TransformRequestSet{reqSet("body", "x", "1"), reqSet("header", "Content-Type", `"text/plain"`)},
+		}, "", "text/plain"},
 		{"existing body keeps its type", &v1alpha1.TransformRequestConfig{
-			Set: []v1alpha1.TransformRequestSet{reqSet("body", "x", "1")}}, `{}`, "application/problem+json"},
+			Set: []v1alpha1.TransformRequestSet{reqSet("body", "x", "1")},
+		}, `{}`, "application/problem+json"},
 	}
 	for _, tc := range tests {
 		f := build(t, tc.cfg, phase.ScopeRoute)

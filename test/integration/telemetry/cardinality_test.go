@@ -61,7 +61,7 @@ func routeName(i, k int) string { return fmt.Sprintf("%s-%04d", revisionName(i),
 // revisionBundle is Revision i: revisionRoutes Routes, all renamed from
 // Revision i-1's, to the Upstream at upstream.
 func revisionBundle(i int, upstream string) string {
-	return gatewayDoc("") + upstreamDoc("u", upstream) + manyRoutes(revisionName(i), revisionRoutes, "")
+	return gatewayDoc("") + upstreamDoc(upstream) + manyRoutes(revisionName(i), revisionRoutes, "")
 }
 
 // holdServer is the Upstream of the run: it answers 200 at once, except a
@@ -200,7 +200,7 @@ func snapshotStates(t *testing.T, n *topology.Node) map[string]int {
 // older one freed.
 func waitFreed(t *testing.T, n *topology.Node) {
 	t.Helper()
-	eventually(t, 30*time.Second, "every old snapshot freed", func() bool {
+	eventually(t, "every old snapshot freed", func() bool {
 		s := snapshotStates(t, n)
 		return len(s) == 1 && s[adminapi.StateActive] == 1
 	})

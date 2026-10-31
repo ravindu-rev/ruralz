@@ -251,6 +251,8 @@ func (g *gateway) expectContinue(t testing.TB, p proto, req request, sendBody bo
 		if err != nil {
 			t.Fatalf("no response to the request head: %v", err)
 		}
+		// readBody closes a final response's body; a 1xx has none.
+		defer func() { _ = first.Body.Close() }()
 		if first.StatusCode != http.StatusContinue {
 			out := &response{Proto: first.Proto, Status: first.StatusCode, Header: first.Header}
 			out.Body, _ = readBody(first)
@@ -336,8 +338,10 @@ func caseUpgrade(t *testing.T, g *gateway) {
 		// refused before it runs.
 		eachProto(t, h1Protos(), func(t *testing.T, p proto) {
 			r := g.do(t, p, request{Target: "/auth/api-key/" + bOK, Header: [][2]string{
-				{"Connection", "Upgrade"}, {"Upgrade", "websocket"},
-				{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="}, {"Sec-WebSocket-Version", "13"},
+				{"Connection", "Upgrade"},
+				{"Upgrade", "websocket"},
+				{"Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ=="},
+				{"Sec-WebSocket-Version", "13"},
 			}})
 			wantProblem(t, r, http.StatusBadRequest, "RZ-RT-023")
 		})
@@ -733,8 +737,10 @@ func caseHostAuthority(t *testing.T, g *gateway) {
 			if p.isTLS() {
 				port = ":443"
 			}
-			wantOK(t, g.do(t, p, request{Target: upH1.path(bOK), Host: "Routed.Conformance.TEST",
-				Header: withCase(g.origin.newCase(), [2]string{"host", routedHost + port})}))
+			wantOK(t, g.do(t, p, request{
+				Target: upH1.path(bOK), Host: "Routed.Conformance.TEST",
+				Header: withCase(g.origin.newCase(), [2]string{"host", routedHost + port}),
+			}))
 		})
 	})
 	t.Run("http1-host-count", func(t *testing.T) {
@@ -806,7 +812,7 @@ func caseContentLength(t *testing.T, g *gateway) {
 				c := g.dialH1(t, p)
 				raw := "POST " + upH1.path(bOK) + " HTTP/1.1\r\nHost: x\r\n" + caseHeader + ": " + id + "\r\n" + cl + "\r\n\r\nhello!"
 				wantPlain(t, c.exchange(guard(t, exchangeGuard), http.MethodPost, []byte(raw)), http.StatusBadRequest)
-				if closed, _ := c.waitClosed(5 * time.Second); !closed {
+				if !c.waitClosed(5 * time.Second) {
 					t.Errorf("%q: the connection stayed open after the 400", cl)
 				}
 				c.close()

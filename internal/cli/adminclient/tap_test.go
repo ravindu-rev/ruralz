@@ -294,7 +294,7 @@ func TestTapInterrupt(t *testing.T) {
 		interrupt()
 		select {
 		case err := <-ch:
-			wantInterrupted(t, ctx, err)
+			wantInterrupted(ctx, t, err)
 		case <-time.After(10 * time.Second):
 			t.Fatal("Ctrl-C did not end Next")
 		}

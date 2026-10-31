@@ -83,7 +83,7 @@ func TestSourceAddrsSpreadRequests(t *testing.T) {
 	}
 	var mu sync.Mutex
 	seen := map[uint64]string{} // seq -> client IP the server saw
-	srv := serve(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := serve(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		seq, err := strconv.ParseUint(r.Header.Get("X-Seq"), 10, 64)
 		host, _, _ := net.SplitHostPort(r.RemoteAddr)
 		if err == nil {

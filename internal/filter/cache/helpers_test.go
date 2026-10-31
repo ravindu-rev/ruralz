@@ -364,10 +364,10 @@ func (h *harness) count() [emit.NumCacheResults]uint64 {
 }
 
 // results returns a count with n of each result index named.
-func results(kv ...int) [emit.NumCacheResults]uint64 {
+func results(kv ...uint64) [emit.NumCacheResults]uint64 {
 	var out [emit.NumCacheResults]uint64
 	for i := 0; i+1 < len(kv); i += 2 {
-		out[kv[i]] = uint64(kv[i+1])
+		out[kv[i]] = kv[i+1]
 	}
 	return out
 }

@@ -147,7 +147,7 @@ func TestSystemdAdminToken(t *testing.T) {
 		}
 	}
 	tokenFile, ok := envValue(s, setting.EnvAdminTokenFile)
-	if !ok || tokenFile != "/etc/ruralzd/admin-token" {
+	if !ok || tokenFile != "/etc/ruralzd/admin-token" { //nolint:gosec // G101: a file path, not a credential.
 		t.Errorf("RURALZ_ADMIN_TOKEN_FILE = %q, want /etc/ruralzd/admin-token", tokenFile)
 	}
 	if !path.IsAbs(tokenFile) || tokenFile == setting.DefaultSecretRoot || strings.HasPrefix(tokenFile, setting.DefaultSecretRoot+"/") ||

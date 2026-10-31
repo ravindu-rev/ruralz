@@ -213,6 +213,19 @@ func (s *suite) name(base string) string { return base + "-" + s.nonce }
 
 func (s *suite) advance(by time.Duration) { s.h.Advance(s.t, s.d, by) }
 
+// advancePast moves time past a RetryAfter so the next call sees the
+// instant it named: exactly by it on a fake clock. Against real time the
+// store stamps its calls with the wall clock, rounded to the millisecond,
+// while the sleep runs on the monotonic one, so a wall-clock correction
+// can give the store less than was slept: it also waits a millisecond per
+// case unit, far below every interval.
+func (s *suite) advancePast(retry time.Duration) {
+	if !s.h.Exact {
+		retry += time.Millisecond * s.unit
+	}
+	s.advance(retry)
+}
+
 func (s *suite) now() time.Time { return s.h.Now(s.d) }
 
 // tryTag tells the keys of a timed attempt apart: "" for the first, which
@@ -533,7 +546,7 @@ func gcraCases() []conformanceCase {
 					if s.h.Exact && g.RetryAfter != 100*time.Millisecond {
 						s.t.Fatalf("RetryAfter %v, want T = 100ms", g.RetryAfter)
 					}
-					s.advance(g.RetryAfter)
+					s.advancePast(g.RetryAfter)
 					if g := s.gcra("after RetryAfter", p, d, l); !g.Allowed {
 						s.t.Fatal("denied once RetryAfter passed")
 					}
@@ -578,7 +591,7 @@ func gcraCases() []conformanceCase {
 					if s.h.Exact && g.RetryAfter != 100*time.Millisecond {
 						s.t.Fatalf("RetryAfter %v, want 100ms", g.RetryAfter)
 					}
-					s.advance(g.RetryAfter)
+					s.advancePast(g.RetryAfter)
 					if g := s.gcra("third", p, d, l); !g.Allowed {
 						s.t.Fatal("not admitted one T later")
 					}
@@ -623,7 +636,7 @@ func gcraCases() []conformanceCase {
 					}
 					// The denial reserved nothing: the second limit still
 					// admits once the first recovers.
-					s.advance(g.RetryAfter)
+					s.advancePast(g.RetryAfter)
 					if g := s.gcra("after recovery", p, d, l1, l2); !g.Allowed {
 						s.t.Fatal("denied after the denying limit recovered")
 					}
@@ -1473,8 +1486,10 @@ func cacheCases() []conformanceCase {
 			// the shard's TIME minus t:<V>.
 			f := s.fix("")
 			tok := s.token("gen")
-			if !s.store("store", statestore.CacheStore{Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1,
-				Generation: tok, Create: true, Received: s.now().Add(-2 * time.Second)}) {
+			if !s.store("store", statestore.CacheStore{
+				Key: f.k, Names: "n", Variant: f.v, TTL: f.ttl, Entry: f.body, Token: 1,
+				Generation: tok, Create: true, Received: s.now().Add(-2 * time.Second),
+			}) {
 				s.t.Fatal("store not applied")
 			}
 			if l := s.lookup("stored", f.k, f.v); l.Resident != 2*time.Second {
@@ -1487,8 +1502,10 @@ func cacheCases() []conformanceCase {
 			if !s.leaseOp("take", statestore.CacheLease{Key: f.k, Mode: statestore.LeaseTake, Token: 7}) {
 				s.t.Fatal("lease not taken")
 			}
-			if !s.leaseOp("refresh", statestore.CacheLease{Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 7,
-				Generation: tok, Entry: f.body, TTL: f.ttl, Received: s.now().Add(-1500 * time.Millisecond)}) {
+			if !s.leaseOp("refresh", statestore.CacheLease{
+				Key: f.k, Variant: f.v, Mode: statestore.LeaseRefresh, Token: 7,
+				Generation: tok, Entry: f.body, TTL: f.ttl, Received: s.now().Add(-1500 * time.Millisecond),
+			}) {
 				s.t.Fatal("refresh not applied")
 			}
 			if l := s.lookup("refreshed", f.k, f.v); l.Resident != 1500*time.Millisecond {

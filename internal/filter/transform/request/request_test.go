@@ -108,8 +108,10 @@ func TestAddedRequestBytes(t *testing.T) {
 		{"body remove", &v1alpha1.TransformRequestConfig{Remove: []v1alpha1.TransformRequestRemove{{Target: v1alpha1.TransformRequestTargetBody, Name: "a"}}}, lines},
 		{"array op", &v1alpha1.TransformRequestConfig{ArrayOps: []v1alpha1.ArrayOp{{Op: v1alpha1.ArrayOpDelete, From: "a.0"}}}, lines},
 		{"replace", &v1alpha1.TransformRequestConfig{Replace: []v1alpha1.Replace{{Pattern: "a"}}}, lines},
-		{"body with a long contentType", &v1alpha1.TransformRequestConfig{Body: "request.body", ContentType: &long},
-			int64(len("Content-Type")+len(long)+4) + int64(len("Content-Length")+19+4)},
+		{
+			"body with a long contentType", &v1alpha1.TransformRequestConfig{Body: "request.body", ContentType: &long},
+			int64(len("Content-Type")+len(long)+4) + int64(len("Content-Length")+19+4),
+		},
 		{"everything", &v1alpha1.TransformRequestConfig{Body: "request.body", Set: []v1alpha1.TransformRequestSet{
 			set(v1alpha1.TransformRequestTargetHeader, "x"), set(v1alpha1.TransformRequestTargetQuery, "y"), set(v1alpha1.TransformRequestTargetPath, ""),
 		}}, 1 + httpfield.MaxComputedValueBytes + 4 + 1 + httpfield.MaxQueryValueBytes + 4 + transform.MaxPathBytes + 4 + lines},

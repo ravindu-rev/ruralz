@@ -36,9 +36,9 @@ func fourSeconds() map[string]string {
 }
 
 // timeoutDiff is the human diff of a Route timeout changed from 5s to 4s
-// between from and to, with the header's suffix env.
-func timeoutDiff(from, to revision.Digest, env string) string {
-	return "ruralz bundle diff: " + from.Short() + " -> " + to.Short() + env + "\n\n" +
+// between from and to.
+func timeoutDiff(from, to revision.Digest) string {
+	return "ruralz bundle diff: " + from.Short() + " -> " + to.Short() + "\n\n" +
 		"~ Route/orders                                  routes/orders.yaml           [traffic]\n" +
 		"    ~ spec.timeout: 5s -> 4s\n\n" +
 		"1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: traffic\n"
@@ -72,7 +72,7 @@ func decodeDiff(t *testing.T, s string) diffJSON {
 func TestDiffDirectories(t *testing.T) {
 	a, b := writeBundle(t, simpleBundle()), writeBundle(t, fourSeconds())
 	ra, rb := build(t, a, "", "").Digest, build(t, b, "", "").Digest
-	run(t, "bundle", "diff", a, b).want(t, "diff", command.ExitNegative, timeoutDiff(ra, rb, ""), "")
+	run(t, "bundle", "diff", a, b).want(t, "diff", command.ExitNegative, timeoutDiff(ra, rb), "")
 	r := run(t, "bundle", "diff", "--output", "json", a, b)
 	r.wantCode(t, "diff --output json", command.ExitNegative)
 	d := decodeDiff(t, r.stdout)
@@ -134,14 +134,18 @@ func TestDiffEnvironmentRules(t *testing.T) {
 		args []string
 		msg  string
 	}{
-		{[]string{"--env", "prod", "--from-env", "staging", "--environments", envs, dir, dir},
-			"--env names the Environment of both sides; give it or --from-env and --to-env, not both"},
+		{
+			[]string{"--env", "prod", "--from-env", "staging", "--environments", envs, dir, dir},
+			"--env names the Environment of both sides; give it or --from-env and --to-env, not both",
+		},
 		{[]string{"--from-env", "prod", dir, dir}, "--from-env needs --environments: fetching Environments from Ruralz Control is Planned (M2)"},
 		{[]string{"--to-env", "", "--environments", envs, dir, dir}, "--to-env needs an Environment name"},
 		{[]string{"--environments", envs, dir, dir}, "--environments needs an Environment for FROM: give --env or --from-env"},
 		{[]string{"--from-env", "prod", "--environments", envs, dir, dir}, "--environments needs an Environment for TO: give --env or --to-env"},
-		{[]string{"--from-env", "prod", "--environments", envs, dump, dir},
-			"--from-env names the Environment of a Bundle side, and FROM " + dump + " is a /config/dump document"},
+		{
+			[]string{"--from-env", "prod", "--environments", envs, dump, dir},
+			"--from-env names the Environment of a Bundle side, and FROM " + dump + " is a /config/dump document",
+		},
 		{[]string{"--env", "prod", "--environments", envs, admin, dir}, "--env names the Environment of a Bundle side, and FROM is an admin URL"},
 		{[]string{"--to-env", "prod", "--environments", envs, dir, admin}, "--to-env names the Environment of a Bundle side, and TO is an admin URL"},
 	} {
@@ -174,6 +178,15 @@ func TestDiffRevisionSources(t *testing.T) {
 	run(t, "bundle", "diff", "./rev-162af81f5de4", dir).wantCode(t, "./rev- directory", command.ExitOK)
 	for _, p := range []string{"rev-162AF81F5DE4", "rev-123", "sha256:abc"} {
 		r := run(t, "bundle", "diff", p, dir)
+		// Upper-case hex names no Revision, so it is a path: on a
+		// case-insensitive file system, as Windows' and macOS's are by
+		// default, the path names the rev-162af81f5de4 directory.
+		if _, err := os.Stat(p); err == nil {
+			if r.code != command.ExitOK {
+				t.Errorf("%s = exit %d, stderr %q; want the directory the path names here", p, r.code, r.stderr)
+			}
+			continue
+		}
 		if r.code != command.ExitNoResult || !strings.HasPrefix(r.stderr, "ruralz bundle diff: cannot read FROM: ") {
 			t.Errorf("%s = exit %d, stderr %q; want a path that cannot be read", p, r.code, r.stderr)
 		}
@@ -231,7 +244,7 @@ func TestDiffFiles(t *testing.T) {
 			t.Errorf("%s side JSON = %v", tc.member, d.From)
 		}
 	}
-	run(t, "bundle", "diff", dump, b).want(t, "dump vs directory", command.ExitNegative, timeoutDiff(revA.Digest, rb, ""), "")
+	run(t, "bundle", "diff", dump, b).want(t, "dump vs directory", command.ExitNegative, timeoutDiff(revA.Digest, rb), "")
 	jsonBundle := writeFile(t, "bundle.json", `{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "edge"},
 "spec": {"listeners": [{"name": "http", "protocol": "http", "port": 8080}]}}`)
 	r := run(t, "bundle", "diff", "--output", "json", jsonBundle, jsonBundle)
@@ -329,20 +342,16 @@ func TestDiffColors(t *testing.T) {
 		ansiYellow + "    ~ spec.timeout: 5s -> 4s" + ansiReset + "\n\n" +
 		"1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: traffic\n"
 	execute(t, o, nil, "bundle", "diff", a, b).want(t, "colored", command.ExitNegative, want, "")
-	execute(t, o, []string{"NO_COLOR=yes"}, "bundle", "diff", a, b).want(t, "NO_COLOR", command.ExitNegative, timeoutDiff(ra, rb, ""), "")
+	execute(t, o, []string{"NO_COLOR=yes"}, "bundle", "diff", a, b).want(t, "NO_COLOR", command.ExitNegative, timeoutDiff(ra, rb), "")
 	if r := execute(t, o, nil, "bundle", "diff", "--output", "json", a, b); strings.Contains(r.stdout, "\x1b") {
 		t.Error("JSON is colored")
 	}
 }
 
 // testToken is an operator token canary of RFC 6750 b64token characters.
-//
-//nolint:gosec // G101: a test canary, not a credential.
 const testToken = "op-canary-bundle-7Hq2Lx9Zp4Wm1Rt8"
 
 // otherToken is a second operator token canary, another Node's.
-//
-//nolint:gosec // G101: a test canary, not a credential.
 const otherToken = "op-canary-other-Zp4Wm1Rt87Hq2Lx9"
 
 // adminServer is an admin endpoint that answers /config/dump with body,
@@ -414,7 +423,7 @@ func TestDiffAdmin(t *testing.T) {
 	}
 	run(t, "bundle", "diff", "--admin-token-file", tokA, nodeA.URL, a).wantCode(t, "shared token", command.ExitOK)
 	run(t, "bundle", "diff", "--admin-token-file", tokB, "--from-admin-token-file", tokA, nodeA.URL, b).
-		want(t, "side token over shared", command.ExitNegative, timeoutDiff(revA.Digest, revB.Digest, ""), "")
+		want(t, "side token over shared", command.ExitNegative, timeoutDiff(revA.Digest, revB.Digest), "")
 	r = run(t, "bundle", "diff", "--admin-token-file", tokB, nodeA.URL, a)
 	if r.code != command.ExitNoResult || !strings.Contains(r.stderr, "401 RZ-AUTH-001") {
 		t.Errorf("wrong token = exit %d, stderr %q", r.code, r.stderr)

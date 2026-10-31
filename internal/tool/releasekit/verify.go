@@ -281,7 +281,7 @@ func verifySchemas(a *audit, dir, root string, m *manifest) error {
 		if int64(len(data)) != s.Size || sha256Hex(data) != s.SHA256 {
 			a.add("schema %s does not match its manifest size and SHA-256", s.Name)
 		}
-		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.Source)))
+		src, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(s.Source))) //nolint:gosec // G304: an expected schema source of the repository.
 		if err != nil {
 			return err
 		}

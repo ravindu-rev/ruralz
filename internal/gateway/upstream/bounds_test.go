@@ -296,10 +296,14 @@ func TestPoolBoundsInPoolKey(t *testing.T) {
 		new  bool
 		want connBounds
 	}{
-		{"connectTimeout", func(u *v1alpha1.Upstream) { u.Spec.ConnectTimeout = dur(4 * time.Second) }, true,
-			connBounds{connect: 4 * time.Second, handshake: 2 * time.Second, ping: 5 * time.Second}},
-		{"tls.handshakeTimeout", func(u *v1alpha1.Upstream) { u.Spec.TLS.HandshakeTimeout = dur(6 * time.Second) }, true,
-			connBounds{connect: time.Second, handshake: 6 * time.Second, ping: 5 * time.Second}},
+		{
+			"connectTimeout", func(u *v1alpha1.Upstream) { u.Spec.ConnectTimeout = dur(4 * time.Second) }, true,
+			connBounds{connect: 4 * time.Second, handshake: 2 * time.Second, ping: 5 * time.Second},
+		},
+		{
+			"tls.handshakeTimeout", func(u *v1alpha1.Upstream) { u.Spec.TLS.HandshakeTimeout = dur(6 * time.Second) }, true,
+			connBounds{connect: time.Second, handshake: 6 * time.Second, ping: 5 * time.Second},
+		},
 		{"healthCheck.pingTimeout", func(u *v1alpha1.Upstream) {
 			u.Spec.HealthCheck = &v1alpha1.HealthCheck{PingTimeout: dur(8 * time.Second)}
 		}, true, connBounds{connect: time.Second, handshake: 2 * time.Second, ping: 8 * time.Second}},

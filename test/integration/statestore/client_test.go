@@ -45,12 +45,12 @@ func setupSent(d delta) map[string]int64 {
 }
 
 // accepted sums the connections the Node's proxies in front of the State
-// Store store accepted.
-func (e *env) accepted(store string) int64 {
+// Store main accepted.
+func (e *env) accepted() int64 {
 	e.t.Helper()
-	ps, ok := e.node.StateStoreProxy(store)
+	ps, ok := e.node.StateStoreProxy("main")
 	if !ok {
-		e.t.Fatalf("the Node reaches State Store %s through no proxy", store)
+		e.t.Fatal("the Node reaches State Store main through no proxy")
 	}
 	var n int64
 	for _, p := range ps {
@@ -83,7 +83,7 @@ func TestHotReloadKeepsClient(t *testing.T) {
 			e.start(limitedBundle(e.up.Addr(), ss), mainURLs())
 			m := e.meter("main")
 			e.warmUp("/limited", "x-client", "h")
-			before, dialed := m.read(), e.accepted("main")
+			before, dialed := m.read(), e.accepted()
 			e.reload(limitedBundle(e.up.Addr(), ss, route("other", "/other", "rl")))
 			for _, path := range []string{"/limited", "/other"} {
 				expect(t, path+" after the Hot Reload", e.get(path, "x-client", "h"), http.StatusOK, "")
@@ -92,7 +92,7 @@ func TestHotReloadKeepsClient(t *testing.T) {
 			if got := setupSent(d); len(got) != 0 {
 				t.Errorf("the Hot Reload redialed: the Node sent %v", got)
 			}
-			if got := e.accepted("main") - dialed; got != 0 {
+			if got := e.accepted() - dialed; got != 0 {
 				t.Errorf("the Node opened %d connections after the Hot Reload, want none", got)
 			}
 			expectCommands(t, "the calls after the Hot Reload", d, evalsha(2), 2)
@@ -152,13 +152,13 @@ func TestChangedTLSBlockOpensNewClient(t *testing.T) {
 		o.Secrets = map[string][]byte{caRef: ca}
 	})
 	expect(t, "a request verified against the system roots", e.get("/limited", "x-client", "t"), http.StatusOK, "")
-	dialed := e.accepted("main")
+	dialed := e.accepted()
 	e.reload(limitedBundle(e.up.Addr(), redisStore("standalone", urlRef, "tls:", "  caCertificate: "+secretRef(caRef))))
 	expect(t, "a request verified against the TLS block's CA", e.get("/limited", "x-client", "t"), http.StatusOK, "")
-	if e.accepted("main") == dialed {
+	if e.accepted() == dialed {
 		t.Error("the TLS block change dialed no connection: the old client serves")
 	}
-	opened := e.accepted("main") - dialed
+	opened := e.accepted() - dialed
 	e.waitFor("the old client to close", func() bool {
 		e.advance(time.Second)
 		return e.active("main") <= opened
@@ -233,7 +233,7 @@ func TestCacheConnectionCarriesCacheTraffic(t *testing.T) {
 	main, cache := e.meter("main"), e.meter("cache")
 	mainBefore, cacheBefore := main.read(), cache.read()
 	expect(t, "a miss", e.get("/mixed/item", "x-client", "c"), http.StatusOK, "")
-	e.waitFor("the store", func() bool { return answered(cache.since(cacheBefore).log, "EVALSHA") >= 2 })
+	e.waitFor("the store", func() bool { return answered(cache.since(cacheBefore).log) >= 2 })
 	expect(t, "a hit", e.get("/mixed/item", "x-client", "c"), http.StatusOK, "")
 	expectCommands(t, "the main connection", main.since(mainBefore), evalsha(2), 2)
 	got := cache.since(cacheBefore).requestPath

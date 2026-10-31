@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
@@ -45,7 +44,7 @@ const (
 
 // adminToken is the admin operator token the Nodes under test read: 22 or
 // more RFC 6750 b64token characters.
-const adminToken = "t5-admin-token-0123456789abcdef"
+const adminToken = "t5-admin-token-0123456789abcdef" //nolint:gosec // G101: the test Nodes' throwaway admin token, not a credential
 
 // invalidBundle is a ruralz.yaml that does not parse, so a Node has no
 // Revision to boot from it.
@@ -106,7 +105,7 @@ spec:
 // over it.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
 	tmp := filepath.Join(filepath.Dir(path), ".t5-"+filepath.Base(path))
-	if err := os.WriteFile(tmp, data, mode); err != nil {
+	if err := os.WriteFile(tmp, data, mode); err != nil { //nolint:gosec // G703: a temporary file beside the file the test names
 		return err
 	}
 	if err := os.Chmod(tmp, mode); err != nil {
@@ -314,7 +313,7 @@ func startNode(t *testing.T, bin string, env []string, log string) *nodeProc {
 	}
 	// The test's context ends just before its cleanup, which ends the
 	// process too.
-	cmd := exec.CommandContext(t.Context(), bin) //nolint:gosec // G204: the ruralzd under test
+	cmd := exec.CommandContext(t.Context(), bin)
 	cmd.Env, cmd.Stdout, cmd.Stderr = env, out, out
 	if err := cmd.Start(); err != nil {
 		_ = out.Close()
@@ -363,9 +362,6 @@ func (p *nodeProc) waitExit() (int, error) {
 	}
 	return 0, p.err
 }
-
-// signal sends sig to the process.
-func (p *nodeProc) signal(sig syscall.Signal) { _ = p.cmd.Process.Signal(sig) }
 
 // output returns the process's log.
 func (p *nodeProc) output() string {

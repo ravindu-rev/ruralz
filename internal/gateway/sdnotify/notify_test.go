@@ -58,7 +58,7 @@ func TestNewSocketForms(t *testing.T) {
 // TestDisabledNotifierSendsNothing checks that without NOTIFY_SOCKET every
 // message is a no-op that succeeds.
 func TestDisabledNotifierSendsNothing(t *testing.T) {
-	n, err := New(Options{Readiness: func() adminapi.Readyz { return readyAt(rev) }})
+	n, err := New(Options{Readiness: ready})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -132,7 +132,7 @@ func TestSyncStatusFollowsReadinessChanges(t *testing.T) {
 	}
 	s.nothingSince(t)
 
-	r.set(readyAt(rev))
+	r.set(ready())
 	if err := n.SyncStatus(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestWatchdogSendsPing(t *testing.T) {
 func TestHeldNotifierWaitsForMainPID(t *testing.T) {
 	s := newSink(t)
 	n, r := openNotifier(t, s, true)
-	r.set(readyAt(rev))
+	r.set(ready())
 	ctx := t.Context()
 	for _, f := range []func(context.Context) error{n.Ready, n.SyncStatus, n.Stopping, n.Watchdog} {
 		if err := f(ctx); err != nil {
@@ -211,7 +211,7 @@ func TestHeldNotifierWaitsForMainPID(t *testing.T) {
 // sent until a retried MainPID succeeds.
 func TestFailedMainPIDKeepsHeld(t *testing.T) {
 	path := filepath.Join(socketDir(t), "notify")
-	r := &readiness{v: readyAt(rev)}
+	r := &readiness{v: ready()}
 	n, err := New(Options{Socket: path, Held: true, Readiness: r.get})
 	if err != nil {
 		t.Fatal(err)
@@ -272,7 +272,7 @@ func TestAbstractSocket(t *testing.T) {
 // not receive is sent again by the next SyncStatus.
 func TestFailedSendIsRetried(t *testing.T) {
 	path := filepath.Join(socketDir(t), "notify")
-	r := &readiness{v: readyAt(rev)}
+	r := &readiness{v: ready()}
 	n, err := New(Options{Socket: path, Readiness: r.get})
 	if err != nil {
 		t.Fatal(err)

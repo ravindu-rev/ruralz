@@ -181,7 +181,7 @@ func get(t *testing.T, client *http.Client, url string, header http.Header) exch
 func waitReady(t *testing.T, client *http.Client, admin string) {
 	t.Helper()
 	deadline := time.Now().Add(readyTimeout)
-	last := "no answer"
+	var last string
 	for {
 		ctx, cancel := context.WithTimeout(t.Context(), requestTimeout)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://"+admin+"/readyz", nil)
@@ -202,7 +202,7 @@ func waitReady(t *testing.T, client *http.Client, admin string) {
 		if time.Now().After(deadline) {
 			t.Fatalf("/readyz at %s not 200 within %v: %s", admin, readyTimeout, last)
 		}
-		sleepCtx(t.Context(), pollInterval)
+		sleepCtx(t.Context())
 	}
 }
 

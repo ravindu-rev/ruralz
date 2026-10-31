@@ -23,7 +23,7 @@ func TestStatusOf(t *testing.T) {
 		v    adminapi.Readyz
 		want string
 	}{
-		{name: "ready", v: readyAt(rev), want: "ready " + rev},
+		{name: "ready", v: ready(), want: "ready " + rev},
 		{name: "ready without a revision", v: adminapi.Readyz{Status: "ready"}, want: "ready"},
 		{name: "no revision", v: notReady(noRevision), want: "not ready: no_revision"},
 		{

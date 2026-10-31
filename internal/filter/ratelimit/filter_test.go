@@ -395,7 +395,7 @@ func TestFailOpenRefill(t *testing.T) {
 	if len(o.x.RateLimits) != 1 || o.x.RateLimits[0].Known {
 		t.Errorf("fields %+v, want the limit without a count", o.x.RateLimits)
 	}
-	if !fx.failingOpen(f, "a", 0) {
+	if !fx.failingOpen(f) {
 		t.Fatal("the bucket is not on the fail-open refill")
 	}
 	for range 9 {
@@ -414,8 +414,8 @@ func TestFailOpenRefill(t *testing.T) {
 		t.Fatalf("next window holds %d, want the allowance 10", n)
 	}
 	fx.store.failWith(nil)
-	if o := fx.request(t, f, vars("a", "")); o.r.Outcome != filter.Continue || fx.failingOpen(f, "a", 0) {
-		t.Fatalf("after a GCRA answer = %+v, fail-open %v; want admitted on the continuous refill", o.r, fx.failingOpen(f, "a", 0))
+	if o := fx.request(t, f, vars("a", "")); o.r.Outcome != filter.Continue || fx.failingOpen(f) {
+		t.Fatalf("after a GCRA answer = %+v, fail-open %v; want admitted on the continuous refill", o.r, fx.failingOpen(f))
 	}
 	wantDecisions(t, m, map[string]uint64{"fail_open": 10, "deny_local": 2, "allow": 1})
 }
@@ -468,7 +468,7 @@ func TestClosedFailure(t *testing.T) {
 	if o.r.Outcome != filter.CannotDecide || o.code() != "RZ-STS-002" {
 		t.Fatalf("closed failure = %+v, want CannotDecide RZ-STS-002", o.r)
 	}
-	if fx.failingOpen(f, "a", 0) {
+	if fx.failingOpen(f) {
 		t.Error("a closed failure switched the bucket to the fail-open refill")
 	}
 	wantDecisions(t, m, map[string]uint64{"fail_closed": 1})

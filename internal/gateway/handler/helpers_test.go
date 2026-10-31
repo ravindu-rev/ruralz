@@ -162,7 +162,7 @@ func (k *kit) do(r *http.Request) (res result) {
 // get serves GET target.
 func (k *kit) get(target string) result {
 	k.t.Helper()
-	return k.do(httptest.NewRequest(http.MethodGet, target, nil))
+	return k.do(httptest.NewRequestWithContext(k.t.Context(), http.MethodGet, target, nil))
 }
 
 // record returns the only access record, failing otherwise.
@@ -295,7 +295,7 @@ func (w *recordingWriter) FlushError() error {
 	w.mu.Lock()
 	w.flushes++
 	w.mu.Unlock()
-	w.ResponseRecorder.Flush()
+	w.Flush()
 	return nil
 }
 
@@ -328,12 +328,6 @@ func (b *trackedBody) Close() error {
 	defer b.mu.Unlock()
 	b.closed = true
 	return nil
-}
-
-func (b *trackedBody) isClosed() bool {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.closed
 }
 
 // newTracked returns a tracked body of s.

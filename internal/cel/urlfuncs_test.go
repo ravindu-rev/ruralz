@@ -91,7 +91,7 @@ func TestEscapeEstimate(t *testing.T) {
 	if est == nil {
 		t.Fatal("no estimate")
 	}
-	if est.CostEstimate.Min != 1+1 || est.CostEstimate.Max != 1+26 {
+	if est.Min != 1+1 || est.Max != 1+26 {
 		t.Errorf("cost = %+v, want {2 27}", est.CostEstimate)
 	}
 	if est.ResultSize == nil || est.ResultSize.Min != 2 || est.ResultSize.Max != 768 {

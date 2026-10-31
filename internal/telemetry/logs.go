@@ -258,7 +258,7 @@ func (p *logProcessor) export(ctx context.Context, fullOnly bool) {
 		for i := range batch {
 			q := &batch[i]
 			if q.lazy {
-				rec, ok := p.encodeAccess(lg, q.access)
+				rec, ok := p.encodeAccess(lg, q.access) //nolint:contextcheck // the encoding context carries the access record's own span context, never the export's.
 				q.releaseAccess()
 				if !ok {
 					p.drops.exportError[streamAccess].Add(1)

@@ -115,7 +115,7 @@ func TestVariant(t *testing.T) {
 // at most its bound of URIs, the least recently used evicted.
 func TestNameLRU(t *testing.T) {
 	l := newNameLRU(2)
-	u := func(s string) statestore.Digest { return statestore.DigestOf(s) }
+	u := statestore.DigestOf
 	l.learn(u("a"), "accept")
 	l.learn(u("b"), "x")
 	if l.get(u("a")) != "accept" {

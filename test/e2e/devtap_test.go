@@ -94,7 +94,7 @@ func TestDevTap(t *testing.T) {
 	}
 
 	for i, p := range taps {
-		sig, want := os.Signal(os.Interrupt), 130
+		sig, want := os.Interrupt, 130
 		if i == len(taps)-1 {
 			sig, want = syscall.SIGTERM, 143
 		}

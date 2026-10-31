@@ -479,7 +479,8 @@ func checkResources(bad badFunc, res Resources) {
 		path string
 		v    int64
 	}{
-		{"resources.rssLoadBytes", res.RSSLoadBytes}, {"resources.rssIdleBytes", res.RSSIdleBytes},
+		{"resources.rssLoadBytes", res.RSSLoadBytes},
+		{"resources.rssIdleBytes", res.RSSIdleBytes},
 		{"resources.liveHeapBytes", res.LiveHeapBytes},
 	} {
 		if x.v < 0 {
@@ -539,8 +540,10 @@ func checkSummary(bad badFunc, s *Summary) {
 		path string
 		v    PerView
 	}{
-		{"summary.headMedianP99Ns", s.HeadMedianP99}, {"summary.baselineMedianP99Ns", s.BaselineMedianP99},
-		{"summary.slowerPairs", s.SlowerPairs}, {"summary.baselineNoise", s.BaselineNoise},
+		{"summary.headMedianP99Ns", s.HeadMedianP99},
+		{"summary.baselineMedianP99Ns", s.BaselineMedianP99},
+		{"summary.slowerPairs", s.SlowerPairs},
+		{"summary.baselineNoise", s.BaselineNoise},
 	} {
 		nonNegFloat(bad, x.path+".external", x.v.External)
 		nonNegFloat(bad, x.path+".internal", x.v.Internal)

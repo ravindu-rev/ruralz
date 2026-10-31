@@ -197,14 +197,17 @@ func advancing(ctx context.Context, top *topology.Topology, step, interval time.
 	return err
 }
 
+// eventuallyTimeout bounds every eventually poll.
+const eventuallyTimeout = 30 * time.Second
+
 // eventually polls cond every 20 ms of real time until it holds, failing
-// the test after timeout.
-func eventually(t *testing.T, timeout time.Duration, what string, cond func() bool) {
+// the test after eventuallyTimeout.
+func eventually(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.Now().Add(timeout)
+	deadline := time.Now().Add(eventuallyTimeout)
 	for !cond() {
 		if time.Now().After(deadline) {
-			t.Fatalf("%s: not within %v", what, timeout)
+			t.Fatalf("%s: not within %v", what, eventuallyTimeout)
 		}
 		time.Sleep(topology.PollInterval)
 	}
@@ -246,17 +249,17 @@ func gatewayDoc(telemetry string) string {
 	return doc
 }
 
-// upstreamDoc is an http Upstream with one static Endpoint.
-func upstreamDoc(name, address string) string {
-	return "---\napiVersion: ruralz/v1alpha1\nkind: Upstream\nmetadata:\n  name: " + name +
+// upstreamDoc is the http Upstream u with one static Endpoint.
+func upstreamDoc(address string) string {
+	return "---\napiVersion: ruralz/v1alpha1\nkind: Upstream\nmetadata:\n  name: u" +
 		"\nspec:\n  protocol: http\n  endpoints:\n    - address: \"" + address + "\"\n"
 }
 
-// routeDoc is a Route matching the path prefix to upstream, with a
+// routeDoc is a Route matching the path prefix to the Upstream u, with a
 // whole-request timeout.
-func routeDoc(name, prefix, upstream, timeout string) string {
+func routeDoc(name, prefix, timeout string) string {
 	doc := "---\napiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: " + name +
-		"\nspec:\n  match:\n    path:\n      prefix: " + prefix + "\n  upstreams:\n    - name: " + upstream + "\n"
+		"\nspec:\n  match:\n    path:\n      prefix: " + prefix + "\n  upstreams:\n    - name: u\n"
 	if timeout != "" {
 		doc += "  timeout: " + timeout + "\n"
 	}

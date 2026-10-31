@@ -31,11 +31,15 @@ func dnsMessage(id uint16, flags uint16, qdcount, arcount uint16, body ...[]byte
 	return msg
 }
 
-// wireName encodes labels as an uncompressed name.
+// wireName encodes labels, each at most 63 bytes, as an uncompressed name.
 func wireName(labels ...string) []byte {
 	var b []byte
 	for _, l := range labels {
-		b = append(b, byte(len(l)))
+		n := len(l)
+		if n > 63 {
+			panic("wireName: a label longer than 63 bytes")
+		}
+		b = append(b, byte(n))
 		b = append(b, l...)
 	}
 	return append(b, 0)
@@ -174,7 +178,7 @@ func TestDNSSinkRecords(t *testing.T) {
 		}
 		for i := range 2 { // two messages on one connection
 			msg := dnsMessage(uint16(40+i), rdFlag, 1, 0, wireName("tcp", "example"), typeClass(1))
-			if _, err := c.Write(append(binary.BigEndian.AppendUint16(nil, uint16(len(msg))), msg...)); err != nil {
+			if _, err := c.Write(append(binary.BigEndian.AppendUint16(nil, uint16(len(msg))), msg...)); err != nil { //nolint:gosec // G115: a query of one short question, far below 65,535 bytes
 				t.Fatal(err)
 			}
 			var prefix [2]byte

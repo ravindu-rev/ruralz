@@ -41,18 +41,18 @@ type stamp struct {
 	n   int
 }
 
-// sameRoot reports whether a and b see the same root: both missing, or
+// sameRoot reports whether s and o see the same root: both missing, or
 // the same symbolic-link target and the same file or directory.
-func (a stamp) sameRoot(b stamp) bool {
-	if a.missing || b.missing {
-		return a.missing == b.missing
+func (s stamp) sameRoot(o stamp) bool {
+	if s.missing || o.missing {
+		return s.missing == o.missing
 	}
-	return a.link == b.link && os.SameFile(a.info, b.info)
+	return s.link == o.link && os.SameFile(s.info, o.info)
 }
 
-// equal reports whether a and b see the same root and the same entries.
-func (a stamp) equal(b stamp) bool {
-	return a.sameRoot(b) && a.sum == b.sum && a.n == b.n
+// equal reports whether s and o see the same root and the same entries.
+func (s stamp) equal(o stamp) bool {
+	return s.sameRoot(o) && s.sum == o.sum && s.n == o.n
 }
 
 // stamp stamps the source.

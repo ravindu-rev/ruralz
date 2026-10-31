@@ -124,7 +124,9 @@ func TestBackgroundRevalidation(t *testing.T) {
 			go func() { done <- h.rv.Run(ctx) }()
 			t.Cleanup(func() {
 				cancel()
-				<-done
+				if err := <-done; err != nil {
+					t.Errorf("Run = %v", err)
+				}
 			})
 
 			h.prime(http.Header{"Accept": {"application/json"}}, header("max-age=60, stale-while-revalidate=30", t0), "old")
@@ -310,20 +312,47 @@ func TestStaleIfError(t *testing.T) {
 		served  bool
 		member  string
 	}{
-		{"503 from the Upstream", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
-			leg{status: http.StatusServiceUnavailable, body: "down"}, true, "ruralz;fwd=stale;fwd-status=503;ttl=-60"},
-		{"Node-generated 502", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
-			leg{failed: http.StatusBadGateway}, true, "ruralz;fwd=stale;fwd-status=502;ttl=-60"},
-		{"500", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
-			leg{status: http.StatusInternalServerError}, true, "ruralz;fwd=stale;fwd-status=500;ttl=-60"},
-		{"past the window", "max-age=60, stale-while-revalidate=300, stale-if-error=30", http.Header{"Cache-Control": {"no-cache"}}, 2 * time.Minute,
-			leg{status: http.StatusServiceUnavailable}, false, "ruralz;fwd=request"},
-		{"request widens the window", "max-age=60, stale-while-revalidate=300", http.Header{"Cache-Control": {"max-age=10, stale-if-error=600"}}, 2 * time.Minute,
-			leg{status: http.StatusGatewayTimeout}, true, "ruralz;fwd=request;fwd-status=504;ttl=-60"},
-		{"a fresh entry serves on error", "max-age=60", http.Header{"Cache-Control": {"no-cache"}}, 10 * time.Second,
-			leg{status: http.StatusBadGateway}, true, "ruralz;fwd=request;fwd-status=502"},
-		{"404 is no error", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
-			leg{status: http.StatusNotFound, header: http.Header{"Cache-Control": {"no-store"}}}, false, "ruralz;fwd=stale"},
+		{
+			"503 from the Upstream", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
+			leg{status: http.StatusServiceUnavailable, body: "down"},
+			true, "ruralz;fwd=stale;fwd-status=503;ttl=-60",
+		},
+		{
+			"Node-generated 502", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
+			leg{failed: http.StatusBadGateway},
+			true, "ruralz;fwd=stale;fwd-status=502;ttl=-60",
+		},
+		{
+			"500", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
+			leg{status: http.StatusInternalServerError},
+			true, "ruralz;fwd=stale;fwd-status=500;ttl=-60",
+		},
+		{
+			"past the window", "max-age=60, stale-while-revalidate=300, stale-if-error=30",
+			http.Header{"Cache-Control": {"no-cache"}},
+			2 * time.Minute,
+			leg{status: http.StatusServiceUnavailable},
+			false, "ruralz;fwd=request",
+		},
+		{
+			"request widens the window", "max-age=60, stale-while-revalidate=300",
+			http.Header{"Cache-Control": {"max-age=10, stale-if-error=600"}},
+			2 * time.Minute,
+			leg{status: http.StatusGatewayTimeout},
+			true, "ruralz;fwd=request;fwd-status=504;ttl=-60",
+		},
+		{
+			"a fresh entry serves on error", "max-age=60",
+			http.Header{"Cache-Control": {"no-cache"}},
+			10 * time.Second,
+			leg{status: http.StatusBadGateway},
+			true, "ruralz;fwd=request;fwd-status=502",
+		},
+		{
+			"404 is no error", "max-age=60, stale-if-error=300", nil, 2 * time.Minute,
+			leg{status: http.StatusNotFound, header: http.Header{"Cache-Control": {"no-store"}}},
+			false, "ruralz;fwd=stale",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

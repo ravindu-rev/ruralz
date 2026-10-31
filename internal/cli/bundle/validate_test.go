@@ -261,7 +261,7 @@ func TestNotADirectoryOrFile(t *testing.T) {
 // TestDirectoryWithoutRootFile: a directory without ruralz.yaml is
 // RZ-CFG-016, an invalid Bundle.
 func TestDirectoryWithoutRootFile(t *testing.T) {
-	dir := writeBundle(t, map[string]string{"upstreams.yaml": upstreamDoc("orders", "")})
+	dir := writeBundle(t, map[string]string{"upstreams.yaml": upstreamDoc("")})
 	r := run(t, "bundle", "validate", dir)
 	r.wantCode(t, "validate", command.ExitNegative)
 	if !strings.Contains(r.stdout, " error RZ-CFG-016") {
@@ -291,13 +291,13 @@ func TestValidateOnline(t *testing.T) {
 // TestStandardInput: "-" reads standard input to its end as a one-file
 // Bundle whose diagnostics name the file "-".
 func TestStandardInput(t *testing.T) {
-	stream := docs(gatewayDoc, upstreamDoc("orders", ""), routeDoc("orders", "ordrs", ""))
+	stream := docs(gatewayDoc, upstreamDoc(""), routeDoc("orders", "ordrs", ""))
 	r := execute(t, withStdin(testOptions(), stream), nil, "bundle", "validate", "-")
 	r.wantCode(t, "validate -", command.ExitNegative)
 	if !strings.HasPrefix(r.stdout, "-:") || !strings.Contains(r.stdout, "RZ-CFG-009 Route/orders") {
 		t.Errorf("stdout = %q, want RZ-CFG-009 in file -", r.stdout)
 	}
-	execute(t, withStdin(testOptions(), docs(gatewayDoc, upstreamDoc("orders", ""), routeDoc("orders", "orders", ""))), nil,
+	execute(t, withStdin(testOptions(), docs(gatewayDoc, upstreamDoc(""), routeDoc("orders", "orders", ""))), nil,
 		"bundle", "validate", "-").want(t, "valid standard input", command.ExitOK, "", "")
 	o := testOptions()
 	o.Stdin = failingReader{}

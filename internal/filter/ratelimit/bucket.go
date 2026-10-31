@@ -113,7 +113,7 @@ func released(into, window, allowance int64) int64 {
 	if window <= int64(failOpenStepped) {
 		return allowance
 	}
-	k, ok := mulDiv(uint64(max(into, 0)), failOpenSteps, uint64(window)) //nolint:gosec // G115: non-negative operands.
+	k, ok := mulDiv(uint64(max(into, 0)), failOpenSteps, uint64(window))
 	if !ok || k >= failOpenSteps {
 		k = failOpenSteps - 1
 	}

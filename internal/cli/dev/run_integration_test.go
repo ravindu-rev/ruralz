@@ -515,6 +515,11 @@ func TestRunReadyTimeout(t *testing.T) {
 		"      port: 8080\n  stateStore:\n    driver: redis\n    url: {secretRef: {provider: env, name: RURALZ_SECRET_UNSET_IN_TEST}}\n", 1)
 	src := writeFile(t, t.TempDir(), "bundle.yaml", broken)
 	d := startDevRun(t, nil, src, "--ephemeral-ports", "--ready-timeout", "3s")
+	// The Node rejects the source with RZ-CFG-026 at its first load, which
+	// needs no clock; wait for it in real time before driving the CLI's
+	// clock past the timeout, which a slow machine would otherwise reach
+	// before the Node logs it.
+	waitFor(t, "the rejection", func() bool { return strings.Contains(d.inv.stderr.String(), "RZ-CFG-026") })
 	d.drive("the timeout", func() bool {
 		return strings.Contains(d.inv.stderr.String(), "ruralzd is not ready after 3s: ") || d.exited()
 	})

@@ -105,7 +105,7 @@ func parseSums(data []byte) (map[string]string, error) {
 
 // verifySum checks the archive at p against the SHA256SUMS beside it.
 func verifySum(p string, data []byte) error {
-	b, err := os.ReadFile(filepath.Join(filepath.Dir(p), "SHA256SUMS")) //nolint:gosec // G304: the release directory under test
+	b, err := os.ReadFile(filepath.Join(filepath.Dir(p), "SHA256SUMS"))
 	if err != nil {
 		return err
 	}

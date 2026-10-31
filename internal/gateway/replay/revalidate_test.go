@@ -69,7 +69,7 @@ func TestRevalidatorReplays(t *testing.T) {
 		w.Header().Set("Etag", `"v1"`)
 		w.WriteHeader(http.StatusNotModified)
 	})
-	snap := f.publish(handlertest.Spec{Legs: compileUpstreams(t, f, "orders", srv), Routes: []handlertest.Route{plainRoute("orders", 0)}})
+	snap := f.publish(handlertest.Spec{Legs: compileUpstreams(t, f, "orders", srv), Routes: []handlertest.Route{plainRoute(0)}})
 
 	store, err := memory.New(t.Context(), statestore.Config{Driver: statestore.DriverMemory},
 		statestore.Deps{Clock: f.clk, Logger: slog.New(slog.DiscardHandler)}, memory.Options{Shards: 1, MaxEntries: 64})

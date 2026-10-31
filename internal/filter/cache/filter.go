@@ -453,7 +453,7 @@ func (f *Filter) refreshed(x filter.Exchange, st *state, nm http.Header) *filter
 	if ttl := fr.TTL(age); ttl > 0 && Names(h) == Names(e.header) && revalidate.Storable(h, e.authorized()) {
 		re := *e
 		re.header, re.initialAge = h, age
-		if b := appendEntry(nil, &re); len(b) <= MaxEntry {
+		if b := encodeEntry(&re); len(b) <= MaxEntry {
 			st.refresh, st.refreshTTL, st.refreshNames = b, ttl, Names(h)
 		}
 	}

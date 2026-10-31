@@ -45,7 +45,7 @@ const (
 // has a when that fails at runtime, which skips the Policy and logs why.
 // otlp is the telemetry block.
 func noisyBundle(telemetry, upstream string) string {
-	return gatewayDoc(telemetry) + upstreamDoc("u", upstream) +
+	return gatewayDoc(telemetry) + upstreamDoc(upstream) +
 		"---\napiVersion: ruralz/v1alpha1\nkind: Policy\nmetadata:\n  name: noisy\nspec:\n  type: headers\n  failureMode: open\n" +
 		"  when: 'request.headers[\"x-absent\"] == \"y\"'\n  config:\n    response:\n      set:\n        - name: x-noisy\n          value: \"1\"\n" +
 		"---\napiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: work\nspec:\n  match:\n    path:\n      prefix: /work\n" +
@@ -108,7 +108,7 @@ func TestBlockedStdout(t *testing.T) {
 	// and the metric push go on as in production.
 	run := func(d time.Duration) {
 		if err := advancing(t.Context(), top, 100*time.Millisecond, 100*time.Millisecond, func() error {
-			load(t, top, n, loadRate, d)
+			load(t, n, loadRate, d)
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -146,7 +146,7 @@ func TestBlockedStdout(t *testing.T) {
 		t.Fatalf("%d requests counted during the blocked run, want %d", served, int(loadRate*blockedFor.Seconds()))
 	}
 	// Every access record of the blocked run reaches the collector.
-	eventually(t, 30*time.Second, "the blocked run's access records at the collector", func() bool {
+	eventually(t, "the blocked run's access records at the collector", func() bool {
 		if err := top.Advance(t.Context(), 100*time.Millisecond); err != nil {
 			t.Fatal(err)
 		}
@@ -175,7 +175,7 @@ func exited(p *proc.Process) bool {
 	if p.State() != nil {
 		return true
 	}
-	stat, err := os.ReadFile("/proc/" + strconv.Itoa(p.PID()) + "/stat") //nolint:gosec // G304: the procfs file of a process the test started
+	stat, err := os.ReadFile("/proc/" + strconv.Itoa(p.PID()) + "/stat")
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
@@ -192,7 +192,7 @@ func exited(p *proc.Process) bool {
 // runs from the clock's reading now.
 func waitDraining(t *testing.T, n *topology.Node) {
 	t.Helper()
-	eventually(t, 30*time.Second, "/readyz 503 draining after SIGTERM", func() bool {
+	eventually(t, "/readyz 503 draining after SIGTERM", func() bool {
 		doc, status, err := n.Readyz(t.Context())
 		if err != nil || status != http.StatusServiceUnavailable {
 			return false
@@ -222,7 +222,7 @@ func TestSIGTERMWhileStdoutBlocked(t *testing.T) {
 	unblock := p.BlockStdout()
 	t.Cleanup(unblock)
 	// Enough lines to fill the pipe and the Node's stdout queues.
-	load(t, top, n, 400, 5*time.Second)
+	load(t, n, 400, 5*time.Second)
 	if err := n.Signal(t.Context(), syscall.SIGTERM); err != nil {
 		t.Fatal(err)
 	}

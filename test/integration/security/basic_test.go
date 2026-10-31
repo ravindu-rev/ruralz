@@ -64,10 +64,14 @@ func basicAuth(user, password string) []string {
 }
 
 // fromSource returns a client whose connections leave from the loopback
-// address 127.0.0.<host>, which Linux answers without an alias: the Node
-// sees it as source.ip.
+// address 127.0.0.<host>, host 1 to 254, which Linux answers without an
+// alias: the Node sees it as source.ip.
 func fromSource(t *testing.T, top *topology.Topology, host int) *http.Client {
 	t.Helper()
+	if host < 1 || host > 254 {
+		t.Fatalf("fromSource: host %d is not 1 to 254", host)
+		return nil
+	}
 	d := &net.Dialer{LocalAddr: &net.TCPAddr{IP: net.IPv4(127, 0, 0, byte(host))}}
 	tr := &http.Transport{DialContext: d.DialContext, DisableKeepAlives: true}
 	t.Cleanup(tr.CloseIdleConnections)

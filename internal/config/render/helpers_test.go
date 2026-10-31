@@ -183,11 +183,11 @@ type run struct {
 // discover runs stage A over the Bundle at dir through the loader: the
 // configuration files of the Bundle, the base files and those of every
 // overlay, in lexical order of their slash-separated paths, leaving out
-// what a .ruralzignore excludes. The Bundle's findings fail t.
-func discover(t testing.TB, dir string) (*loader.Bundle, fs.FS) {
+// what a .ruralzignore excludes, on ctx. The Bundle's findings fail t.
+func discover(ctx context.Context, t testing.TB, dir string) (*loader.Bundle, fs.FS) {
 	t.Helper()
 	fsys := os.DirFS(dir)
-	b, err := mustStages(t).loader.Parse(t.Context(), loader.Source{FS: fsys, Path: "."})
+	b, err := mustStages(t).loader.Parse(ctx, loader.Source{FS: fsys, Path: "."})
 	if err != nil {
 		t.Fatalf("read %s: %v", dir, err)
 	}
@@ -199,10 +199,10 @@ func discover(t testing.TB, dir string) (*loader.Bundle, fs.FS) {
 
 // readBundle returns the base files of the Bundle at dir and the files of
 // overlays/<overlayName>/ ("" for none), each in lexical order of its
-// slash-separated path, as the loader discovers them (discover).
-func readBundle(t testing.TB, dir, overlayName string) (base, patches []source) {
+// slash-separated path, as the loader discovers them (discover) on ctx.
+func readBundle(ctx context.Context, t testing.TB, dir, overlayName string) (base, patches []source) {
 	t.Helper()
-	b, fsys := discover(t, dir)
+	b, fsys := discover(ctx, t, dir)
 	for _, f := range b.Files() {
 		if f.Overlay != "" && f.Overlay != overlayName {
 			continue
@@ -398,10 +398,10 @@ func mustPipeline(t testing.TB, base, patches []source, vars subst.Source) *run 
 func shop(t testing.TB, env string) *run {
 	t.Helper()
 	if env == "" {
-		base, _ := readBundle(t, shopDir(t), "")
+		base, _ := readBundle(t.Context(), t, shopDir(t), "")
 		return mustPipeline(t, base, nil, subst.Map{})
 	}
-	base, patches := readBundle(t, shopDir(t), env)
+	base, patches := readBundle(t.Context(), t, shopDir(t), env)
 	return mustPipeline(t, base, patches, environment(t, env))
 }
 

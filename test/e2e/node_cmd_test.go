@@ -215,9 +215,9 @@ func TestNodeDrain(t *testing.T) {
 			t.Fatal(err)
 		}
 		args = append([]string{"node", "drain", "--data-dir", n.DataDir()}, args...)
-		p := startCLI(t, cliOptions{}, args...)
+		p := startCLI(t, cliOptions{}, args...) //nolint:contextcheck // the CLI runs on its subtest's t.Context(), not the parent test's ctx
 		var r cliRun
-		err = advancing(ctx, top, time.Second, func() error {
+		err = advancing(ctx, top, time.Second, func() error { //nolint:contextcheck // finish waits on its subtest's t.Context(), not the parent test's ctx
 			r = finish(t, top, p, args, waitTimeout)
 			return nil
 		})
@@ -257,7 +257,7 @@ func TestNodeDrain(t *testing.T) {
 		}
 		// The Node clock stands still, so the Drain cannot end before the
 		// CLI's own --timeout, which runs in real time.
-		r := cli(t, top, cliOptions{}, "node", "drain", "--data-dir", n.DataDir(), "--timeout", "1s", "--output", "json")
+		r := cli(t, top, cliOptions{}, "node", "drain", "--data-dir", n.DataDir(), "--timeout", "1s", "--output", "json") //nolint:contextcheck // the CLI runs on its subtest's t.Context(), not the parent test's ctx
 		var out drainOutput
 		if r.code != 2 || json.Unmarshal([]byte(r.stdout), &out) != nil || out.Result != "timeout" || out.PID != h.PID ||
 			!strings.Contains(r.stderr, strconv.Itoa(h.PID)) {

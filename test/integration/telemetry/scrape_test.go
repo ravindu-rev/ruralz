@@ -32,7 +32,7 @@ func manyRoutes(prefix string, count int, timeout string) string {
 	var b strings.Builder
 	for i := range count {
 		name := fmt.Sprintf("%s-%04d", prefix, i)
-		b.WriteString(routeDoc(name, "/"+name, "u", timeout))
+		b.WriteString(routeDoc(name, "/"+name, timeout))
 	}
 	return b.String()
 }
@@ -59,7 +59,7 @@ func startStuckScrape(t *testing.T, top *topology.Topology, n *topology.Node) *s
 		t.Fatal(err)
 	}
 	req.Header.Set("Authorization", "Bearer "+n.MetricsToken())
-	resp, err := (&http.Client{Transport: tr}).Do(req)
+	resp, err := (&http.Client{Transport: tr}).Do(req) //nolint:bodyclose // stuckScrape.close closes it at the test's end
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestScrapeSlots(t *testing.T) {
 	}
 	// 100 Routes make an exposition of hundreds of KiB, far above the
 	// stuck scrapes' 1 KiB stream window.
-	n := startNode(t, top, topology.NodeOptions{Bundle: []byte(gatewayDoc("") + upstreamDoc("u", mock.Addr()) + manyRoutes("r", 100, ""))})
+	n := startNode(t, top, topology.NodeOptions{Bundle: []byte(gatewayDoc("") + upstreamDoc(mock.Addr()) + manyRoutes("r", 100, ""))})
 	stuck := make([]*stuckScrape, scrapeSlots)
 	for i := range stuck {
 		stuck[i] = startStuckScrape(t, top, n)
@@ -133,13 +133,13 @@ wait:
 	if advanced < scrapeWait || advanced > scrapeWait+time.Second {
 		t.Errorf("the fifth scrape answered after %v of the clock, want its 10 s wait", advanced)
 	}
-	if real := time.Since(start); real >= scrapeWait {
-		t.Errorf("the fifth scrape answered after %v of real time: its wait follows the real clock", real)
+	if elapsed := time.Since(start); elapsed >= scrapeWait {
+		t.Errorf("the fifth scrape answered after %v of real time: its wait follows the real clock", elapsed)
 	}
 	for _, s := range stuck {
 		s.close()
 	}
-	eventually(t, 30*time.Second, "a scrape once the slots are free", func() bool {
+	eventually(t, "a scrape once the slots are free", func() bool {
 		resp, err := n.AdminAs(t.Context(), "/metrics", topology.Metrics)
 		return err == nil && resp.Status == http.StatusOK
 	})

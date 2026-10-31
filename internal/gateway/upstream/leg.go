@@ -374,10 +374,9 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 	// whose Deadline is armed in place on the state's reused timer.
 	rec := &attemptRecord{probe: m.traceProbe}
 	cctx, cancel := context.WithCancelCause(ctx)
-	rec.Context = cctx
+	actx := rec.derive(cctx)
 	ls.armed.Store(&rec.dl)
 	rec.dl.Init(cancel, m.clk, a.Deadline, a.Cause, ls.deadlineTimer())
-	actx := context.Context(rec)
 	end := attemptEnd{rt: rt, rec: rec, dl: &rec.dl, metrics: u.metrics, stripe: ls.o.Stripe, trace: ls.o.Trace}
 	if err := rt.res.Bulkhead().Acquire(actx, &u.res.Bulkhead); err != nil {
 		if errors.Is(err, resilience.ErrBulkheadFull) {
@@ -969,6 +968,13 @@ type attemptRecord struct {
 	trace httptrace.ClientTrace
 	hints snapshot.EarlyHints
 	token uint64
+}
+
+// derive makes the record a child of parent, the attempt's cancel
+// context, and returns it as the attempt context.
+func (r *attemptRecord) derive(parent context.Context) context.Context {
+	r.Context = parent
+	return r
 }
 
 // Value answers httptrace's client trace key with the attempt's hook set,

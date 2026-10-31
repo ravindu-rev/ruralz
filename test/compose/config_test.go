@@ -105,7 +105,7 @@ func TestComposeConfig(t *testing.T) {
 					t.Errorf("compose reads network airgap as %+v, want internal", cfg.Networks["airgap"])
 				}
 			case restFile:
-				for svc, alias := range map[string]string{svcIdP: idpHost, svcUpstream: "orders.shop.internal"} {
+				for svc, alias := range map[string]string{svcIDP: idpHost, svcUpstream: "orders.shop.internal"} {
 					net := cfg.Services[svc].Networks["default"]
 					if net == nil || !slices.Contains(net.Aliases, alias) {
 						t.Errorf("compose reads %s's default network as %+v, want the alias %s", svc, net, alias)

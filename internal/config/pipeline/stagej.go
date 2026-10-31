@@ -341,8 +341,8 @@ func aboveRate(requests int64, window time.Duration, perSecond uint64) bool {
 	if window <= 0 {
 		return true
 	}
-	lhsHi, lhsLo := bits.Mul64(uint64(requests), uint64(time.Second)) //nolint:gosec // G115: positive operands, checked above.
-	rhsHi, rhsLo := bits.Mul64(perSecond, uint64(window))             //nolint:gosec // G115: as above.
+	lhsHi, lhsLo := bits.Mul64(uint64(requests), uint64(time.Second))
+	rhsHi, rhsLo := bits.Mul64(perSecond, uint64(window))
 	return lhsHi > rhsHi || (lhsHi == rhsHi && lhsLo > rhsLo)
 }
 

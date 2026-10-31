@@ -63,7 +63,7 @@ func TestFindRuralzdFlag(t *testing.T) {
 	}
 	for p, msg := range bad {
 		_, err := FindRuralzd(ioWithPath(""), p, Options{})
-		if command.Code(nil, err) != command.ExitNoResult || !strings.Contains(err.Error(), "--ruralzd "+p+": ") || !strings.Contains(err.Error(), msg) {
+		if command.Code(t.Context(), err) != command.ExitNoResult || !strings.Contains(err.Error(), "--ruralzd "+p+": ") || !strings.Contains(err.Error(), msg) {
 			t.Errorf("FindRuralzd(--ruralzd %s) = %v, want exit 2 with %q", p, err, msg)
 		}
 	}
@@ -126,7 +126,7 @@ func TestFindRuralzdNone(t *testing.T) {
 	beside := t.TempDir()
 	_, err := FindRuralzd(ioWithPath(t.TempDir()), "", Options{Executable: exeIn(beside)})
 	want := "no " + binaryName() + " beside ruralz in " + beside + " or on PATH; name it with --ruralzd PATH"
-	if command.Code(nil, err) != command.ExitNoResult || err.Error() != want {
+	if command.Code(t.Context(), err) != command.ExitNoResult || err.Error() != want {
 		t.Fatalf("FindRuralzd = %v, want exit 2 with %q", err, want)
 	}
 	_, err = FindRuralzd(ioWithPath(""), "", Options{Executable: func() (string, error) { return "", errors.New("unknown") }})

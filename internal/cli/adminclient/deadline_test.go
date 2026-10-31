@@ -279,7 +279,7 @@ func TestStreamHasNoBodyDeadline(t *testing.T) {
 
 // wantInterrupted checks that err ends the command as the interruption of
 // ctx: exit 130, the interruption in its chain.
-func wantInterrupted(t *testing.T, ctx context.Context, err error) {
+func wantInterrupted(ctx context.Context, t *testing.T, err error) {
 	t.Helper()
 	if command.Code(ctx, err) != command.ExitInterrupted {
 		t.Errorf("error %v exits %d, want 130", err, command.Code(ctx, err))
@@ -301,7 +301,7 @@ func TestInterruptEndsEveryWait(t *testing.T) {
 		ch := goDump(ctx, c)
 		within(t, "the dial", bd.started)
 		interrupt()
-		wantInterrupted(t, ctx, await(t, ch).err)
+		wantInterrupted(ctx, t, await(t, ch).err)
 		within(t, "the abandoned dial to end", bd.done)
 	})
 	t.Run("TLS handshake", func(t *testing.T) {
@@ -311,7 +311,7 @@ func TestInterruptEndsEveryWait(t *testing.T) {
 		ch := goDump(ctx, c)
 		waitFor(t, "the connection deadline", func() bool { return clk.Pending() == 2 })
 		interrupt()
-		wantInterrupted(t, ctx, await(t, ch).err)
+		wantInterrupted(ctx, t, await(t, ch).err)
 		waitFor(t, "the abandoned handshake to end", func() bool { return clk.Pending() == 0 })
 	})
 	t.Run("headers", func(t *testing.T) {
@@ -321,7 +321,7 @@ func TestInterruptEndsEveryWait(t *testing.T) {
 		ch := goDump(ctx, c)
 		within(t, "the request", s.entered)
 		interrupt()
-		wantInterrupted(t, ctx, await(t, ch).err)
+		wantInterrupted(ctx, t, await(t, ch).err)
 	})
 	t.Run("body", func(t *testing.T) {
 		s := newStallingServer(t, partialBody, nil)
@@ -330,7 +330,7 @@ func TestInterruptEndsEveryWait(t *testing.T) {
 		ch := goDump(ctx, c)
 		within(t, "the partial body", s.entered)
 		interrupt()
-		wantInterrupted(t, ctx, await(t, ch).err)
+		wantInterrupted(ctx, t, await(t, ch).err)
 		if n := clk.Pending(); n != 0 {
 			t.Errorf("%d deadlines left armed", n)
 		}

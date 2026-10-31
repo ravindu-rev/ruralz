@@ -75,7 +75,7 @@ func TestNewWorkspaceRandomFails(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	before, _ := os.ReadDir(os.TempDir())
 	_, err := NewWorkspace("ruralz-test-", io.LimitReader(bytes.NewReader(nil), 0))
-	if command.Code(nil, err) != command.ExitNoResult || !strings.Contains(err.Error(), "draw the operator token") {
+	if command.Code(t.Context(), err) != command.ExitNoResult || !strings.Contains(err.Error(), "draw the operator token") {
 		t.Fatalf("NewWorkspace = %v", err)
 	}
 	if runtime.GOOS == "windows" {

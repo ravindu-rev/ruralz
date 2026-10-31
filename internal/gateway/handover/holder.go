@@ -136,7 +136,7 @@ func StartHolder(ctx context.Context, cfg HolderConfig) (*Holder, error) {
 // listen creates the socket, owner-only, after removing a file a crashed
 // holder left; the caller holds the lock.
 func (h *Holder) listen(ctx context.Context) error {
-	if err := os.Remove(h.path); err != nil && !errors.Is(err, fs.ErrNotExist) { //nolint:gosec // G703: handover.sock under the data directory.
+	if err := os.Remove(h.path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("handover: removing a stale socket: %w", err)
 	}
 	var lc net.ListenConfig
@@ -152,9 +152,9 @@ func (h *Holder) listen(ctx context.Context) error {
 	// The socket file is removed while the lock is held, never by Close,
 	// which could run after a successor created its own.
 	ln.SetUnlinkOnClose(false)
-	if err := os.Chmod(h.path, nodedir.FilePerm); err != nil { //nolint:gosec // G703: handover.sock under the data directory.
+	if err := os.Chmod(h.path, nodedir.FilePerm); err != nil {
 		_ = ln.Close()
-		_ = os.Remove(h.path) //nolint:gosec // G703: see above.
+		_ = os.Remove(h.path)
 		return fmt.Errorf("handover: %w", err)
 	}
 	h.ln = ln
@@ -172,7 +172,7 @@ func (h *Holder) stopListening(remove bool) {
 	h.stopped = true
 	_ = h.ln.Close()
 	if remove {
-		_ = os.Remove(h.path) //nolint:gosec // G703: handover.sock under the data directory.
+		_ = os.Remove(h.path)
 	}
 }
 

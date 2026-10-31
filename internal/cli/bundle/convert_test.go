@@ -27,7 +27,7 @@ import (
 func convertBundle() map[string]string {
 	return map[string]string{
 		"ruralz.yaml":    gatewayDoc,
-		"upstreams.yaml": upstreamDoc("orders", "  timeout: ${UP_TIMEOUT:-2s}\n"),
+		"upstreams.yaml": upstreamDoc("  timeout: ${UP_TIMEOUT:-2s}\n"),
 		"routes/orders.json": `{"apiVersion": "ruralz/v1alpha1", "kind": "Route",
  "metadata": {"name": "orders", "labels": {"template": "/v1/$${id}"}},
  "spec": {"match": {"path": {"prefix": "/orders"}}, "upstreams": [{"name": "orders"}], "timeout": "${TIMEOUT:-5s}"}}

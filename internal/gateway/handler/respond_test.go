@@ -58,7 +58,7 @@ func TestNoContentResponses(t *testing.T) {
 			k := newKit(t)
 			fwd := handlertest.Respond("orders", tt.status, http.Header{"Content-Length": {"5"}}, "hello")
 			k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "r", Match: &v1alpha1.RouteMatch{Path: &v1alpha1.PathMatch{Prefix: "/r"}}, Forward: fwd}}})
-			res := k.do(httptest.NewRequest(tt.method, tt.target, nil))
+			res := k.do(httptest.NewRequestWithContext(t.Context(), tt.method, tt.target, nil))
 			if res.Code != tt.status || res.Body.Len() != 0 {
 				t.Fatalf("%s %s = %d with body %q, want %d without content", tt.method, tt.target, res.Code, res.Body.String(), tt.status)
 			}
@@ -208,7 +208,7 @@ func TestResponseTrailers(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			k := newKit(t)
 			k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "r", Forward: answer(tt.resp), Body: snapshot.BodyNeeds{ResponseGate: tt.gate}}}})
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			r.ProtoMajor, r.ProtoMinor = tt.major, tt.minor
 			res := k.do(r)
 			if res.Code != http.StatusOK || res.Body.String() != "data" {
@@ -246,7 +246,11 @@ func TestTrailersOverHTTP(t *testing.T) {
 	})}}})
 	srv := httptest.NewServer(k.h)
 	defer srv.Close()
-	resp, err := srv.Client().Get(srv.URL)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := srv.Client().Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +300,7 @@ func TestFlushPolicy(t *testing.T) {
 				return &snapshot.UpstreamResponse{Status: http.StatusOK, Header: tt.header.Clone(), Body: &chunks{parts: []string{"abcd", "efgh"}}}
 			}))}})
 			w := newRecordingWriter()
-			k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+			k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 			if w.Body.String() != "abcdefgh" || w.flushes != tt.want {
 				t.Errorf("body %q with %d flushes, want abcdefgh with %d", w.Body.String(), w.flushes, tt.want)
 			}
@@ -427,7 +431,7 @@ func TestRequestBodyOverrunAfterCommit(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: http.StatusOK, Header: http.Header{}, Body: &overrunBody{o: o}}, nil
 	})
 	k.publish(handlertest.Spec{Limits: snapshot.Limits{MaxRequestBodyBytes: 10}, Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 100)))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader(strings.Repeat("x", 100)))
 	r.ContentLength = -1
 	res := k.do(r)
 	if !res.aborted || res.Code != http.StatusOK {
@@ -599,7 +603,7 @@ func TestEarlyHintsRelay(t *testing.T) {
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
 	w := &hintWriter{ResponseRecorder: httptest.NewRecorder()}
-	k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 	hints.RelayHints(token, http.Header{"Link": {"</after.css>"}})
 
 	w.mu.Lock()
@@ -636,7 +640,7 @@ func TestEarlyHintsRelayDropsConnectionOptions(t *testing.T) {
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
 	w := &hintWriter{ResponseRecorder: httptest.NewRecorder()}
-	k.h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

@@ -38,7 +38,7 @@ func FuzzOperations(f *testing.F) {
 		switch res.Outcome {
 		case filter.Continue:
 			if m.setBodies == 0 {
-				if string(m.Raw) != body && !(body == "" && m.Raw == nil) {
+				if string(m.Raw) != body && (body != "" || m.Raw != nil) {
 					t.Fatalf("body %q changed without a write", m.Raw)
 				}
 				return
@@ -51,7 +51,7 @@ func FuzzOperations(f *testing.F) {
 				t.Fatalf("header %v", h)
 			}
 		case filter.CannotDecide:
-			if string(m.Raw) != body && !(body == "" && m.Raw == nil) || m.setBodies != 0 || h.Get("X-A") != "" {
+			if string(m.Raw) != body && (body != "" || m.Raw != nil) || m.setBodies != 0 || h.Get("X-A") != "" {
 				t.Fatalf("edited after a failure: body %q, header %v", m.Raw, h)
 			}
 		default:
@@ -127,8 +127,16 @@ func buildEnvNoCEL() filter.BuildEnv { return filter.BuildEnv{Scope: phase.Scope
 // fixed inputs, including the empty-match rules.
 func TestReplacersEqualStandardLibrary(t *testing.T) {
 	cases := [][3]string{
-		{"abcabc", "b", "x"}, {"aaa", "", "-"}, {"héllo", "", "|"}, {"", "", "x"}, {"x", "x", "x"},
-		{"abab", "a*", "-"}, {"héllo", "l+", "[$0]"}, {"a1b22", `(\d+)`, "<$1>"}, {"aaa", "^", "^"}, {"abc", "$", "!"},
+		{"abcabc", "b", "x"},
+		{"aaa", "", "-"},
+		{"héllo", "", "|"},
+		{"", "", "x"},
+		{"x", "x", "x"},
+		{"abab", "a*", "-"},
+		{"héllo", "l+", "[$0]"},
+		{"a1b22", `(\d+)`, "<$1>"},
+		{"aaa", "^", "^"},
+		{"abc", "$", "!"},
 	}
 	for _, c := range cases {
 		s, old, repl := c[0], c[1], c[2]

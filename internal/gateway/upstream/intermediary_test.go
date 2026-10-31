@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -198,7 +199,7 @@ type fillAtEOF struct {
 
 func (b *fillAtEOF) Read(p []byte) (int, error) {
 	n, err := b.r.Read(p)
-	if err == io.EOF { //nolint:errorlint // strings.Reader returns io.EOF unwrapped.
+	if err == io.EOF {
 		b.t["X-Checksum"], b.t["Content-Length"], b.t["Grpc-Status"] = []string{"late"}, []string{"8"}, []string{"2"}
 	}
 	return n, err
@@ -234,7 +235,7 @@ func (h *hintsRecorder) HintsToken() uint64 {
 func (h *hintsRecorder) RelayHints(token uint64, hdr http.Header) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.relays = append(h.relays, strings.Join(hdr["Link"], ",")+" #"+string(rune('0'+token)))
+	h.relays = append(h.relays, strings.Join(hdr["Link"], ",")+" #"+strconv.FormatUint(token, 10))
 }
 
 func (h *hintsRecorder) list() []string {

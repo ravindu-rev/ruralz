@@ -141,7 +141,7 @@ func TestIndexMatchesModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	sh := &tbl.shards[0]
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: a seeded sequence makes the property reproducible.
 	model := map[[2]uint64]bool{}
 	keyOf := func(n uint64) (uint32, statestore.Digest) {
 		return uint32(n%5) + 1, statestore.DigestOf(strconv.FormatUint(n, 10))

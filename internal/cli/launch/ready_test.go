@@ -70,13 +70,13 @@ func TestCheckHolder(t *testing.T) {
 	write("0.3.9")
 	held, err := CheckHolder(ws, "/opt/ruralzd", o)
 	want := "/opt/ruralzd is version 0.3.9, but this ruralz is 0.4.0; launch the ruralzd of the same release with --ruralzd PATH"
-	if !held || command.Code(nil, err) != command.ExitNoResult || err.Error() != want {
+	if !held || command.Code(t.Context(), err) != command.ExitNoResult || err.Error() != want {
 		t.Fatalf("CheckHolder with another version = %v, %v; want exit 2 with %q", held, err, want)
 	}
 	if err := os.WriteFile(filepath.Join(ws.DataDir(), nodedir.HolderFile), []byte("{"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := CheckHolder(ws, "ruralzd", o); command.Code(nil, err) != command.ExitNoResult || !strings.Contains(err.Error(), "read holder.json") {
+	if _, err := CheckHolder(ws, "ruralzd", o); command.Code(t.Context(), err) != command.ExitNoResult || !strings.Contains(err.Error(), "read holder.json") {
 		t.Fatalf("CheckHolder with a broken record = %v", err)
 	}
 }

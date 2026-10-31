@@ -83,10 +83,14 @@ func TestCachedShortCircuitRunsWholeChain(t *testing.T) {
 		answer result
 		want   []string
 	}{
-		{"cached hit", func(context.Context, filter.Exchange) filter.Result { return filter.Reply(cachedResponse()) },
-			[]string{"cache.onRequestHeaders", "tr.onResponse", "sem.onResponse", "cache.onResponse", "cors.onResponse"}},
-		{"generated short-circuit", respondWith(504, "RZ-RT-018"),
-			[]string{"cache.onRequestHeaders", "cors.onResponse"}},
+		{
+			"cached hit", func(context.Context, filter.Exchange) filter.Result { return filter.Reply(cachedResponse()) },
+			[]string{"cache.onRequestHeaders", "tr.onResponse", "sem.onResponse", "cache.onResponse", "cors.onResponse"},
+		},
+		{
+			"generated short-circuit", respondWith(504, "RZ-RT-018"),
+			[]string{"cache.onRequestHeaders", "cors.onResponse"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)

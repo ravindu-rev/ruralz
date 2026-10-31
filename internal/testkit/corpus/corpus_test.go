@@ -482,7 +482,7 @@ func TestHeld(t *testing.T) {
 	run := func(args ...string) {
 		t.Helper()
 		//nolint:gosec // Test arguments, passed without a shell.
-		cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)...)
+		cmd := exec.CommandContext(t.Context(), "git", append([]string{"-C", dir, "-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false"}, args...)...)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, out)
 		}

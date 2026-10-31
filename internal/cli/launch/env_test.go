@@ -60,15 +60,21 @@ func TestEnviron(t *testing.T) {
 			slices.Concat(passed, set, []string{"RURALZ_SECRET_ROOT=/private/secrets", "RURALZ_FETCH_ALLOW=127.0.0.0/8,::1"}),
 		},
 		{
-			"fetch allow set", []string{"RURALZ_FETCH_ALLOW=10.0.0.0/8"}, false,
+			"fetch allow set",
+			[]string{"RURALZ_FETCH_ALLOW=10.0.0.0/8"},
+			false,
 			slices.Concat([]string{"RURALZ_FETCH_ALLOW=10.0.0.0/8"}, set),
 		},
 		{
-			"fetch allow empty", []string{"RURALZ_FETCH_ALLOW="}, false,
+			"fetch allow empty",
+			[]string{"RURALZ_FETCH_ALLOW="},
+			false,
 			slices.Concat(set, []string{"RURALZ_FETCH_ALLOW=127.0.0.0/8,::1"}),
 		},
 		{
-			"entry without a value", []string{"RURALZ_FETCH_ALLOW", "NOVALUE"}, false,
+			"entry without a value",
+			[]string{"RURALZ_FETCH_ALLOW", "NOVALUE"},
+			false,
 			slices.Concat([]string{"NOVALUE"}, set, []string{"RURALZ_FETCH_ALLOW=127.0.0.0/8,::1"}),
 		},
 	} {

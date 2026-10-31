@@ -276,8 +276,8 @@ func TestRESTProjectResolvesTheBundleNames(t *testing.T) {
 		aliases[s.name] = s.list("networks", "default", "aliases")
 	}
 	for _, n := range []struct{ service, host string }{
-		{svcIdP, names.jwksHost},
-		{svcIdP, names.tokenHost},
+		{svcIDP, names.jwksHost},
+		{svcIDP, names.tokenHost},
 		{svcUpstream, names.ordersHost},
 		{svcUpstream, names.inventoryHost},
 	} {
@@ -285,7 +285,7 @@ func TestRESTProjectResolvesTheBundleNames(t *testing.T) {
 			t.Errorf("service %s: aliases %v, want %q, which the REST example Bundle names", n.service, aliases[n.service], n.host)
 		}
 	}
-	idp := serviceNamed(t, svcs, svcIdP)
+	idp := serviceNamed(t, svcs, svcIDP)
 	if got := idp.argAfter("-idp"); got != "0.0.0.0:"+names.jwksPort {
 		t.Errorf("idp: -idp %q, want port %s of the Bundle's JWKS URL", got, names.jwksPort)
 	}

@@ -52,8 +52,10 @@ func problems(cfg *v1alpha1.RateLimitConfig) []problem {
 		out = append(out, problem{configPath(diag.Field("limits")), "limits is empty", "declare at least one limit, such as {requests: 100, window: 1s}"})
 	}
 	if len(cfg.Limits) > MaxLimits {
-		out = append(out, problem{limitPath(MaxLimits), "more than " + strconv.Itoa(MaxLimits) + " limits",
-			"keep at most " + strconv.Itoa(MaxLimits) + " limits per Policy"})
+		out = append(out, problem{
+			limitPath(MaxLimits), "more than " + strconv.Itoa(MaxLimits) + " limits",
+			"keep at most " + strconv.Itoa(MaxLimits) + " limits per Policy",
+		})
 	}
 	type rate struct {
 		requests int64
@@ -78,8 +80,10 @@ func problems(cfg *v1alpha1.RateLimitConfig) []problem {
 		}
 		k := rate{l.Requests, w}
 		if j, dup := first[k]; dup {
-			out = append(out, problem{limitPath(i), "limits " + strconv.Itoa(j) + " and " + strconv.Itoa(i) + " have equal requests and window",
-				"two such limits would share one GCRA key; remove one"})
+			out = append(out, problem{
+				limitPath(i), "limits " + strconv.Itoa(j) + " and " + strconv.Itoa(i) + " have equal requests and window",
+				"two such limits would share one GCRA key; remove one",
+			})
 			continue
 		}
 		first[k] = i

@@ -110,7 +110,7 @@ func newRESTFixture(t *testing.T, s *suite, run string, ca testPKI, sec secrets)
 	writeRoutes(t, run, restRoutes())
 
 	idp := filepath.Join(run, "idp")
-	ca.writeLeaf(t, idp, idpHost, svcIdP)
+	ca.writeLeaf(t, idp, idpHost, svcIDP)
 	priv, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		t.Fatal(err)
@@ -200,10 +200,10 @@ func TestRESTExampleBundle(t *testing.T) {
 	ca := newTestPKI(t)
 	f := newRESTFixture(t, s, p.run, ca, sec)
 
-	p.up(ctx, svcValkey, svcUpstream, svcIdP, svcCollector, svcRuralzd)
+	p.up(ctx, svcValkey, svcUpstream, svcIDP, svcCollector, svcRuralzd)
 	n := restNode{
 		admin: p.port(ctx, svcRuralzd, portAdmin), http: p.port(ctx, svcRuralzd, portHTTP), https: p.port(ctx, svcRuralzd, portHTTPS),
-		upstreamCtl: p.port(ctx, svcUpstream, portControl), idpCtl: p.port(ctx, svcIdP, portControl),
+		upstreamCtl: p.port(ctx, svcUpstream, portControl), idpCtl: p.port(ctx, svcIDP, portControl),
 	}
 	restChecks(t, s, f, ca, sec, n)
 
@@ -395,7 +395,7 @@ func checkUpstreamRequests(t *testing.T, n restNode, partner, summary traceConte
 	t.Helper()
 	var log mock.RequestLog
 	controlJSON(t, n.upstreamCtl, "/requests", &log)
-	var idp mock.IdPLog
+	var idp mock.IDPLog
 	controlJSON(t, n.idpCtl, "/idp", &idp)
 	issued := map[string]bool{}
 	for _, r := range idp.TokenRequests {
@@ -492,7 +492,7 @@ func checkDiffs(t *testing.T, s *suite, f *restFixture, n restNode) {
 		t.Fatal(err)
 	}
 	changed := filepath.Join(f.run, "changed.yaml")
-	if err := os.WriteFile(changed, changedData, 0o600); err != nil {
+	if err := os.WriteFile(changed, changedData, 0o600); err != nil { //nolint:gosec // G703: a changed copy of the run's render under its directory
 		t.Fatal(err)
 	}
 	dump := filepath.Join(f.run, "dump.json")
@@ -585,6 +585,6 @@ func waitFor(t *testing.T, within time.Duration, what string, cond func() error)
 		if time.Now().After(deadline) {
 			t.Fatalf("%s within %v: %v", what, within, err)
 		}
-		sleepCtx(t.Context(), pollInterval)
+		sleepCtx(t.Context())
 	}
 }

@@ -81,11 +81,11 @@ func TestChains(t *testing.T) {
 		for ph := range phase.Count {
 			got := rt.Chain.Client[ph]
 			if want := entryNames(ch.Client[ph]); !slices.Equal(names(got), want) {
-				t.Errorf("Route %s %v = %v, want the effective chain's %v", rt.Name, phase.Phase(ph), names(got), want)
+				t.Errorf("Route %s %v = %v, want the effective chain's %v", rt.Name, ph, names(got), want)
 			}
 			for _, p := range got {
 				if rt.Chain.Policies[p.Index] != p {
-					t.Errorf("Route %s %v: %s is not its Policies entry", rt.Name, phase.Phase(ph), p.Name)
+					t.Errorf("Route %s %v: %s is not its Policies entry", rt.Name, ph, p.Name)
 				}
 			}
 		}
@@ -97,7 +97,7 @@ func TestChains(t *testing.T) {
 			}
 			for ph := range phase.Count {
 				if want := entryNames(leg.Phases[ph]); !slices.Equal(names(lc.Phases[ph]), want) {
-					t.Errorf("leg %s %v = %v, want %v", leg.Upstream, phase.Phase(ph), names(lc.Phases[ph]), want)
+					t.Errorf("leg %s %v = %v, want %v", leg.Upstream, ph, names(lc.Phases[ph]), want)
 				}
 			}
 		}

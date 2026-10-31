@@ -297,14 +297,14 @@ func (fx *fixture) tokens(f *Filter, key string, i int) (int64, bool) {
 	return tokens, true
 }
 
-// failingOpen reports whether limit i of f is on the fail-open refill for
-// key.
-func (fx *fixture) failingOpen(f *Filter, key string, i int) bool {
-	d := digestOf(key)
+// failingOpen reports whether the first limit of f is on the fail-open
+// refill for key a.
+func (fx *fixture) failingOpen(f *Filter) bool {
+	d := digestOf("a")
 	sh := fx.table.shardOf(f.seed, &d)
 	sh.mu.Lock()
 	defer sh.mu.Unlock()
-	_, v := fx.table.find(sh, f.limits[i].id, &d)
+	_, v := fx.table.find(sh, f.limits[0].id, &d)
 	return v != 0 && sh.entry(v).flags&flagFailOpen != 0
 }
 

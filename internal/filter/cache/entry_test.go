@@ -46,14 +46,14 @@ func goldenEntry() *entry {
 // response header block, then the body to the end. Nodes of two releases
 // share it, so a change here is a layout change.
 func TestEntryGolden(t *testing.T) {
-	got := hex.EncodeToString(appendEntry(nil, goldenEntry())) + "\n"
+	got := hex.EncodeToString(encodeEntry(goldenEntry())) + "\n"
 	path := filepath.Join("testdata", "entry.golden")
 	if *update {
 		if err := os.WriteFile(path, []byte(got), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(path)
+	want, err := os.ReadFile(path) //nolint:gosec // G304: a golden file under testdata.
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -66,7 +66,7 @@ func TestEntryGolden(t *testing.T) {
 // its start: format 1, then the raw token, flags 5, status 200 and the
 // 1500 ms age as varints.
 func TestEntryLayout(t *testing.T) {
-	b := appendEntry(nil, goldenEntry())
+	b := encodeEntry(goldenEntry())
 	want := append([]byte{formatV1}, goldenEntry().token[:]...)
 	want = append(want, 5, 0xc8, 0x01, 0xdc, 0x0b, 7)
 	want = append(want, "catalog"...)
@@ -85,7 +85,7 @@ func TestEntryLayout(t *testing.T) {
 // lines in order, and that the body aliases the bytes.
 func TestEntryRoundTrip(t *testing.T) {
 	in := goldenEntry()
-	b := appendEntry(nil, in)
+	b := encodeEntry(in)
 	var out entry
 	if err := decodeEntry(&out, b); err != nil {
 		t.Fatal(err)

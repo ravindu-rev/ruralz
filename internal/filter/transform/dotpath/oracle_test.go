@@ -124,7 +124,7 @@ func (o *oracle) walk(v any, d int) (any, error) {
 					return x, nil
 				}
 			}
-			var val any = jsonval.Clone(o.payload)
+			val := jsonval.Clone(o.payload)
 			for j := k - 1; j > d; j-- {
 				obj := jsonval.NewObject(1)
 				obj.Set(o.p.Seg(j).Name, val)

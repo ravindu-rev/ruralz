@@ -315,7 +315,7 @@ func (d *Driver) parseLookup(ctx context.Context, tr *trip, i int, l *statestore
 	}
 	if !valid {
 		if d.macLog.allow(d.clk.Now()) {
-			d.log.WarnContext(ctx, d.mac.Refusal(mark))
+			d.log.WarnContext(ctx, d.mac.Refusal(mark)) //nolint:sloglint // Refusal returns one of two constant warnings, which tests match verbatim.
 		}
 		return nil
 	}

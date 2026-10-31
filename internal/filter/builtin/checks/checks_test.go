@@ -127,7 +127,7 @@ func TestTableWiresEachType(t *testing.T) {
 			{Pattern: "(", Replacement: "x"},
 		}}, "RZ-CFG-005"},
 		v1alpha1.PolicyTypeTransformResponse: {&v1alpha1.TransformResponseConfig{ContentType: str("not a media type")}, "RZ-CFG-005"},
-		v1alpha1.PolicyTypeAuthUpstreamOAuth2: {&v1alpha1.AuthUpstreamOAuth2Config{
+		v1alpha1.PolicyTypeAuthUpstreamOAuth2: {&v1alpha1.AuthUpstreamOAuth2Config{ //nolint:gosec // G101: a test token endpoint, not a credential.
 			TokenURL: "https://idp.example/token", ClientID: "c", Timeout: &zero,
 		}, "RZ-CFG-005"},
 	}

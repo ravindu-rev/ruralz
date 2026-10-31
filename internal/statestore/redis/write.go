@@ -302,8 +302,12 @@ func (d *Driver) encodeGeneration(tr *trip, k int, w *statestore.Write) {
 		if w.Cache.Create {
 			mode = genCreate
 		}
+	case statestore.LeaseRefresh:
+		// A refresh holds the generation.
 	case statestore.LeaseEndStale:
 		mode = genCheck
+	case statestore.LeaseTake:
+		// A take has no generation step (twoStep).
 	}
 	tr.cmd(k, "EVALSHA", d.sha, "1")
 	tr.key(string(keys.AppendCacheGeneration(kb[:0], uri)))

@@ -23,13 +23,13 @@ import (
 // servers listen on distinct 127/8 loopback addresses so zone maps can
 // tell them apart.
 
-// onlyZone fails unless op has n duration observations, all labeled zone.
-func (f *fixture) onlyZone(op, zone int, n uint64) {
+// onlyZone fails unless op has one duration observation, labeled zone.
+func (f *fixture) onlyZone(op, zone int) {
 	f.t.Helper()
 	for z := range emit.NumStateZones {
 		want := uint64(0)
 		if z == zone {
-			want = n
+			want = 1
 		}
 		if got := f.m.zoned(op, z); got != want {
 			f.t.Errorf("%s durations labeled %s = %d, want %d", catalog.Ops()[op], catalog.Zones()[z], got, want)
@@ -127,17 +127,17 @@ func TestZoneStandalone(t *testing.T) {
 			if f.consume(c); c.Err != nil || !c.Done {
 				t.Fatalf("GCRA call: Done %v Err %v", c.Done, c.Err)
 			}
-			f.onlyZone(emit.StateOpGCRA, tc.want, 1)
+			f.onlyZone(emit.StateOpGCRA, tc.want)
 			l := lookupCall(statestore.CacheKey{URI: d, Partition: d}, d)
 			if f.read(l); l.Err != nil {
 				t.Fatalf("lookup: Err %v", l.Err)
 			}
-			f.onlyZone(emit.StateOpPipeline, tc.want, 1)
+			f.onlyZone(emit.StateOpPipeline, tc.want)
 			w := &statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: callTO, Invalidate: d, Bump: statestore.Token{1}}
 			if f.write(w); w.Err != nil {
 				t.Fatalf("invalidation: Err %v", w.Err)
 			}
-			f.onlyZone(emit.StateOpCacheInvalidate, tc.want, 1)
+			f.onlyZone(emit.StateOpCacheInvalidate, tc.want)
 		})
 	}
 }
@@ -154,7 +154,7 @@ func TestZoneTimeoutLabeled(t *testing.T) {
 	if c.Err != statestore.ErrTimeout {
 		t.Fatalf("held reply: Err %v, want RZ-STS-001", c.Err)
 	}
-	f.onlyZone(emit.StateOpGCRA, emit.StateZoneCross, 1)
+	f.onlyZone(emit.StateOpGCRA, emit.StateZoneCross)
 }
 
 // TestZoneCluster checks the cluster topology: a call takes the zone of
@@ -183,7 +183,7 @@ func TestZoneCluster(t *testing.T) {
 	if f.read(local); local.Err != nil {
 		t.Fatalf("lookup on the near primary: Err %v", local.Err)
 	}
-	f.onlyZone(emit.StateOpPipeline, emit.StateZoneSame, 1)
+	f.onlyZone(emit.StateOpPipeline, emit.StateZoneSame)
 	split := lookupCall(f.splitKey(0, 1), v)
 	if f.read(split); split.Err != nil {
 		t.Fatalf("lookup over both primaries: Err %v", split.Err)
@@ -229,7 +229,7 @@ func TestZoneClusterFold(t *testing.T) {
 			if f.read(l); l.Err != nil {
 				t.Fatalf("lookup over both primaries: Err %v", l.Err)
 			}
-			f.onlyZone(emit.StateOpPipeline, tc.want, 1)
+			f.onlyZone(emit.StateOpPipeline, tc.want)
 		})
 	}
 }
@@ -259,7 +259,7 @@ func TestZoneSentinelFollowsSwitchMaster(t *testing.T) {
 	if c := gcraCall(statestore.DigestOf("k"), oneLimit()); f.consume(c) == 0 || c.Err != nil {
 		t.Fatalf("first call: Err %v", c.Err)
 	}
-	f.onlyZone(emit.StateOpGCRA, emit.StateZoneSame, 1)
+	f.onlyZone(emit.StateOpGCRA, emit.StateZoneSame)
 	waitFor(t, "the event subscription", func() bool { return f.sent.subscribers() > 0 })
 	f.clk.Advance(time.Second) // a fresh dial budget for the new primary
 	f.sent.switchMaster("main", f.nodes[1].addr)

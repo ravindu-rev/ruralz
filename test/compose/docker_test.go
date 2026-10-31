@@ -144,7 +144,8 @@ func newSuite(ctx context.Context, image, previous string) (_ *suite, cleanup fu
 	}
 	var images []string
 	cleanup = func() {
-		ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
+		// The cleanup runs after the suite, past the end of ctx.
+		ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
 		defer cancel()
 		if len(images) > 0 {
 			_, _ = s.dockerCmd(ctx, nil, append([]string{"image", "rm", "--force"}, images...)...)
@@ -454,14 +455,14 @@ func (p *project) waitExit(ctx context.Context, service string, within time.Dura
 		if time.Now().After(deadline) {
 			p.t.Fatalf("%s still %s after %v", service, st.State.Status, within)
 		}
-		sleepCtx(ctx, pollInterval)
+		sleepCtx(ctx)
 	}
 }
 
-// sleepCtx waits d or until ctx ends: the pause between two condition
-// polls.
-func sleepCtx(ctx context.Context, d time.Duration) {
-	t := time.NewTimer(d)
+// sleepCtx waits pollInterval or until ctx ends: the pause between two
+// condition polls.
+func sleepCtx(ctx context.Context) {
+	t := time.NewTimer(pollInterval)
 	defer t.Stop()
 	select {
 	case <-ctx.Done():
@@ -490,7 +491,7 @@ func (p *project) evidence(ctx context.Context) {
 		return
 	}
 	dir := filepath.Join(base, safeName(p.t.Name()), p.name)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil { //nolint:gosec // G703: under the artifact directory the test run names
 		p.t.Logf("evidence: %v", err)
 		return
 	}
@@ -498,7 +499,7 @@ func (p *project) evidence(ctx context.Context) {
 		if err != nil {
 			data = append(data, []byte("\n"+err.Error())...)
 		}
-		if werr := os.WriteFile(filepath.Join(dir, name), data, 0o600); werr != nil {
+		if werr := os.WriteFile(filepath.Join(dir, name), data, 0o600); werr != nil { //nolint:gosec // G703: a fixed name under the artifact directory the test run names
 			p.t.Logf("evidence: %v", werr)
 		}
 	}

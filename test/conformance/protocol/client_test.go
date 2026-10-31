@@ -471,16 +471,12 @@ func (c *h1Conn) read(ctx context.Context, method string) *response {
 }
 
 // waitClosed reports whether the server closed the connection within d,
-// reading and discarding what arrives meanwhile, and how long it took.
-func (c *h1Conn) waitClosed(d time.Duration) (bool, time.Duration) {
-	start := time.Now()
-	_ = c.c.SetReadDeadline(start.Add(d))
+// reading and discarding what arrives meanwhile.
+func (c *h1Conn) waitClosed(d time.Duration) bool {
+	_ = c.c.SetReadDeadline(time.Now().Add(d))
 	_, err := io.Copy(io.Discard, c.br)
 	var ne net.Error
-	if errors.As(err, &ne) && ne.Timeout() {
-		return false, time.Since(start)
-	}
-	return true, time.Since(start)
+	return !errors.As(err, &ne) || !ne.Timeout()
 }
 
 // h2Event is one frame the server sent, decoded and copied, or the read
@@ -853,13 +849,6 @@ func (c *h2Conn) writeData(id uint32, endStream bool, data []byte) error {
 	c.wmu.Lock()
 	defer c.wmu.Unlock()
 	return c.fr.WriteData(id, endStream, data)
-}
-
-// writeRST resets a stream.
-func (c *h2Conn) writeRST(id uint32, code http2.ErrCode) error {
-	c.wmu.Lock()
-	defer c.wmu.Unlock()
-	return c.fr.WriteRSTStream(id, code)
 }
 
 // writeFrames runs write under the write lock, for a batch of frames.

@@ -215,11 +215,13 @@ func TestReport(t *testing.T) {
 	}
 	var rows []row
 	for _, d := range got {
-		rows = append(rows, row{d.Code, d.Path.String(), d.Message, d.Location.Line, d.Related})
+		rows = append(rows, row{d.Code, d.Path.String(), d.Message, d.Line, d.Related})
 	}
 	wantRows := []row{
-		{CodeConfig, "spec.config.set[2].target", "a second set entry with target path; a Policy rewrites the path once", 5,
-			[]diag.Related{{Location: diag.Location{File: "p.yaml", Line: 5, Column: 1}, Message: "first entry at"}}},
+		{
+			CodeConfig, "spec.config.set[2].target", "a second set entry with target path; a Policy rewrites the path once", 5,
+			[]diag.Related{{Location: diag.Location{File: "p.yaml", Line: 5, Column: 1}, Message: "first entry at"}},
+		},
 		{CodeConfig, "spec.config.remove[0].name", "header host is managed by the Node (host)", 5, nil},
 	}
 	if len(rows) != len(wantRows) {

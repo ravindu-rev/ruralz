@@ -29,7 +29,7 @@ import (
 // by loader.Bundle.ParseFile.
 func sourceFiles(t testing.TB, dir string) []SourceFile {
 	t.Helper()
-	b, _ := discover(t, dir)
+	b, _ := discover(t.Context(), t, dir)
 	var out []SourceFile
 	for _, f := range b.Files() {
 		rs, ds, err := b.ParseFile(t.Context(), f.Path)
@@ -68,7 +68,7 @@ func values(t testing.TB, sfs []SourceFile) map[string]string {
 func buildDir(t *testing.T, dir string) BuildFunc {
 	vars := map[string]subst.Map{"staging": environment(t, "staging"), "prod": environment(t, "prod")}
 	return func(ctx context.Context, env string) (revision.Digest, diag.List, error) {
-		base, patches := readBundle(t, dir, env)
+		base, patches := readBundle(ctx, t, dir, env)
 		r := pipelineCtx(ctx, t, base, patches, vars[env])
 		if r.validated == nil {
 			return revision.Digest{}, r.diags, nil

@@ -410,7 +410,7 @@ func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 		}
 		attempted++
 		label = w.Kind.Label()
-		ok := true
+		var ok bool
 		switch w.Kind {
 		case statestore.OpRefund:
 			w.Applied, ok = d.refund(&w.Refund, now)

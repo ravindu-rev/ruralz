@@ -161,7 +161,7 @@ func TestRotatedURLOpensANewDriverAtOnce(t *testing.T) {
 		t.Fatalf("opened %d drivers after the rotation, want 2", len(ds))
 	}
 	old, cur := ds[0], ds[1]
-	if cur.cfg.URL != "redis://user:pw@127.0.0.2:6379" || cur.cfg.Role != statestore.RoleMain ||
+	if cur.cfg.URL != "redis://user:pw@127.0.0.2:6379" || cur.cfg.Role != statestore.RoleMain || //nolint:gosec // G101: a test URL with a placeholder password.
 		cur.cfg.Topology != statestore.TopologySentinel || cur.cfg.TLS != spec.Main.TLS {
 		t.Errorf("the new driver opened with %+v; want the trimmed rotated URL and the connection's settings", cur.cfg)
 	}

@@ -180,7 +180,7 @@ func TestCacheIndexMatchesModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := map[statestore.Digest]int64{}
-	rng := rand.New(rand.NewPCG(1, 2))
+	rng := rand.New(rand.NewPCG(1, 2)) //nolint:gosec // G404: a seeded sequence makes the property reproducible.
 	keys := make([]statestore.Digest, 40)
 	for i := range keys {
 		keys[i] = statestore.DigestOf("key-" + strconv.Itoa(i))

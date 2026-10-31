@@ -372,7 +372,7 @@ func (v *view) Consume(ctx context.Context, rb *statestore.RequestBudget, calls 
 	v.adopt()
 	g, held := v.e.hold()
 	if held {
-		defer g.Release()
+		defer g.Release() //nolint:contextcheck // A last reference starts the driver's close on a goroutine the Manager owns, which no call's context bounds.
 	}
 	return g.driver.Consume(ctx, rb, calls)
 }
@@ -383,7 +383,7 @@ func (v *view) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*
 	v.adopt()
 	g, held := v.e.hold()
 	if held {
-		defer g.Release()
+		defer g.Release() //nolint:contextcheck // A last reference starts the driver's close on a goroutine the Manager owns, which no call's context bounds.
 	}
 	g.driver.Read(ctx, rb, calls)
 }
@@ -394,7 +394,7 @@ func (v *view) Write(ctx context.Context, batch []*statestore.Write) {
 	v.adopt()
 	g, held := v.e.hold()
 	if held {
-		defer g.Release()
+		defer g.Release() //nolint:contextcheck // A last reference starts the driver's close on a goroutine the Manager owns, which no call's context bounds.
 	}
 	g.driver.Write(ctx, batch)
 }
@@ -549,7 +549,7 @@ func (m *Manager) Acquire(ctx context.Context, spec Spec) (Handles, error) {
 		cacheZones = cacheCfg.Zones
 		if ce, err = m.entryLocked(ctx, cacheCfg, sourceOf(spec.CacheURL, spec.Secrets), seq); err != nil {
 			m.mu.Unlock()
-			me.drop()
+			me.drop() //nolint:contextcheck // A last reference starts the driver's close on a goroutine the Manager owns, which no call's context bounds.
 			m.refresh()
 			return Handles{}, err
 		}
@@ -625,7 +625,7 @@ func (m *Manager) entryLocked(ctx context.Context, cfg statestore.Config, src ur
 	e := &entry{m: m}
 	if cfg.Driver != statestore.DriverMemory && src.set() {
 		e.url = src
-		e.stopWatch = src.secrets.Watch(src.ref, func(v secret.Value) error { return m.rotate(e, v) })
+		e.stopWatch = src.secrets.Watch(src.ref, func(v secret.Value) error { return m.rotate(e, v) }) //nolint:contextcheck // A rotation runs after Acquire returns, so Acquire's context would be stale.
 		if u, ok := urlOf(src.secrets, src.ref); ok && u != cfg.URL {
 			cfg.URL = u
 			k = keyOf(cfg)

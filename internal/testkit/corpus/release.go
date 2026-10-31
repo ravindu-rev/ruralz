@@ -71,7 +71,7 @@ func git(ctx context.Context, dir string, args ...string) ([]byte, error) {
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.Is(err, exec.ErrNotFound) || errors.As(err, &ee) && strings.Contains(stderr.String(), "not a git repository") {
-			return nil, fmt.Errorf("%w: %v: %s", ErrNoGit, err, strings.TrimSpace(stderr.String()))
+			return nil, fmt.Errorf("%w: %w: %s", ErrNoGit, err, strings.TrimSpace(stderr.String()))
 		}
 		return nil, fmt.Errorf("corpus: git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(stderr.String()))
 	}

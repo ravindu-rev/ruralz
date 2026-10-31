@@ -39,7 +39,7 @@ spec:
     - name: orders
   timeout: ${TIMEOUT:-5s}
 `,
-		"b-upstreams.yaml": upstreamDoc("orders", "  timeout: 2s\n"),
+		"b-upstreams.yaml": upstreamDoc("  timeout: 2s\n"),
 		"overlays/prod/upstream.yaml": `apiVersion: ruralz/v1alpha1
 kind: Upstream
 metadata:
@@ -183,7 +183,7 @@ func TestRenderFailsOnDiagnostics(t *testing.T) {
 // the value, and nothing is written.
 func TestRenderSecretLiteral(t *testing.T) {
 	files := simpleBundle()
-	files["upstreams.yaml"] = upstreamDoc("orders", "  tls:\n    caCertificate: inline-ca-canary-7Hq2\n")
+	files["upstreams.yaml"] = upstreamDoc("  tls:\n    caCertificate: inline-ca-canary-7Hq2\n")
 	dir := writeBundle(t, files)
 	r := run(t, "bundle", "render", dir)
 	r.wantCode(t, "render", command.ExitNegative)
@@ -214,7 +214,7 @@ func TestRenderWarnings(t *testing.T) {
 func effectiveBundle() map[string]string {
 	return map[string]string{
 		"ruralz.yaml":    strings.Replace(gatewayDoc, "spec:\n", "spec:\n  policies:\n    - name: cors-default\n", 1),
-		"upstreams.yaml": upstreamDoc("orders", ""),
+		"upstreams.yaml": upstreamDoc(""),
 		"policies.yaml": docs(
 			policyDoc("cors-default", "cors", "  config:\n    allowOrigins: [\"https://shop.example\"]\n"),
 			policyDoc("cors-partner", "cors", "  config:\n    allowOrigins: [\"https://partner.example\"]\n"),

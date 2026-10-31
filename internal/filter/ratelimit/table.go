@@ -230,7 +230,7 @@ func NewTable(clk clock.Clock, count NodeCount, o TableOptions) (*Table, error) 
 		sh.seg[segMain].entries = make([]entry, main)
 		sh.seg[segLocalOnly].entries = make([]entry, local)
 		sh.index = make([]uint32, slots)
-		sh.mask = uint64(slots - 1)
+		sh.mask = uint64(len(sh.index)) - 1
 	}
 	ids := []*limitInfo{nil} // id 0 marks an empty entry
 	t.ids.Store(&ids)

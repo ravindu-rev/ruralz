@@ -362,8 +362,12 @@ func TestInvalidation(t *testing.T) {
 		method string
 		status int
 	}{
-		{http.MethodGet, http.StatusOK}, {http.MethodHead, http.StatusOK}, {http.MethodOptions, http.StatusNoContent},
-		{http.MethodTrace, http.StatusOK}, {http.MethodPost, http.StatusNotFound}, {http.MethodDelete, http.StatusInternalServerError},
+		{http.MethodGet, http.StatusOK},
+		{http.MethodHead, http.StatusOK},
+		{http.MethodOptions, http.StatusNoContent},
+		{http.MethodTrace, http.StatusOK},
+		{http.MethodPost, http.StatusNotFound},
+		{http.MethodDelete, http.StatusInternalServerError},
 		{http.MethodPut, 0},
 	} {
 		x := h.request(tc.method, "page=2", nil)

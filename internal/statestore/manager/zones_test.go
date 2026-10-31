@@ -73,7 +73,7 @@ func zonedSpec(z statestore.Zones) Spec {
 
 // sameMaps reports whether got holds want, in order.
 func sameMaps(got []statestore.Zones, want ...statestore.Zones) bool {
-	return slices.EqualFunc(got, want, func(a, b statestore.Zones) bool { return maps.Equal(a, b) })
+	return slices.EqualFunc(got, want, maps.Equal)
 }
 
 // TestSpecOfZones checks the zone maps SpecOf hands the drivers:

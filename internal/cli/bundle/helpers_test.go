@@ -165,16 +165,16 @@ spec:
       port: 8080
 `
 
-// upstreamDoc returns an Upstream document with tail appended under spec.
-func upstreamDoc(name, tail string) string {
+// upstreamDoc returns the Upstream orders with tail appended under spec.
+func upstreamDoc(tail string) string {
 	return `apiVersion: ruralz/v1alpha1
 kind: Upstream
 metadata:
-  name: ` + name + `
+  name: orders
 spec:
   protocol: http
   endpoints:
-    - address: ` + name + `.internal:80
+    - address: orders.internal:80
 ` + tail
 }
 
@@ -236,7 +236,7 @@ func docs(ds ...string) string { return strings.Join(ds, "---\n") }
 func simpleBundle() map[string]string {
 	return map[string]string{
 		"ruralz.yaml":        gatewayDoc,
-		"upstreams.yaml":     upstreamDoc("orders", ""),
+		"upstreams.yaml":     upstreamDoc(""),
 		"routes/orders.yaml": routeDoc("orders", "orders", "  timeout: ${TIMEOUT:-5s}\n"),
 	}
 }

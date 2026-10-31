@@ -326,7 +326,7 @@ func (g *genBundle) attached(name string) bool {
 func identities(v *hub.Validated) map[string]bool {
 	out := map[string]bool{}
 	for _, r := range v.Bundle.Resources() {
-		out[r.ID.String()] = true
+		out[r.String()] = true
 	}
 	return out
 }

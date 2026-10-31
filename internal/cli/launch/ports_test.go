@@ -30,7 +30,7 @@ func TestFreeLoopbackPort(t *testing.T) {
 			t.Fatalf("freeLoopbackPort = %d, %v; %d is taken", p, err, first)
 		}
 	}
-	if _, err := freeLoopbackPort(t.Context(), func(int) bool { return true }); command.Code(nil, err) != command.ExitNoResult {
+	if _, err := freeLoopbackPort(t.Context(), func(int) bool { return true }); command.Code(t.Context(), err) != command.ExitNoResult {
 		t.Errorf("freeLoopbackPort with every port taken = %v", err)
 	}
 }
@@ -58,12 +58,12 @@ func TestCheckPortsFree(t *testing.T) {
 		t.Errorf("free ports: %v", err)
 	}
 	err = CheckPortsFree(t.Context(), render(busyPort, free))
-	if command.Code(nil, err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "listener public: port "+strconv.Itoa(busyPort)+" is busy: ") ||
+	if command.Code(t.Context(), err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "listener public: port "+strconv.Itoa(busyPort)+" is busy: ") ||
 		!strings.HasSuffix(err.Error(), "; free it or use --ephemeral-ports") {
 		t.Errorf("busy listener port: %v", err)
 	}
 	err = CheckPortsFree(t.Context(), render(free, busyPort))
-	if command.Code(nil, err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "the admin port: port "+strconv.Itoa(busyPort)+" is busy: ") {
+	if command.Code(t.Context(), err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "the admin port: port "+strconv.Itoa(busyPort)+" is busy: ") {
 		t.Errorf("busy admin port: %v", err)
 	}
 }

@@ -117,9 +117,9 @@ func TestFullPostCommitQueue(t *testing.T) {
 			for range 2 {
 				expect(t, "a warm-up invalidation", e.do(http.MethodPost, "/cached/warm-up", nil), http.StatusOK, "")
 			}
-			e.waitFor("the warm-up bumps", func() bool { return answered(m.since(reading{}).log, "EVALSHA") >= 2 })
+			e.waitFor("the warm-up bumps", func() bool { return answered(m.since(reading{}).log) >= 2 })
 			before := e.metrics()
-			release := m.hold("EVALSHA", queueHold)
+			release := m.hold(queueHold)
 			defer release()
 			start := time.Now()
 			var sent atomic.Int64

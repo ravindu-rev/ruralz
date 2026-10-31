@@ -7,6 +7,7 @@ package protocol
 
 import (
 	"context"
+	"errors"
 	"syscall"
 	"testing"
 
@@ -110,7 +111,7 @@ func TestDrain(t *testing.T) {
 			goaways[i] = ev
 		}
 		for i, c := range idle {
-			if closed, _ := c.waitClosed(exchangeGuard); !closed {
+			if !c.waitClosed(exchangeGuard) {
 				t.Errorf("idle HTTP/1.1 connection %d stayed open through the Drain's jitter window", i)
 			}
 		}
@@ -131,7 +132,7 @@ func TestDrain(t *testing.T) {
 	if !r.Close {
 		t.Errorf("busy HTTP/1.1 response %v without Connection: close", r)
 	}
-	if closed, _ := busy.waitClosed(exchangeGuard); !closed {
+	if !busy.waitClosed(exchangeGuard) {
 		t.Error("busy HTTP/1.1 connection stayed open after its response")
 	}
 	for _, h := range streams {
@@ -148,7 +149,7 @@ func TestDrain(t *testing.T) {
 			}
 			return false
 		})
-		if ev.Err == nil || ev.Err == context.DeadlineExceeded {
+		if ev.Err == nil || errors.Is(ev.Err, context.DeadlineExceeded) {
 			t.Errorf("%v: the connection stayed open after its last stream: %+v", h.p, ev)
 		}
 		if extra > 0 {

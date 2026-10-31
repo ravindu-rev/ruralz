@@ -135,7 +135,6 @@ type node struct {
 	// components are the Filter Components: they end at the Drain's
 	// components step, once the last snapshot retired.
 	components *supervisor
-	compCtx    context.Context
 	stopComps  context.CancelFunc
 
 	mu sync.Mutex
@@ -221,7 +220,7 @@ func (n *node) build(ctx context.Context, stdout io.Writer) *refusal {
 	if err != nil {
 		return refuse("%s: node.id: %w", setting.EnvDataDir, err)
 	}
-	n.rt, err = telemetry.New(telemetry.Options{
+	n.rt, err = telemetry.New(telemetry.Options{ //nolint:contextcheck // the runtime's workers run on their own contexts until Shutdown, past the start.
 		Service: telemetry.ServiceGateway, NodeID: n.nodeID.String(), Version: n.version,
 		Stdout: stdout, Level: s.LogLevel.Slog(), Clock: clk,
 	})
@@ -391,7 +390,7 @@ func (n *node) buildParts(ctx context.Context) *refusal {
 	if err != nil {
 		return fail("listeners: %w", err)
 	}
-	n.onClose(func() { _ = n.set.Close() })
+	n.onClose(func() { _ = n.set.Close() }) //nolint:contextcheck // a closer, run when the Node ends: Set.Close stops every listener at once.
 	n.store, err = lkg.New(lkg.Config{
 		Dir: n.dir, Version: n.version, MaxBytes: n.pipe.Limits().MaxSourceBytes, Clock: clk,
 		Logger: rt.Logger(componentLKG), Status: rt,
@@ -415,7 +414,7 @@ func (n *node) buildLoader(ctx context.Context, compiler *compile.Compiler, hub 
 	// The loader is built below: the handlers reach it once the admin
 	// server serves, after the boot started.
 	var loader *reload.Loader
-	n.adminSrv, err = admin.New(admin.Config{
+	n.adminSrv, err = admin.New(admin.Config{ //nolint:contextcheck // admin requests run on the server's base context, which Shutdown ends.
 		Auth: n.auth, TLS: n.adminTLS, Readiness: n.tracker, Tap: hub, Metrics: rt.MetricsHandler(),
 		ConfigDump: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { loader.ConfigDump().ServeHTTP(w, r) }),
 		Upstreams:  forward.DebugHandler(n.ups),
@@ -435,7 +434,7 @@ func (n *node) buildLoader(ctx context.Context, compiler *compile.Compiler, hub 
 	n.onClose(func() { _ = n.adminSock.Close() })
 	n.watcher, err = source.New(source.Config{
 		Path: s.Config, Pipeline: n.pipe, Variables: n.vars, Clock: clk, Logger: rt.Logger(componentSource),
-		Sink: func(ld source.Load) { loader.Offer(ld) },
+		Sink: func(ld source.Load) { loader.Offer(ld) }, //nolint:contextcheck // the watcher calls its Sink on its own goroutine, after the build.
 	})
 	if err != nil {
 		return fail("configuration source: %w", err)
@@ -474,10 +473,12 @@ func (n *node) buildLoader(ctx context.Context, compiler *compile.Compiler, hub 
 // server, the Filter Components, the State Store manager and the
 // telemetry runtime, in that order.
 func (n *node) buildDrain(ctx context.Context) *refusal {
-	n.loopCtx, n.stop = context.WithCancel(context.WithoutCancel(ctx))
-	n.loops = newSupervisor(n.loopCtx, n.log, n.failed)
-	n.compCtx, n.stopComps = context.WithCancel(context.WithoutCancel(ctx))
-	n.components = newSupervisor(n.compCtx, n.log, n.failed)
+	loopCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	n.loopCtx, n.stop = loopCtx, stop
+	n.loops = newSupervisor(loopCtx, n.log, n.failed)
+	compCtx, stopComps := context.WithCancel(context.WithoutCancel(ctx))
+	n.stopComps = stopComps
+	n.components = newSupervisor(compCtx, n.log, n.failed)
 	steps := []drain.Step{
 		{Name: "admin server", Run: n.stopAdmin},
 		{Name: "filter components", Run: func(ctx context.Context) error {

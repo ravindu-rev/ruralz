@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/grpc/codes"
-
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
@@ -23,6 +21,11 @@ import (
 // interval.
 const failing = "telemetry_export_failing"
 
+// grpcUnavailable is the gRPC status code UNAVAILABLE, which the OTLP
+// exporters retry. The suite names it by its number because gRPC is
+// confined to internal/telemetry and internal/testkit/otlpsink.
+const grpcUnavailable = 14
+
 // collectorNode starts a Node exporting every trace and every access
 // record to sink, routing /work to a mock Upstream.
 func collectorNode(t *testing.T, top *topology.Topology, sink *otlpsink.Sink) *topology.Node {
@@ -32,12 +35,12 @@ func collectorNode(t *testing.T, top *topology.Topology, sink *otlpsink.Sink) *t
 		t.Fatal(err)
 	}
 	return startNode(t, top, topology.NodeOptions{Bundle: []byte(gatewayDoc(otlpBlock(sink.URL(), "")) +
-		upstreamDoc("u", mock.Addr()) + routeDoc("work", "/work", "u", ""))})
+		upstreamDoc(mock.Addr()) + routeDoc("work", "/work", ""))})
 }
 
 // load offers rate requests per second to /work for d of real time and
 // fails the test on any outcome but 200: telemetry never fails a request.
-func load(t *testing.T, top *topology.Topology, n *topology.Node, rate float64, d time.Duration) *loadgen.Result {
+func load(t *testing.T, n *topology.Node, rate float64, d time.Duration) {
 	t.Helper()
 	target, err := loadgen.NewHTTP(loadgen.HTTPConfig{URL: n.URL("web") + "/work", Connections: 16})
 	if err != nil {
@@ -53,7 +56,6 @@ func load(t *testing.T, top *topology.Topology, n *topology.Node, rate float64, 
 		t.Fatalf("%d of %d requests succeeded; outcomes %v, statuses %v, codes %v",
 			m.Outcomes[loadgen.Success], m.Offered, m.Outcomes, m.Statuses, m.Codes)
 	}
-	return res
 }
 
 // degraded returns ruralz_node_degraded_info for reason from a fresh scrape.
@@ -133,7 +135,7 @@ func TestCollectorModes(t *testing.T) {
 
 	t.Run("Reject", func(t *testing.T) {
 		before := dropsOf(t, scrape(t, top, n))
-		if err := sink.SetMode(otlpsink.Reject{Code: codes.Unavailable, Message: "overloaded"}); err != nil {
+		if err := sink.SetMode(otlpsink.Reject{Code: grpcUnavailable, Message: "overloaded"}); err != nil {
 			t.Fatal(err)
 		}
 		raiseFailing(t, top, n)
@@ -159,7 +161,7 @@ func TestCollectorModes(t *testing.T) {
 		// clock, so 6,000 traces of three spans and 12,000 access records
 		// overflow both queues of 8,192.
 		if err := advancing(t.Context(), top, 500*time.Millisecond, time.Second, func() error {
-			load(t, top, n, 1200, 10*time.Second)
+			load(t, n, 1200, 10*time.Second)
 			return nil
 		}); err != nil {
 			t.Fatal(err)
@@ -238,7 +240,7 @@ func TestMetricsPushEveryFifteenSeconds(t *testing.T) {
 		if err := top.Advance(t.Context(), step); err != nil {
 			t.Fatal(err)
 		}
-		eventually(t, 30*time.Second, "the next push 15 s after the last", func() bool { return pushes() == k })
+		eventually(t, "the next push 15 s after the last", func() bool { return pushes() == k })
 	}
 }
 

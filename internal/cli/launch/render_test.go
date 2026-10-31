@@ -163,7 +163,7 @@ func swapped(t *testing.T, r *Renderer, ws *Workspace, rend *Render) string {
 	if err := r.Swap(rend); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(ws.Config()) //nolint:gosec // G304: the test render in the test's private directory.
+	data, err := os.ReadFile(ws.Config())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -511,14 +511,14 @@ func TestRenderOverridesUnusable(t *testing.T) {
 				return err
 			}(),
 		} {
-			if command.Code(nil, err) != command.ExitNoResult || !strings.Contains(err.Error(), c.want) ||
+			if command.Code(t.Context(), err) != command.ExitNoResult || !strings.Contains(err.Error(), c.want) ||
 				!strings.HasPrefix(err.Error(), "--secret-overrides "+overrides+": ") {
 				t.Errorf("%s: %v, want exit 2 with %q", c.name, err, c.want)
 			}
 		}
 	}
 	missing := filepath.Join(dir, "absent.yaml")
-	if err := CheckOverrides(t.Context(), missing); command.Code(nil, err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "--secret-overrides "+missing+": ") {
+	if err := CheckOverrides(t.Context(), missing); command.Code(t.Context(), err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "--secret-overrides "+missing+": ") {
 		t.Errorf("a missing overrides file: %v", err)
 	}
 	if got := OverrideFiles(t.Context(), missing); !slices.Equal(got, []string{missing}) {
@@ -557,7 +557,7 @@ func TestRenderFailure(t *testing.T) {
 func TestRenderSourceUnreadable(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent")
 	_, err := NewRenderer(testPipeline(t), newTestWorkspace(t), Request{Source: missing}).Render(t.Context())
-	if command.Code(nil, err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "cannot read "+missing+": ") {
+	if command.Code(t.Context(), err) != command.ExitNoResult || !strings.HasPrefix(err.Error(), "cannot read "+missing+": ") {
 		t.Fatalf("Render = %v", err)
 	}
 }

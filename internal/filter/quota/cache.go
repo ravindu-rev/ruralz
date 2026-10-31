@@ -129,7 +129,7 @@ func NewCache(o CacheOptions) (*Cache, error) {
 		sh.entries = make([]entry, per)
 		sh.ref = make([]bool, per)
 		sh.index = make([]uint32, slots)
-		sh.mask = uint64(slots - 1)
+		sh.mask = uint64(len(sh.index)) - 1
 	}
 	return c, nil
 }

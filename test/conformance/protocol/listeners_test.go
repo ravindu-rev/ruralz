@@ -435,8 +435,10 @@ func caseFieldLines(t *testing.T, g *gateway) {
 // request malformed, a plain 400.
 func caseConflictingFraming(t *testing.T, g *gateway) {
 	eachProto(t, h1Protos(), func(t *testing.T, p proto) {
-		for _, te := range []string{"Transfer-Encoding: gzip, chunked", "Transfer-Encoding: identity",
-			"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked"} {
+		for _, te := range []string{
+			"Transfer-Encoding: gzip, chunked", "Transfer-Encoding: identity",
+			"Transfer-Encoding: chunked\r\nTransfer-Encoding: chunked",
+		} {
 			id := g.origin.newCase()
 			c := g.dialH1(t, p)
 			raw := "POST " + upWire.path(bOK) + " HTTP/1.1\r\nHost: x\r\n" + caseHeader + ": " + id + "\r\n" + te + "\r\n\r\n5\r\nhello\r\n0\r\n\r\n"
@@ -489,8 +491,10 @@ func caseConflictingFraming(t *testing.T, g *gateway) {
 	})
 	eachProto(t, h2Protos(), func(t *testing.T, p proto) {
 		id := g.origin.newCase()
-		wantPlain(t, g.do(t, p, request{Method: http.MethodPost, Target: upWire.path(bOK), Body: []byte("hello"),
-			Header: withCase(id, [2]string{"transfer-encoding", "chunked"})}), http.StatusBadRequest)
+		wantPlain(t, g.do(t, p, request{
+			Method: http.MethodPost, Target: upWire.path(bOK), Body: []byte("hello"),
+			Header: withCase(id, [2]string{"transfer-encoding", "chunked"}),
+		}), http.StatusBadRequest)
 		if n := len(g.origin.requests(id)); n != 0 {
 			t.Errorf("the origin saw %d requests", n)
 		}
@@ -501,9 +505,12 @@ func caseConflictingFraming(t *testing.T, g *gateway) {
 // (RFC 9110 section 7.6.1), besides TE, which keeps its trailers member.
 func hopByHopFields() [][2]string {
 	return [][2]string{
-		{"Connection", "X-Client-Private, keep-alive"}, {"X-Client-Private", "secret"},
-		{"Keep-Alive", "timeout=5"}, {"Proxy-Connection", "keep-alive"},
-		{"Proxy-Authorization", "Basic cHJveHk6cHJveHk="}, {"Upgrade", "x-conformance/1"},
+		{"Connection", "X-Client-Private, keep-alive"},
+		{"X-Client-Private", "secret"},
+		{"Keep-Alive", "timeout=5"},
+		{"Proxy-Connection", "keep-alive"},
+		{"Proxy-Authorization", "Basic cHJveHk6cHJveHk="},
+		{"Upgrade", "x-conformance/1"},
 	}
 }
 

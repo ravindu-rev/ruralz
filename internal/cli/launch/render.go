@@ -29,7 +29,7 @@ const DefaultAdminPort = 9901
 
 // codeSecret is RZ-CFG-026, an unresolvable secretRef: the code of a file
 // reference that secret overrides leave without an entry.
-const codeSecret = "RZ-CFG-026"
+const codeSecret = "RZ-CFG-026" //nolint:gosec // G101: an error code, not a credential.
 
 // Request names what a Renderer renders and how it rewrites it.
 type Request struct {

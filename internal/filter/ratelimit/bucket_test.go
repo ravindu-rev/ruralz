@@ -133,7 +133,7 @@ func TestReleasedSteps(t *testing.T) {
 // allowance without carry-over.
 func TestFailOpenRefillArithmetic(t *testing.T) {
 	// The switch at 10.5 s with 3 tokens held, window 1 s, allowance 5.
-	tokens, rel, start := int64(3), int64(-1), int64(10*sec)
+	tokens, rel, start := int64(3), int64(-1), 10*sec
 	failOpenRefill(&tokens, &rel, &start, 10*sec+900*int64(time.Millisecond), sec, 5)
 	if tokens != 3 {
 		t.Fatalf("within the switch window: %d tokens, want the 3 held", tokens)

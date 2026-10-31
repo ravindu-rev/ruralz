@@ -10,7 +10,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -59,8 +58,8 @@ const (
 // apiKey is the key the test Consumer presents; apiKeyHash its SHA-256,
 // as Consumer apiKeys hold it.
 const (
-	apiKey     = "rz-statestore-suite-key-0123456789abcdef"
-	apiKeyHash = "sha256:83d842e9b5cf0fc8a91e413aff032705c0aa4b7e4afd6483174b4f89ce7a136a"
+	apiKey     = "rz-statestore-suite-key-0123456789abcdef"                                //nolint:gosec // G101: the suite's test Consumer key, not a credential
+	apiKeyHash = "sha256:83d842e9b5cf0fc8a91e413aff032705c0aa4b7e4afd6483174b4f89ce7a136a" //nolint:gosec // G101: the test key's hash
 )
 
 // epoch is the clock the digest pipeline renders with; a file-mode Node
@@ -469,7 +468,3 @@ func (e *env) logCount(msg string) int {
 	}
 	return n
 }
-
-// errNoProxy reports a State Store without the counting proxy a phase
-// needs.
-var errNoProxy = errors.New("no counting proxy carries this State Store's commands")

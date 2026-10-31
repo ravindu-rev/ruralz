@@ -19,7 +19,7 @@
 //
 // "mock serve" runs the first three and a control API, plain HTTP, that
 // the suite reads them through: GET /requests (RequestLog), GET /dns
-// (DNSLog), GET /idp (IdPLog) and GET /healthz. "mock probe" prints one
+// (DNSLog), GET /idp (IDPLog) and GET /healthz. "mock probe" prints one
 // ProbeReport as JSON on standard output. The suite decodes both with the
 // types of this package.
 //
@@ -135,9 +135,9 @@ type TokenRequest struct {
 	AccessToken string `json:"accessToken,omitempty"`
 }
 
-// IdPLog is the answer of GET /idp: the JWKS fetches counted and the token
+// IDPLog is the answer of GET /idp: the JWKS fetches counted and the token
 // requests, oldest first.
-type IdPLog struct {
+type IDPLog struct {
 	JWKSFetches   int64          `json:"jwksFetches"`
 	TokenRequests []TokenRequest `json:"tokenRequests"`
 }

@@ -165,7 +165,7 @@ type partsBound struct {
 }
 
 func (b *partsBound) Listen(context.Context) error {
-	if err := b.plan.Commit(); err != nil {
+	if err := b.plan.Commit(); err != nil { //nolint:contextcheck // Plan.Commit shuts replaced Servers down in the background, past the handover.
 		return err
 	}
 	ln, err := b.admin.Listen()

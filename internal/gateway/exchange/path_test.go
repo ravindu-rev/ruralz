@@ -136,6 +136,7 @@ func TestLegResponseStreamsWithoutBodyNeed(t *testing.T) {
 	l := x.Leg("orders", "")
 	defer l.Release()
 	resp, orig := upstreamResponse(http.StatusOK, `{"n":1}`)
+	defer func() { _ = resp.Body.Close() }()
 	l.SetLeg(&filter.Leg{Upstream: "orders", Attempt: 1, Response: resp})
 	l.Enter(legPolicy(), phase.OnUpstreamResponseBody, nil)
 	v := l.Exchange().Vars()
@@ -163,6 +164,7 @@ func TestLegResponseStreamsWithoutBodyNeed(t *testing.T) {
 	l2 := x.Leg("orders", "")
 	defer l2.Release()
 	resp2, orig2 := upstreamResponse(http.StatusOK, `{"n":2}`)
+	defer func() { _ = resp2.Body.Close() }()
 	l2.SetLeg(&filter.Leg{Upstream: "orders", Attempt: 1, Response: resp2})
 	l2.Enter(p, phase.OnUpstreamResponseBody, nil)
 	if got := nativeOf(t, l2.Exchange().Vars().Response.Body); !reflect.DeepEqual(numbersAsText(got), map[string]any{"n": "2"}) {

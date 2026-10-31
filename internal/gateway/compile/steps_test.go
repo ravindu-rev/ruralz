@@ -130,7 +130,7 @@ func TestStateStoreFallback(t *testing.T) {
 		{name: "unset", driver: statestore.DriverMemory, source: statestore.SourceFallback},
 		{name: "blank", env: " \t\r\n", set: true, driver: statestore.DriverMemory, source: statestore.SourceFallback},
 		{name: "loopback", env: "redis://127.0.0.1:6379", set: true, driver: statestore.DriverRedis, source: statestore.SourceEnv, url: "redis://127.0.0.1:6379"},
-		{name: "credentials", env: " redis://u:p@state.internal:6379\n", set: true, driver: statestore.DriverRedis, source: statestore.SourceEnv, url: "redis://u:p@state.internal:6379"},
+		{name: "credentials", env: " redis://u:p@state.internal:6379\n", set: true, driver: statestore.DriverRedis, source: statestore.SourceEnv, url: "redis://u:p@state.internal:6379"}, //nolint:gosec // G101: a test URL's placeholder user and password, not a credential.
 		{name: "no credentials", env: "redis://state.internal:6379", set: true, finding: "error RZ-CFG-042 Gateway/edge spec:"},
 		{name: "not a URL", env: "state.internal", set: true, finding: "error RZ-CFG-026 Gateway/edge spec:"},
 		{name: "stateStore set", env: "redis://state.internal:6379", set: true, spec: "  stateStore:\n    driver: memory\n", driver: statestore.DriverMemory, source: statestore.SourceGateway},
@@ -248,7 +248,7 @@ func TestStateStoreSpec(t *testing.T) {
 		policyDoc("cache", "cache", cacheConfig, ""),
 	), nil)
 	spec, _ := h.stores.last()
-	if !spec.Limits || !spec.Caches || spec.Cache == nil || spec.Main.URL != "redis://u:p@main.internal:6379" || spec.Cache.URL != "redis://u:p@cache.internal:6379" {
+	if !spec.Limits || !spec.Caches || spec.Cache == nil || spec.Main.URL != "redis://u:p@main.internal:6379" || spec.Cache.URL != "redis://u:p@cache.internal:6379" { //nolint:gosec // G101: test URLs' placeholder user and password, not credentials.
 		t.Errorf("Spec = limits %v, caches %v, main %q, cache %+v", spec.Limits, spec.Caches, spec.Main.URL, spec.Cache)
 	}
 	s := c.Snapshot

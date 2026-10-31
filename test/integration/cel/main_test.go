@@ -136,16 +136,3 @@ func scrape(t *testing.T, top *topology.Topology, n *topology.Node) promtext.Set
 	}
 	return set
 }
-
-// eventually polls cond every 20 ms of real time until it holds, failing
-// the test after timeout.
-func eventually(t *testing.T, timeout time.Duration, what string, cond func() bool) {
-	t.Helper()
-	deadline := time.Now().Add(timeout)
-	for !cond() {
-		if time.Now().After(deadline) {
-			t.Fatalf("%s: not within %v", what, timeout)
-		}
-		time.Sleep(topology.PollInterval)
-	}
-}

@@ -8,7 +8,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/rand/v2"
 	"net"
@@ -33,6 +32,8 @@ import (
 )
 
 // testToken is the admin operator token of the test Nodes.
+//
+//nolint:gosec // G101: a test canary, not a credential.
 const testToken = "Zm9vYmFyYmF6cXV4cXV1eGNvcmdlZ3JhdWx0"
 
 // testPID is the process ID the test Nodes take.
@@ -258,7 +259,7 @@ func TestSupervisor(t *testing.T) {
 }
 
 func TestSupervisorWaitBounded(t *testing.T) {
-	s := newSupervisor(t.Context(), slog.New(slog.NewJSONHandler(io.Discard, nil)), func(error) {})
+	s := newSupervisor(t.Context(), slog.New(slog.DiscardHandler), func(error) {})
 	release := make(chan struct{})
 	s.goFunc("stuck", func(context.Context) { <-release })
 	ctx, cancel := context.WithCancel(t.Context())

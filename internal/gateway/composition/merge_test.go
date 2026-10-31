@@ -255,8 +255,10 @@ func TestStepBodyReadFails(t *testing.T) {
 	t.Run("reset", func(t *testing.T) {
 		f := newFixture(t, "a")
 		f.leg("a").fn = answer(func() *snapshot.UpstreamResponse {
-			return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
-				Body: io.NopCloser(&failingReader{data: `{"a":`, err: io.ErrUnexpectedEOF})}
+			return &snapshot.UpstreamResponse{
+				Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(&failingReader{data: `{"a":`, err: io.ErrUnexpectedEOF}),
+			}
 		})
 		comp := f.compile(composition(v1alpha1.CompositionModeAggregate, stepTo("m", "a", "/m")))
 		if _, err := f.forward(comp); codeOf(err) != "RZ-UP-004" {
@@ -269,8 +271,10 @@ func TestStepBodyReadFails(t *testing.T) {
 		ctx, cancel := context.WithDeadline(t.Context(), time.Unix(1, 0))
 		defer cancel()
 		f.leg("a").fn = answer(func() *snapshot.UpstreamResponse {
-			return &snapshot.UpstreamResponse{Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
-				Body: io.NopCloser(&failingReader{err: context.DeadlineExceeded})}
+			return &snapshot.UpstreamResponse{
+				Status: 200, Header: http.Header{"Content-Type": {"application/json"}},
+				Body: io.NopCloser(&failingReader{err: context.DeadlineExceeded}),
+			}
 		})
 		comp := f.compile(composition(v1alpha1.CompositionModeAggregate, stepTo("m", "a", "/m")))
 		_, err := comp.Forward(ctx, f.outbound(exchange(http.MethodGet, "/v1", ""), ""))

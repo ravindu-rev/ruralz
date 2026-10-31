@@ -414,7 +414,7 @@ func TestLive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		environ, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p.PID), "environ")) //nolint:gosec // G304: a procfs path built from a PID
+		environ, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(p.PID), "environ"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -447,7 +447,7 @@ func TestLive(t *testing.T) {
 	// holding no socket, and the holder keeps serving every request.
 	t.Run("refused handover", func(t *testing.T) {
 		evidence(ctx, t, time.Now())
-		variant, err := os.ReadFile(refusedRuralzd(t))
+		variant, err := os.ReadFile(refusedRuralzd(t)) //nolint:contextcheck // the build cache builds once for every test, on its own bounded context
 		if err != nil {
 			t.Fatal(err)
 		}

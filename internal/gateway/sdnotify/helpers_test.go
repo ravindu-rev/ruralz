@@ -140,7 +140,7 @@ func (r *readiness) get() adminapi.Readyz {
 
 // Readiness states.
 
-func readyAt(rev string) adminapi.Readyz {
+func ready() adminapi.Readyz {
 	return adminapi.Readyz{Status: "ready", Revision: rev}
 }
 

@@ -119,7 +119,7 @@ func (c *Child) Status() string {
 	}
 	var ee *exec.ExitError
 	if errors.As(c.err, &ee) {
-		return ee.ProcessState.String()
+		return ee.String()
 	}
 	return c.err.Error()
 }

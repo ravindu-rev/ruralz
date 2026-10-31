@@ -89,9 +89,9 @@ func RouteSite(route *v1alpha1.Route, place expr.PlaceID, step string) expr.Site
 // stepOf returns the name of the composition step a path below
 // spec.composition.steps names, "" when it names none.
 func stepOf(p diag.Path) string {
-	for i, e := range p {
-		if e.Kind == diag.ElemKeyed && i > 0 && isField(p[i-1], "steps") {
-			return e.Key
+	for i := 1; i < len(p); i++ {
+		if p[i].Kind == diag.ElemKeyed && isField(p[i-1], "steps") {
+			return p[i].Key
 		}
 	}
 	return ""

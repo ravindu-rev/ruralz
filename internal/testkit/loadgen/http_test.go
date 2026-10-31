@@ -93,7 +93,7 @@ type saw struct {
 	reqs []sawReq
 }
 
-func (s *saw) handler(status int, body string) http.HandlerFunc {
+func (s *saw) handler(body string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
 		s.mu.Lock()
@@ -102,7 +102,7 @@ func (s *saw) handler(status int, body string) http.HandlerFunc {
 			string(b), r.URL.RawQuery, r.RemoteAddr, r.Proto,
 		})
 		s.mu.Unlock()
-		w.WriteHeader(status)
+		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, body)
 	}
 }
@@ -117,7 +117,7 @@ func (s *saw) list() []sawReq {
 // token, and the Prepare hook's change.
 func TestHTTPRequestShape(t *testing.T) {
 	var s saw
-	srv := serve(t, s.handler(200, "pong"))
+	srv := serve(t, s.handler("pong"))
 	keys, _ := Cycle("k", 2)
 	tg := newTarget(t, HTTPConfig{
 		URL: srv.url + "/bench", Method: http.MethodPost, Body: []byte("hello"), Host: "api.example",
@@ -204,7 +204,7 @@ func TestHTTPProtocols(t *testing.T) {
 // attributes it to a backend.
 func TestHTTPReportsTheConnection(t *testing.T) {
 	var s saw
-	srv := serve(t, s.handler(200, ""))
+	srv := serve(t, s.handler(""))
 	tg := newTarget(t, HTTPConfig{URL: srv.url, Connections: 1})
 	first := tg.Do(t.Context(), Request{Seq: 0})
 	second := tg.Do(t.Context(), Request{Seq: 1})
@@ -248,7 +248,7 @@ func TestHTTP1ConnectionBound(t *testing.T) {
 // time.
 func TestHTTP1RoundRobin(t *testing.T) {
 	var s saw
-	srv := serve(t, s.handler(200, ""))
+	srv := serve(t, s.handler(""))
 	pool := newTarget(t, HTTPConfig{URL: srv.url, Connections: 3})
 	for seq := range uint64(6) {
 		if resp := pool.Do(t.Context(), Request{Seq: seq}); resp.Outcome != Success {
@@ -258,7 +258,7 @@ func TestHTTP1RoundRobin(t *testing.T) {
 	if srv.conns.Load() != 1 {
 		t.Errorf("a sequential load opened %d pool connections, want 1", srv.conns.Load())
 	}
-	spread := serve(t, s.handler(200, ""))
+	spread := serve(t, s.handler(""))
 	tg := newTarget(t, HTTPConfig{URL: spread.url, Connections: 3, RoundRobin: true})
 	locals := map[uint64]string{}
 	for seq := range uint64(6) {
@@ -295,7 +295,7 @@ func TestHTTP1RoundRobin(t *testing.T) {
 // connection carries at most StreamsPerConn at once.
 func TestHTTP2LanesAndStreamBound(t *testing.T) {
 	var s saw
-	srv := serve(t, s.handler(200, ""))
+	srv := serve(t, s.handler(""))
 	tg := newTarget(t, HTTPConfig{URL: srv.url, Protocol: H2C, Connections: 3, StreamsPerConn: 1})
 	locals := map[uint64]string{}
 	for seq := range uint64(6) {

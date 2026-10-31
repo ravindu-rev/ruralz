@@ -33,11 +33,11 @@ func counted(n *atomic.Int64) snapshot.Forwarder {
 func TestConnectAndAsteriskMatchNoRoute(t *testing.T) {
 	for name, r := range map[string]*http.Request{
 		"CONNECT": func() *http.Request {
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			r.Method = http.MethodConnect
 			return r
 		}(),
-		"OPTIONS *": httptest.NewRequest(http.MethodOptions, "*", nil),
+		"OPTIONS *": httptest.NewRequestWithContext(t.Context(), http.MethodOptions, "*", nil),
 	} {
 		t.Run(name, func(t *testing.T) {
 			k := newKit(t)
@@ -84,7 +84,7 @@ func TestHeaderBlockLimits(t *testing.T) {
 			k := newKit(t)
 			var n atomic.Int64
 			k.publish(handlertest.Spec{Limits: snapshot.Limits{MaxRequestHeaderBytes: tt.limit}, Routes: []handlertest.Route{route("all", counted(&n))}})
-			r := httptest.NewRequest(http.MethodGet, tt.target, nil)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, tt.target, nil)
 			tt.mod(r)
 			res := k.do(r)
 			if tt.want == http.StatusOK {
@@ -106,7 +106,7 @@ func TestHeaderBlockLimits(t *testing.T) {
 // pseudo-header fields counted for every protocol, and the field lines
 // without them.
 func TestFieldListSize(t *testing.T) {
-	r := httptest.NewRequest(http.MethodGet, "http://api.example/v1/orders?id=7", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.example/v1/orders?id=7", nil)
 	r.Header = http.Header{"Accept": {"*/*"}, "Cookie": {"a=1; b=2"}}
 	size, lines := fieldListSize(r, "https")
 	want := int64(len(":method")+len("GET")+32) + int64(len(":scheme")+len("https")+32) +
@@ -148,7 +148,7 @@ func TestConflictingFraming(t *testing.T) {
 			k := newKit(t)
 			var n atomic.Int64
 			k.publish(handlertest.Spec{Routes: []handlertest.Route{route("all", counted(&n))}})
-			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader("hello"))
 			mod(r)
 			wantProblem(t, k.do(r), http.StatusBadRequest, codeRejected)
 			if n.Load() != 0 {
@@ -175,7 +175,7 @@ func TestAgreeingContentLength(t *testing.T) {
 			k := newKit(t)
 			var n atomic.Int64
 			k.publish(handlertest.Spec{Routes: []handlertest.Route{route("all", counted(&n))}})
-			r := httptest.NewRequest(http.MethodPost, "/", strings.NewReader("hello"))
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/", strings.NewReader("hello"))
 			mod(r)
 			if res := k.do(r); res.Code != http.StatusOK || n.Load() != 1 {
 				t.Errorf("response %d, forwarded %d; want 200 forwarded once", res.Code, n.Load())
@@ -191,10 +191,10 @@ func TestAbsoluteFormTarget(t *testing.T) {
 	k := newKit(t)
 	var n atomic.Int64
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "api", Match: &v1alpha1.RouteMatch{Hosts: []string{"api.example"}}, Forward: counted(&n)}}})
-	if res := k.do(httptest.NewRequest(http.MethodGet, "http://api.example/v1", nil)); res.Code != http.StatusOK || n.Load() != 1 {
+	if res := k.do(httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.example/v1", nil)); res.Code != http.StatusOK || n.Load() != 1 {
 		t.Fatalf("http absolute-form on an http listener = %d, forwarded %d; want 200 by its authority", res.Code, n.Load())
 	}
-	r := httptest.NewRequest(http.MethodGet, "https://api.example/v1", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.example/v1", nil)
 	r.TLS = nil
 	wantProblem(t, k.do(r), http.StatusBadRequest, codeRejected)
 }
@@ -217,7 +217,7 @@ func TestHTTP2HostMatchesAuthority(t *testing.T) {
 			k := newKit(t)
 			var n atomic.Int64
 			k.publish(handlertest.Spec{Routes: []handlertest.Route{route("all", counted(&n))}})
-			r := httptest.NewRequest(http.MethodGet, "/", nil)
+			r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			r.Proto, r.ProtoMajor, r.ProtoMinor = "HTTP/2.0", 2, 0
 			r.Host = "api.example"
 			r.Header["Host"] = []string{tt.host}

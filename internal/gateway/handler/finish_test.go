@@ -95,7 +95,7 @@ func TestAccessRecordFields(t *testing.T) {
 		return &snapshot.UpstreamResponse{Status: http.StatusOK, Header: http.Header{"Content-Length": {"2"}}, Body: newTracked("ok"), Upstream: "orders"}, nil
 	})
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", fwd)}})
-	r := httptest.NewRequest(http.MethodPost, "https://api.example/r", strings.NewReader("hello"))
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.example/r", strings.NewReader("hello"))
 	r.TLS = &tls.ConnectionState{Version: tls.VersionTLS13}
 	trace := "0af7651916cd43dd8448eb211c80319c"
 	r.Header.Set("Traceparent", "00-"+trace+"-b7ad6b7169203331-01")
@@ -125,7 +125,7 @@ func TestServerSpan(t *testing.T) {
 	snap := k.publish(handlertest.Spec{Routes: []handlertest.Route{route("r", handlertest.ForwardFunc(func(context.Context, *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
 		return nil, errUpstream("RZ-UP-005")
 	}))}})
-	r := httptest.NewRequest(http.MethodGet, "http://api.example/v1?q=1", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.example/v1?q=1", nil)
 	r.Header.Set("User-Agent", "probe/1")
 	k.do(r)
 	spans := k.tracer.Spans("server")
@@ -227,7 +227,7 @@ func subscribe(t *testing.T, k *kit) *tapWriter {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		k.tap.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/tap", nil).WithContext(ctx))
+		k.tap.ServeHTTP(w, httptest.NewRequestWithContext(ctx, http.MethodGet, "/tap", nil))
 	}()
 	t.Cleanup(func() {
 		cancel()
@@ -252,7 +252,7 @@ func TestTapRedactsCredentials(t *testing.T) {
 	}
 	k.publish(handlertest.Spec{Validated: &hub.Validated{Bundle: hub.NewBundle([]*hub.Resource{keys})}, Routes: []handlertest.Route{route("r", ok())}})
 	w := subscribe(t, k)
-	r := httptest.NewRequest(http.MethodGet, "http://api.example/r", nil)
+	r := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "http://api.example/r", nil)
 	r.Header.Set(header, "shop-secret")
 	r.Header.Set("Authorization", "Bearer token-secret")
 	r.Header.Set("X-Plain", "visible")

@@ -152,9 +152,17 @@ func (l *legRunner) list() []legCall {
 	return slices.Clone(l.calls)
 }
 
-// plainRoute is a Route with upstreams named name.
-func plainRoute(name string, timeout time.Duration) handlertest.Route {
-	return handlertest.Route{Name: name, Timeout: timeout, Forward: handlertest.Respond("orders", http.StatusOK, http.Header{}, "")}
+// plainRoute is the Route orders, forwarding to the Upstream orders.
+func plainRoute(timeout time.Duration) handlertest.Route {
+	return handlertest.Route{Name: "orders", Timeout: timeout, Forward: handlertest.Respond("orders", http.StatusOK, http.Header{}, "")}
+}
+
+// closeResponse closes the body of a response a replay that must fail
+// returned anyway.
+func closeResponse(resp *http.Response) {
+	if resp != nil {
+		_ = resp.Body.Close()
+	}
 }
 
 // TestNewRequiresDeps checks that New refuses a Deps without a required
@@ -192,7 +200,7 @@ func TestNewRequiresDeps(t *testing.T) {
 func TestReplayRunsUpstreamLeg(t *testing.T) {
 	f := newFixture(t, 4)
 	legs := &legRunner{}
-	snap := f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute("orders", 5*time.Second)}})
+	snap := f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute(5 * time.Second)}})
 	h := http.Header{
 		"If-None-Match": {`"v1"`},
 		"Traceparent":   {"00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"},
@@ -271,13 +279,13 @@ func TestReplayNotAvailable(t *testing.T) {
 		drain    bool
 	}{
 		{name: "no snapshot", units: 4, route: "orders", upstream: "orders"},
-		{name: "unknown route", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "gone", upstream: "orders"},
-		{name: "unknown upstream", units: 4, spec: &handlertest.Spec{Legs: unknown, Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "orders", upstream: "gone"},
-		{name: "no leg runner", units: 4, spec: &handlertest.Spec{Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "orders", upstream: "orders"},
-		{name: "composition entry on a plain route", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "orders"},
+		{name: "unknown route", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute(0)}}, route: "gone", upstream: "orders"},
+		{name: "unknown upstream", units: 4, spec: &handlertest.Spec{Legs: unknown, Routes: []handlertest.Route{plainRoute(0)}}, route: "orders", upstream: "gone"},
+		{name: "no leg runner", units: 4, spec: &handlertest.Spec{Routes: []handlertest.Route{plainRoute(0)}}, route: "orders", upstream: "orders"},
+		{name: "composition entry on a plain route", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute(0)}}, route: "orders"},
 		{name: "upstream entry on a composition route", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{comp}}, route: "composed", upstream: "orders"},
-		{name: "full ceiling", units: 0, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "orders", upstream: "orders"},
-		{name: "draining", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute("orders", 0)}}, route: "orders", upstream: "orders", drain: true},
+		{name: "full ceiling", units: 0, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute(0)}}, route: "orders", upstream: "orders"},
+		{name: "draining", units: 4, spec: &handlertest.Spec{Legs: &legRunner{}, Routes: []handlertest.Route{plainRoute(0)}}, route: "orders", upstream: "orders", drain: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -292,6 +300,7 @@ func TestReplayNotAvailable(t *testing.T) {
 				}
 			}
 			resp, err := f.p.Replay(t.Context(), tt.route, tt.upstream, saved(t, "http://api.example/v1", http.Header{}))
+			closeResponse(resp)
 			if !errors.Is(err, filter.ErrNotAvailable) || resp != nil {
 				t.Fatalf("Replay = %v, %v; want filter.ErrNotAvailable", resp, err)
 			}
@@ -306,7 +315,9 @@ func TestReplayNotAvailable(t *testing.T) {
 // taking anything.
 func TestReplayNoRequest(t *testing.T) {
 	f := newFixture(t, 4)
-	if _, err := f.p.Replay(t.Context(), "orders", "orders", nil); !errors.Is(err, ErrNoRequest) {
+	resp, err := f.p.Replay(t.Context(), "orders", "orders", nil)
+	closeResponse(resp)
+	if !errors.Is(err, ErrNoRequest) {
 		t.Errorf("Replay(nil) = %v, want ErrNoRequest", err)
 	}
 	if f.units.InUse() != 0 {
@@ -341,8 +352,9 @@ func TestReplayFailures(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			f := newFixture(t, 4)
-			snap := f.publish(handlertest.Spec{Legs: &legRunner{fn: tt.fn}, Routes: []handlertest.Route{plainRoute("orders", 0)}})
+			snap := f.publish(handlertest.Spec{Legs: &legRunner{fn: tt.fn}, Routes: []handlertest.Route{plainRoute(0)}})
 			resp, err := f.p.Replay(t.Context(), "orders", "orders", saved(t, "http://api.example/v1", http.Header{}))
+			closeResponse(resp)
 			if err == nil || resp != nil {
 				t.Fatalf("Replay = %v, %v; want an error", resp, err)
 			}
@@ -372,10 +384,11 @@ func TestReplayDeadline(t *testing.T) {
 		cause = context.Cause(ctx)
 		return nil, errcode.Wrap("RZ-UP-003", cause)
 	}}
-	f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute("orders", 2*time.Second)}})
+	f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute(2 * time.Second)}})
 	done := make(chan error, 1)
 	go func() {
-		_, err := f.p.Replay(context.Background(), "orders", "orders", saved(t, "http://api.example/v1", http.Header{}))
+		resp, err := f.p.Replay(context.Background(), "orders", "orders", saved(t, "http://api.example/v1", http.Header{}))
+		closeResponse(resp)
 		done <- err
 	}()
 	<-entered
@@ -392,15 +405,17 @@ func TestReplayEndedWhileRunning(t *testing.T) {
 	var cause error
 	legs := &legRunner{}
 	legs.fn = func(ctx context.Context, _ string, _ *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
-		if _, err := f.holder.EndAll(context.Background(), snapshot.EndDrain); err != nil {
+		if _, err := f.holder.EndAll(context.WithoutCancel(ctx), snapshot.EndDrain); err != nil {
 			return nil, err
 		}
 		<-ctx.Done()
 		cause = context.Cause(ctx)
 		return nil, errcode.Wrap("RZ-UP-004", cause)
 	}
-	snap := f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute("orders", 0)}})
-	if _, err := f.p.Replay(t.Context(), "orders", "orders", saved(t, "http://api.example/v1", http.Header{})); err == nil || !errors.Is(cause, errEnded) {
+	snap := f.publish(handlertest.Spec{Legs: legs, Routes: []handlertest.Route{plainRoute(0)}})
+	resp, err := f.p.Replay(t.Context(), "orders", "orders", saved(t, "http://api.example/v1", http.Header{}))
+	closeResponse(resp)
+	if err == nil || !errors.Is(cause, errEnded) {
 		t.Errorf("Replay = %v with cause %v, want an end by the ending protocol", err, cause)
 	}
 	if pins(snap) != 0 || f.units.InUse() != 0 {
@@ -525,7 +540,7 @@ func TestReplayThroughUpstreamLayer(t *testing.T) {
 	var got *http.Request
 	srv := newUpstreamServer(t, func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		got = r.Clone(context.Background())
+		got = r.Clone(r.Context())
 		mu.Unlock()
 		if r.Header.Get("If-None-Match") == `"v1"` {
 			w.Header().Set("Etag", `"v1"`)

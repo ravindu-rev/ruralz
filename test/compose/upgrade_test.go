@@ -172,7 +172,7 @@ func (l *load) waitAnswers(t *testing.T, n int64) {
 			_, _, failed, samples := l.result()
 			t.Fatalf("fewer than %d answers within %v (%d failed: %s)", n, loadTimeout, failed, strings.Join(samples, "; "))
 		}
-		sleepCtx(t.Context(), pollInterval)
+		sleepCtx(t.Context())
 	}
 }
 

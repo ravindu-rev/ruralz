@@ -285,7 +285,7 @@ func (c *Compiler) Compile(ctx context.Context, in Input) (*Compiled, diag.List,
 		return nil, ds, err
 	}
 	done := false
-	defer func() {
+	defer func() { //nolint:contextcheck // released State Store handles close on the manager's own goroutines, past the compile.
 		if !done {
 			b.opened.release()
 		}

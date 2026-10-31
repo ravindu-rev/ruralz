@@ -101,7 +101,8 @@ func (l *logWriter) emit() {
 	line := l.buf
 	if l.compact {
 		if short, ok := CompactLine(bytes.TrimSuffix(line, []byte("\n"))); ok {
-			line = append(short, '\n')
+			short = append(short, '\n')
+			line = short
 		}
 	}
 	l.out.write(line)

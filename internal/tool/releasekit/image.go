@@ -66,7 +66,7 @@ func runImage(o imageOptions) (string, error) {
 	if o.metadata == "" {
 		return img.Digest, nil
 	}
-	f, err := os.Open(o.metadata) //nolint:gosec // The metadata file given on the command line.
+	f, err := os.Open(o.metadata)
 	if err != nil {
 		return "", err
 	}

@@ -41,7 +41,7 @@ func TestRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile(filepath.Join(registryDir, plannedFile)) //nolint:gosec // Test reads the committed table.
+	want, err := os.ReadFile(filepath.Join(registryDir, plannedFile))
 	if err != nil {
 		t.Fatal(err)
 	}

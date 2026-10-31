@@ -28,14 +28,15 @@ func teeRoute(gate bool) *snapshot.Route {
 	return testRoute("cached", snapshot.BodyNeeds{ResponseTee: true, ResponseGate: gate})
 }
 
-// cachePolicy enters the cache Policy in ph, counting its skipped stores.
-func cachePolicy(x *Request, ph phase.Phase) (size, budget *counterFake) {
+// cachePolicy enters the cache Policy in onResponse, counting its skipped
+// stores.
+func cachePolicy(x *Request) (size, budget *counterFake) {
 	p := testPolicy("cache", 1, phase.ClassCache, phase.ScopeRoute, 1)
 	p.Metrics = &emit.PolicyMetrics{}
 	size, budget = &counterFake{}, &counterFake{}
 	p.Metrics.StoreSkipped[emit.SkipSizeLimit] = size
 	p.Metrics.StoreSkipped[emit.SkipBufferBudget] = budget
-	x.Enter(p, ph, nil)
+	x.Enter(p, phase.OnResponse, nil)
 	return size, budget
 }
 
@@ -137,7 +138,7 @@ func TestCachedResponseIsNoGeneratedResponse(t *testing.T) {
 	if v, err := m.Decoded(context.Background()); err != nil || v == nil {
 		t.Fatalf("Decoded() = %v, %v; want the stored JSON", v, err)
 	}
-	cachePolicy(x, phase.OnResponse)
+	cachePolicy(x)
 	if x.Exchange().TeeResponse(1<<20) != nil {
 		t.Fatal("a Cached response got a tee")
 	}
@@ -168,7 +169,7 @@ func TestTeeCopiesTheLegBody(t *testing.T) {
 	if err := x.Exchange().Message().SetBody(context.Background(), []byte("transformed")); err != nil {
 		t.Fatal(err)
 	}
-	size, _ := cachePolicy(x, phase.OnResponse)
+	size, _ := cachePolicy(x)
 	tee := x.Exchange().TeeResponse(100)
 	if tee == nil {
 		t.Fatal("no tee")
@@ -204,7 +205,7 @@ func TestTeeLegBodyLost(t *testing.T) {
 	if err := x.Exchange().Message().SetBody(context.Background(), []byte("whole")); err != nil {
 		t.Fatal(err)
 	}
-	size, budget := cachePolicy(x, phase.OnResponse)
+	size, budget := cachePolicy(x)
 	if x.Exchange().TeeResponse(100) != nil || size.n != 0 || budget.n != 0 {
 		t.Fatalf("a replaced streamed body got a tee (size %d, budget %d)", size.n, budget.n)
 	}
@@ -227,7 +228,7 @@ func TestTeeLegBodyLost(t *testing.T) {
 	if err := y.Exchange().Message().SetBody(context.Background(), []byte("new")); err == nil {
 		t.Fatal("SetBody with the budget spent succeeded")
 	}
-	_, budget = cachePolicy(y, phase.OnResponse)
+	_, budget = cachePolicy(y)
 	if y.Exchange().TeeResponse(1<<20) != nil || !y.legLostBudget || budget.n != 1 {
 		t.Fatalf("lost to the budget %v, buffer_budget skips %d; want no tee, true and 1", y.legLostBudget, budget.n)
 	}

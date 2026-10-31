@@ -187,7 +187,7 @@ func colorSeverity(line []byte, d diag.Diagnostic) []byte {
 func shellWord(s string) string {
 	safe := s != ""
 	for _, c := range s {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-_./:@%+=,", c)) {
+		if !shellSafe(c) {
 			safe = false
 			break
 		}
@@ -196,4 +196,9 @@ func shellWord(s string) string {
 		return s
 	}
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// shellSafe reports whether no shell treats c specially.
+func shellSafe(c rune) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-_./:@%+=,", c)
 }

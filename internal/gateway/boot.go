@@ -143,7 +143,7 @@ func (n *node) bootAdminPort(ctx context.Context) (int, string) {
 // take over. A socket that cannot serve leaves the Node serving without
 // in-place upgrades, logged at error.
 func (n *node) startHolder(ctx context.Context) {
-	h, err := handover.StartHolder(n.loopCtx, handover.HolderConfig{
+	h, err := handover.StartHolder(n.loopCtx, handover.HolderConfig{ //nolint:contextcheck // the holder serves until shutdown ends the loops' context, not this call's.
 		Dir: n.dir, Lock: n.lock, Activations: n.loader, Drain: n.drainer,
 		Sockets: []handover.Sockets{n.set, n.adminSock}, Admin: n.adminSrv,
 		Meter: handover.Meter{Conns: n.conns, Units: n.units, Budget: n.budget},

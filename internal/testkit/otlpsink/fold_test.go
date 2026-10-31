@@ -19,8 +19,9 @@ import (
 
 func accessFold() *Fold { return &Fold{Event: "ruralz.access", Attribute: "gateway_duration"} }
 
-func dbl(k string, v float64) *commonpb.KeyValue {
-	return &commonpb.KeyValue{Key: k, Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v}}}
+// gatewayDuration is the access log's gateway_duration attribute, v seconds.
+func gatewayDuration(v float64) *commonpb.KeyValue {
+	return &commonpb.KeyValue{Key: "gateway_duration", Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_DoubleValue{DoubleValue: v}}}
 }
 
 func i64(k string, v int64) *commonpb.KeyValue {
@@ -30,7 +31,7 @@ func i64(k string, v int64) *commonpb.KeyValue {
 // accessAt is an access record at time at with the given attributes.
 func accessAt(at time.Time, attrs ...*commonpb.KeyValue) *logspb.LogRecord {
 	r := logRecord("access", "ruralz.access", attrs...)
-	r.TimeUnixNano = uint64(at.UnixNano()) //nolint:gosec // G115: test times are after 1970
+	r.TimeUnixNano = uint64(at.UnixNano())
 	return r
 }
 
@@ -57,8 +58,8 @@ func TestFoldWindows(t *testing.T) {
 	// One request mixes a process record with folded access records.
 	if _, err := client.Export(ctx, logReq("gw",
 		logRecord("process line", ""),
-		accessAt(base.Add(time.Second), dbl("gateway_duration", 0.000123)),
-		accessAt(base.Add(12*time.Second), dbl("gateway_duration", 0.000845)),
+		accessAt(base.Add(time.Second), gatewayDuration(0.000123)),
+		accessAt(base.Add(12*time.Second), gatewayDuration(0.000845)),
 		accessAt(base.Add(13*time.Second), i64("gateway_duration", 1)),
 	)); err != nil {
 		t.Fatal(err)
@@ -66,7 +67,7 @@ func TestFoldWindows(t *testing.T) {
 	// One request holds only access records: never recorded, still counted.
 	if _, err := client.Export(ctx, logReq("gw",
 		accessAt(base.Add(10*time.Second)),                                              // missing attribute, in measured
-		accessAt(base.Add(20*time.Second), dbl("gateway_duration", 0.0002)),             // end is exclusive: outside
+		accessAt(base.Add(20*time.Second), gatewayDuration(0.0002)),                     // end is exclusive: outside
 		accessAt(base.Add(14*time.Second), &commonpb.KeyValue{Key: "gateway_duration"}), // empty value
 	)); err != nil {
 		t.Fatal(err)
@@ -154,15 +155,15 @@ func TestFilteredFoldWindow(t *testing.T) {
 	ctx := ctxTimeout(t, 10*time.Second)
 	at := func(i int) time.Time { return base.Add(time.Duration(i) * 100 * time.Millisecond) }
 	if _, err := collogs.NewLogsServiceClient(cc).Export(ctx, logReq("gw",
-		accessAt(at(1), dbl("gateway_duration", 0.001), arr("failure_modes", "ratelimit-bench")),  // folded
-		accessAt(at(2), dbl("gateway_duration", 0.002), str("failure_modes", "open")),             // folded
-		accessAt(at(3), dbl("gateway_duration", 0.003), kvs("failure_modes", 1)),                  // folded
-		accessAt(at(4), dbl("gateway_duration", 0.004), i64("failure_modes", 1)),                  // folded: a scalar
-		accessAt(at(5), dbl("gateway_duration", 0.005), arr("failure_modes")),                     // empty array
-		accessAt(at(6), dbl("gateway_duration", 0.006), str("failure_modes", "")),                 // empty string
-		accessAt(at(7), dbl("gateway_duration", 0.007), kvs("failure_modes", 0)),                  // empty list
-		accessAt(at(8), dbl("gateway_duration", 0.008), &commonpb.KeyValue{Key: "failure_modes"}), // no value
-		accessAt(at(9), dbl("gateway_duration", 0.009)),                                           // absent
+		accessAt(at(1), gatewayDuration(0.001), arr("failure_modes", "ratelimit-bench")),  // folded
+		accessAt(at(2), gatewayDuration(0.002), str("failure_modes", "open")),             // folded
+		accessAt(at(3), gatewayDuration(0.003), kvs("failure_modes", 1)),                  // folded
+		accessAt(at(4), gatewayDuration(0.004), i64("failure_modes", 1)),                  // folded: a scalar
+		accessAt(at(5), gatewayDuration(0.005), arr("failure_modes")),                     // empty array
+		accessAt(at(6), gatewayDuration(0.006), str("failure_modes", "")),                 // empty string
+		accessAt(at(7), gatewayDuration(0.007), kvs("failure_modes", 0)),                  // empty list
+		accessAt(at(8), gatewayDuration(0.008), &commonpb.KeyValue{Key: "failure_modes"}), // no value
+		accessAt(at(9), gatewayDuration(0.009)),                                           // absent
 	)); err != nil {
 		t.Fatal(err)
 	}

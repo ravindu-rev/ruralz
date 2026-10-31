@@ -150,7 +150,7 @@ func plainPos(text []byte, i, col int, line int32, value string, off int) (int32
 		if len(rest) <= len(content) && string(content[:len(rest)]) == rest {
 			// The value ends on this line.
 			if !found {
-				foundLn, foundCol, found = cur, startCol+utf8.RuneCount(content[:off-pos]), true
+				foundLn, foundCol = cur, startCol+utf8.RuneCount(content[:off-pos])
 			}
 			return foundLn, foundCol, true
 		}

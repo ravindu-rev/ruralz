@@ -163,7 +163,7 @@ func TestIdPServesKeyAndClient(t *testing.T) {
 	if err := os.WriteFile(signing, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	const secret = "s3cret-client-value" //nolint:gosec // G101: a test fixture, not a credential
+	const secret = "s3cret-client-value"
 	secretFile := filepath.Join(dir, "client-secret")
 	if err := os.WriteFile(secretFile, []byte(secret), 0o600); err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestIdPServesKeyAndClient(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		var tr struct {
-			AccessToken string `json:"access_token"` //nolint:tagliatelle // the OAuth2 wire name
+			AccessToken string `json:"access_token"` // the OAuth2 wire name
 		}
 		_ = json.NewDecoder(resp.Body).Decode(&tr)
 		return resp.StatusCode, tr.AccessToken
@@ -223,7 +223,7 @@ func TestIdPServesKeyAndClient(t *testing.T) {
 	if bytes.Contains(raw, []byte(secret)) {
 		t.Errorf("GET /idp carries the client secret: %s", raw)
 	}
-	var log IdPLog
+	var log IDPLog
 	if err := json.Unmarshal(raw, &log); err != nil {
 		t.Fatal(err)
 	}

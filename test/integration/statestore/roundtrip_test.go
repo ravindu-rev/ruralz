@@ -233,13 +233,13 @@ func quotaRoundTrips(t *testing.T, e *env, m *meter) {
 func refundFollowsResponse(t *testing.T, e *env, m *meter) {
 	key := []string{"x-api-key", apiKey}
 	before := m.read()
-	release := m.hold("EVALSHA", replyHold)
+	release := m.hold(replyHold)
 	r := e.get("/refund", key...)
 	at := m.since(before)
 	release()
 	expect(t, "a request no attempt reached the Upstream of", r, http.StatusBadGateway, "RZ-UP-001")
-	if m.proxied() && answered(at.log, "EVALSHA") != 1 {
-		t.Errorf("when the response completed the State Store had answered %d EVALSHA calls, want the reservation alone: %v", answered(at.log, "EVALSHA"), at.log)
+	if m.proxied() && answered(at.log) != 1 {
+		t.Errorf("when the response completed the State Store had answered %d EVALSHA calls, want the reservation alone: %v", answered(at.log), at.log)
 	}
 	m.e.waitFor("the refund", func() bool { return m.since(before).requestPath["EVALSHA"] >= 2 })
 	expectCommands(t, "the reservation and its refund", m.settled(before, 2), evalsha(2), 2)
@@ -252,7 +252,7 @@ func refundFollowsResponse(t *testing.T, e *env, m *meter) {
 func cacheRoundTrips(t *testing.T, e *env, m *meter) {
 	lookup := []string{"GET", "HMGET", "TIME"}
 	before := m.read()
-	release := m.hold("EVALSHA", replyHold)
+	release := m.hold(replyHold)
 	r := e.get("/cache/item")
 	at := m.since(before)
 	release()
@@ -261,7 +261,7 @@ func cacheRoundTrips(t *testing.T, e *env, m *meter) {
 		t.Errorf("Cache-Status = %q, want a uri-miss", got)
 	}
 	if m.proxied() {
-		if answered(at.log, "EVALSHA") != 0 {
+		if answered(at.log) != 0 {
 			t.Errorf("when the miss completed the State Store had answered a store: %v", at.log)
 		}
 		if n, s := trips(at.log, lookup...), servers(at.log, lookup...); n != s || n == 0 {
@@ -288,13 +288,13 @@ func cacheRoundTrips(t *testing.T, e *env, m *meter) {
 	}
 }
 
-// hold makes every counting proxy of m hold the replies to command for d
+// hold makes every counting proxy of m hold the replies to EVALSHA for d
 // and returns the function releasing them; it does nothing without
 // counting proxies.
-func (m *meter) hold(command string, d time.Duration) (release func()) {
+func (m *meter) hold(d time.Duration) (release func()) {
 	m.e.t.Helper()
 	for _, p := range m.proxies {
-		if err := p.SetReplyDelays(respproxy.ReplyDelay{Command: command, Delay: d}); err != nil {
+		if err := p.SetReplyDelays(respproxy.ReplyDelay{Command: "EVALSHA", Delay: d}); err != nil {
 			m.e.t.Fatal(err)
 		}
 	}
@@ -312,16 +312,16 @@ func (m *meter) settled(earlier reading, n int) delta {
 	var d delta
 	m.e.waitFor("answered writes", func() bool {
 		d = m.since(earlier)
-		return !m.proxied() || answered(d.log, "EVALSHA") >= n
+		return !m.proxied() || answered(d.log) >= n
 	})
 	return d
 }
 
-// answered counts the commands named name in log whose reply arrived.
-func answered(log []logged, name string) int {
+// answered counts the EVALSHA calls in log whose reply arrived.
+func answered(log []logged) int {
 	n := 0
 	for _, c := range log {
-		if c.Name == name && c.Reply.Kind != 0 {
+		if c.Name == "EVALSHA" && c.Reply.Kind != 0 {
 			n++
 		}
 	}
