@@ -85,8 +85,11 @@ func (b ruralzBinary) commands(ctx context.Context, dir, arg string, flags []str
 	var built struct {
 		Digest string `json:"digest"`
 	}
-	if err := json.Unmarshal(out, &built); err != nil || built.Digest == "" {
-		return outcome{}, fmt.Errorf("ruralz bundle build prints %q: %v", out, err)
+	if err := json.Unmarshal(out, &built); err != nil {
+		return outcome{}, fmt.Errorf("ruralz bundle build prints %q: %w", out, err)
+	}
+	if built.Digest == "" {
+		return outcome{}, fmt.Errorf("ruralz bundle build prints %q: no digest", out)
 	}
 	o.digest = built.Digest
 	return o, nil

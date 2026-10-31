@@ -48,7 +48,7 @@ const (
 
 // RZ codes of the activation, each registered in internal/errcode.
 const (
-	codeSecret     = "RZ-CFG-026"
+	codeSecret     = "RZ-CFG-026" //nolint:gosec // G101: an RZ code, not a credential.
 	codeBind       = "RZ-CFG-039"
 	codeStoreURL   = "RZ-CFG-042"
 	codeDeadline   = "RZ-CFG-044"
@@ -652,7 +652,7 @@ func uniform(src rand.Source, d time.Duration) time.Duration {
 // concurrent use.
 type runtimeSource struct{}
 
-func (runtimeSource) Uint64() uint64 { return rand.Uint64() }
+func (runtimeSource) Uint64() uint64 { return rand.Uint64() } //nolint:gosec // G404: the retry backoff jitter needs a uniform draw, not an unpredictable one.
 
 // stamp formats t in RFC 3339 UTC.
 func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }

@@ -759,12 +759,12 @@ func secretProblems(res *pipeline.Result) []string {
 	var out []string
 	for _, u := range res.Validated.Secrets {
 		at := fmt.Sprintf("%s/%s %s", u.Resource.Kind, u.Resource.Name, u.Path)
-		switch ref := u.Ref; {
-		case ref.Provider == v1alpha1.SecretProviderEnv:
+		switch ref := u.Ref; ref.Provider {
+		case v1alpha1.SecretProviderEnv:
 			if ref.Name != "RURALZ_STATE_STORE_URL" && !strings.HasPrefix(ref.Name, "RURALZ_SECRET_") {
 				out = append(out, fmt.Sprintf("%s: env name %s is not RURALZ_STATE_STORE_URL or RURALZ_SECRET_*", at, ref.Name))
 			}
-		case ref.Provider == v1alpha1.SecretProviderFile:
+		case v1alpha1.SecretProviderFile:
 			if !strings.HasPrefix(ref.Name, "/etc/ruralz/") {
 				out = append(out, fmt.Sprintf("%s: file %s is outside /etc/ruralz", at, ref.Name))
 			}
@@ -869,11 +869,11 @@ func TestQuickstartBundle(t *testing.T) {
 func TestShopBundleDiagnostics(t *testing.T) {
 	s := mustSuite(t)
 	var lines []string
-	if blocks := blocksOf(t, s, configModelDoc, "### Diagnostics and source map", "text"); len(blocks) == 1 {
+	if blocks := blocksOf(t, s, "### Diagnostics and source map", "text"); len(blocks) == 1 {
 		lines = strings.Split(strings.TrimSuffix(blocks[0], "\n"), "\n")
 	}
 	jsonForm := ""
-	if blocks := blocksOf(t, s, configModelDoc, "### Diagnostics and source map", "json"); len(blocks) == 1 {
+	if blocks := blocksOf(t, s, "### Diagnostics and source map", "json"); len(blocks) == 1 {
 		jsonForm = blocks[0]
 	}
 	mistakes := [][3]string{

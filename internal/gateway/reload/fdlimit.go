@@ -19,7 +19,7 @@ const fdReserve = 1024
 // Revision's summed circuitBreaker.maxConnections and a 1,024 reserve
 // (docs/architecture/03-data-plane.md "Bounded resources").
 func FileDescriptorsNeeded(upstreamConnections int) uint64 {
-	return uint64(admission.DefaultConnections+admission.AdminConnections+fdReserve) + uint64(max(upstreamConnections, 0)) //nolint:gosec // G115: a non-negative count.
+	return uint64(admission.DefaultConnections+admission.AdminConnections+fdReserve) + uint64(max(upstreamConnections, 0))
 }
 
 // checkFileLimit logs a warning when the soft RLIMIT_NOFILE is below

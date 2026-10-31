@@ -13,6 +13,8 @@ import (
 	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"slices"
 	"strconv"
@@ -414,25 +416,156 @@ type jsonDiagnostic struct {
 	Environment string        `json:"environment,omitempty"`
 }
 
+// jsonForm returns d's member of the JSON form.
+func (d Diagnostic) jsonForm() jsonDiagnostic {
+	jd := jsonDiagnostic{
+		Code: d.Code, Severity: d.Severity, File: d.File, Line: d.Line, Column: d.Column,
+		Resource: d.Resource, Path: d.Path, Message: d.Message, Hint: d.Hint, Environment: d.Environment,
+	}
+	for _, r := range d.Related {
+		jd.Related = append(jd.Related, jsonRelated{File: r.File, Line: r.Line, Column: r.Column, Message: r.Message})
+	}
+	return jd
+}
+
 // WriteJSON writes a bare JSON array ("[]" when empty) with members in the
 // order code, severity, file, line, column, resource, path, message, hint,
 // related, environment; two-space indent, no HTML escaping, final newline.
 func WriteJSON(w io.Writer, l List) error {
 	out := make([]jsonDiagnostic, 0, len(l))
 	for _, d := range l {
-		jd := jsonDiagnostic{
-			Code: d.Code, Severity: d.Severity, File: d.File, Line: d.Line, Column: d.Column,
-			Resource: d.Resource, Path: d.Path, Message: d.Message, Hint: d.Hint, Environment: d.Environment,
-		}
-		for _, r := range d.Related {
-			jd.Related = append(jd.Related, jsonRelated{File: r.File, Line: r.Line, Column: r.Column, Message: r.Message})
-		}
-		out = append(out, jd)
+		out = append(out, d.jsonForm())
 	}
 	enc := json.NewEncoder(w)
 	enc.SetIndent("", "  ")
 	enc.SetEscapeHTML(false)
 	return enc.Encode(out)
+}
+
+// MarshalJSON returns d's member of the JSON form on one line: the object
+// WriteJSON writes for d, without its indent. ruralzd's rejection and
+// activation-warning records carry each finding so
+// (docs/architecture/03-data-plane.md "Activation"), and UnmarshalJSON
+// reads it back.
+func (d Diagnostic) MarshalJSON() ([]byte, error) { return marshal(d.jsonForm()) }
+
+// UnmarshalJSON reads one member of the JSON form, as WriteJSON and
+// MarshalJSON write it. A member the form never holds, a severity other
+// than error or warning, or a path element of no form Path.MarshalJSON
+// writes is an error. The JSON form is lossless: the diagnostic read back
+// writes the same bytes in the text and JSON forms as the one written, as
+// long as its strings are valid UTF-8, which the JSON form requires.
+func (d *Diagnostic) UnmarshalJSON(data []byte) error {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	var jd jsonDiagnostic
+	if err := dec.Decode(&jd); err != nil {
+		return fmt.Errorf("diag: %w", err)
+	}
+	if jd.Severity == 0 {
+		return errors.New("diag: a diagnostic without a severity")
+	}
+	out := Diagnostic{
+		Code: jd.Code, Severity: jd.Severity, Location: Location{File: jd.File, Line: jd.Line, Column: jd.Column},
+		Resource: jd.Resource, Path: jd.Path, Message: jd.Message, Hint: jd.Hint, Environment: jd.Environment,
+	}
+	for _, r := range jd.Related {
+		out.Related = append(out.Related, Related{Location: Location{File: r.File, Line: r.Line, Column: r.Column}, Message: r.Message})
+	}
+	*d = out
+	return nil
+}
+
+// UnmarshalText reads the severity names MarshalText writes.
+func (s *Severity) UnmarshalText(text []byte) error {
+	switch string(text) {
+	case "error":
+		*s = SeverityError
+	case "warning":
+		*s = SeverityWarning
+	default:
+		return fmt.Errorf("diag: severity %q", text)
+	}
+	return nil
+}
+
+// UnmarshalJSON reads the JSON form of a path, as MarshalJSON writes it: a
+// string is a field, an integer an index, {"item": v} a set element and
+// any other one-member object a keyed entry, whose key is a string.
+func (p *Path) UnmarshalJSON(data []byte) error {
+	var elems []json.RawMessage
+	if err := json.Unmarshal(data, &elems); err != nil {
+		return fmt.Errorf("diag: path: %w", err)
+	}
+	if elems == nil {
+		*p = nil
+		return nil
+	}
+	out := make(Path, 0, len(elems))
+	for _, raw := range elems {
+		e, err := decodeElem(raw)
+		if err != nil {
+			return fmt.Errorf("diag: path element %s: %w", raw, err)
+		}
+		out = append(out, e)
+	}
+	*p = out
+	return nil
+}
+
+// decodeElem reads one path element of the JSON form.
+func decodeElem(raw json.RawMessage) (PathElem, error) {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return PathElem{}, errors.New("empty element")
+	}
+	switch c := raw[0]; {
+	case c == '"':
+		var name string
+		err := json.Unmarshal(raw, &name)
+		return Field(name), err
+	case c == '{':
+		var m map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return PathElem{}, err
+		}
+		if len(m) != 1 {
+			return PathElem{}, errors.New("not a one-member object")
+		}
+		for k, v := range m {
+			if k == "item" {
+				item, err := decodeItem(v)
+				return Item(item), err
+			}
+			var key string
+			err := json.Unmarshal(v, &key)
+			return Keyed(k, key), err
+		}
+	case c == '-' || c >= '0' && c <= '9':
+		var i int
+		err := json.Unmarshal(raw, &i)
+		return Index(i), err
+	}
+	return PathElem{}, errors.New("neither a string, an integer nor a one-member object")
+}
+
+// decodeItem reads a set element's value as Item takes it: a string,
+// json.Number or bool, else its compact JSON.
+func decodeItem(raw json.RawMessage) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	switch v.(type) {
+	case string, json.Number, bool:
+		return v, nil
+	default:
+		var b bytes.Buffer
+		err := json.Compact(&b, raw)
+		return json.RawMessage(b.Bytes()), err
+	}
 }
 
 // Collector gathers diagnostics from concurrent workers and enforces the

@@ -21,10 +21,12 @@
 // the facade with the CLI's options, so every comparison with them also
 // holds the commands to the facade.
 //
-// The integration-tagged cases of later steps add the built ruralz and the
+// The integration-tagged cases add the built ruralz and the
 // controllable-clock ruralzd build from internal/testkit/binaries as more
 // runners: each implements runner for its binary, and the same corpus runs
-// through it (runner, binaryRunners).
+// through it (runner, binaryRunners). The built ruralzd's outcome comes
+// from the records of its first boot attempt in file mode (ruralzdBinary,
+// nodeOutcome).
 //
 // # Regeneration
 //

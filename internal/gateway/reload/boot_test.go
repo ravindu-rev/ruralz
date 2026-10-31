@@ -196,7 +196,7 @@ func TestHolderWatchesAfterTheBoot(t *testing.T) {
 }
 
 func TestSuccessorBootsTheCandidate(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.writeLKG("H")
 	r.start()
@@ -238,7 +238,7 @@ func TestSuccessorBootsTheCandidate(t *testing.T) {
 }
 
 func TestSuccessorWithoutCandidateBootsByFileOrder(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.start()
 	r.booted()
@@ -254,7 +254,7 @@ func TestSuccessorFailedCandidateBootsNothing(t *testing.T) {
 	// An N-1 successor that cannot serve the holder's candidate
 	// (RZ-CFG-024) boots nothing, and never the source instead: the holder
 	// has an active Revision and refuses or asks for a reload.
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.writeLKG("H")
 	r.canon.results = map[string]*pipeline.Result{"H": failedResult(diag.List{finding("RZ-CFG-024", 1, "newer field")})}
@@ -269,7 +269,7 @@ func TestSuccessorFailedCandidateBootsNothing(t *testing.T) {
 }
 
 func TestSuccessorReload(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.writeLKG("H1")
 	r.start()
@@ -311,7 +311,7 @@ func TestSuccessorReload(t *testing.T) {
 }
 
 func TestSuccessorWatchesAndWritesOnceItTookTheLock(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.start()
 	r.booted()
@@ -334,7 +334,7 @@ func TestSuccessorWatchesAndWritesOnceItTookTheLock(t *testing.T) {
 }
 
 func TestBoundCloseClosesEverything(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.writeLKG("H")
 	r.start()
@@ -351,10 +351,10 @@ func TestBoundCloseClosesEverything(t *testing.T) {
 }
 
 func TestBoundListenReportsFailures(t *testing.T) {
-	r := newRig(t, withBoot(BootSuccessor))
+	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
 	r.writeLKG("H")
-	r.parts[0].set(func(p *fakePart) { p.commitErr = errorsWrap(codeBind, "listen: address in use") })
+	r.parts[0].set(func(p *fakePart) { p.commitErr = bindError("listen: address in use") })
 	r.parts[1].set(func(p *fakePart) { p.listenErr = errors.New("admin listen failed") })
 	r.start()
 	r.booted()

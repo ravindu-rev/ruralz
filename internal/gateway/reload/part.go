@@ -72,5 +72,5 @@ func (p listenerPart) StopAccepting() { p.set.StopAccepting() }
 // planSwitch commits or aborts a listener Plan.
 type planSwitch struct{ plan *listener.Plan }
 
-func (s planSwitch) Commit(context.Context) error { return s.plan.Commit() }
+func (s planSwitch) Commit(context.Context) error { return s.plan.Commit() } //nolint:contextcheck // Plan.Commit shuts replaced Servers down in the background, past the activation.
 func (s planSwitch) Abort()                       { s.plan.Abort() }

@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
@@ -67,6 +68,31 @@ func findingsRejection(digest revision.Digest, ds diag.List) rejection {
 	return rejection{digest: digest, diags: ds}
 }
 
+// withWarnings adds to r, the rejection of a step after the digest, the
+// warnings the configuration pipeline reported for c's load, sorted with
+// the step's findings, so the record of a rejected load holds every
+// diagnostic of the load (docs/architecture/03-data-plane.md
+// "Activation"). Their code is never the rejection's, and they make no
+// rejection transient.
+func withWarnings(c *candidate, r rejection) rejection {
+	if c == nil || c.res == nil {
+		return r
+	}
+	var ds diag.List
+	for _, d := range c.res.Diagnostics {
+		if d.Severity == diag.SeverityWarning {
+			ds = append(ds, d)
+		}
+	}
+	if len(ds) == 0 {
+		return r
+	}
+	ds = append(ds, r.diags...)
+	ds.Sort()
+	r.diags = ds
+	return r
+}
+
 // deadlineRejection is the transient RZ-CFG-044 of a Revision not ready
 // to publish at the compile deadline; it names no resource.
 func deadlineRejection(digest revision.Digest, deadline time.Duration) rejection {
@@ -89,7 +115,9 @@ func faultRejection(digest revision.Digest, err error, stack []byte) rejection {
 // reject handles a rejected load: it records lastRejected, counts the
 // load once in ruralz_config_activations_total with the code of its first
 // error and writes one warn record with the number of diagnostics and up
-// to ten of them, the rest at debug; it logs a fault with its stack. A
+// to ten of them, the rest at debug one per record, each finding in its
+// one-line JSON form (diag.Diagnostic.MarshalJSON), so the records carry
+// every diagnostic losslessly; it logs a fault with its stack. A
 // source load whose every failure is transient is retried with
 // full-jitter backoff, unless a newer load replaced it; while no Revision
 // is active, the reasons of /readyz name the unresolved secretRef values
@@ -144,12 +172,12 @@ func (l *Loader) reject(ctx context.Context, c *candidate, r rejection) {
 	}
 	if first {
 		l.metrics.Rejected.Inc(0, code)
-		l.log.WarnContext(ctx, "revision rejected", append(attrs, "findings", texts(r.diags, maxLoggedDiagnostics))...)
+		l.log.WarnContext(ctx, "revision rejected", append(attrs, "findings", head(r.diags, maxLoggedDiagnostics))...)
 		for _, d := range r.diags[min(len(r.diags), maxLoggedDiagnostics):] {
-			l.log.DebugContext(ctx, "revision rejected: finding", catalog.KeyCode, d.Code, "finding", string(d.AppendText(nil)))
+			l.log.DebugContext(ctx, "revision rejected: finding", catalog.KeyCode, d.Code, "finding", d)
 		}
 	} else {
-		l.log.InfoContext(ctx, "revision retry rejected", append(attrs, "findings", texts(r.diags, maxLoggedDiagnostics))...)
+		l.log.InfoContext(ctx, "revision retry rejected", append(attrs, "findings", head(r.diags, maxLoggedDiagnostics))...)
 	}
 
 	if noActive && (c == nil || c.origin == OriginSource) {
@@ -185,13 +213,11 @@ func bootIssues(ds diag.List) (secrets, listeners []readiness.Issue) {
 	return secrets, listeners
 }
 
-// texts returns the one-line text form of the first n diagnostics.
-func texts(ds diag.List, n int) []string {
-	out := make([]string, 0, min(len(ds), n))
-	for _, d := range ds[:min(len(ds), n)] {
-		out = append(out, string(d.AppendText(nil)))
-	}
-	return out
+// head returns a copy of the first n diagnostics, which a log record
+// writes in their JSON form; the copy keeps the queued record's value
+// from sharing ds.
+func head(ds diag.List, n int) diag.List {
+	return slices.Clone(ds[:min(len(ds), n)])
 }
 
 // errText returns err's text, "" for nil.

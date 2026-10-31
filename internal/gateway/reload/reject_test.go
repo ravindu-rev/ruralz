@@ -4,16 +4,25 @@
 package reload
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
+	"log/slog"
+	"reflect"
 	"slices"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/gateway/compile"
 	"github.com/ravindu-rev/ruralz/internal/gateway/source"
+	"github.com/ravindu-rev/ruralz/internal/redact"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/logsink"
 )
 
 // Tests for rejections of docs/architecture/03-data-plane.md "Activation"
@@ -40,7 +49,7 @@ func TestRejectedRevisionKeepsServing(t *testing.T) {
 	if rec.level != 4 || rec.attrs["code"] != "RZ-CFG-040" || rec.attrs["diagnostics"] != int64(1) || rec.attrs["revision"] != rev("B").Digest.Short() {
 		t.Errorf("record %+v", rec)
 	}
-	if f, ok := rec.attrs["findings"].([]string); !ok || len(f) != 1 || f[0] != "ruralz.yaml:3:1 error RZ-CFG-040: kind Plugin is not served by this release" {
+	if f, ok := rec.attrs["findings"].(diag.List); !ok || len(f) != 1 || string(f[0].AppendText(nil)) != "ruralz.yaml:3:1 error RZ-CFG-040: kind Plugin is not served by this release" {
 		t.Errorf("findings %#v", rec.attrs["findings"])
 	}
 	lr := r.l.Snapshots().LastRejected
@@ -74,8 +83,40 @@ func TestParseFailureIsRejectedWithoutDigest(t *testing.T) {
 	}
 }
 
+// recordedFindings returns the diagnostics a warn record of msg and the
+// debug records after it carry, in record order: the warn record's
+// findings, then each debug record's finding.
+func recordedFindings(t *testing.T, recs []record) (diag.List, int64) {
+	t.Helper()
+	var out diag.List
+	var count int64
+	for _, rec := range recs {
+		switch rec.level {
+		case slog.LevelWarn:
+			f, ok := rec.attrs["findings"].(diag.List)
+			if !ok {
+				t.Fatalf("findings %#v, want the diagnostics", rec.attrs["findings"])
+			}
+			out = append(out, f...)
+			count, _ = rec.attrs["diagnostics"].(int64)
+		case slog.LevelDebug:
+			d, ok := rec.attrs["finding"].(diag.Diagnostic)
+			if !ok {
+				t.Fatalf("finding %#v, want a diagnostic", rec.attrs["finding"])
+			}
+			out = append(out, d)
+		default:
+			t.Fatalf("record %+v at level %v, want warn or debug", rec, rec.level)
+		}
+	}
+	return out, count
+}
+
+// TestRejectionLogsTenFindings checks the records of a rejected load: up
+// to ten diagnostics in the warn record, the rest at debug one per record,
+// each a diag.Diagnostic the sink writes in its JSON form, so together
+// they hold every diagnostic of the load, in order.
 func TestRejectionLogsTenFindings(t *testing.T) {
-	// Up to ten diagnostics in the warn record, the rest at debug.
 	r := newRig(t)
 	var ds diag.List
 	for i := range 12 {
@@ -89,20 +130,156 @@ func TestRejectionLogsTenFindings(t *testing.T) {
 	var warn, debug int
 	for _, rec := range recs {
 		switch rec.level {
-		case 4:
+		case slog.LevelWarn:
 			warn++
-			if f := rec.attrs["findings"].([]string); len(f) != 10 || rec.attrs["diagnostics"] != int64(12) {
+			if f := rec.attrs["findings"].(diag.List); len(f) != 10 || rec.attrs["diagnostics"] != int64(12) {
 				t.Errorf("warn record carries %d findings of %v, want 10 of 12", len(f), rec.attrs["diagnostics"])
 			}
-		case -4:
+		case slog.LevelDebug:
 			debug++
+			if rec.attrs["code"] != "RZ-CFG-009" {
+				t.Errorf("debug record %+v", rec)
+			}
+		default:
+			t.Errorf("record %+v at level %v, want warn or debug", rec, rec.level)
 		}
 	}
 	if warn != 1 || debug != 2 {
 		t.Fatalf("%d warn and %d debug records, want 1 and 2", warn, debug)
 	}
+	if got, n := recordedFindings(t, recs); n != 12 || !reflect.DeepEqual(got, ds) {
+		t.Errorf("the records carry %d of %d diagnostics:\n%+v\nwant\n%+v", len(got), n, got, ds)
+	}
 	if n := r.metrics.rejections("RZ-CFG-009"); n != 1 {
 		t.Fatalf("rejections = %d, want one per load", n)
+	}
+}
+
+// lockedBuffer is a Writer the log sink's worker writes to while the test
+// waits.
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// TestRejectionRecordsReadBack checks the rejection records as the Node's
+// log sink writes them, through its redaction hook: the findings and
+// finding members of the JSON lines read back with
+// diag.Diagnostic.UnmarshalJSON to the load's diagnostics, which write the
+// same text and JSON forms (docs/architecture/03-data-plane.md
+// "Activation").
+func TestRejectionRecordsReadBack(t *testing.T) {
+	out := &lockedBuffer{}
+	sink, err := logsink.New(logsink.Options{Stdout: out, Level: slog.LevelDebug, ReplaceAttr: redact.Default().ReplaceAttr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- sink.Run(ctx) }()
+
+	r := newRig(t)
+	r.cfg.Logger = sink.Logger("reload")
+	if r.l, err = New(r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	ds := diag.List{{
+		Code: "RZ-CFG-009", Severity: diag.SeverityError, Location: diag.Location{File: "routes/a.yaml", Line: 1, Column: 9},
+		Resource: &diag.ResourceID{Kind: "Route", Name: "a"},
+		Path: diag.Path{
+			diag.Field("spec"), diag.Field("composition"), diag.Field("steps"), diag.Keyed("name", "stock & <x>"),
+			diag.Index(2), diag.Item(json.Number("1.5")), diag.Item(json.RawMessage(`{"a":[true]}`)), diag.Field("upstream"),
+		},
+		Message: "Upstream \"inventroy\" not found\non two lines", Hint: `did you mean "inventory"?`,
+		Related: []diag.Related{{Location: diag.Location{File: "upstreams/i.yaml", Line: 2, Column: 3}, Message: "declared in"}},
+	}}
+	for i := range 11 {
+		ds = append(ds, finding("RZ-CFG-005", i+2, "rule "+strconv.Itoa(i)))
+	}
+	r.start()
+	r.booted()
+	r.l.Offer(load(failedResult(ds)))
+	r.idle()
+	r.stop()
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+
+	var got diag.List
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
+		var rec struct {
+			Msg      string           `json:"msg"`
+			Findings diag.List        `json:"findings"`
+			Finding  *diag.Diagnostic `json:"finding"`
+		}
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			t.Fatalf("%s: %v", line, err)
+		}
+		switch rec.Msg {
+		case "revision rejected":
+			got = append(got, rec.Findings...)
+		case "revision rejected: finding":
+			got = append(got, *rec.Finding)
+		}
+	}
+	for _, w := range []func(io.Writer, diag.List) error{diag.WriteText, diag.WriteJSON} {
+		var a, b bytes.Buffer
+		if err := w(&a, ds); err != nil {
+			t.Fatal(err)
+		}
+		if err := w(&b, got); err != nil {
+			t.Fatal(err)
+		}
+		if a.String() != b.String() {
+			t.Errorf("the records read back write\n%s\nthe load's diagnostics write\n%s", b.String(), a.String())
+		}
+	}
+}
+
+// TestRejectionAfterDigestKeepsWarnings checks a load rejected after the
+// digest: its records hold the warnings the configuration pipeline
+// reported with the failing step's findings, sorted, while its code is
+// the step's first error's and its warnings make it no more transient.
+func TestRejectionAfterDigestKeepsWarnings(t *testing.T) {
+	r := newRig(t)
+	served := finding("RZ-CFG-040", 3, "kind Plugin is not served by this release")
+	r.comp.script(rev("B").Digest, findings(served))
+	r.start()
+	r.booted()
+	res := result("B")
+	warns := diag.List{
+		{Code: "RZ-CFG-043", Severity: diag.SeverityWarning, Message: "a hot limit", Location: diag.Location{File: "ruralz.yaml", Line: 9, Column: 5}},
+		{Code: "RZ-CFG-013", Severity: diag.SeverityWarning, Message: "a secret-like variable", Location: diag.Location{File: "ruralz.yaml", Line: 2, Column: 7}},
+	}
+	res.Diagnostics = warns
+	r.l.Offer(load(res))
+	waitFor(t, "the rejection", func() bool { return r.metrics.rejections("RZ-CFG-040") == 1 })
+	r.idle()
+	recs := r.logs.find("revision rejected")
+	if len(recs) != 1 || recs[0].attrs["code"] != "RZ-CFG-040" {
+		t.Fatalf("records %+v, want one rejection with the step's code", recs)
+	}
+	want := diag.List{warns[1], served, warns[0]}
+	if got, n := recordedFindings(t, recs); n != 3 || !reflect.DeepEqual(got, want) {
+		t.Errorf("the record carries %d of %d diagnostics:\n%+v\nwant\n%+v", len(got), n, got, want)
+	}
+	r.clk.Advance(2 * RetryMax)
+	r.idle()
+	if n := len(r.comp.calls()); n != 2 {
+		t.Fatalf("compiled %d times, want 2: warnings make no rejection transient", n)
 	}
 }
 
@@ -385,7 +562,7 @@ func TestPrepareFailureRejectsWithItsCode(t *testing.T) {
 	r := newRig(t)
 	r.start()
 	r.booted()
-	r.parts[1].set(func(p *fakePart) { p.prepareErr = errorsWrap(codeBind, "admin port 9902: address in use") })
+	r.parts[1].set(func(p *fakePart) { p.prepareErr = bindError("admin port 9902: address in use") })
 	r.l.Offer(load(result("B")))
 	waitFor(t, "the rejection", func() bool { return r.metrics.rejections("RZ-CFG-039") == 1 })
 	r.idle()

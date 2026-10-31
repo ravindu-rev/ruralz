@@ -81,12 +81,12 @@ func fencedBlocks(text string) []fenced {
 	return out
 }
 
-// blocksOf returns the bodies of the blocks of a document section whose
-// info string is lang.
-func blocksOf(t testing.TB, s *suite, rel, heading, lang string) []string {
+// blocksOf returns the bodies of the blocks of a configuration model
+// section whose info string is lang.
+func blocksOf(t testing.TB, s *suite, heading, lang string) []string {
 	t.Helper()
 	var out []string
-	for _, b := range fencedBlocks(docSection(t, s, rel, heading)) {
+	for _, b := range fencedBlocks(docSection(t, s, configModelDoc, heading)) {
 		if b.lang == lang {
 			out = append(out, b.body)
 		}

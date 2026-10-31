@@ -34,8 +34,8 @@ func TestDiffExampleMatchesDocument(t *testing.T) {
 		t.Fatalf("%s holds no from/ and to/", e.Name)
 	}
 	const heading = "### Diff semantics"
-	text := blocksOf(t, s, configModelDoc, heading, "text")
-	js := blocksOf(t, s, configModelDoc, heading, "json")
+	text := blocksOf(t, s, heading, "text")
+	js := blocksOf(t, s, heading, "json")
 	if len(text) != 1 || len(js) != 1 {
 		t.Fatalf("%q holds %d text and %d json blocks, want one of each", heading, len(text), len(js))
 	}

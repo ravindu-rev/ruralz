@@ -115,16 +115,6 @@ func (e *events) all() []string {
 
 func (e *events) has(s string) bool { return slices.Contains(e.all(), s) }
 
-func (e *events) count(s string) int {
-	n := 0
-	for _, v := range e.all() {
-		if v == s {
-			n++
-		}
-	}
-	return n
-}
-
 // fakeSource is a scripted source: Load returns what loadFn returns, Run
 // waits until its context ends or Stop.
 type fakeSource struct {
@@ -539,8 +529,9 @@ func (h *logRecorder) find(msg string) []record {
 	return out
 }
 
-// errorsWrap returns an error with an RZ code.
-func errorsWrap(code, msg string) error { return errcode.Wrap(code, errors.New(msg)) }
+// bindError returns the RZ-CFG-039 error of a socket that cannot be
+// bound.
+func bindError(msg string) error { return errcode.Wrap(codeBind, errors.New(msg)) }
 
 // fixedRand always draws v.
 type fixedRand struct{ v uint64 }
@@ -579,8 +570,8 @@ type rig struct {
 // rigOption edits a rig before New builds its Loader.
 type rigOption func(r *rig)
 
-// withBoot sets the boot order.
-func withBoot(b Boot) rigOption { return func(r *rig) { r.cfg.Boot = b } }
+// withSuccessorBoot sets the boot order of a handover successor.
+func withSuccessorBoot() rigOption { return func(r *rig) { r.cfg.Boot = BootSuccessor } }
 
 // withSource sets the source's boot Load.
 func withSource(ld source.Load) rigOption { return func(r *rig) { r.src = newFakeSource(ld) } }

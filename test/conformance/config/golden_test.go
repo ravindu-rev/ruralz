@@ -398,7 +398,7 @@ func checkPaths(t *testing.T, s *suite, bundle, envFile string, renders []string
 			t.Fatalf("render the rendered Bundle of %s: %v\n%s", r, err, texts(ds))
 		}
 		if !bytes.Equal(again.Bytes(), yaml) {
-			t.Errorf("rendering the rendered Bundle of %s again changes it: %s", r, firstDiff(string(again.Bytes()), string(yaml)))
+			t.Errorf("rendering the rendered Bundle of %s again changes it: %s", r, firstDiff(again.String(), string(yaml)))
 		}
 	}
 }

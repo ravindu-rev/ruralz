@@ -6,7 +6,10 @@ package reload
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"reflect"
 	"slices"
+	"strconv"
 	"testing"
 	"time"
 
@@ -212,7 +215,7 @@ func TestPendingKeepsOnlyTheLatest(t *testing.T) {
 
 func TestActivationMetrics(t *testing.T) {
 	r := newRig(t)
-	r.comp.script(rev("B").Digest, func(ctx context.Context, in compile.Input) (Compiled, diag.List, error) {
+	r.comp.script(rev("B").Digest, func(_ context.Context, in compile.Input) (Compiled, diag.List, error) {
 		r.clk.Advance(400 * time.Millisecond)
 		return r.comp.make(in), nil, nil
 	})
@@ -265,11 +268,49 @@ func TestActivationWarningsAreLogged(t *testing.T) {
 	}
 	r.start()
 	r.booted()
-	if recs := r.logs.find("cache and limit Policies share one State Store"); len(recs) != 1 || recs[0].attrs["resource_name"] != "cache" {
+	if recs := r.logs.find("activated revision compile warning"); len(recs) != 1 ||
+		recs[0].attrs["warning"] != "cache and limit Policies share one State Store" || recs[0].attrs["resource_name"] != "cache" {
 		t.Errorf("compile warning records %+v", recs)
 	}
 	if recs := r.logs.find("activated revision has warnings"); len(recs) != 1 || recs[0].attrs["diagnostics"] != int64(1) {
 		t.Errorf("pipeline warning records %+v", recs)
+	}
+}
+
+// TestActivationWarningRecordsCarryEveryWarning checks the records of an
+// activation with more warnings than one record holds: up to ten in the
+// warn record, the rest at debug one per record, each a diag.Diagnostic
+// the sink writes in its JSON form, so together they hold every warning
+// the configuration pipeline reported, in order.
+func TestActivationWarningRecordsCarryEveryWarning(t *testing.T) {
+	r := newRig(t)
+	res := result("A")
+	for i := range 12 {
+		res.Diagnostics = append(res.Diagnostics, diag.Diagnostic{
+			Code: "RZ-CFG-013", Severity: diag.SeverityWarning, Message: "a secret-like variable " + strconv.Itoa(i),
+			Location: diag.Location{File: "ruralz.yaml", Line: i + 1, Column: 3},
+		})
+	}
+	r.src = newFakeSource(load(res))
+	r.cfg.Source = r.src
+	var err error
+	if r.l, err = New(r.cfg); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	r.booted()
+	recs := r.logs.find("activated revision")
+	var warnings []record
+	for _, rec := range recs {
+		if rec.msg != "revision activated" {
+			warnings = append(warnings, rec)
+		}
+	}
+	if len(warnings) != 3 || warnings[0].level != slog.LevelWarn || warnings[1].level != slog.LevelDebug {
+		t.Fatalf("records %+v, want one warn record and two debug ones", warnings)
+	}
+	if got, n := recordedFindings(t, warnings); n != 12 || !reflect.DeepEqual(got, res.Diagnostics) {
+		t.Errorf("the records carry %d of %d warnings:\n%+v\nwant\n%+v", len(got), n, got, res.Diagnostics)
 	}
 }
 
@@ -305,7 +346,7 @@ func TestCommitFailureLeavesListenerUnbound(t *testing.T) {
 	// active, and /readyz names the listener unbound.
 	r := newRig(t)
 	r.parts[0].set(func(p *fakePart) {
-		p.commitErr = errorsWrap(codeBind, "listener \"web\": listen: address in use")
+		p.commitErr = bindError("listener \"web\": listen: address in use")
 	})
 	r.start()
 	r.booted()
@@ -350,7 +391,7 @@ func TestPublishOnClosedRetirerIsQuiet(t *testing.T) {
 	// the snapshot is discarded and nothing is rejected.
 	r := newRig(t)
 	release := make(chan struct{})
-	r.comp.script(rev("B").Digest, func(ctx context.Context, in compile.Input) (Compiled, diag.List, error) {
+	r.comp.script(rev("B").Digest, func(_ context.Context, in compile.Input) (Compiled, diag.List, error) {
 		<-release
 		return r.comp.make(in), nil, nil
 	})

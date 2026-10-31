@@ -371,7 +371,7 @@ func sourceText(s *suite, e *corpus.Entry, d diag.Diagnostic) string {
 	if d.File == "" || d.Line < 1 || d.Column < 1 {
 		return ""
 	}
-	data, err := os.ReadFile(filepath.Join(s.corpusPath(e.Name), corpus.BundleDir, filepath.FromSlash(d.File))) //nolint:gosec // G304: a corpus file.
+	data, err := os.ReadFile(filepath.Join(s.corpusPath(e.Name), corpus.BundleDir, filepath.FromSlash(d.File)))
 	if err != nil {
 		return ""
 	}

@@ -53,8 +53,14 @@ func runTests(m *testing.M) int {
 
 // binaryRunners returns the runners of the built binaries, after the
 // in-process ones (suite.runners): every case of the suite runs through
-// them too.
+// them too. The built ruralzd joins where it can start: a release build,
+// or the controllable-clock build where a process inherits its clock
+// socket (clockSockets).
 func binaryRunners(t testing.TB, _ *suite) []runner {
 	t.Helper()
-	return []runner{ruralzBinary{path: builtBinaries.Ruralz}}
+	out := []runner{ruralzBinary{path: builtBinaries.Ruralz}}
+	if builtBinaries.Ruralzd != "" && (!builtBinaries.TestClock || clockSockets) {
+		out = append(out, ruralzdBinary{set: builtBinaries})
+	}
+	return out
 }

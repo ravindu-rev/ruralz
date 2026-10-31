@@ -125,7 +125,7 @@ func (p *property) step(i int, op byte) {
 		p.r.comp.script(rev(name).Digest, findings(finding("RZ-CFG-040", 1, "unserved")))
 		p.r.l.Offer(load(result(name)))
 	case 3: // a listener cannot bind: transient, pending its retry
-		p.r.parts[0].set(func(fp *fakePart) { fp.prepareErr = errorsWrap(codeBind, "port in use") })
+		p.r.parts[0].set(func(fp *fakePart) { fp.prepareErr = bindError("port in use") })
 		p.r.l.Offer(load(result(name)))
 		p.settle(p.r)
 		p.r.parts[0].set(func(fp *fakePart) { fp.prepareErr = nil })
@@ -201,7 +201,7 @@ func (p *property) handover(i int, op byte) {
 	before := p.pointers()
 	_, candErr := p.files.Candidate()
 	ld, srcDigest := bootLoad(i, op)
-	s := newRigOn(p.t, p.dir, p.lock, withBoot(BootSuccessor), withSource(ld))
+	s := newRigOn(p.t, p.dir, p.lock, withSuccessorBoot(), withSource(ld))
 	s.held.Store(false)
 	s.start()
 	s.booted()

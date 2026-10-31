@@ -148,130 +148,29 @@ func checkCoverage(t *testing.T, pairs []goldenPair) {
 	}
 }
 
-// jsonForm is one diagnostic of the JSON form, with every member WriteJSON
-// writes.
-type jsonForm struct {
-	Code     string            `json:"code"`
-	Severity string            `json:"severity"`
-	File     string            `json:"file"`
-	Line     int               `json:"line"`
-	Column   int               `json:"column"`
-	Resource *ResourceID       `json:"resource"`
-	Path     []json.RawMessage `json:"path"`
-	Message  string            `json:"message"`
-	Hint     string            `json:"hint"`
-	Related  []struct {
-		File    string `json:"file"`
-		Line    int    `json:"line"`
-		Column  int    `json:"column"`
-		Message string `json:"message"`
-	} `json:"related"`
-	Environment string `json:"environment"`
-}
-
-// decodeJSON reads the JSON form back into a List: a member WriteJSON never
-// writes, or a path element of no form of Path.MarshalJSON, is an error.
+// decodeJSON reads a whole JSON form, a bare array, back into a List with
+// Diagnostic.UnmarshalJSON: anything after the array is an error.
 func decodeJSON(data []byte) (List, error) {
 	if !bytes.HasPrefix(data, []byte("[")) {
 		return nil, errors.New("not an array")
 	}
 	dec := json.NewDecoder(bytes.NewReader(data))
-	dec.DisallowUnknownFields()
-	var in []jsonForm
-	if err := dec.Decode(&in); err != nil {
+	var out List
+	if err := dec.Decode(&out); err != nil {
 		return nil, err
 	}
-	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
-		return nil, fmt.Errorf("data after the array: %v", err)
-	}
-	out := make(List, 0, len(in))
-	for _, j := range in {
-		d := Diagnostic{
-			Code: j.Code, Location: Location{File: j.File, Line: j.Line, Column: j.Column},
-			Resource: j.Resource, Message: j.Message, Hint: j.Hint, Environment: j.Environment,
-		}
-		switch j.Severity {
-		case "error":
-			d.Severity = SeverityError
-		case "warning":
-			d.Severity = SeverityWarning
-		default:
-			return nil, fmt.Errorf("%s: severity %q", j.Code, j.Severity)
-		}
-		for _, e := range j.Path {
-			elem, err := decodeElem(e)
-			if err != nil {
-				return nil, fmt.Errorf("%s: path %s: %w", j.Code, e, err)
-			}
-			d.Path = append(d.Path, elem)
-		}
-		for _, r := range j.Related {
-			d.Related = append(d.Related, Related{Location: Location{File: r.File, Line: r.Line, Column: r.Column}, Message: r.Message})
-		}
-		out = append(out, d)
+	if tok, err := dec.Token(); !errors.Is(err, io.EOF) {
+		return nil, fmt.Errorf("data after the array: %v", tok)
 	}
 	return out, nil
-}
-
-// decodeElem reads one path element of the JSON form: a string is a field,
-// an integer an index, {"item": v} a set element and any other one-member
-// object a keyed entry.
-func decodeElem(raw json.RawMessage) (PathElem, error) {
-	raw = bytes.TrimSpace(raw)
-	if len(raw) == 0 {
-		return PathElem{}, errors.New("empty element")
-	}
-	switch c := raw[0]; {
-	case c == '"':
-		var name string
-		err := json.Unmarshal(raw, &name)
-		return Field(name), err
-	case c == '{':
-		var m map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &m); err != nil || len(m) != 1 {
-			return PathElem{}, fmt.Errorf("not a one-member object (%v)", err)
-		}
-		for k, v := range m {
-			if k == "item" {
-				item, err := decodeItem(v)
-				return Item(item), err
-			}
-			var key string
-			err := json.Unmarshal(v, &key)
-			return Keyed(k, key), err
-		}
-	case c == '-' || c >= '0' && c <= '9':
-		var i int
-		err := json.Unmarshal(raw, &i)
-		return Index(i), err
-	}
-	return PathElem{}, errors.New("neither a string, an integer nor a one-member object")
-}
-
-// decodeItem reads a set element's value as Item takes it: a string,
-// json.Number, bool or, for an object, its compact JSON.
-func decodeItem(raw json.RawMessage) (any, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-	var v any
-	if err := dec.Decode(&v); err != nil {
-		return nil, err
-	}
-	switch v.(type) {
-	case string, json.Number, bool:
-		return v, nil
-	default:
-		var b bytes.Buffer
-		err := json.Compact(&b, raw)
-		return json.RawMessage(b.Bytes()), err
-	}
 }
 
 // TestGoldenText checks the text form against every pair of the golden
 // corpus: WriteText of the JSON form read back writes the text file's
 // bytes, one line per diagnostic in list order with location, severity,
 // code, resource, key-aware path, message, hint, related locations and
-// Environment.
+// Environment. With TestGoldenJSON it shows the JSON form lossless on
+// every diagnostic the corpus pins.
 func TestGoldenText(t *testing.T) {
 	for _, p := range goldenPairs(t) {
 		var buf bytes.Buffer
@@ -300,11 +199,10 @@ func TestGoldenJSON(t *testing.T) {
 	}
 }
 
-// TestDecodeJSON covers the test's reader of the JSON form, so the golden
-// tests compare what the corpus holds: every element form of a path, and
-// refusals of what WriteJSON never writes.
-func TestDecodeJSON(t *testing.T) {
-	l := List{{
+// everyForm returns a diagnostic holding every member of the JSON form and
+// every element form of a path.
+func everyForm() Diagnostic {
+	return Diagnostic{
 		Code: "RZ-CFG-005", Severity: SeverityWarning,
 		Location: Location{File: "a.yaml", Line: 2, Column: 3},
 		Resource: &ResourceID{Kind: "Route", Name: "r"},
@@ -312,9 +210,16 @@ func TestDecodeJSON(t *testing.T) {
 			Field("spec"), Field("a.b"), Index(4), Keyed("name", "x y"), Item("GET"), Item(json.Number("7")),
 			Item(true), Item(json.RawMessage(`{"a":[1,2]}`)),
 		},
-		Message: "m", Hint: "h", Environment: "prod",
+		Message: "m <&>", Hint: "h", Environment: "prod",
 		Related: []Related{{Location: Location{File: "b.yaml", Line: 1}, Message: "declared in"}},
-	}}
+	}
+}
+
+// TestUnmarshalJSON checks the reader of the JSON form: WriteJSON's array
+// reads back to the list written, every element form of a path included,
+// and what WriteJSON never writes is refused.
+func TestUnmarshalJSON(t *testing.T) {
+	l := List{everyForm()}
 	var buf bytes.Buffer
 	if err := WriteJSON(&buf, l); err != nil {
 		t.Fatal(err)
@@ -327,16 +232,75 @@ func TestDecodeJSON(t *testing.T) {
 		t.Errorf("decodeJSON(WriteJSON(l)) =\n%+v\nwant\n%+v", got, l)
 	}
 	for _, bad := range []string{
-		``, `{}`, `null`, `[] []`,
+		``, `{}`, `null`, `[] []`, `[null]`,
+		`[{"code":"RZ-CFG-005","message":"m"}]`,
 		`[{"code":"RZ-CFG-005","severity":"fatal","message":"m"}]`,
 		`[{"code":"RZ-CFG-005","severity":"error","message":"m","extra":1}]`,
 		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[{"a":"b","c":"d"}]}]`,
 		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[{"name":1}]}]`,
 		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[1.5]}]`,
 		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":[null]}]`,
+		`[{"code":"RZ-CFG-005","severity":"error","message":"m","path":"spec"}]`,
 	} {
 		if _, err := decodeJSON([]byte(bad)); err == nil {
 			t.Errorf("decodeJSON(%q) = nil error", bad)
+		}
+	}
+}
+
+// encodeNoHTML encodes v as the log sink does: encoding/json without HTML
+// escaping, which json.Marshal would add around a Marshaler's output.
+func encodeNoHTML(t *testing.T, v any) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		t.Fatal(err)
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n"))
+}
+
+// TestMarshalJSONOneMember checks the one-line form log records carry
+// (docs/architecture/03-data-plane.md "Activation"): MarshalJSON writes the
+// member WriteJSON writes for the diagnostic, compact and without HTML
+// escaping, and a list of them reads back losslessly.
+func TestMarshalJSONOneMember(t *testing.T) {
+	d := everyForm()
+	got := encodeNoHTML(t, d)
+	var full bytes.Buffer
+	if err := WriteJSON(&full, List{d}); err != nil {
+		t.Fatal(err)
+	}
+	var want bytes.Buffer
+	if err := json.Compact(&want, bytes.TrimSuffix(bytes.TrimPrefix(bytes.TrimSpace(full.Bytes()), []byte("[")), []byte("]"))); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want.Bytes()) {
+		t.Errorf("json.Marshal(d) = %s\nwant %s", got, want.Bytes())
+	}
+	// The escape encoding/json writes for "<" with HTML escaping on.
+	escaped := []byte{'\\', 'u', '0', '0', '3', 'c'}
+	if bytes.Contains(got, escaped) || bytes.ContainsAny(got, "\n") {
+		t.Errorf("json.Marshal(d) = %s: escaped HTML or spans lines", got)
+	}
+	l := List{d, cmExample()[0], cmExample()[1], {Code: "RZ-CFG-045", Message: "fault"}}
+	var back List
+	if err := json.Unmarshal(encodeNoHTML(t, l), &back); err != nil {
+		t.Fatal(err)
+	}
+	var a, b bytes.Buffer
+	for _, w := range []func(io.Writer, List) error{WriteText, WriteJSON} {
+		a.Reset()
+		b.Reset()
+		if err := w(&a, l); err != nil {
+			t.Fatal(err)
+		}
+		if err := w(&b, back); err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(a.Bytes(), b.Bytes()) {
+			t.Errorf("read back, the list writes\n%s\nwritten, it writes\n%s", b.Bytes(), a.Bytes())
 		}
 	}
 }

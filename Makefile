@@ -63,6 +63,10 @@ FLOOR_GOTOOLCHAIN ?= local
 # HTTP/2 code (docs/engineering/03-testing-and-quality-strategy.md,
 # "Conformance suites").
 INTEGRATION_TIMEOUT ?= 25m
+# The stage 8 packages that run Nodes on the fixed loopback ports their
+# Bundles name: the benchmark smoke run and the configuration conformance
+# suite's ruralzd cases (integration).
+FIXED_PORT_PKGS := $(MODULE)/test/bench/scenarios $(MODULE)/test/conformance/config
 INTEGRATION_FLOOR ?=
 # Stage 9. BENCH_BASE is the ref whose merge base with HEAD is the alloc/op
 # baseline (empty: absolute caps only); GATES selects alloc and/or size; a
@@ -257,7 +261,14 @@ ifneq ($(INTEGRATION_FLOOR),)
 	echo "integration: floor leg on $$v"; \
 	go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./test/conformance/protocol/...
 else
-	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) ./...
+	@# The packages of FIXED_PORT_PKGS run Nodes on the loopback ports their
+	@# Bundles name, which the Bundles' pinned digests fix: they run one
+	@# package at a time after the others, so no two Nodes share a port.
+	pkgs=$$(go list -tags integration,netgo,osusergo ./... | grep -v -x -F $(addprefix -e ,$(FIXED_PORT_PKGS))); \
+	rc=0; \
+	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) $$pkgs || rc=1; \
+	PATH="$(BIN):$$PATH" CGO_ENABLED=1 go test -p 1 -race -shuffle=on -tags integration,netgo,osusergo -timeout $(INTEGRATION_TIMEOUT) $(TEST_FLAGS) $(FIXED_PORT_PKGS) || rc=1; \
+	exit $$rc
 	if [[ ! -f deploy/container/Dockerfile ]]; then \
 		echo "integration: skip Dockerfile check: deploy/container/Dockerfile is not present yet"; \
 	elif ! docker info >/dev/null 2>&1; then \

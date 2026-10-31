@@ -286,7 +286,7 @@ func TestSnapshotsView(t *testing.T) {
 func TestConfigDumpBeforeTheFirstActivation(t *testing.T) {
 	r := newRig(t)
 	w := httptest.NewRecorder()
-	r.l.ConfigDump().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/config/dump", nil))
+	r.l.ConfigDump().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/config/dump", nil))
 	if w.Code != http.StatusServiceUnavailable {
 		t.Fatalf("status %d, want 503", w.Code)
 	}
@@ -302,7 +302,7 @@ func TestConfigDump(t *testing.T) {
 	r.start()
 	r.booted()
 	w := httptest.NewRecorder()
-	r.l.ConfigDump().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/config/dump", nil))
+	r.l.ConfigDump().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/config/dump", nil))
 	body, _ := io.ReadAll(w.Body)
 	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "application/json" || w.Header().Get("Cache-Control") != "no-store" {
 		t.Fatalf("status %d, headers %v", w.Code, w.Header())

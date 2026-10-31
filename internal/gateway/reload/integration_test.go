@@ -231,7 +231,7 @@ func TestEndToEnd(t *testing.T) {
 	// writes anything (canonical.Decoder.ReadDump).
 	p, _ := sharedPipeline()
 	w := httptest.NewRecorder()
-	n.loader.ConfigDump().ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/config/dump", nil))
+	n.loader.ConfigDump().ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/config/dump", nil))
 	dump, rs, err := p.Decoder().ReadDump(t.Context(), w.Body, 0, canonical.Source{Name: "/config/dump"})
 	if err != nil || dump.Digest != first || dump.LastKnownGood != first || len(rs) != 3 {
 		t.Fatalf("ReadDump = digest %s, lkg %s, %d resources, %v", dump.Digest.Short(), dump.LastKnownGood.Short(), len(rs), err)

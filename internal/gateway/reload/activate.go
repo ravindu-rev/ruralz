@@ -105,7 +105,7 @@ func (l *Loader) activate(ctx context.Context, c *candidate) (ok bool) {
 			if cmp != nil && !published {
 				cmp.Discard()
 			}
-			l.reject(ctx, c, faultRejection(c.digest, fmt.Errorf("panic: %v", v), stack))
+			l.reject(ctx, c, withWarnings(c, faultRejection(c.digest, fmt.Errorf("panic: %v", v), stack)))
 			ok = false
 		}
 	}()
@@ -217,32 +217,35 @@ func (l *Loader) activate(ctx context.Context, c *candidate) (ok bool) {
 // failed rejects c after an activation step failed with findings ds or
 // error err, unless Stop abandoned it: an error past the deadline is
 // RZ-CFG-044, one with an RZ code a finding of that code, any other a
-// fault (RZ-CFG-045).
+// fault (RZ-CFG-045). The rejection also holds the warnings of c's load
+// (withWarnings).
 func (l *Loader) failed(ctx, actx context.Context, c *candidate, ds diag.List, err error) {
 	cause := context.Cause(actx)
+	var r rejection
 	switch {
 	case errors.Is(cause, errStopped) || l.isStopped():
 		return
 	case len(ds) > 0:
-		l.reject(ctx, c, findingsRejection(c.digest, ds))
+		r = findingsRejection(c.digest, ds)
 	case errors.Is(cause, errDeadline):
-		l.reject(ctx, c, deadlineRejection(c.digest, l.deadline))
+		r = deadlineRejection(c.digest, l.deadline)
 	case errors.Is(err, context.Canceled) && ctx.Err() != nil:
 		// The loop is ending.
 		return
 	case errors.As(err, new(*source.PanicError)):
 		var pe *source.PanicError
 		errors.As(err, &pe)
-		l.reject(ctx, c, faultRejection(c.digest, pe, pe.Stack))
+		r = faultRejection(c.digest, pe, pe.Stack)
 	default:
 		if code, ok := errcode.CodeOf(err); ok && code != codeFault {
-			l.reject(ctx, c, findingsRejection(c.digest, diag.List{{
+			r = findingsRejection(c.digest, diag.List{{
 				Code: code, Severity: diag.SeverityError, Resource: gatewayOf(c), Message: err.Error(),
-			}}))
-			return
+			}})
+		} else {
+			r = faultRejection(c.digest, err, nil)
 		}
-		l.reject(ctx, c, faultRejection(c.digest, err, nil))
 	}
+	l.reject(ctx, c, withWarnings(c, r))
 }
 
 // unpublished handles a Publish the retirer refused: closed by the Drain,
@@ -260,7 +263,7 @@ func (l *Loader) unpublished(ctx context.Context, c *candidate, err error) {
 		}
 		l.mu.Unlock()
 	default:
-		l.reject(ctx, c, faultRejection(c.digest, err, nil))
+		l.reject(ctx, c, withWarnings(c, faultRejection(c.digest, err, nil)))
 	}
 }
 
@@ -292,7 +295,7 @@ func (l *Loader) recordActivation(ctx context.Context, c *candidate, prev revisi
 	class := sizeClass(c.routes())
 	l.metrics.Activated.Add(0, 1)
 	record := func(stage string, d time.Duration) {
-		l.metrics.ActivationDuration(stage, class).Record(0, uint64(max(d, 0))) //nolint:gosec // G115: a non-negative duration.
+		l.metrics.ActivationDuration(stage, class).Record(0, uint64(max(d, 0)))
 	}
 	if c.verified {
 		record(stageVerify, c.verify)
@@ -318,11 +321,11 @@ func (l *Loader) recordActivation(ctx context.Context, c *candidate, prev revisi
 			catalog.KeyReason, catalog.ReasonLKGBoot.String())
 	}
 	for _, w := range cmp.Warnings() {
-		wa := []any{catalog.KeyRevision, c.digest.Short()}
+		wa := []any{catalog.KeyRevision, c.digest.Short(), "warning", w.Message}
 		if w.Resource != nil {
 			wa = append(wa, catalog.KeyResourceKind, w.Resource.Kind, catalog.KeyResourceName, w.Resource.Name)
 		}
-		l.log.WarnContext(ctx, w.Message, wa...)
+		l.log.WarnContext(ctx, "activated revision compile warning", wa...)
 	}
 	var warnings diag.List
 	for _, d := range c.res.Diagnostics {
@@ -332,9 +335,9 @@ func (l *Loader) recordActivation(ctx context.Context, c *candidate, prev revisi
 	}
 	if len(warnings) > 0 {
 		l.log.WarnContext(ctx, "activated revision has warnings", catalog.KeyRevision, c.digest.Short(),
-			"diagnostics", len(warnings), "findings", texts(warnings, maxLoggedDiagnostics))
+			"diagnostics", len(warnings), "findings", head(warnings, maxLoggedDiagnostics))
 		for _, d := range warnings[min(len(warnings), maxLoggedDiagnostics):] {
-			l.log.DebugContext(ctx, "activated revision warning", catalog.KeyRevision, c.digest.Short(), "finding", string(d.AppendText(nil)))
+			l.log.DebugContext(ctx, "activated revision warning", catalog.KeyRevision, c.digest.Short(), "finding", d)
 		}
 	}
 	l.checkFileLimit(ctx, cmp.UpstreamConnections())
