@@ -108,8 +108,7 @@ func TestProcessClusterFailoverLive(t *testing.T) {
 	d := Start(t, ProcessCluster, Options{TLS: true, Users: []User{{Name: "ruralz", Password: "s3cret pw"}}})
 	primary, replica := d.Nodes()[1], d.Replicas()[1]
 	k := keyOnShard(t, primary, 1)
-	mustDo(t, primary, "SET", k, "v")
-	mustDo(t, primary, "WAIT", "1", "5000")
+	replicate(t, primary, k, "v")
 	if err := primary.Kill(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -152,8 +151,7 @@ func TestProcessClusterFailoverLive(t *testing.T) {
 func TestProcessSentinelAutoFailoverLive(t *testing.T) {
 	d := Start(t, ProcessSentinel, Options{Users: []User{{Name: "ruralz", Password: "pw"}}})
 	primary, replica := d.Primary(), d.Replica()
-	mustDo(t, primary, "SET", "k", "v")
-	mustDo(t, primary, "WAIT", "1", "5000")
+	replicate(t, primary, "k", "v")
 	if err := primary.Kill(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -211,8 +209,7 @@ func TestProcessTLSAndUsersLive(t *testing.T) {
 // certificates, runs over TLS.
 func TestProcessTLSLinksLive(t *testing.T) {
 	d := Start(t, Process, Options{TLS: true, Replica: true, Users: []User{{Name: "ruralz", Password: "pw"}}})
-	mustDo(t, d.Primary(), "SET", "k", "v")
-	mustDo(t, d.Primary(), "WAIT", "1", "5000")
+	replicate(t, d.Primary(), "k", "v")
 	if v := mustDo(t, d.Replica(), "GET", "k"); v.Str != "v" {
 		t.Fatalf("replica GET over TLS = %v", v)
 	}
@@ -227,6 +224,29 @@ func TestProcessTLSLinksLive(t *testing.T) {
 	}
 }
 
+// replicate sets key to value on the primary s and waits until a replica
+// has acknowledged the write. WAIT counts the replicas that acknowledged
+// its own connection's writes, so SET and WAIT share one connection: on a
+// fresh connection, which has written nothing, WAIT returns at once.
+func replicate(t *testing.T, s *Server, key, value string) {
+	t.Helper()
+	c, err := s.Dial(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	if _, err := c.Do(t.Context(), "SET", key, value); err != nil {
+		t.Fatalf("%s SET %s: %v", s.Name(), key, err)
+	}
+	v, err := c.Do(t.Context(), "WAIT", "1", "5000")
+	if err != nil {
+		t.Fatalf("%s WAIT: %v", s.Name(), err)
+	}
+	if v.Int < 1 {
+		t.Fatalf("%s WAIT 1 5000 = %d: no replica acknowledged the SET of %s", s.Name(), v.Int, key)
+	}
+}
+
 // TestProcessFailoverLive checks the scripted failover on a real
 // redis-server: data written to the primary reaches the replica, the
 // primary is killed, the replica promoted takes writes, and a restart of
@@ -234,8 +254,7 @@ func TestProcessTLSLinksLive(t *testing.T) {
 func TestProcessFailoverLive(t *testing.T) {
 	d := Start(t, Process, Options{Replica: true})
 	primary, replica := d.Primary(), d.Replica()
-	mustDo(t, primary, "SET", "k", "v")
-	mustDo(t, primary, "WAIT", "1", "5000")
+	replicate(t, primary, "k", "v")
 	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
 		t.Fatalf("replica GET = %v", v)
 	}
@@ -264,8 +283,7 @@ func TestProcessFailoverLive(t *testing.T) {
 func TestProcessSentinelFailoverLive(t *testing.T) {
 	d := Start(t, ProcessSentinel, Options{TLS: true, Users: []User{{Name: "ruralz", Password: "s3cret pw"}}})
 	primary, replica := d.Primary(), d.Replica()
-	mustDo(t, primary, "SET", "k", "v")
-	mustDo(t, primary, "WAIT", "1", "5000")
+	replicate(t, primary, "k", "v")
 	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
 		t.Fatalf("replica GET = %v", v)
 	}
