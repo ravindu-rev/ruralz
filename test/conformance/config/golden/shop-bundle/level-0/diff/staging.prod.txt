@@ -1,0 +1,9 @@
+ruralz bundle diff: rev-5331fcb198ff -> rev-0d2d8e396759 (environment: staging -> prod)
+
+~ Upstream/orders                               upstreams/services.yaml      [traffic]
+    ~ spec.circuitBreaker.consecutiveFailures: 5 -> 10
+    ~ spec.retries.attempts: 2 -> 3
+~ AIModel/support-chat                          ai/models.yaml               [ai]
+    + spec.candidates[name=secondary]: {"model":"gpt-4.1-mini","name":"secondary","provider":"openai-prod","when":"ai.estimatedInputTokens < 50000"}
+
+2 resources changed: 0 added, 0 removed, 2 modified; 0 Route chains changed; impact: ai, traffic

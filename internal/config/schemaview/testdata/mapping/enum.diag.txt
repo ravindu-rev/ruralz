@@ -1,0 +1,2 @@
+routes/enum.json:6:13 error RZ-CFG-005 Policy/limit spec.type: is not one of the 23 allowed values (did you mean "ratelimit"?)
+routes/enum.json:7:20 error RZ-CFG-005 Policy/limit spec.failureMode: must be one of "open", "closed" (did you mean "open"?)

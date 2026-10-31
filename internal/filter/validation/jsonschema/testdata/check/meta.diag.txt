@@ -1,0 +1,2 @@
+policies/body.yaml:5:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.type[1]: invalid JSON Schema: value must be one of 'array', 'boolean', 'integer', 'null', 'number', 'object', 'string'
+policies/body.yaml:6:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.properties.a.required: invalid JSON Schema: got string, want array

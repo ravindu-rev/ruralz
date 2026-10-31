@@ -1,14 +1,101 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# Nightly supply chain rescan (stage 6): new advisories can affect code that
-# has not changed.
+# nightly: CI stage 11
+# (docs/engineering/03-testing-and-quality-strategy.md, "Test pyramid"),
+# parallel jobs, the longest 3 hours (target):
+#   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
+#            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
+#            artifact and restored the next night.
+#   Chaos    every M1 chaos experiment, failure row, lab gate and drill
+#            against at least 10 Nodes (CHAOS_SCALE=nightly), as root so
+#            each handover gets a network namespace of its own; it uploads
+#            the ruralz.chaos.v1 records as chaos-records (90 days) and, on
+#            failure, the harness's evidence.
+#   Functional  the benchmark functional variants: every M1 scenario and
+#            constants run at reduced scale on the loopback profile with
+#            the release build, asserting only criteria that hold on any
+#            hardware.
+#   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine:
+#            the rh-1 concurrency group it shares with the release soak job
+#            and chaos-scale.yml never cancels a running job. It first
+#            refuses any ref that is not protected and any pull-request
+#            event. Until RH-1 is registered and the repository variable
+#            RH1_PROVISIONED=true is set, the job fails with an explicit
+#            "RH-1 not provisioned" annotation. It runs S1 and S2 A/B, the
+#            component benchmarks and one slot of the rotation (every slot
+#            with rotation-all), reading the rotation state and baselines
+#            from the orphan bench-records branch, and uploads its
+#            ruralz.bench.v1 records with the next state, reaching the lab
+#            hosts through deploy/benchhost/rh-1.json.
+#   Records  commits the Latency job's records and state to bench-records:
+#            the only job here holding contents: write, so the rh-1 job
+#            keeps a read-only token.
+#   RH-1 runner status  once RH1_PROVISIONED=true, on a GitHub-hosted
+#            runner, lists the repository's runners with the read-only
+#            REPO_SETTINGS_TOKEN (Administration: read) and opens or updates
+#            the "RH-1 runner offline" nightly-failure issue when no online
+#            runner carries the rh-1 label. A Latency job cancelled while
+#            queued, as GitHub does after 24 hours without a runner, counts
+#            as that failure too.
+#   Supply chain rescan (stage 6): new advisories can affect unchanged code.
+# A failure opens a nightly-failure issue (a fuzz crasher opens a
+# fuzz-crasher issue with the failing input) and blocks the next release.
+# release.yml re-runs it on the tagged commit through workflow_call with
+# rotation-all and, once a release exists, the previous release's verified
+# linux/amd64 ruralzd (baseline-artifact, an artifact of the release run,
+# and baseline-version), and grants contents: write (the records job),
+# actions: read and issues: write; nightly has no path filters, so `all`
+# changes nothing.
 name: nightly
 
 on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; nightly has no path filters
+        type: boolean
+        default: false
+      fuzztime:
+        description: Fuzzing time per target
+        type: string
+        default: 15m
+      rotation-all:
+        description: Run every slot of the benchmark rotation without the 3-hour limit
+        type: boolean
+        default: false
+      accept-scenario:
+        description: Maintainers only. Benchmark scenario whose deliberate regression is accepted (with accept-commit)
+        type: string
+        default: ""
+      accept-commit:
+        description: Maintainers only. The accepted commit, the scenario's next baseline
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; nightly has no path filters
+        type: boolean
+        default: false
+      fuzztime:
+        description: Fuzzing time per target
+        type: string
+        default: 15m
+      rotation-all:
+        description: Run every slot of the benchmark rotation without the 3-hour limit (release)
+        type: boolean
+        default: false
+      baseline-artifact:
+        description: Artifact of the calling run holding the previous release's verified linux/amd64 ruralzd, the release comparisons' baseline; empty judges absolute budgets only
+        type: string
+        default: ""
+      baseline-version:
+        description: The previous release's version without its v, with baseline-artifact
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -17,6 +104,411 @@ permissions:
 # while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
 
 jobs:
+  fuzz-plan:
+    name: 11. Fuzz plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      shards: ${{ steps.plan.outputs.shards }}
+      count: ${{ steps.plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: plan
+        run: |
+          go run ./internal/tool/fuzzplan list
+          shards=$(go run ./internal/tool/fuzzplan matrix)
+          echo "shards=$shards" >>"$GITHUB_OUTPUT"
+          echo "count=$(jq length <<<"$shards")" >>"$GITHUB_OUTPUT"
+          echo "fuzz shards: $shards"
+
+  fuzz:
+    name: 11. Fuzz shard ${{ matrix.shard }}
+    needs: fuzz-plan
+    if: needs.fuzz-plan.outputs.shards != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.fuzz-plan.outputs.shards) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    permissions:
+      contents: read
+      actions: read
+    env:
+      FUZZ_SHARD: ${{ matrix.shard }}
+      FUZZ_SHARDS: ${{ needs.fuzz-plan.outputs.count }}
+      FUZZTIME: ${{ inputs.fuzztime || '15m' }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Restore the corpus of the previous night
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          cache="$(go env GOCACHE)/fuzz"
+          mkdir -p "$cache"
+          # A GitHub API error must not fail the shard before any fuzzing.
+          if ! prev=$(gh run list --repo "$REPO" --workflow nightly.yml --status completed --limit 20 \
+            --json databaseId --jq "[.[] | select(.databaseId != $RUN_ID)][0].databaseId // empty"); then
+            echo "::warning title=Fuzz corpus not restored::cannot list previous nightly runs: starting from the seed corpora"
+            exit 0
+          fi
+          if [[ -z "$prev" ]]; then
+            echo "no previous nightly run: starting from the seed corpora"
+            exit 0
+          fi
+          if ! gh run download "$prev" --repo "$REPO" --pattern 'fuzz-corpus-*' --dir "$RUNNER_TEMP/corpus-in"; then
+            echo "run $prev kept no fuzz corpus: starting from the seed corpora"
+            exit 0
+          fi
+          find "$RUNNER_TEMP/corpus-in" -name corpus.tar -type f | while read -r t; do
+            tar -xf "$t" -C "$cache"
+          done
+          echo "restored the corpus of run $prev"
+      - name: Fuzz
+        env:
+          FUZZ_REPORT: ${{ runner.temp }}/fuzz/report.json
+        run: |
+          # The fuzztime input reaches go test as one argument (the Makefile
+          # reads it from the environment); reject anything but a duration
+          # or an iteration count anyway.
+          if [[ ! "$FUZZTIME" =~ ^([0-9]+(ms|s|m|h))+$|^[1-9][0-9]*x$ ]]; then
+            echo "::error title=Invalid fuzztime::fuzztime must be a duration such as 15m or a count such as 500x"
+            exit 2
+          fi
+          make nightly NIGHTLY_JOB=fuzz
+      - name: Keep the grown corpus
+        if: always()
+        run: |
+          cache="$(go env GOCACHE)/fuzz"
+          mkdir -p "$RUNNER_TEMP/corpus-out" "$cache"
+          go run ./internal/tool/fuzzplan shard -index "$FUZZ_SHARD" -shards "$FUZZ_SHARDS" -corpus >"$RUNNER_TEMP/corpus-dirs"
+          (cd "$cache" && while read -r d; do if [[ -d "$d" ]]; then printf '%s\n' "$d"; fi; done <"$RUNNER_TEMP/corpus-dirs" |
+            tar -cf "$RUNNER_TEMP/corpus-out/corpus.tar" -T -)
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-corpus-${{ matrix.shard }}
+          path: ${{ runner.temp }}/corpus-out/corpus.tar
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Collect crashers
+        if: failure()
+        env:
+          REPORT: ${{ runner.temp }}/fuzz/report.json
+        run: |
+          out="$RUNNER_TEMP/crashers"
+          mkdir -p "$out/files"
+          if [[ ! -f "$REPORT" ]]; then exit 0; fi
+          cp "$REPORT" "$out/report.json"
+          jq -r '.targets[].crashers[]?' "$REPORT" | while read -r f; do
+            mkdir -p "$out/files/$(dirname "$f")"
+            cp "$f" "$out/files/$f"
+          done
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: fuzz-crashers-${{ matrix.shard }}
+          path: ${{ runner.temp }}/crashers/
+          if-no-files-found: ignore
+          retention-days: 90
+
+  chaos:
+    name: 11. Chaos
+    # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the State Store process
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
+      - name: Chaos suite as root
+        # Root lets V-3 set net.ipv4.tcp_migrate_req in network namespaces
+        # of its own; the runner's Go and caches are kept. make chaos
+        # writes the ruralz.chaos.v1 records and interval logs to
+        # dist/chaos (RURALZ_CHAOS_RECORDS), and a failed test leaves the
+        # harness's evidence in a directory named after it under
+        # RURALZ_TEST_ARTIFACT_DIR (testing strategy, "Result records" and
+        # "Process harness").
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+        run: |
+          sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make nightly NIGHTLY_JOB=chaos
+      - name: Hand the records and evidence to the runner user
+        # The suite ran as root, so root owns the files.
+        if: always()
+        env:
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+        run: |
+          for d in dist/chaos "$RURALZ_TEST_ARTIFACT_DIR"; do
+            if [[ -d "$d" ]]; then
+              sudo chown -R "$(id -u):$(id -g)" "$d"
+            fi
+          done
+      - name: Upload the chaos records
+        # A failed run's records are its evidence too.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chaos-records
+          path: dist/chaos/
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Upload the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: chaos-evidence
+          path: ${{ runner.temp }}/chaos-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  functional:
+    name: 11. Functional
+    # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server for the State Store process
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
+      - name: Functional
+        run: |
+          # O1's 20,000 in-flight requests and O2's 12,000 client
+          # connections need tens of thousands of descriptors per process.
+          ulimit -n "$(ulimit -Hn)"
+          echo "open-file limit: $(ulimit -n)"
+          make nightly NIGHTLY_JOB=functional
+
+  latency:
+    name: 11. Latency
+    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # One rh-1 job at a time: the Latency job, the release soak job and
+    # chaos-scale.yml share the rh-1 group, which never cancels a running
+    # job.
+    concurrency:
+      group: rh-1
+      cancel-in-progress: false
+    timeout-minutes: 180
+    steps:
+      - name: Protected ref
+        # The self-hosted RH-1 runner runs only jobs of protected branches
+        # and tags (scheduled, dispatched, or called by release.yml), never
+        # pull-request code.
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then
+            echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
+            exit 1
+          fi
+      - name: RH-1 check
+        if: vars.RH1_PROVISIONED != 'true'
+        run: |
+          echo "::error title=RH-1 not provisioned::The Latency job runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered; until then M1 exit criteria 2 and 3 stay open."
+          exit 1
+      - name: Maintainer acceptance
+        if: inputs.accept-scenario != '' || inputs.accept-commit != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          SCENARIO: ${{ inputs.accept-scenario }}
+          COMMIT: ${{ inputs.accept-commit }}
+        run: |
+          # Inputs reach the shell only through the environment.
+          if [[ ! "$SCENARIO" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ || ! "$COMMIT" =~ ^[0-9a-f]{7,40}$ ]]; then
+            echo "::error title=Invalid acceptance::accept-scenario and accept-commit must both be set: a scenario such as S2 and a commit"
+            exit 2
+          fi
+          role=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq .role_name)
+          if [[ "$role" != admin && "$role" != maintain ]]; then
+            echo "::error title=Acceptance refused::only a maintainer (repository role admin or maintain) accepts a regression; $ACTOR has $role"
+            exit 1
+          fi
+          echo "BENCH_ACCEPT=$SCENARIO=$COMMIT" >>"$GITHUB_ENV"
+          echo "maintainer $ACTOR accepts $COMMIT as the baseline of $SCENARIO"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Read the rotation state from bench-records
+        # The first night finds no bench-records branch and starts slot 1.
+        continue-on-error: true
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: bench-records
+          path: .bench-records
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: The previous release's ruralzd
+        if: inputs.baseline-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.baseline-artifact }}
+          path: ${{ runner.temp }}/baseline
+      - name: Latency
+        env:
+          BENCH_ROTATION_ALL: ${{ inputs.rotation-all && 'true' || 'false' }}
+          BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json
+          BASELINE_ARTIFACT: ${{ inputs.baseline-artifact }}
+          BASELINE_VERSION: ${{ inputs.baseline-version }}
+        run: |
+          if [[ -f .bench-records/state.json ]]; then export BENCH_STATE="$PWD/.bench-records/state.json"; fi
+          if [[ -n "$BASELINE_ARTIFACT" ]]; then
+            # The version reaches the harness only through the
+            # environment; it must be a release version.
+            if [[ ! "$BASELINE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error title=Invalid baseline-version::baseline-version must be X.Y.Z with baseline-artifact"
+              exit 2
+            fi
+            chmod +x "$RUNNER_TEMP/baseline/ruralzd"
+            export BENCH_BASELINE_RURALZD="$RUNNER_TEMP/baseline/ruralzd" BENCH_BASELINE_VERSION="$BASELINE_VERSION"
+          fi
+          make nightly NIGHTLY_JOB=latency
+      - if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-records
+          path: dist/bench/
+          if-no-files-found: ignore
+          retention-days: 90
+          # A re-run of the job replaces its records.
+          overwrite: true
+
+  records:
+    name: 11. Benchmark records
+    needs: latency
+    # Records of a failed night publish too: failed, invalid and
+    # inconclusive runs never advance a baseline, and the state says so.
+    if: always() && needs.latency.result != 'skipped' && needs.latency.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - id: download
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: bench-records
+          path: ${{ runner.temp }}/bench
+      - name: Commit to bench-records
+        if: steps.download.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          SERVER: ${{ github.server_url }}
+        run: |
+          src="$RUNNER_TEMP/bench"
+          if [[ -z "$(find "$src" -name '*.json' -print -quit)" ]]; then
+            echo "the Latency job wrote no records"
+            exit 0
+          fi
+          dir="$RUNNER_TEMP/branch"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::$auth"
+          git init -q "$dir"
+          cd "$dir"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote add origin "$SERVER/$REPO.git"
+          if git -c http.extraheader="$auth" fetch -q --depth=1 origin bench-records; then
+            git checkout -q -B bench-records FETCH_HEAD
+          else
+            git checkout -q --orphan bench-records
+          fi
+          day=$(date -u +%Y-%m-%d)
+          mkdir -p "records/$day-$RUN_ID"
+          cp -R "$src"/. "records/$day-$RUN_ID/"
+          if [[ -f "records/$day-$RUN_ID/state.json" ]]; then
+            mv "records/$day-$RUN_ID/state.json" state.json
+          fi
+          git add -A
+          git commit -q -m "bench: records of run $RUN_ID at $SHA"
+          git -c http.extraheader="$auth" push -q origin bench-records
+
+  runner-status:
+    name: 11. RH-1 runner status
+    # Once the rh-1 runner is registered: a Latency job waits for it, and
+    # GitHub cancels a job queued 24 hours without a runner.
+    if: vars.RH1_PROVISIONED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: An online runner carries the rh-1 label
+        env:
+          # Listing a repository's runners takes Administration: read,
+          # which no GITHUB_TOKEN holds: a fine-grained read-only token.
+          RUNNERS_TOKEN: ${{ secrets.REPO_SETTINGS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ -z "$RUNNERS_TOKEN" ]]; then
+            echo "::error title=RH-1 runner status::the read-only REPO_SETTINGS_TOKEN secret (Administration: read) is not set, so the rh-1 runner cannot be checked"
+            exit 1
+          fi
+          online=$(GH_TOKEN="$RUNNERS_TOKEN" gh api --paginate "repos/$GH_REPO/actions/runners?per_page=100" \
+            --jq '[.runners[] | select(.status == "online" and any(.labels[]; .name == "rh-1"))] | length' |
+            awk '{ n += $1 } END { print n + 0 }')
+          echo "online rh-1 runners: $online"
+          if ((online > 0)); then
+            exit 0
+          fi
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+          title="RH-1 runner offline"
+          body="$RUNNER_TEMP/body.md"
+          printf 'No online runner carries the rh-1 label (%s). The Latency job, the release soak job and chaos-scale.yml wait for it; check ruralz-bench-runner.service on RH-1 (deploy/benchhost/README.md). An open nightly-failure issue blocks the next release.\n' "$RUN_URL" >"$body"
+          n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body-file "$body"
+          else
+            gh issue create --label nightly-failure --title "$title" --body-file "$body"
+          fi
+          echo "::error title=$title::no online runner carries the rh-1 label; the issue \"$title\" records it"
+
   supply-chain:
     name: 6. Supply chain rescan
     runs-on: ubuntu-latest
@@ -28,3 +520,98 @@ jobs:
         with:
           go-version-file: go.mod
       - run: make supply-chain
+
+  issues:
+    name: Nightly issues
+    needs: [fuzz-plan, fuzz, chaos, functional, latency, records, runner-status, supply-chain]
+    # A Latency job cancelled while queued counts as a failure too.
+    if: always() && (contains(needs.*.result, 'failure') || needs.latency.result == 'cancelled')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - if: needs.fuzz.result == 'failure'
+        continue-on-error: true
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: fuzz-crashers-*
+          path: ${{ runner.temp }}/crashers
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          LATENCY: ${{ needs.latency.result }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+          gh label create fuzz-crasher --color D93F0B --description "A fuzz target found a failing input; blocks the next release" --force
+
+          # upsert <label> <title> <body file>: comment on the open issue with
+          # this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label "$1" --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$2\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$3"
+            else
+              gh issue create --label "$1" --title "$2" --body-file "$3"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          crasher_shards=" "
+          mkdir -p "$RUNNER_TEMP/crashers"
+          while read -r report; do
+            dir=$(dirname "$report")
+            shard=$(jq -r .shard "$report")
+            while IFS=$'\t' read -r pkg name file; do
+              crasher_shards+="$shard "
+              {
+                echo "Fuzz target \`$name\` in \`$pkg\` found a failing input in the nightly run $RUN_URL (commit $SHA)."
+                echo
+                echo "Commit the input as \`$file\` (a regression seed) before its fix merges. Open fuzz-crasher issues block the next release."
+                echo
+                echo '`````text'
+                head -c 65536 "$dir/files/$file"
+                echo
+                echo '`````'
+              } >"$body"
+              upsert fuzz-crasher "fuzz crasher: $pkg $name" "$body"
+            done < <(jq -r '.targets[] | .package as $p | .name as $n | .crashers[]? | [$p, $n, .] | @tsv' "$report")
+          done < <(find "$RUNNER_TEMP/crashers" -name report.json -type f)
+
+          # Under release.yml (workflow_call) the run is the release run: its
+          # job list also holds pr-fast, pr-full and main jobs, and called
+          # job names carry a "<caller job> / " prefix. Keep only this
+          # workflow's jobs (stage 11 and the stage 6 rescan), named without
+          # the prefix, so issue titles match the scheduled runs.
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r name; do
+              job=${name##* / }
+              if [[ ! "$job" =~ ^11\.\ |^6\.\ Supply\ chain\ rescan$ ]]; then
+                continue # not a nightly job
+              fi
+              if [[ "$job" =~ ^11\.\ Fuzz\ shard\ ([0-9]+)$ && "$crasher_shards" == *" ${BASH_REMATCH[1]} "* ]]; then
+                continue # reported as fuzz-crasher issues
+              fi
+              printf 'The nightly job "%s" failed in %s (commit %s). A nightly failure blocks the next release.\n' "$job" "$RUN_URL" "$SHA" >"$body"
+              upsert nightly-failure "nightly failure: $job" "$body"
+            done
+
+          # A Latency job cancelled before any runner took it, as GitHub
+          # cancels a job queued 24 hours without a runner, counts as the
+          # failure "RH-1 runner offline", the issue the runner status job
+          # also opens.
+          if [[ "$LATENCY" == cancelled ]]; then
+            queued=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select((.name | test("(^|/ )11\\. Latency$")) and .conclusion == "cancelled" and (.runner_name // "") == "") | .name')
+            if [[ -n "$queued" ]]; then
+              printf 'The nightly Latency job was cancelled before any runner took it in %s (commit %s): no rh-1 runner was online. Check ruralz-bench-runner.service on RH-1 (deploy/benchhost/README.md). An open nightly-failure issue blocks the next release.\n' "$RUN_URL" "$SHA" >"$body"
+              upsert nightly-failure "RH-1 runner offline" "$body"
+            fi
+          fi

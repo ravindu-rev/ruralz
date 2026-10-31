@@ -1,0 +1,21 @@
+# map lists merge by key: listeners by name, endpoints by address; new
+# keys are added.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: internal
+      protocol: http
+      port: 9080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  endpoints:
+    - address: "orders-b.shop.svc:8080"
+      weight: 3
+    - address: "orders-c.shop.svc:8080"

@@ -1,0 +1,33 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 42,
+    "column": 43,
+    "resource": {
+      "kind": "Policy",
+      "name": "echo-status"
+    },
+    "path": [
+      "spec",
+      "config",
+      "response",
+      "set",
+      {
+        "name": "x-order-status"
+      },
+      "valueExpression"
+    ],
+    "message": "CEL headers config.response.set[].valueExpression: response.body is not available here",
+    "hint": "the response body is read only by transform.response",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 28,
+        "column": 7,
+        "message": "attached at"
+      }
+    ]
+  }
+]

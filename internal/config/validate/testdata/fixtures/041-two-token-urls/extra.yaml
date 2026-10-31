@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-oauth-billing
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://billing-auth.shop.example/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}

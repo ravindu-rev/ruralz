@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: billing
+spec:
+  protocol: http
+  endpoints:
+    - address: "billing.shop.svc:8443"
+  tls:
+    clientKey: {secretRef: {provider: file, name: /etc/ruralz/mtls/tls.key}}

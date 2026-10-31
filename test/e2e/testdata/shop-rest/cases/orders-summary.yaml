@@ -1,0 +1,129 @@
+format: ruralz.test.v1
+name: orders-summary
+cases:
+  - name: serves the aggregate to a token with orders:read
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        # "Bearer <JWT>" for jwt-default, scope orders:read
+        authorization: {file: ./secrets/orders-reader}
+        # samples the trace whose ruralz.filter spans the suite checks
+        traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+    expect:
+      status: 200
+      headers:
+        content-type: application/json
+        cache-control: no-store
+        strict-transport-security: max-age=31536000
+      json:
+        order: {id: "42", status: shipped, total: 99.5}
+        stock:
+          - {sku: tea, quantity: 3}
+          - {sku: cup, quantity: 1}
+  - name: allows the partner portal's origin on an actual request
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: {file: ./secrets/orders-reader}
+        origin: https://portal.acme.example
+    expect:
+      status: 200
+      headers:
+        access-control-allow-origin: https://portal.acme.example
+        vary: Origin
+  - name: answers the partner portal's preflight before authentication
+    request:
+      method: OPTIONS
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        origin: https://portal.acme.example
+        access-control-request-method: GET
+    expect:
+      status: 204
+      headers:
+        access-control-allow-origin: https://portal.acme.example
+        access-control-allow-methods: GET
+        vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
+  - name: rejects the shop's preflight, which cors-partner replaced
+    request:
+      method: OPTIONS
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        origin: https://shop.example
+        access-control-request-method: GET
+    expect:
+      status: 403
+      headers:
+        content-type: application/problem+json
+      json: {code: RZ-RT-008}
+  - name: rejects a request without credentials
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+    expect:
+      status: 401
+      headers:
+        content-type: application/problem+json
+        www-authenticate: Bearer realm="ruralz"
+        strict-transport-security: max-age=31536000
+      json: {status: 401, code: RZ-AUTH-001}
+  - name: rejects a token that does not parse
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: Bearer not-a-token
+    expect:
+      status: 401
+      json: {code: RZ-AUTH-002}
+  - name: rejects an expired token
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: {file: ./secrets/expired}
+    expect:
+      status: 401
+      json: {code: RZ-AUTH-003}
+  - name: rejects a token for another audience
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: {file: ./secrets/other-audience}
+    expect:
+      status: 401
+      json: {code: RZ-AUTH-003}
+  - name: rejects a token signed by a key the JWKS does not publish
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: {file: ./secrets/unknown-key}
+    expect:
+      status: 401
+      json: {code: RZ-AUTH-005}
+  - name: forbids a token without orders:read
+    request:
+      method: GET
+      path: /v1/orders/42/summary
+      headers:
+        host: api.shop.example
+        authorization: {file: ./secrets/profile-reader}
+    expect:
+      status: 403
+      headers:
+        content-type: application/problem+json
+      json: {status: 403, code: RZ-AUTH-010}

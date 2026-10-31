@@ -1,0 +1,4 @@
+code: RZ-CFG-016
+stage: D
+binaries: [ruralz]
+source: overlay

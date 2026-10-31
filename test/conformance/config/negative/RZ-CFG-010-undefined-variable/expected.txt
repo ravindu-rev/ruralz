@@ -1,0 +1,1 @@
+ruralz.yaml:18:16 error RZ-CFG-010 Upstream/orders spec.endpoints[address="${ORDERS_ADDRESS}"].address: variable "ORDERS_ADDRESS" is not defined and has no default

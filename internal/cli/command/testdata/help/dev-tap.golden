@@ -1,0 +1,13 @@
+Usage: ruralz dev tap [FLAGS]
+
+Stream redacted /tap metadata.
+
+Flags:
+  --admin URL              Admin base URL of the Node (default http://127.0.0.1:9901)
+  --admin-token-file PATH  Operator admin token file
+  --ca-file PATH           Extra trust anchors (PEM)
+  --client-cert PATH       Client certificate for admin mTLS
+  --client-key PATH        Key of --client-cert
+  --help                   Print this help
+  --output text|json       Output format (text or json, default text)
+  --route NAME             Only print exchanges of this Route

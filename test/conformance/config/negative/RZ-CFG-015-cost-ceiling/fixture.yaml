@@ -1,0 +1,4 @@
+code: RZ-CFG-015
+stage: J
+binaries: [ruralz, ruralzd]
+source: base

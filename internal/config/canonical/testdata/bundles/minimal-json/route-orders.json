@@ -1,0 +1,30 @@
+{
+  "spec": {
+    "timeout": "4s",
+    "upstreams": [
+      {
+        "weight": 1,
+        "name": "orders"
+      }
+    ],
+    "match": {
+      "methods": [
+        "GET"
+      ],
+      "path": {
+        "prefix": "/v1/orders"
+      },
+      "hosts": [
+        "api.shop.example"
+      ]
+    }
+  },
+  "metadata": {
+    "annotations": {
+      "description": "Orders <v1> & friends"
+    },
+    "name": "orders"
+  },
+  "kind": "Route",
+  "apiVersion": "ruralz/v1alpha1"
+}

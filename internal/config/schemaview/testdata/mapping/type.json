@@ -1,0 +1,12 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Gateway",
+  "metadata": {"name": "edge"},
+  "spec": {
+    "listeners": [
+      {"name": "http", "port": "abc", "protocol": "http"},
+      {"name": 8443, "port": 8443, "protocol": "https"}
+    ],
+    "admin": {"port": 70000}
+  }
+}

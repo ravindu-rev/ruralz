@@ -1,0 +1,15 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {"name": "orders"},
+  "spec": {
+    "match": {"path": {"exact": "/orders", "prefix": "/orders/"}},
+    "composition": {
+      "mode": "sequential",
+      "steps": [
+        {"name": "stock", "upstream": "inventory", "path": "/stock", "pathExpression": "'/stock/' + request.path"},
+        {"name": "price", "upstream": "pricing"}
+      ]
+    }
+  }
+}

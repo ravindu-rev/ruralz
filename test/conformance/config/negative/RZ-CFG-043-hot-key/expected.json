@@ -1,0 +1,21 @@
+[
+  {
+    "code": "RZ-CFG-043",
+    "severity": "warning",
+    "file": "ruralz.yaml",
+    "line": 41,
+    "column": 9,
+    "resource": {
+      "kind": "Policy",
+      "name": "ratelimit-global"
+    },
+    "path": [
+      "spec",
+      "config",
+      "limits",
+      0
+    ],
+    "message": "limit 0 allows more than 25000 requests per second on a constant key, more State Store calls than one shard sustains",
+    "hint": "set localOnly, or a key that reads a variable"
+  }
+]

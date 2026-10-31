@@ -1,0 +1,15 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: e2e
+spec:
+  # Selects overlays/e2e/. Each run copies this file and sets every variable
+  # to the address of its own mock: the OTLP sink, the mock IdP and the two
+  # mock Upstreams.
+  overlay: e2e
+  variables:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://127.0.0.1:4317"
+    E2E_IDP_URL: "https://127.0.0.1:9443"
+    E2E_ORDERS_HOST: "127.0.0.1"
+    E2E_ORDERS_PORT: "8081"
+    E2E_INVENTORY_ADDRESS: "127.0.0.1:8082"

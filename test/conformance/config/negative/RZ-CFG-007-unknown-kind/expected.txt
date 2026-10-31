@@ -1,0 +1,1 @@
+ruralz.yaml:12:7 error RZ-CFG-007 Router/orders kind: kind "Router" is not served by apiVersion "ruralz/v1alpha1" (did you mean "Route"?)

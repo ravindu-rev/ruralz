@@ -1,0 +1,4 @@
+go test fuzz v1
+string("{\"apiVersion\":\"ruralz/v1alpha1\",\"kind\":\"Gateway\",\"metadata\":{\"name\":\"edge\",\"labels\":{\"team\":\"core\"}},\n\"spec\":{\"listeners\":[{\"name\":\"http\",\"protocol\":\"http\",\"port\":8080},\n {\"name\":\"https\",\"protocol\":\"https\",\"port\":8443,\"tls\":{\"certificates\":[{\"name\":\"main\",\"certificate\":{\"secretRef\":{\"provider\":\"file\",\"name\":\"/c\"}},\"privateKey\":{\"secretRef\":{\"provider\":\"file\",\"name\":\"/k\"}}}]}},\n {\"name\":\"admin\",\"protocol\":\"http\",\"port\":9000}],\n\"policies\":[{\"name\":\"cors\"},{\"name\":\"auth\"},{\"name\":\"rl\"}],\n\"trustedProxies\":[\"10.0.0.0/8\",\"192.168.0.0/16\"]}}")
+string("{\"0000000000\":\"000000000000000\",\"0000\":\"0000000\",\"00000000\":{\"0000\":\"0000\"},\"spec\":{\"listeners\":[{\"name\":\"00000\",\"name\":\"\"}]}}")
+bool(true)

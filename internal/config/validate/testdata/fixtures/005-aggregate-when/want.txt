@@ -1,0 +1,1 @@
+extra.yaml:14:15 error RZ-CFG-005 Route/summary spec.composition.steps[name=order].when: step "order" sets when, which an aggregate composition never evaluates (remove when, or use mode sequential or conditional)

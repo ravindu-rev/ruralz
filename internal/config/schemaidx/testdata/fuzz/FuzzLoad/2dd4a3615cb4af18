@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("{\"allOf\":[{\"if\":{\"properties\":{\"kind\":{\"const\":\"\"}}},\"then\":{\"properties\":{\"00000000\":{\"$ref\":\"#/$defs/d0\"}}}}],\"$defs\":{\"d0\":{\"properties\":{\"\":{\"$ref\":\"#\"}}}}}")

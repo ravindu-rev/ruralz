@@ -1,0 +1,13 @@
+Usage: ruralz node drain [FLAGS]
+
+Drain the local ruralzd.
+
+Sends SIGTERM to the ruralzd that holds the lock on the data directory, as a
+process manager does, once holder.json, the PID namespace, the process start
+time and /proc/locks confirm that process, then waits until it exits.
+
+Flags:
+  --data-dir PATH     Data directory of the local ruralzd (default $RURALZ_DATA_DIR, else /var/lib/ruralz)
+  --help              Print this help
+  --output text|json  Output format (text or json, default text)
+  --timeout DURATION  How long to await the exit after the signal (default 5m)

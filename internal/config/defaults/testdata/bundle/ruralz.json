@@ -1,0 +1,19 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Gateway",
+  "metadata": {"name": "edge", "labels": {"team": "platform"}},
+  "spec": {
+    "listeners": [
+      {"name": "https", "port": 8443, "protocol": "https", "hostnames": ["API.Shop.Example"],
+       "tls": {"certificates": [{"name": "shop", "certificate": {"secretRef": {"provider": "file", "name": "/etc/ruralz/tls.crt"}},
+                                 "privateKey": {"secretRef": {"provider": "file", "name": "/etc/ruralz/tls.key"}}}]}},
+      {"name": "http", "port": 8080, "protocol": "http"}
+    ],
+    "admin": {},
+    "limits": {"maxRequestBodyBytes": "5Mi"},
+    "stateStore": {"driver": "redis", "url": {"secretRef": {"provider": "env", "name": "RURALZ_STATE_STORE_URL"}}, "timeout": "0.05s"},
+    "telemetry": {"accessLog": {}},
+    "trustedProxies": ["10.0.0.0/8", "192.168.0.0/16", "172.16.0.0/12"],
+    "policies": [{"name": "cors-default"}, {"name": "ratelimit-global"}, {"name": "jwt-default"}]
+  }
+}

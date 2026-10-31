@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "basic"},
+  "spec": {
+    "type": "auth.basic",
+    "config": {"realm": "shop"}
+  }
+}

@@ -1,47 +1,25 @@
----
-title: Glossary
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/architecture/09-traffic-management-and-resilience.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
-adrs: []
-milestone_tags_used: []
----
-
 # Glossary
 
 ## Summary
 
-This glossary fixes the meaning, canonical spelling and forbidden aliases of every Ruralz term that the documentation set shares. Each definition restates the foundation pack glossary in 40 words or fewer and links to the section of the document that owns the term, where the full rules live. The Forbidden aliases section lists the script-checked aliases and the escape comment for unavoidable quotations. Every reader should keep it open while reading other documents, and every writer and reviewer MUST use these spellings.
+This glossary fixes the meaning, canonical spelling and forbidden aliases of every Ruralz term that the documentation set shares. Each definition restates the foundation pack glossary and links to the section of the document that owns the term, where the full rules live. The Forbidden aliases section lists aliases never to use, their replacements and the rule for unavoidable quotations. Every reader should keep it open while reading other documents. These spellings are canonical.
 
 ## Scope and non-goals
 
 In scope:
 
-- Every term in the manifest `glossary_terms` list, in one alphabetical table.
+- Every Ruralz term the documentation set shares, in one alphabetical table.
 - The forbidden aliases of the foundation pack, with their replacements.
 
 Non-goals:
 
 - Kind fields, Policy types and their `config` schemas: the [Configuration model](architecture/02-configuration-model.md#kind-catalog) owns them.
 - CLI commands and the REST API: [CLI and API surface](reference/01-cli-and-api-surface.md) owns them.
-- Normative rules. A definition here summarizes; when it seems to differ from the owning section, the owning section wins and the difference is a defect to fix here.
+- Normative rules. A definition here summarizes; when it seems to differ from the owning section, the owning section wins.
 
 ## Terms
 
-Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact capitalization to use in prose; kinds also appear in code formatting. "Forbidden aliases" lists the names never to use for the term; aliases that the verifier checks are also listed under [Forbidden aliases](#forbidden-aliases).
+Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact capitalization to use in prose; kinds also appear in code formatting. "Forbidden aliases" lists the names never to use for the term; several also appear, with replacements and exemptions, under [Forbidden aliases](#forbidden-aliases).
 
 | Term | Definition | Canonical spelling | Forbidden aliases | Defined in |
 |---|---|---|---|---|
@@ -66,7 +44,7 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 | Host Function | A function the Plugin host exports to Plugins under Plugin ABI v1, callable only with the matching Capability. | Host Function | None | [WASM plugin system: Host Function table](architecture/05-wasm-plugin-system.md#host-function-table) |
 | Hot Reload | One Node activating a new Revision without a restart: compile off the request path, then one atomic snapshot swap; in-flight requests keep their snapshot. | Hot Reload | None | [Zero-downtime upgrades and hot reload: Configuration hot reload](operations/02-zero-downtime-upgrades-and-hot-reload.md#configuration-hot-reload) |
 | Last-Known-Good | The persisted Revision under `${RURALZ_DATA_DIR}/lkg/` that a Node boots when it cannot obtain configuration; promoted on activation in file mode, at the promoted digest in Control mode. | Last-Known-Good | fallback config, cached config | [System overview: Last-Known-Good](architecture/01-system-overview.md#last-known-good) |
-| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good and disposable caches. | Node | instance, replica, gateway node, pod (outside Kubernetes context) | [System overview: Inside a Node](architecture/01-system-overview.md#inside-a-node) |
+| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good, lock and handover files, the last published Node count and disposable caches. | Node | instance, replica, gateway node, pod (outside Kubernetes context) | [System overview: Inside a Node](architecture/01-system-overview.md#inside-a-node) |
 | Performance Budget | A latency, allocation or resource ceiling tagged (target) or (hypothesis) that the benchmark suite verifies; the performance document owns the values. | Performance Budget | None | [Performance budgets and benchmarking: Budget catalog and SLO ties](architecture/12-performance-budgets-and-benchmarking.md#budget-catalog-and-slo-ties) |
 | Phase | One fixed hook of the Filter Chain, from `onRequestHeaders` to `onLog`, plus the streaming hook `onChunk`. | Phase | None | [Data plane: Phases](architecture/03-data-plane.md#phases) |
 | Plugin | A Bundle kind and the sandboxed WASM artifact it pins by digest, running under Plugin ABI v1 with deny-by-default Capabilities and declared limits. | Plugin (kind `Plugin`) | WASM extension, WASM module | [WASM plugin system: Packaging](architecture/05-wasm-plugin-system.md#packaging) |
@@ -76,7 +54,7 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 | Prompt Cache | Provider-side prompt caching, such as Anthropic `cache_control`, configured on `AIModel` and preserved by native passthrough. | Prompt Cache | None | [AI/LLM gateway: Prompt Cache](architecture/06-ai-llm-gateway.md#prompt-cache) |
 | Provider Fallback | Moving an AI request to the next `AIModel` candidate after a defined failure class, only before the response is committed. | Provider Fallback | None | [AI/LLM gateway: Provider Fallback](architecture/06-ai-llm-gateway.md#provider-fallback) |
 | Quota | A long-window Consumer allowance (unit requests or tokens) enforced by `quota` or `ai.token-budget`: checked before commit, settled asynchronously. | Quota | None | [Traffic management and resilience: Quotas](architecture/09-traffic-management-and-resilience.md#quotas) |
-| Rate Limit | A `ratelimit` Policy bounding requests per key and window: a local token bucket at the per-Node ceiling plus GCRA in the State Store; fails open by default. | Rate Limit | None | [Traffic management and resilience: Rate limiting](architecture/09-traffic-management-and-resilience.md#rate-limiting) |
+| Rate Limit | A `ratelimit` Policy bounding requests per key and window: a local token bucket at the per-Node ceiling plus GCRA in the State Store, or local buckets alone with `config.localOnly`; fails open by default. | Rate Limit | None | [Traffic management and resilience: Rate limiting](architecture/09-traffic-management-and-resilience.md#rate-limiting) |
 | Region | A cloud or data-center region; its Nodes use their own State Store, and no request crosses a Region to reach one. | Region | None | [Scalability and distributed state: Multi-region](architecture/11-scalability-and-distributed-state.md#multi-region) |
 | Response Cache | The `cache` Policy: HTTP-semantics response caching in the State Store, looked up before the Upstream call and stored asynchronously after commit. | Response Cache | None | [Traffic management and resilience: Response caching](architecture/09-traffic-management-and-resilience.md#response-caching) |
 | Revision | The immutable SHA-256 digest of one Bundle rendered for one Environment in `ruralz.canonical.v1` form; displayed as `rev-<12 hex>`, verified in full. | Revision (display `rev-<12 hex>`, wire `sha256:<64 hex>`) | version, release (for configuration) | [Configuration model: Canonical form and Revision](architecture/02-configuration-model.md#canonical-form-and-revision) |
@@ -96,12 +74,12 @@ Terms sort alphabetically, ignoring case. "Canonical spelling" gives the exact c
 
 ## Forbidden aliases
 
-These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks of every document under `docs/` outside `docs/_meta/`. These are names never used for Ruralz concepts. Other fenced code, such as a third-party protocol sample, may quote them.
+These aliases are forbidden, in any capitalization, in prose, inline code and Mermaid blocks: they are names never used for Ruralz concepts. Other fenced code, such as a third-party protocol sample, may quote them.
 
 | Forbidden | Use instead | Notes |
 |---|---|---|
 | backend (as a Ruralz concept) | Upstream | For a State Store or Control Store implementation, write "State Store backend" or "driver" |
-| endpoint as a name for a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address and is not flagged |
+| endpoint as a name for a published API path | Route | Bare "Endpoint" is the glossary term for an Upstream target address |
 | controller, management plane | Ruralz Control | "Kubernetes controller" and "Ingress controller" are exempt |
 | dashboard | Ruralz Console | Grafana dashboards and third-party product names are exempt |
 | sync protocol, config push protocol | Control Stream | Applies to any name for the protocol between Ruralz Control and Nodes |
@@ -110,7 +88,7 @@ These aliases are forbidden, in any capitalization, in prose, inline code and Me
 
 **Quotation.** A forbidden alias may appear only when quoting, for example a third-party protocol field or product name, never to name a Ruralz concept.
 
-Forbidden aliases in the Terms table that this table does not list, such as "fleet" for Cluster, come from the foundation pack canonical names and are enforced by review.
+Forbidden aliases in the Terms table that this table does not list, such as "fleet" for Cluster, come from the foundation pack canonical names.
 
 ## Open questions
 

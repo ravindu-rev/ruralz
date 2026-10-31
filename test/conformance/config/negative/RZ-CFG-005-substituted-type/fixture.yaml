@@ -1,0 +1,4 @@
+code: RZ-CFG-005
+stage: E
+binaries: [ruralz, ruralzd]
+source: substituted

@@ -1,0 +1,32 @@
+[
+  {
+    "code": "RZ-CFG-032",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 39,
+    "column": 23,
+    "resource": {
+      "kind": "Route",
+      "name": "big"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "b"
+      },
+      "maxBodyBytes"
+    ],
+    "message": "step maxBodyBytes values total 1228800 bytes up to step \"b\", more than limits.maxResponseBodyBytes (1048576)",
+    "hint": "a Route's step bodies together fit in one limits.maxResponseBodyBytes",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 11,
+        "column": 27,
+        "message": "limit set in"
+      }
+    ]
+  }
+]

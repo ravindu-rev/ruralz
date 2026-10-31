@@ -1,0 +1,9 @@
+ruralz bundle diff: rev-5981e581e783 -> rev-a51a7e236610 (environment: prod)
+
+~ Upstream/orders                               ruralz.yaml                  [traffic]
+    ~ spec.healthCheck.active.interval: 10s -> 5s
+    ~ spec.retries.attempts: 2 -> 3
+    + metadata.labels.tier: gold
+    + spec.timeout: 2s
+
+1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: traffic

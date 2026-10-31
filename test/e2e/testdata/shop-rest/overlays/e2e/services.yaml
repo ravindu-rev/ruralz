@@ -1,0 +1,18 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  discovery:                            # the mock Upstream of orders
+    service: ${E2E_ORDERS_HOST}
+    port: ${E2E_ORDERS_PORT}
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: inventory
+spec:
+  endpoints:                            # the mock Upstream of inventory
+    - address: "inventory.shop.internal:8080"
+      $patch: delete
+    - address: ${E2E_INVENTORY_ADDRESS}

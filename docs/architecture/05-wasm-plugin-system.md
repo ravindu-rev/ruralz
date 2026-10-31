@@ -1,23 +1,8 @@
----
-title: WASM Plugin System
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0004, ADR-0005, ADR-0011, ADR-0017]
-milestone_tags_used: [M2, M3, M4, M5]
----
-
 # WASM Plugin System
 
 ## Summary
 
-This document designs differentiator (1), the WASM plugin system: how Ruralz Gateway runs sandboxed Plugins on wazero under Plugin ABI v1 (`ruralz.plugin.v1`). It fixes Host Functions, Capabilities, limits, packaging, hot-swap, PDKs, the Plugin threat model and the proxy-wasm stance, for Plugin authors, contributors, architects and security engineers. Nothing is implemented: Plugins are Planned (M2), the proxy-wasm adapter Planned (M4).
+This document designs differentiator (1), the WASM plugin system: how Ruralz Gateway runs sandboxed Plugins on wazero under Plugin ABI v1 (`ruralz.plugin.v1`). It fixes Host Functions, Capabilities, limits, packaging, hot-swap, PDKs, the Plugin threat model and the proxy-wasm stance, for Plugin authors, contributors, architects and security engineers. Plugins are Planned (M2), the proxy-wasm adapter Planned (M4).
 
 ## Scope and non-goals
 
@@ -37,7 +22,7 @@ Non-goals:
 
 | ID | Goal | Principle |
 |---|---|---|
-| WG-1 | Custom logic in any Phase, including `onChunk`, without Go plugins or Lua ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | P6, P7 |
+| WG-1 | Custom logic in any Phase, including `onChunk`, without Go plugins or Lua ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | P6, P7 |
 | WG-2 | A faulty Plugin fails only its own Policy | P6, P9 |
 | WG-3 | Pure Go host that builds with `CGO_ENABLED=0` ([ADR-0001](../adr/0001-implementation-language-go.md)) | P4 |
 | WG-4 | Deny-by-default Capabilities | P6 |
@@ -63,10 +48,10 @@ Three design rules follow from Ruralz's own goals. A stable, versioned ABI avoid
 The runtime is wazero, module `github.com/tetratelabs/wazero` ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)): pure Go, compiler mode on amd64 and arm64 only, interpreter often ten times slower ([source](https://github.com/wazero/wazero/blob/main/README.md); [tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)). The `ruralz` CLI links the same host. Rules, Planned (M2):
 
 1. **Compile once per digest and memory limit.** The page limit is a runtime setting ([source](https://github.com/wazero/wazero/blob/main/config.go)), so a Node runs one runtime per distinct `limits.memoryBytes`, sharing one in-memory compilation cache ([source](https://github.com/wazero/wazero/blob/main/cache.go)).
-2. **Compiled code in memory only.** A persisted wazero cache would run native code no signature covers, so restarts recompile verified artifacts (OQ-data-plane-11, option (c)).
+2. **Compiled code in memory only.** A persisted wazero cache would run native code no signature covers, so restarts recompile verified artifacts.
 3. **Pools per configuration.** `api.Function.Call` is not goroutine-safe ([source](https://github.com/wazero/wazero/blob/main/api/wasm.go)), so each call takes its own instance of shared compiled code ([source](https://github.com/wazero/wazero/blob/main/runtime.go)). Policies with equal digest, canonical `config` and limits share a pool.
 4. **Memory limit per instance.** `limits.memoryBytes` in 64 KiB WebAssembly pages; a declared minimum above it is RZ-CFG-028. The wazero default is 4 GiB ([source](https://github.com/wazero/wazero/blob/main/config.go)).
-5. **Deadlines, not fuel.** wazero has no metering ([source](https://github.com/wazero/wazero/issues/422)); close-on-context-done ([source](https://github.com/wazero/wazero/blob/main/config.go)) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), and SM-6 includes it. This answers OQ-tech-stack-and-libraries-8 with options (a) and (b).
+5. **Deadlines, not fuel.** wazero has no metering ([source](https://github.com/wazero/wazero/issues/422)); close-on-context-done ([source](https://github.com/wazero/wazero/blob/main/config.go)) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), and SM-6 includes it. Deadlines and host-side call budgets bound Plugin CPU (OQ-tech-stack-and-libraries-8, options (a) and (b)).
 6. **Instantiate off the request path.** A per-Node pool manager creates, refills and recycles instances, keeping idle at least max(1, 25% of busy) (target). Requests never compile or instantiate; they wait at most 1 ms (target).
 7. **Per-Phase acquisition and parking.** An instance serves one Phase call, never the Upstream wait; per-request state stays in `context.use`. During its one State Store call the guest is parked, timer stopped, outside the compute reserve, which never depends on core count. Beyond the parked bound no call is attempted and `state_*` returns `ERR_LIMIT` (`RZ-PLG-010`); an open State client breaker skips the call (pack section 8.7) with `ERR_UNAVAILABLE` (`RZ-STS`).
 8. **Discard after a fault.** Faulted instances are destroyed; their refills are rate-limited, and a fault breaker prevents instantiation loops.
@@ -180,8 +165,8 @@ Every Host Function requires exactly one Capability, WASI imports follow the shi
 Host Function rules:
 
 - **Message writes.** Header names MUST be RFC 9110 tokens, values free of CR, LF and NUL; `Host`, pseudo-headers, hop-by-hop and framing headers are read-only; the host recomputes framing; `response_send` takes status 200 to 599. Violations return `ERR_INVALID`.
-- **Credentials.** Per OQ-wasm-plugin-system-3, option (b), credential headers are `authorization`, `proxy-authorization`, `cookie`, each `auth.api-key` Policy's `config.header` in the Revision, and response `set-cookie`. Without `credentials.read`, header gets return `ERR_ABSENT` for them and lists, proxy-wasm header maps included, omit them. Headers set by upstream-auth Filters stay hidden even with it. Guest logs redact known credentials.
-- **State Store.** One blocking call per Plugin Policy per request before commit (pack section 8.7), in chain order; a second returns `ERR_BUDGET`. Keys are `rzplg:`, a namespace (OQ-wasm-plugin-system-19), the length-prefixed Policy name and the guest key. Limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request; beyond is `ERR_LIMIT`.
+- **Credentials.** Credential headers are `authorization`, `proxy-authorization`, `cookie`, each `auth.api-key` Policy's `config.header` in the Revision, and response `set-cookie`. Without `credentials.read`, header gets return `ERR_ABSENT` for them and lists, proxy-wasm header maps included, omit them. Headers set by upstream-auth Filters stay hidden even with it. Guest logs redact known credentials.
+- **State Store.** One blocking call per Plugin Policy per request before commit (pack section 8.7), in chain order; a second returns `ERR_BUDGET`. Keys are `rzplg:`, the Environment name as namespace, `:`, the length-prefixed Policy name and the guest key, apart from every built-in key (pack section 8.7 rule 7). The `onLog` write goes through the post-commit queue's own Plugin class, a sub-queue that never displaces Quota and Token Budget settlement writes (pack section 8.7 rule 4, [Post-commit write queue](11-scalability-and-distributed-state.md#post-commit-write-queue)). Limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request; beyond is `ERR_LIMIT`.
 - **Metrics.** One family, `ruralz_plugin_guest_events_total{policy, name}`; `name` matches `^[a-z][a-z0-9_]{0,31}$`; a negative value or 17th name returns `ERR_LIMIT`.
 - **Cryptography.** FIPS mode does not cover Wasm ([source](https://go.dev/doc/security/fips140)), so FIPS builds (Planned (M5)) offer approved algorithms only through `crypto.use` ([tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)). Keys MUST NOT appear in plaintext `config` (OQ-wasm-plugin-system-4).
 - **Streams.** `onChunk` calls for one request and Policy are serialized per direction.
@@ -486,7 +471,7 @@ ruralz dev run ./shop-bundle
 
 ### Observability
 
-Calls emit span `ruralz.filter.<name>`. [Observability](10-observability.md) accepted `ruralz_plugin_call_duration_seconds`, `ruralz_plugin_failures_total` (codes include `RZ-PLG-008` to `RZ-PLG-011`), `ruralz_plugin_pool_instances`, `ruralz_plugin_pool_wait_seconds`, `ruralz_plugin_memory_reserved_bytes`, `ruralz_plugin_guest_events_total` and reason `plugin_pool_degraded`, shown while a fault breaker is open; disabled signatures show as `ruralz_node_degraded_info{reason="plugin_signature_off"}`.
+Calls emit span `ruralz.filter.<name>`. [Observability](10-observability.md) defines `ruralz_plugin_call_duration_seconds`, `ruralz_plugin_failures_total` (codes include `RZ-PLG-008` to `RZ-PLG-011`), `ruralz_plugin_pool_instances`, `ruralz_plugin_pool_wait_seconds`, `ruralz_plugin_memory_reserved_bytes`, `ruralz_plugin_guest_events_total` and reason `plugin_pool_degraded`, shown while a fault breaker is open; disabled signatures show as `ruralz_node_degraded_info{reason="plugin_signature_off"}`.
 
 ## Performance model
 
@@ -544,7 +529,7 @@ This is the Plugin part of the threat model [Security and identity](08-security-
 | PT-13 | Signature checks disabled | `off` is explicit and degraded | Operator choice |
 | PT-14 | Tampered compiled-code cache | Compiled code never persisted | Restarts recompile |
 | PT-15 | Attacker-triggered faults | Bounded refills; ratio breaker, half-open; audit error for `open` enforcing Plugins | During a trip, `open` Plugins are bypassed and `closed` Plugins deny for 95% of traffic (target) |
-| PT-16 | State key collision, flooding or displaced settlement | Namespaced keys; limits (OQ-wasm-plugin-system-19) | A Plugin exhausts its own quota |
+| PT-16 | State key collision, flooding or displaced settlement | Keys namespaced by Environment name; limits; Plugin writes in their own post-commit sub-queue, which never displaces settlement | A Plugin exhausts its own quota |
 | PT-17 | Header injection or request smuggling | Write validation; framing recomputed | None known |
 | PT-18 | Registry SSRF or credential leak | Host allowlist; address refusal | A compromised allowlisted host |
 | PT-19 | Decisions on spoofable input | Trusted-edge rule; authenticated split attributes | Misconfiguration |
@@ -569,7 +554,6 @@ Decision ([ADR-0005](../adr/0005-plugin-abi-v1.md)): Plugin ABI v1 is the only p
 |---|---|---|---|---|
 | OQ-wasm-plugin-system-1 | Should `Plugin.spec.limits` gain pool and budget fields? | (a) Node defaults (current); (b) New fields | configuration-model | No |
 | OQ-wasm-plugin-system-2 | How is a weighted per-request canary expressed? | (a) Rollout canary only (current); (b) A Policy weight; (c) A CEL hash | configuration-model | No |
-| OQ-wasm-plugin-system-3 | Should credential headers need a separate grant? | (a) All headers; (b) Chosen by Security and identity: `credentials.read`; (c) Redaction | security-and-identity | No (answered) |
 | OQ-wasm-plugin-system-4 | How do Plugins use keys, and can JWT signing and GCP authentication (OQ-security-and-identity-11, -12) be Plugins? | (a) No keys; (b) Node-resolved `x-ruralz-secret` `configSchema` fields passed only to `rz_configure` (recommended); (c) Host-held keys | configuration-model | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-5 | Should Plugins make outbound calls? | (a) No (current); (b) An `http.call` Capability | wasm-plugin-system | No |
 | OQ-wasm-plugin-system-6 | How do Nodes authenticate to registries and absorb pull fan-out? | (a) Node process configuration; (b) Ruralz Control relays; (c) Both | control-plane-and-gitops | Yes, for Planned (M2) |
@@ -578,11 +562,10 @@ Decision ([ADR-0005](../adr/0005-plugin-abi-v1.md)): Plugin ABI v1 is the only p
 | OQ-wasm-plugin-system-9 | Do compile, structure, size and `config` failures extend RZ-CFG-028, and which code rejects impossible warm reservations or oversized `limits.memoryBytes`? | (a) Extend RZ-CFG-028, add one code (current); (b) Separate codes | configuration-model | No |
 | OQ-wasm-plugin-system-10 | Is a wall-clock limit enough? | (a) Wall clock, budget, fault breaker (current); (b) CPU time; (c) Upstream metering | wasm-plugin-system | No |
 | OQ-wasm-plugin-system-11 | Does Ruralz ship a Python PDK? | (a) Not planned (current); (b) Community | wasm-plugin-system | No |
-| OQ-wasm-plugin-system-12 | Should pack section 12 and the tech stack drop the `ruralz.plugin.v1` proto package, since Plugin ABI v1 passes no protobuf messages? | (a) Drop it (proposed); (b) Keep it for a future descriptor | tech-stack-and-libraries | Yes, for a pack amendment (section 14) |
+| OQ-wasm-plugin-system-12 | Should pack section 12 and the tech stack drop the `ruralz.plugin.v1` proto package, since Plugin ABI v1 passes no protobuf messages? | (a) Drop it (proposed); (b) Keep it for a future descriptor | tech-stack-and-libraries | Yes, for the pack section 12 change |
 | OQ-wasm-plugin-system-13 | How do Nodes advertise their ABI level to Rollouts? | (a) A heartbeat field; (b) A new identifier per addition | control-plane-and-gitops | Yes, for the first addition |
 | OQ-wasm-plugin-system-14 | How does a NACK mark registry, timeout or compiled-code pressure failures as transient? | (a) A NACK flag; (b) A separate code | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-15 | Will the Configuration model register maxima of 256 MiB and 1 s (target) and grant `response.send` in `geo-block`? | (a) Yes (proposed); (b) Other values | configuration-model | No |
 | OQ-wasm-plugin-system-16 | Can wazero cancel compiles or free one module early, can garbage collection preempt guest code, does pack section 8.11 cover compiled code, and how does a Node measure compiled size without a wazero API? | (a) Current: 4 × Wasm bytes decides, a resident-memory delta is advisory; (b) Revise after research | wasm-plugin-system | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-17 | How does adapter pinning interact with recycling and faults? | (a) Recycle only when unpinned; (b) No adapter recycling | wasm-plugin-system | Yes, for Planned (M4) |
 | OQ-wasm-plugin-system-18 | Should Security and identity reword "never share memory across requests"? | (a) Reword (proposed); (b) A fresh-instance mode | security-and-identity | No |
-| OQ-wasm-plugin-system-19 | How are Plugin State Store writes queued and namespaced? | (a) A sub-queue never displacing settlement (pack section 8.7 amendment), Environment name as namespace (proposed); (b) Shared queue | scalability-and-distributed-state | No |

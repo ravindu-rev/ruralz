@@ -1,0 +1,25 @@
+# The host profiles of the benchmark harness
+# (docs/architecture/12-performance-budgets-and-benchmarking.md "Scenarios"):
+# test/bench/harness renders each scenario Bundle with --env <profile>
+# --environments test/bench/scenarios/environments.yaml, and each Environment
+# selects the overlay of its name, which holds the profile's lab addresses,
+# its TLS file paths under the profile's fixed secret root and, for the State
+# Store scenarios, stateStore.tls and stateStore.zones. The overlays use no
+# ${VAR}, so a profile's Revision digests stay equal across runs.
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: loopback
+spec: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: rh-1
+spec: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: rh-3
+spec: {}

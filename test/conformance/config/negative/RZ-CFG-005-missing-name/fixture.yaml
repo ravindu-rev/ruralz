@@ -1,0 +1,4 @@
+code: RZ-CFG-005
+stage: C
+binaries: [ruralz, ruralzd]
+source: default

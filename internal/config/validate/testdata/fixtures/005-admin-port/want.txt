@@ -1,0 +1,1 @@
+ruralz.yaml:12:13 error RZ-CFG-005 Gateway/edge spec.listeners[name=https].port: listener "https" uses port 8443, the admin port (spec.admin.port) (give each listener its own port, apart from the admin port) (admin port set in ruralz.yaml:20:11)

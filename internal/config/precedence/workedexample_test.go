@@ -1,0 +1,197 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package precedence
+
+import (
+	"encoding/json"
+	"slices"
+	"strings"
+	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/phase"
+)
+
+// The example Bundle of docs/architecture/02-configuration-model.md
+// ("Complete annotated example Bundle") is read from its golden corpus
+// entry (shopLayer), as are the effective tables it is checked against.
+
+// TestWorkedExample checks that the orders-summary rows equal the
+// configuration model's "Worked example" table in Phase, Leg, Policy and
+// From.
+func TestWorkedExample(t *testing.T) {
+	b, files := loadShop(t)
+	chains, ds := stageI(t, b, files, 1)
+	if len(ds) > 0 {
+		t.Fatalf("example Bundle: unexpected diagnostics:\n%s", diagText(t, ds))
+	}
+	want := [][4]string{
+		{"onRequestHeaders", "client", "cors-partner", "Route"},
+		{"onRequestHeaders", "client", "jwt-default", "Gateway"},
+		{"onRequestHeaders", "client", "geo-block-default", "Gateway"},
+		{"onRequestHeaders", "client", "authz-orders", "Route"},
+		{"onRequestHeaders", "client", "ratelimit-global", "Gateway"},
+		{"onRequestHeaders", "client", "ratelimit-orders", "Route"},
+		{"onUpstreamRequest", "orders", "upstream-oauth", "Upstream orders"},
+		{"onUpstreamRequest", "orders", "headers-internal", "Upstream orders"},
+		{"onUpstreamRequest", "inventory", "headers-internal", "Upstream inventory"},
+		{"onResponse", "client", "headers-security", "Gateway"},
+		{"onResponse", "client", "cors-partner", "Route"},
+		{"none", "none", "cors-default", "Gateway"},
+	}
+	var got [][4]string
+	for _, r := range mustNew(t, nil, Options{}).Rows(chains["orders-summary"], b) {
+		got = append(got, [4]string{r.Phase, r.Leg, r.Policy, r.From})
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("orders-summary rows:\n got %q\nwant %q", got, want)
+	}
+}
+
+// TestShopBundleChains checks the other example Routes: support-chat
+// replaces jwt-default with apikey-partner in slot auth and runs
+// token-budget-partner in onRequestBody, onChunk and onLog; cart-grpc
+// excludes cors-default and runs headers-security in onResponse only.
+func TestShopBundleChains(t *testing.T) {
+	b, files := loadShop(t)
+	chains, _ := stageI(t, b, files, 4)
+	if len(chains) != 3 {
+		t.Fatalf("chains = %d, want 3", len(chains))
+	}
+
+	chat := chains["support-chat"]
+	if got := names(chat.Client[phase.OnRequestHeaders]); !slices.Equal(got, []string{"cors-default", "apikey-partner", "geo-block-default", "ratelimit-global"}) {
+		t.Errorf("support-chat onRequestHeaders = %q", got)
+	}
+	for _, p := range []phase.Phase{phase.OnRequestBody, phase.OnChunk, phase.OnLog} {
+		if got := names(chat.Client[p]); !slices.Equal(got, []string{"token-budget-partner"}) {
+			t.Errorf("support-chat %s = %q, want [token-budget-partner]", p, got)
+		}
+	}
+	if want := []hub.Removed{{Policy: "jwt-default", Slot: "auth", By: "apikey-partner", Reason: hub.Replaced}}; !slices.Equal(chat.Removed, want) {
+		t.Errorf("support-chat Removed = %+v, want %+v", chat.Removed, want)
+	}
+	if e := chat.Client[phase.OnRequestHeaders][1]; e.Replaces != "jwt-default" || e.Slot != "auth" || e.Scope != phase.ScopeRoute || e.Position != 0 {
+		t.Errorf("apikey-partner entry = %+v", e)
+	}
+	if len(chat.Legs) != 1 || chat.Legs[0].Upstream != "llm" {
+		t.Errorf("support-chat legs = %+v, want [llm]", chat.Legs)
+	}
+
+	cart := chains["cart-grpc"]
+	if got := names(cart.Client[phase.OnRequestHeaders]); !slices.Equal(got, []string{"jwt-default", "geo-block-default", "ratelimit-global"}) {
+		t.Errorf("cart-grpc onRequestHeaders = %q", got)
+	}
+	if got := names(cart.Client[phase.OnResponse]); !slices.Equal(got, []string{"headers-security"}) {
+		t.Errorf("cart-grpc onResponse = %q, want [headers-security]", got)
+	}
+	if want := []hub.Removed{{Policy: "cors-default", Slot: "cors", Reason: hub.Excluded}}; !slices.Equal(cart.Removed, want) {
+		t.Errorf("cart-grpc Removed = %+v, want %+v", cart.Removed, want)
+	}
+
+	// The orders-summary legs follow the composition steps.
+	orders := chains["orders-summary"]
+	var legs []string
+	for _, l := range orders.Legs {
+		legs = append(legs, l.Upstream)
+	}
+	if !slices.Equal(legs, []string{"orders", "inventory"}) {
+		t.Errorf("orders-summary legs = %q, want [orders inventory]", legs)
+	}
+	// Entry fields the data plane and stage J read.
+	geo := orders.Client[phase.OnRequestHeaders][2]
+	if geo.Policy != "geo-block-default" || geo.Class != phase.ClassAuthz || geo.Scope != phase.ScopeGateway || geo.Position != 4 ||
+		geo.FirstPhase() != phase.OnRequestHeaders || geo.Ref.File != "ruralz.yaml" || geo.Ref.Line != 47 || geo.Ref.Column != 7 {
+		t.Errorf("geo-block-default entry = %+v", geo)
+	}
+	if hs := orders.Client[phase.OnResponse][0]; hs.Policy != "headers-security" || hs.Overridable || hs.FirstPhase() != phase.OnResponse {
+		t.Errorf("headers-security entry = %+v", hs)
+	}
+}
+
+// TestShopBundleGolden checks the text and JSON effective tables of every
+// example Route, reason templates included, against those the golden
+// corpus pins for the entry's render without --env (effective/-/), which
+// reads the base files alone: the corpus holds the tables of every Route
+// and of no other.
+func TestShopBundleGolden(t *testing.T) {
+	b, files := loadShop(t)
+	chains, ds := stageI(t, b, files, 2)
+	if len(ds) > 0 {
+		t.Fatalf("example Bundle: unexpected diagnostics:\n%s", diagText(t, ds))
+	}
+	l := shopLevel(t)
+	const dir = "effective/-/"
+	var pinned []string
+	for _, f := range l.Files {
+		if route, ok := strings.CutPrefix(f.Name, dir); ok && strings.HasSuffix(route, ".txt") {
+			pinned = append(pinned, strings.TrimSuffix(route, ".txt"))
+		}
+	}
+	var routes []string
+	for route := range chains {
+		routes = append(routes, route)
+	}
+	slices.Sort(routes)
+	if !slices.Equal(pinned, routes) {
+		t.Fatalf("the corpus pins the effective tables of %q, the example Bundle has the Routes %q", pinned, routes)
+	}
+	for _, route := range routes {
+		rows := mustNew(t, nil, Options{}).Rows(chains[route], b)
+		for ext, got := range map[string]string{".txt": table(t, rows), ".json": rowsJSON(t, rows)} {
+			want, ok := l.File(dir + route + ext)
+			if !ok {
+				t.Fatalf("%s/%s%s%s is missing", shopEntry, dir, route, ext)
+			}
+			if got != string(want) {
+				t.Errorf("%s%s%s differs from the golden corpus\n--- got\n%s--- want\n%s", dir, route, ext, got, want)
+			}
+		}
+	}
+}
+
+// TestShopBaseFiles holds the files shopLayer names the example Bundle's
+// base to what the pipeline reads: they hold the resources of the
+// Revision of the corpus entry's render without --env, which reads the
+// base files alone, so no file a render leaves out is loaded and none it
+// reads is missing.
+func TestShopBaseFiles(t *testing.T) {
+	content, ok := shopLevel(t).Canonical["-"]
+	if !ok {
+		t.Fatalf("%s has no canonical form of the render without --env", shopEntry)
+	}
+	var doc struct {
+		Resources []struct {
+			Kind     string `json:"kind"`
+			Metadata struct {
+				Name string `json:"name"`
+			} `json:"metadata"`
+		} `json:"resources"`
+	}
+	if err := json.Unmarshal(content, &doc); err != nil {
+		t.Fatal(err)
+	}
+	var want []string
+	for _, r := range doc.Resources {
+		want = append(want, r.Kind+"/"+r.Metadata.Name)
+	}
+	slices.Sort(want)
+	b, _ := loadShop(t)
+	var got []string
+	for _, r := range b.Resources() {
+		got = append(got, r.String())
+	}
+	slices.Sort(got)
+	if len(want) == 0 || !slices.Equal(got, want) {
+		t.Errorf("the base files hold\n%q\nthe render without --env holds\n%q", got, want)
+	}
+}
+
+func names(es []hub.Entry) []string {
+	out := make([]string, len(es))
+	for i, e := range es {
+		out[i] = e.Policy
+	}
+	return out
+}

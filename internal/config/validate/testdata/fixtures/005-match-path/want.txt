@@ -1,0 +1,5 @@
+extra.yaml:7:19 error RZ-CFG-005 Route/path-exact spec.match.path.exact: path "orders" does not begin with /
+extra.yaml:17:19 error RZ-CFG-005 Route/path-empty spec.match.path.exact: path "" does not begin with /
+extra.yaml:27:22 error RZ-CFG-005 Route/path-template spec.match.path.template: path template "/v1/{id}/{id}" names parameter "id" twice
+extra.yaml:37:19 error RZ-CFG-005 Route/path-regex spec.match.path.regex: invalid RE2 expression: missing closing ): "/v1/(orders"
+extra.yaml:47:19 error RZ-CFG-005 Route/path-regex-empty spec.match.path.regex: match.path.regex is empty

@@ -1,0 +1,1 @@
+extra.yaml:10:5 error RZ-CFG-005 Upstream/billing spec.tls.clientCertificate: clientKey is set without clientCertificate: a client certificate needs its key, and the key its certificate

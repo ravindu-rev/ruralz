@@ -1,0 +1,486 @@
+[
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Gateway",
+    "metadata": {
+      "name": "edge",
+      "labels": {
+        "team": "platform"
+      }
+    },
+    "spec": {
+      "listeners": [
+        {
+          "name": "http",
+          "protocol": "http",
+          "port": 8080
+        },
+        {
+          "name": "https",
+          "protocol": "https",
+          "port": 8443,
+          "hostnames": [
+            "api.shop.example"
+          ],
+          "tls": {
+            "minVersion": "1.3",
+            "certificates": [
+              {
+                "name": "api-shop",
+                "certificate": {
+                  "secretRef": {
+                    "provider": "file",
+                    "name": "/etc/ruralz/tls/tls.crt"
+                  }
+                },
+                "privateKey": {
+                  "secretRef": {
+                    "provider": "file",
+                    "name": "/etc/ruralz/tls/tls.key"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "trustedProxies": [
+        "10.0.0.0/8"
+      ],
+      "admin": {
+        "port": 9901
+      },
+      "telemetry": {
+        "otlp": {
+          "endpoint": "https://otel-collector.observability:4317"
+        },
+        "traceSampling": 0.05,
+        "accessLog": {
+          "when": "response.status >= 400 || duration > duration(\"1s\")"
+        }
+      },
+      "limits": {
+        "maxRequestBodyBytes": "10Mi",
+        "maxRequestHeaderBytes": "64Ki"
+      },
+      "stateStore": {
+        "driver": "redis",
+        "url": {
+          "secretRef": {
+            "provider": "env",
+            "name": "RURALZ_STATE_STORE_URL"
+          }
+        },
+        "timeout": "50ms"
+      },
+      "policies": [
+        {
+          "name": "cors-default"
+        },
+        {
+          "name": "jwt-default"
+        },
+        {
+          "name": "ratelimit-global"
+        },
+        {
+          "name": "headers-security"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Upstream",
+    "metadata": {
+      "name": "inventory"
+    },
+    "spec": {
+      "protocol": "http",
+      "endpoints": [
+        {
+          "address": "inventory.shop.internal:8080"
+        }
+      ],
+      "timeout": "2s",
+      "policies": [
+        {
+          "name": "headers-internal"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Upstream",
+    "metadata": {
+      "name": "orders"
+    },
+    "spec": {
+      "protocol": "http",
+      "discovery": {
+        "type": "dns",
+        "service": "orders.shop.internal",
+        "port": 8080
+      },
+      "loadBalancing": {
+        "algorithm": "least-request"
+      },
+      "healthCheck": {
+        "active": {
+          "path": "/healthz",
+          "interval": "10s",
+          "timeout": "2s"
+        }
+      },
+      "retries": {
+        "attempts": 2,
+        "perTryTimeout": "1s",
+        "retryOn": "error != null ? error.kind in [\"connect\", \"reset\"] : response.status == 503"
+      },
+      "circuitBreaker": {
+        "consecutiveFailures": 5,
+        "openDuration": "30s"
+      },
+      "timeout": "3s",
+      "policies": [
+        {
+          "name": "upstream-oauth"
+        },
+        {
+          "name": "headers-internal"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "apikey-partner"
+    },
+    "spec": {
+      "type": "auth.api-key",
+      "config": {
+        "header": "x-api-key"
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "authz-orders"
+    },
+    "spec": {
+      "type": "authz.cel",
+      "config": {
+        "rule": "auth.claims.scope.split(\" \").exists(s, s == \"orders:read\")"
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "cors-default"
+    },
+    "spec": {
+      "type": "cors",
+      "config": {
+        "allowOrigins": [
+          "https://shop.example"
+        ],
+        "allowMethods": [
+          "GET",
+          "POST"
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "cors-partner"
+    },
+    "spec": {
+      "type": "cors",
+      "config": {
+        "allowOrigins": [
+          "https://portal.acme.example"
+        ],
+        "allowMethods": [
+          "GET"
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "headers-internal"
+    },
+    "spec": {
+      "type": "headers",
+      "config": {
+        "request": {
+          "set": [
+            {
+              "name": "x-shop-consumer",
+              "valueExpression": "consumer == null ? \"anonymous\" : consumer.name"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "headers-security"
+    },
+    "spec": {
+      "type": "headers",
+      "overridable": false,
+      "config": {
+        "response": {
+          "set": [
+            {
+              "name": "strict-transport-security",
+              "value": "max-age=31536000"
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "jwt-default"
+    },
+    "spec": {
+      "type": "auth.jwt",
+      "config": {
+        "issuers": [
+          {
+            "issuer": "https://auth.shop.example",
+            "jwksUrl": "https://auth.shop.example/.well-known/jwks.json",
+            "audiences": [
+              "shop-api"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "quota-partner"
+    },
+    "spec": {
+      "type": "quota",
+      "config": {
+        "consumerQuota": "daily-requests"
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "ratelimit-global"
+    },
+    "spec": {
+      "type": "ratelimit",
+      "overridable": false,
+      "failureMode": "open",
+      "config": {
+        "key": "source.ip",
+        "limits": [
+          {
+            "requests": 1000,
+            "window": "1s"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "ratelimit-orders"
+    },
+    "spec": {
+      "type": "ratelimit",
+      "config": {
+        "key": "consumer == null ? source.ip : consumer.name",
+        "limits": [
+          {
+            "requests": 50,
+            "window": "1s"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "upstream-oauth"
+    },
+    "spec": {
+      "type": "auth.upstream-oauth2",
+      "config": {
+        "tokenUrl": "https://auth.shop.example/oauth2/token",
+        "clientId": "gateway-edge",
+        "clientSecret": {
+          "secretRef": {
+            "provider": "file",
+            "name": "/etc/ruralz/oauth/client-secret"
+          }
+        },
+        "scopes": [
+          "orders.read"
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Consumer",
+    "metadata": {
+      "name": "partner-acme",
+      "labels": {
+        "partner": "acme"
+      }
+    },
+    "spec": {
+      "tier": "gold",
+      "credentials": {
+        "apiKeys": [
+          {
+            "name": "primary",
+            "hash": "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
+          }
+        ]
+      },
+      "quotas": [
+        {
+          "name": "daily-requests",
+          "unit": "requests",
+          "limit": 100000,
+          "window": "24h"
+        }
+      ],
+      "tags": [
+        "partner",
+        "eu"
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Route",
+    "metadata": {
+      "name": "orders-summary"
+    },
+    "spec": {
+      "match": {
+        "hosts": [
+          "api.shop.example"
+        ],
+        "path": {
+          "template": "/v1/orders/{orderId}/summary"
+        },
+        "methods": [
+          "GET"
+        ]
+      },
+      "policies": [
+        {
+          "name": "cors-partner"
+        },
+        {
+          "name": "authz-orders"
+        },
+        {
+          "name": "ratelimit-orders"
+        }
+      ],
+      "composition": {
+        "mode": "aggregate",
+        "steps": [
+          {
+            "name": "order",
+            "upstream": "orders",
+            "pathExpression": "\"/orders/\" + request.pathParams.orderId",
+            "select": [
+              "id",
+              "status",
+              "total"
+            ],
+            "group": "order"
+          },
+          {
+            "name": "stock",
+            "upstream": "inventory",
+            "pathExpression": "\"/stock?order=\" + request.pathParams.orderId",
+            "target": "items",
+            "collection": true,
+            "group": "stock",
+            "optional": true
+          }
+        ]
+      },
+      "timeout": "4s"
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Route",
+    "metadata": {
+      "name": "partner-orders"
+    },
+    "spec": {
+      "match": {
+        "hosts": [
+          "api.shop.example"
+        ],
+        "path": {
+          "template": "/partner/v1/orders/{orderId}"
+        },
+        "methods": [
+          "GET"
+        ]
+      },
+      "policies": [
+        {
+          "name": "apikey-partner"
+        },
+        {
+          "name": "quota-partner"
+        }
+      ],
+      "excludePolicies": [
+        {
+          "name": "cors-default"
+        }
+      ],
+      "upstreams": [
+        {
+          "name": "orders"
+        }
+      ],
+      "timeout": "5s"
+    }
+  }
+]

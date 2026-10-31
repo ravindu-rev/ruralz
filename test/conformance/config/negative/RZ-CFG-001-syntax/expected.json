@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-001",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 27,
+    "column": 3,
+    "message": "syntax error: a line inside a flow collection must be indented more than the block collection that holds it"
+  }
+]

@@ -1,0 +1,4 @@
+code: RZ-CFG-016
+stage: C
+binaries: [ruralz, ruralzd]
+source: base

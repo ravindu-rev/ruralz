@@ -1,0 +1,1 @@
+ruralz.yaml:42:26 error RZ-CFG-014 Policy/stamp spec.config.set[0].valueExpression: CEL transform.request config.set[].valueExpression: undeclared reference to 'upstream' (transform.request config.set[].valueExpression has request, source, route, consumer, auth, now) (attached at ruralz.yaml:28:7)

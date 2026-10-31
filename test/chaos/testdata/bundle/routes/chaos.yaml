@@ -1,0 +1,123 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: plain                           # base load: no Policy
+spec:
+  match:
+    path: {prefix: /plain}
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: limited
+spec:
+  match:
+    path: {prefix: /limited}
+  policies:
+    - name: apikey-chaos
+    - name: ratelimit-limited           # declared perNodeCeiling, fails open
+    - name: quota-chaos
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: limited-closed
+spec:
+  match:
+    path: {prefix: /limited-closed}
+  policies:
+    - name: apikey-chaos
+    - name: ratelimit-limited-closed    # RZ-STS in M1, in place of Token Budgets
+    - name: quota-chaos-closed
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: refunded
+spec:
+  match:
+    path: {prefix: /refunded}
+  policies:
+    - name: apikey-chaos
+    - name: quota-chaos                 # charged, then refunded at onLog
+    - name: validation-refund
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: undeclared
+spec:
+  match:
+    path: {prefix: /undeclared}
+  policies:
+    - name: ratelimit-undeclared        # the file-mode fail-open bound
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: cached
+spec:
+  match:
+    path: {prefix: /cached}
+  policies:
+    - name: cache-chaos                 # unsafe methods invalidate
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hot
+spec:
+  match:
+    path: {prefix: /hot}
+  policies:
+    - name: ratelimit-hot
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hot-local
+spec:
+  match:
+    path: {prefix: /hot-local}
+  policies:
+    - name: ratelimit-hot-local
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: cotenant
+spec:
+  match:
+    path: {prefix: /cotenant}
+  policies:
+    - name: ratelimit-cotenant
+  upstreams:
+    - name: chaos-backend
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: flood
+spec:
+  match:
+    path: {prefix: /flood}
+  policies:
+    - name: ratelimit-flood
+  upstreams:
+    - name: chaos-backend

@@ -1,0 +1,1 @@
+ruralz.yaml:12:7 error RZ-CFG-017 Environment/prod kind: an Environment lives outside the Bundle; the CLI reads it from an --environments file

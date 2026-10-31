@@ -1,0 +1,23 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-29cbe1b822d9",
+    "digest": "sha256:29cbe1b822d9c03ef57e9d4468a94ce5b7a0432242e95e1e72f6ea305631a4f2"
+  },
+  "to": {
+    "revision": "rev-29cbe1b822d9",
+    "bundle": "./quickstart",
+    "digest": "sha256:29cbe1b822d9c03ef57e9d4468a94ce5b7a0432242e95e1e72f6ea305631a4f2"
+  },
+  "environment": "staging",
+  "resources": [],
+  "effective": [],
+  "summary": {
+    "changed": 0,
+    "added": 0,
+    "removed": 0,
+    "modified": 0,
+    "routeChainsChanged": 0,
+    "impact": []
+  }
+}

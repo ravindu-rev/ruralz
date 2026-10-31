@@ -1,0 +1,21 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: stamp-status
+spec:
+  type: headers
+  config:
+    request:
+      set:
+        - name: x-status
+          valueExpression: string(response.status)

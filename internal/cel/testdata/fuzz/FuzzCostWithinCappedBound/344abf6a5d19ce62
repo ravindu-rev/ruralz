@@ -1,0 +1,5 @@
+go test fuzz v1
+string("(auth.claims.A)")
+byte('\x11')
+byte('U')
+[]byte("0")

@@ -1,0 +1,22 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: step-groups
+spec:
+  match:
+    path: {prefix: /step-groups}
+  composition:
+    mode: aggregate
+    steps:
+      - name: empty-group
+        upstream: orders
+        path: /a
+        target: items
+        collection: true
+        group: ""
+      - name: named-group
+        upstream: orders
+        path: /b
+        target: items
+        collection: true
+        group: items

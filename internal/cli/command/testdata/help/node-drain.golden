@@ -1,0 +1,8 @@
+Usage: ruralz node drain [FLAGS]
+
+Drain the local ruralzd.
+
+Flags:
+  --data-dir PATH     Data directory (default $RURALZ_DATA_DIR, else /var/lib/ruralz)
+  --help              Print this help
+  --timeout DURATION  How long to await the exit (default 5m)

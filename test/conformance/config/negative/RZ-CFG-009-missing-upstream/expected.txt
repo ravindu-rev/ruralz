@@ -1,0 +1,1 @@
+ruralz.yaml:28:13 error RZ-CFG-009 Route/stock spec.upstreams[name=inventroy].name: Upstream "inventroy" not found (did you mean "inventory"?)

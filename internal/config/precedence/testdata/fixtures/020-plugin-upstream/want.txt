@@ -1,0 +1,1 @@
+upstreams.yaml:10:7 error RZ-CFG-020 Upstream/orders spec.policies[name=plugin-response]: Plugin "responder" Phases [onResponse] are not allowed at Upstream scope

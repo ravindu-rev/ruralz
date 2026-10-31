@@ -1,0 +1,42 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+  policies:
+    - name: jwt-default
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-default
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://auth.shop.example
+        jwksUrl: https://auth.shop.example/.well-known/jwks.json
+        audiences: [shop-api]

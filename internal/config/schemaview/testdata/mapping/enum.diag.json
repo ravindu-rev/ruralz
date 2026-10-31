@@ -1,0 +1,36 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/enum.json",
+    "line": 6,
+    "column": 13,
+    "resource": {
+      "kind": "Policy",
+      "name": "limit"
+    },
+    "path": [
+      "spec",
+      "type"
+    ],
+    "message": "is not one of the 23 allowed values",
+    "hint": "did you mean \"ratelimit\"?"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/enum.json",
+    "line": 7,
+    "column": 20,
+    "resource": {
+      "kind": "Policy",
+      "name": "limit"
+    },
+    "path": [
+      "spec",
+      "failureMode"
+    ],
+    "message": "must be one of \"open\", \"closed\"",
+    "hint": "did you mean \"open\"?"
+  }
+]

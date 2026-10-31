@@ -1,0 +1,103 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# The air-gapped start project of the Compose suite
+# (docs/engineering/03-testing-and-quality-strategy.md "Compose suite"):
+# on a network created internal, the image boots the quickstart Bundle,
+# /readyz turns 200 and a probe client container on that network gets the
+# proxied 200, while the DNS sink, the Node's only resolver, records no
+# lookup of a name outside the network. Nothing is published: the probe
+# runs every check from inside the network and prints a report. The mock
+# Upstream service owns the network namespace the ruralzd container joins
+# and runs the DNS sink, which the Node's resolv.conf names on loopback.
+#
+#   RURALZ_COMPOSE_IMAGE       the ruralzd image under test
+#   RURALZ_COMPOSE_MOCK_IMAGE  the suite's mock image
+#   RURALZ_COMPOSE_RUN         the test's directory: bundle/, admin/ and
+#                              mock/ as in quickstart.compose.yaml, probe/
+#                              (ca.crt, the admin CA) and resolv.conf
+
+services:
+  upstream:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    command: [serve, -upstream, "127.0.0.1:9000", -upstream-routes, /etc/mock/routes.json, -dns, "0.0.0.0:53", -control, "0.0.0.0:9100"]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      # The DNS sink binds port 53 without a capability.
+      net.ipv4.ip_unprivileged_port_start: "0"
+    networks: [airgap]
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/mock
+        target: /etc/mock
+        read_only: true
+
+  ruralzd:
+    image: ${RURALZ_COMPOSE_IMAGE:?the ruralzd image under test}
+    network_mode: service:upstream
+    depends_on: [upstream]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 40s
+    environment:
+      RURALZ_CONFIG: /etc/ruralz-bundle
+      RURALZ_FETCH_ALLOW: "127.0.0.1"
+      RURALZ_ADMIN_TLS_DIR: /run/ruralz-admin/tls
+      RURALZ_ADMIN_TOKEN_FILE: /run/ruralz-admin/token
+    volumes:
+      - data:/var/lib/ruralz
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/bundle
+        target: /etc/ruralz-bundle
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/admin
+        target: /run/ruralz-admin
+        read_only: true
+      # nameserver 127.0.0.1: the DNS sink in the shared network namespace.
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/resolv.conf
+        target: /etc/resolv.conf
+        read_only: true
+
+  probe:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    profiles: [probe]
+    command:
+      - probe
+      - -ca
+      - /etc/probe/ca.crt
+      - -ready
+      - https://upstream:9901/readyz
+      - -get
+      - http://upstream:8080/
+      - -sink-check
+      - upstream:53
+      - -sink-check-name
+      - rz-sink-check.invalid.
+      - -dns-log
+      - http://upstream:9100/dns
+      - -timeout
+      - 90s
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks: [airgap]
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/probe
+        target: /etc/probe
+        read_only: true
+
+networks:
+  airgap:
+    internal: true
+
+volumes:
+  data: {}

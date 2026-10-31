@@ -1,0 +1,1 @@
+ruralz.yaml:7:7 error RZ-CFG-003: merge keys (<<) are not allowed

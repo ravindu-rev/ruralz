@@ -1,0 +1,322 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# release-verify: the verification of step 4 of CI stage 12
+# (docs/engineering/04-release-versioning-and-compatibility.md, "Release
+# artifacts" and "Release pipeline"; SM-12).
+#   Assets    On a runner that holds only the release's assets (the
+#             release run's artifact before publish, the published
+#             release otherwise) and cosign, it runs the exact
+#             verification commands NOTES.md prints, cosign 3.x's (the
+#             blocks passing --new-bundle-format are the 2.x variants),
+#             then checks every checksum, signature and attestation:
+#             SHA256SUMS over every file, the provenance and SBOM
+#             attestations of every archive, and the image's signature and
+#             attestations.
+#   Rebuild   On a second runner, ubuntu-24.04-arm, it rebuilds the tag
+#             with make release-dry-run from the release's benchmark
+#             records (and, in a release run, its skipped-gates file), and
+#             fails unless every archive, schema file and
+#             release-manifest.json matches the release's SHA256SUMS and
+#             the rebuilt image is the pushed index digest.
+# release.yml calls it before publishing, with the release directory's
+# artifact and the records and skipped-gates artifacts of its run, and
+# grants contents: read, packages: read, attestations: read, actions: read
+# and issues: write. It also runs on demand for any release tag and every
+# Monday for the newest release of each supported line (N, N-1 and N-2);
+# a failed scheduled run opens or updates a nightly-failure issue, which
+# blocks the next release.
+name: release-verify
+
+on:
+  schedule:
+    - cron: "29 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: The release or candidate tag to verify, vX.Y.Z or vX.Y.Z-rc.N
+        type: string
+        required: true
+  workflow_call:
+    inputs:
+      tag:
+        description: The release or candidate tag the calling run builds
+        type: string
+        required: true
+      release-artifact:
+        description: Artifact of the calling run that holds the release directory
+        type: string
+        required: true
+      bench-artifacts:
+        description: Name pattern of the calling run's artifacts holding the Latency and soak records
+        type: string
+        required: true
+      skipped-artifact:
+        description: Artifact of the calling run holding the ruralz.skippedgates.v1 file
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-verify-${{ inputs.tag || github.event_name }}
+  cancel-in-progress: false
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  tags:
+    name: Release tags
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      tags: ${{ steps.tags.outputs.tags }}
+    steps:
+      - if: github.event_name == 'schedule'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: github.event_name == 'schedule'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - id: tags
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [[ "$EVENT" == schedule ]]; then
+            tags=$(go run ./internal/tool/releasegate lines)
+          else
+            # The tag is a free-form input: allow only a release or
+            # candidate tag, so it reaches no shell or tool as anything
+            # else.
+            if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+              echo "::error title=Invalid tag::tag must be vX.Y.Z or vX.Y.Z-rc.N"
+              exit 2
+            fi
+            tags="[\"$TAG\"]"
+          fi
+          echo "tags=$tags" >>"$GITHUB_OUTPUT"
+          echo "release tags to verify: $tags"
+
+  assets:
+    name: Verify assets (${{ matrix.tag }})
+    needs: tags
+    if: needs.tags.outputs.tags != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.tags.outputs.tags) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+      actions: read
+    env:
+      TAG: ${{ matrix.tag }}
+    steps:
+      - name: The pinned cosign installer, and nothing else of the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: installer
+          sparse-checkout: |
+            /scripts/install-tools.sh
+          sparse-checkout-cone-mode: false
+      - name: Install cosign, then drop the checkout
+        run: |
+          TOOLS_BIN="$RUNNER_TEMP/tools" bash installer/scripts/install-tools.sh cosign
+          rm -rf installer
+          echo "$RUNNER_TEMP/tools" >>"$GITHUB_PATH"
+      - name: The release run's assets
+        if: inputs.release-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.release-artifact }}
+          path: ${{ runner.temp }}/assets
+      - name: The published release's assets
+        if: inputs.release-artifact == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: gh release download "$TAG" --repo "$REPO" --dir "$RUNNER_TEMP/assets"
+      - name: Sign in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: The verification commands NOTES.md prints
+        working-directory: ${{ runner.temp }}/assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # The sh blocks of the Verification section, unindented; the
+          # blocks passing --new-bundle-format are the cosign 2.x variants.
+          awk '
+            /^## / { section = ($0 == "## Verification") }
+            section && /^   ```sh$/ { block = ""; inside = 1; next }
+            section && inside && /^   ```$/ { inside = 0; if (block !~ /--new-bundle-format/) printf "%s", block; next }
+            section && inside { sub(/^   /, ""); block = block $0 "\n" }
+          ' NOTES.md >"$RUNNER_TEMP/verify.sh"
+          if ! grep -q '^cosign verify-blob SHA256SUMS' "$RUNNER_TEMP/verify.sh"; then
+            echo "::error title=No verification commands::NOTES.md prints no cosign verify-blob command"
+            exit 1
+          fi
+          cat "$RUNNER_TEMP/verify.sh"
+          bash -euo pipefail "$RUNNER_TEMP/verify.sh"
+      - name: Every checksum, signature and attestation
+        working-directory: ${{ runner.temp }}/assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          signer="https://github.com/$REPO/.github/workflows/release-build.yml@refs/tags/$TAG"
+          issuer=https://token.actions.githubusercontent.com
+          workflow="$REPO/.github/workflows/release-build.yml"
+          # Every file but SHA256SUMS and its bundle is listed, and matches.
+          sha256sum --strict -c SHA256SUMS
+          listed=$(cut -d' ' -f3- SHA256SUMS | sort)
+          present=$(find . -maxdepth 1 -type f ! -name SHA256SUMS ! -name SHA256SUMS.sigstore.json -printf '%f\n' | sort)
+          if [[ "$listed" != "$present" ]]; then
+            echo "::error title=Unlisted assets::SHA256SUMS does not list exactly the release's other files"
+            diff <(echo "$listed") <(echo "$present") || true
+            exit 1
+          fi
+          cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+            --certificate-identity "$signer" --certificate-oidc-issuer "$issuer"
+          jq -r '.archives[].name' release-manifest.json | while read -r archive; do
+            gh attestation verify "$archive" --repo "$REPO" --signer-workflow "$workflow"
+            gh attestation verify "$archive" --repo "$REPO" --signer-workflow "$workflow" --predicate-type https://cyclonedx.org/bom
+          done
+          jq -r '.images[] | select(.digest != "") | .repository + "@" + .digest' release-manifest.json | while read -r ref; do
+            cosign verify "$ref" --certificate-identity "$signer" --certificate-oidc-issuer "$issuer" >/dev/null
+            gh attestation verify "oci://$ref" --repo "$REPO" --signer-workflow "$workflow"
+            gh attestation verify "oci://$ref" --repo "$REPO" --signer-workflow "$workflow" --predicate-type https://cyclonedx.org/bom
+          done
+
+  rebuild:
+    name: Rebuild (${{ matrix.tag }})
+    needs: tags
+    if: needs.tags.outputs.tags != '[]'
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: ${{ fromJSON(needs.tags.outputs.tags) }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read
+    env:
+      TAG: ${{ matrix.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ matrix.tag }}
+          # Tags and history give the version, the commit time and the
+          # notes' range.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: The release run's assets
+        if: inputs.release-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.release-artifact }}
+          path: ${{ runner.temp }}/release
+      - name: The release run's Latency and soak records
+        if: inputs.release-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.bench-artifacts }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/bench
+      - name: The release run's skipped gates
+        if: inputs.release-artifact != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.skipped-artifact }}
+          path: ${{ runner.temp }}/skipped
+      - name: The published release's assets and records
+        if: inputs.release-artifact == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh release download "$TAG" --repo "$REPO" --dir "$RUNNER_TEMP/release"
+          mkdir -p "$RUNNER_TEMP/bench"
+          tar -xzf "$RUNNER_TEMP/release/ruralz_${TAG#v}_bench.tar.gz" -C "$RUNNER_TEMP/bench"
+      - name: Rebuild the tag
+        run: |
+          skipped=
+          if [[ -f "$RUNNER_TEMP/skipped/skipped-gates.json" ]]; then skipped="$RUNNER_TEMP/skipped/skipped-gates.json"; fi
+          make release-dry-run BENCH_RECORDS="$RUNNER_TEMP/bench" SKIPPED_GATES="$skipped"
+      - name: The rebuild matches the release
+        run: |
+          # Every archive, schema file and release-manifest.json the
+          # release's SHA256SUMS lists must be rebuilt byte for byte; the
+          # manifest holds the image digests, and the rebuilt layout's
+          # index must be the pushed one.
+          grep -E '  (.*\.(tar\.gz|zip|schema\.json)|release-manifest\.json)$' "$RUNNER_TEMP/release/SHA256SUMS" >"$RUNNER_TEMP/compare.sums"
+          (cd dist/release && sha256sum --strict -c "$RUNNER_TEMP/compare.sums")
+          pushed=$(jq -r '.images[0].digest' "$RUNNER_TEMP/release/release-manifest.json")
+          rebuilt=$(go run ./internal/tool/releasekit image -dir dist/image)
+          if [[ "$pushed" != "$rebuilt" ]]; then
+            echo "::error title=Image not reproduced::the rebuilt image index is $rebuilt, the pushed one $pushed"
+            exit 1
+          fi
+          echo "rebuilt $(wc -l <"$RUNNER_TEMP/compare.sums") files and the image index $rebuilt byte for byte"
+
+  issues:
+    name: Release verify issues
+    needs: [tags, assets, rebuild]
+    # Scheduled runs of this workflow only: under release.yml
+    # (workflow_call) the github context, and so github.workflow, is the
+    # caller's, and the release run reports its own failures; an on-demand
+    # run is watched by whoever started it.
+    if: failure() && github.workflow == 'release-verify' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+
+          # upsert <title> <body file>: comment on the open nightly-failure
+          # issue with this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$1\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$2"
+            else
+              gh issue create --label nightly-failure --title "$1" --body-file "$2"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r job; do
+              printf 'The scheduled release-verify job "%s" failed in %s (commit %s). A release-verify failure blocks the next release.\n' \
+                "$job" "$RUN_URL" "$SHA" >"$body"
+              upsert "nightly failure: release-verify $job" "$body"
+            done

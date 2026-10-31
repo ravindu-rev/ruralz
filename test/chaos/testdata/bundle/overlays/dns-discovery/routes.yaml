@@ -1,0 +1,19 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: discovered-a
+spec:
+  match:
+    path: {prefix: /discovered-a}
+  upstreams:
+    - name: discovered-a
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: discovered-srv
+spec:
+  match:
+    path: {prefix: /discovered-srv}
+  upstreams:
+    - name: discovered-srv

@@ -1,0 +1,1 @@
+ruralz.yaml:28:19 error RZ-CFG-035 Consumer/gamma spec.credentials.basic[username=batch].username: basic username "batch" is already declared by Consumer "beta" (declared in ruralz.yaml:18:19)

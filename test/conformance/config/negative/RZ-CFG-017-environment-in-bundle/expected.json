@@ -1,0 +1,17 @@
+[
+  {
+    "code": "RZ-CFG-017",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 7,
+    "resource": {
+      "kind": "Environment",
+      "name": "prod"
+    },
+    "path": [
+      "kind"
+    ],
+    "message": "an Environment lives outside the Bundle; the CLI reads it from an --environments file"
+  }
+]

@@ -1,0 +1,7 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  stateStore:
+    tls: null                           # a State Store behind the counting RESP proxy runs without TLS

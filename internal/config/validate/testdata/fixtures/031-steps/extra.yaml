@@ -1,0 +1,19 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: three
+spec:
+  match:
+    path: {prefix: /three}
+  composition:
+    mode: sequential
+    steps:
+      - name: s01
+        upstream: orders
+        path: /p1
+      - name: s02
+        upstream: orders
+        path: /p2
+      - name: s03
+        upstream: orders
+        path: /p3

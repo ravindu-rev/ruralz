@@ -1,0 +1,62 @@
+# S5x, a cross-zone State Store: S5 through the Ruralz fault proxy, which
+# adds 500 µs ± 100 µs of normal delay each way on RH-1S (target), with
+# ratelimit-bench's stateStoreTimeout at 10 ms, five times PB-14 (target)
+# (docs/architecture/12-performance-budgets-and-benchmarking.md
+# "Scenarios"). Each profile's overlay maps the fault proxy's host to
+# lab-b, so calls count as zone="cross" (PB-14).
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: redis
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+  policies:
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:
+    maxConnections: 65536
+    maxPendingRequests: 1024
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  stateStoreTimeout: 10ms          # (target)
+  config:
+    key: 'request.headers["x-bench-key"]'   # the generator cycles 100,000 values uniformly (target)
+    limits: [{requests: 20000, window: 1s}] # under 25,000/s per key (target); never denies at the offered rate

@@ -1,0 +1,80 @@
+# S3, HTTP/2 over TLS 1.3: the S2 Bundle with an https listener on 8443
+# (docs/architecture/12-performance-budgets-and-benchmarking.md
+# "Scenarios"). loadgen offers S2's requests on 64 connections of up to 64
+# streams; each profile's overlay names the run's ECDSA P-256 listener
+# certificate under its fixed secret root.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+    - name: https
+      protocol: https
+      port: 8443
+      tls:
+        certificates:
+          - name: bench
+            certificate: {secretRef: {provider: file, name: /etc/ruralz/bench/listener.crt}}
+            privateKey: {secretRef: {provider: file, name: /etc/ruralz/bench/listener.key}}
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: memory
+  policies:
+    - name: jwt-bench
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:
+    maxConnections: 65536
+    maxPendingRequests: 1024
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example/.well-known/jwks.json
+        audiences: [bench]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  config:
+    key: 'request.headers["x-bench-key"]'
+    limits: [{requests: 20000, window: 1s}]

@@ -1,0 +1,20 @@
+[
+  {
+    "code": "RZ-CFG-011",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 27,
+    "column": 11,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "when"
+    ],
+    "message": "substitution is not allowed in a CEL expression",
+    "hint": "write $${ for a literal ${"
+  }
+]

@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  stateStore:
+    # GD-5: a URL from the process environment changes only with a restart.
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+    tls: null

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-021",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 16,
+    "column": 10,
+    "resource": {
+      "kind": "Plugin",
+      "name": "geo-block"
+    },
+    "path": [
+      "spec",
+      "image"
+    ],
+    "message": "Plugin image \"ghcr.io/acme/ruralz-plugins/geo-block:1.4.0\" has no @sha256: digest",
+    "hint": "pin the artifact by digest, as in <repository>:<tag>@sha256:<64 hex>"
+  }
+]

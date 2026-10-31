@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "cache"},
+  "spec": {
+    "type": "cache",
+    "config": {"futureField": 600}
+  }
+}

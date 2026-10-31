@@ -1,0 +1,1 @@
+policies.yaml:20:20 error RZ-CFG-009 Policy/quota-daily spec.config.consumerQuota: no Consumer defines quota "daily-tokens" with unit requests (Consumer "acme" defines "daily-tokens" with unit tokens) (defined in consumers.yaml:17:7)

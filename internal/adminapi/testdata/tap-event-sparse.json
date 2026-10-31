@@ -1,0 +1,1 @@
+{"time":"2026-09-26T12:00:01Z","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","listener":"public","protocol":"http1","route":"_unmatched","method":"POST","host":"api.example","path":"/nowhere","status":404,"durationMs":0.05,"requestBytes":12,"responseBytes":110}

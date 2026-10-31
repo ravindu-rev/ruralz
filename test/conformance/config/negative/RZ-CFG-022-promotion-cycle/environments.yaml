@@ -1,0 +1,15 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: staging
+spec:
+  promotion:
+    from: prod
+---
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: prod
+spec:
+  promotion:
+    from: staging

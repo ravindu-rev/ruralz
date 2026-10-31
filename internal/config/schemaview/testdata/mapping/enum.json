@@ -1,0 +1,10 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "limit"},
+  "spec": {
+    "type": "rateLimit",
+    "failureMode": "Open",
+    "config": {}
+  }
+}

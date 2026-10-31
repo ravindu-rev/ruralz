@@ -1,0 +1,1 @@
+gateway.yaml:2:7 error RZ-CFG-016 Gateway/edge kind: a Gateway is declared only in ruralz.yaml, the Bundle root

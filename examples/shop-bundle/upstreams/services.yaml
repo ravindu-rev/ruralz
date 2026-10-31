@@ -1,0 +1,59 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  discovery:                            # EndpointSlices of Service shop/orders
+    type: kubernetes
+    service: orders
+    namespace: shop
+    port: http
+  loadBalancing: {algorithm: least-request}
+  healthCheck:
+    active: {path: /healthz, interval: 10s, timeout: 2s}
+  retries:
+    attempts: 2
+    perTryTimeout: 1s
+    retryOn: 'error != null ? error.kind in ["connect", "reset"] : response.status == 503'
+  circuitBreaker: {consecutiveFailures: 5, openDuration: 30s}
+  timeout: 3s
+  policies:                             # upstream leg only
+    - name: upstream-oauth
+    - name: headers-internal
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: inventory
+spec:
+  protocol: http
+  endpoints:
+    - address: "inventory.shop.svc:8080"
+  timeout: 2s
+  policies:
+    - name: headers-internal
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: cart
+spec:
+  protocol: grpc
+  endpoints:
+    - address: "cart.shop.svc:9000"
+  tls:
+    sni: cart.shop.svc
+    caCertificate: {secretRef: {provider: file, name: /etc/ruralz/ca/ca.crt}}
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: llm
+spec:
+  protocol: ai
+  ai:
+    surface: openai                     # OpenAI-compatible facade
+    models:
+      - name: support-chat              # the AIModel clients may request

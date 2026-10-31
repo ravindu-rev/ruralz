@@ -1,0 +1,91 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Gateway",
+  "metadata": {
+    "name": "edge",
+    "labels": {
+      "team": "platform"
+    }
+  },
+  "spec": {
+    "listeners": [
+      {
+        "name": "http",
+        "protocol": "http",
+        "port": 8080
+      },
+      {
+        "name": "https",
+        "protocol": "https",
+        "port": 8443,
+        "http3": true,
+        "hostnames": [
+          "api.shop.example"
+        ],
+        "tls": {
+          "minVersion": "1.3",
+          "certificates": [
+            {
+              "name": "api-shop",
+              "certificate": {
+                "secretRef": {
+                  "provider": "file",
+                  "name": "/etc/ruralz/tls/tls.crt"
+                }
+              },
+              "privateKey": {
+                "secretRef": {
+                  "provider": "file",
+                  "name": "/etc/ruralz/tls/tls.key"
+                }
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "admin": {
+      "port": 9901
+    },
+    "telemetry": {
+      "otlp": {
+        "endpoint": "${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector:4317}"
+      },
+      "traceSampling": 0.05,
+      "accessLog": {
+        "when": "response.status >= 400 || duration > duration(\"1s\")"
+      }
+    },
+    "limits": {
+      "maxRequestBodyBytes": "10Mi",
+      "maxRequestHeaderBytes": "64Ki"
+    },
+    "stateStore": {
+      "driver": "redis",
+      "url": {
+        "secretRef": {
+          "provider": "env",
+          "name": "RURALZ_STATE_STORE_URL"
+        }
+      },
+      "timeout": "50ms"
+    },
+    "policies": [
+      {
+        "name": "cors-default"
+      },
+      {
+        "name": "jwt-default"
+      },
+      {
+        "name": "ratelimit-global"
+      },
+      {
+        "name": "headers-security"
+      },
+      {
+        "name": "geo-block-default"
+      }
+    ]
+  }
+}

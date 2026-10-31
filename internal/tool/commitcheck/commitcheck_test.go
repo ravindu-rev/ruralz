@@ -64,10 +64,20 @@ func TestCheckDCO(t *testing.T) {
 		{hash: "b2", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "missing"},
 		{hash: "c3", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "other person", signoffs: []string{"John Roe <john@example.com>"}},
 		{hash: "d4", authorName: "Jane Doe", authorEmail: "jane@example.com", subject: "two", signoffs: []string{"John Roe <john@example.com>", "Jane Doe <jane@example.com>"}},
+		{hash: "e5", authorName: "dependabot[bot]", authorEmail: "49699333+dependabot[bot]@users.noreply.github.com", subject: "dependabot"},
+		{hash: "f6", authorName: "dependabot[bot]", authorEmail: "jane@example.com", subject: "bot name only"},
+		{hash: "g7", authorName: "Jane Doe", authorEmail: "49699333+dependabot[bot]@users.noreply.github.com", subject: "bot email only"},
+		{hash: "h8", authorName: "dependabot[bot]", authorEmail: "49699333+Dependabot[bot]@users.noreply.github.com", subject: "bot email case"},
 	}
 	problems := checkDCO(commits)
-	if len(problems) != 2 || !strings.Contains(problems[0], "b2") || !strings.Contains(problems[1], "c3") {
-		t.Fatalf("problems = %q", problems)
+	want := []string{"b2", "c3", "f6", "g7", "h8"}
+	if len(problems) != len(want) {
+		t.Fatalf("problems = %q, want one each for %q", problems, want)
+	}
+	for i, hash := range want {
+		if !strings.Contains(problems[i], hash) {
+			t.Errorf("problems[%d] = %q, want commit %s", i, problems[i], hash)
+		}
 	}
 }
 
@@ -99,6 +109,10 @@ func TestGitCommits(t *testing.T) {
 	if len(commits) != 2 || commits[0].subject != "feat: signed" || len(commits[0].signoffs) != 1 {
 		t.Fatalf("commits = %+v", commits)
 	}
+	// The body, where footers live, follows the subject.
+	if got := strings.TrimSpace(commits[1].body); got != "Co-Authored-By: Someone <s@example.com>" {
+		t.Errorf("body = %q, want the footer", got)
+	}
 	problems := checkDCO(commits)
 	if len(problems) != 1 || !strings.Contains(problems[0], "feat: unsigned") {
 		t.Fatalf("problems = %q", problems)
@@ -115,7 +129,8 @@ func TestGitCommits(t *testing.T) {
 }
 
 func TestRunUsage(t *testing.T) {
-	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 {
+	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 ||
+		run(t.Context(), []string{"deprecations"}) != 2 || run(t.Context(), []string{"golden"}) != 2 {
 		t.Error("usage errors must exit 2")
 	}
 	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat(cli): add version"}) != 0 {

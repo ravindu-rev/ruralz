@@ -1,0 +1,4 @@
+code: RZ-CFG-030
+stage: D
+binaries: [ruralz-in-process]
+source: overlay

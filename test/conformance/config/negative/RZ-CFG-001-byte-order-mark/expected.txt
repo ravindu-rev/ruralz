@@ -1,0 +1,1 @@
+raw/upstream.yaml:1:1 error RZ-CFG-001: byte order mark (U+FEFF) is not allowed

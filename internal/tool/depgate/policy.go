@@ -8,15 +8,25 @@ type target struct {
 	binary, goos, goarch string
 }
 
-// targets lists every shipped binary and platform (ADR-0001).
+// name is the artifact name "<binary>_<os>_<arch>", which is also the
+// directory of the target's notices.
+func (t target) name() string { return t.binary + "_" + t.goos + "_" + t.goarch }
+
+// targets lists every binary on every platform it ships for
+// (docs/engineering/01-tech-stack-and-libraries.md, "Static builds"): the
+// servers on linux/amd64 and linux/arm64 (production) and darwin/arm64 and
+// darwin/amd64 (development only, still released as archives), the CLI on
+// those plus windows/amd64.
 func targets() []target {
+	server := [][2]string{{"linux", "amd64"}, {"linux", "arm64"}, {"darwin", "arm64"}, {"darwin", "amd64"}}
+	cli := [][2]string{{"linux", "amd64"}, {"linux", "arm64"}, {"darwin", "arm64"}, {"darwin", "amd64"}, {"windows", "amd64"}}
 	var out []target
-	for _, bin := range []string{"ruralzd", "ruralz-control", "ruralz"} {
-		for _, arch := range []string{"amd64", "arm64"} {
-			out = append(out, target{bin, "linux", arch})
+	for _, bin := range []string{"ruralzd", "ruralz-control"} {
+		for _, p := range server {
+			out = append(out, target{bin, p[0], p[1]})
 		}
 	}
-	for _, p := range [][2]string{{"darwin", "arm64"}, {"darwin", "amd64"}, {"windows", "amd64"}} {
+	for _, p := range cli {
 		out = append(out, target{"ruralz", p[0], p[1]})
 	}
 	return out
@@ -48,7 +58,9 @@ func licenseElections() map[string]string {
 }
 
 // licenseOverrides map modules whose license text the classifier cannot
-// read to a reviewed SPDX identifier.
+// read to a reviewed SPDX identifier. A key is a module path, for the
+// texts at the module root, or "<module path>/<directory>" for the texts
+// of a nested directory that governs some linked packages.
 func licenseOverrides() map[string]string {
 	return map[string]string{}
 }
@@ -67,9 +79,18 @@ func cryptoExceptions() map[string]string {
 	}
 }
 
-// raftModules must never be linked into ruralzd.
+// raftModules must never be linked into ruralzd (P2, ADR-0006).
 func raftModules() []string {
 	return []string{"github.com/hashicorp/raft"}
+}
+
+// jwxModules must never be linked into ruralz: the offline Policy checks
+// every binary links through checks.Table() import no module cmd/ruralz
+// does not link, and the auth.jwt Filter, whose check lives in a package
+// of its own for that reason, links jwx
+// (docs/engineering/01-tech-stack-and-libraries.md, "Dependency graph").
+func jwxModules() []string {
+	return []string{"github.com/lestrrat-go/jwx"}
 }
 
 // advisoryFloors are minimum versions forced by security advisories.
@@ -79,5 +100,30 @@ func advisoryFloors() map[string]string {
 		"oras.land/oras-go/v2":                "v2.6.2",
 		"github.com/lestrrat-go/jwx/v4":       "v4.5.0",
 		"github.com/hashicorp/raft-boltdb/v2": "v2.4.2",
+		"github.com/moby/go-archive":          "v0.3.0",
 	}
+}
+
+// testSupportRoots are the trees of this module that no binary may link
+// (docs/engineering/02-repository-layout-and-conventions.md, "Package
+// layers"): test support, the CI tools and the suites under test/, as
+// paths below the module path. Packages named "<parent>test" below their
+// parent, such as internal/clock/clocktest, are test support too.
+func testSupportRoots() []string {
+	return []string{"internal/testkit", "internal/tool", "test"}
+}
+
+// testOnlyStandard are standard library test support packages; "testing"
+// covers its subpackages too.
+func testOnlyStandard() []string {
+	return []string{"testing", "net/http/httptest"}
+}
+
+// testOnlyModules are third-party modules admitted for tests only (the
+// Library catalog row "Test tooling (not shipped)"); a path covers the
+// modules below it. go.yaml.in/yaml/v3 is not one: cel-go's common/env
+// links it into both binaries, and the yamlv3 depguard rule confines this
+// module's own imports of it to the YAML profile's tests.
+func testOnlyModules() []string {
+	return []string{"github.com/testcontainers"}
 }

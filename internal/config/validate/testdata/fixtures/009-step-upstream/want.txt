@@ -1,0 +1,1 @@
+routes.yaml:27:19 error RZ-CFG-009 Route/inventory spec.composition.steps[name=stock].upstream: Upstream "inventroy" not found (did you mean "inventory"?)

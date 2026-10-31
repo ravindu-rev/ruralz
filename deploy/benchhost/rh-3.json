@@ -1,0 +1,25 @@
+{
+  "profile": "rh-3",
+  "hosts": {
+    "gateway": {"address": "gateway.bench.example", "cpus": "2-5", "dir": "/var/lib/ruralz-bench"},
+    "load": {"ssh": "load.bench.example", "address": "load.bench.example", "cpus": "2-9", "dir": "/var/lib/ruralz-bench"},
+    "upstream": {"ssh": "upstream-mock.bench.example", "address": "upstream-mock.bench.example", "cpus": "2-9", "auxCpus": "10-13", "dir": "/var/lib/ruralz-bench"},
+    "statestore": {"ssh": "statestore.bench.example", "address": "statestore.bench.example", "cpus": "2-5", "auxCpus": "6-7", "dir": "/var/lib/ruralz-bench"}
+  },
+  "sshUser": "ruralz-bench",
+  "sshKey": "/home/ruralz-bench/.ssh/id_ed25519",
+  "knownHosts": "/home/ruralz-bench/.ssh/known_hosts",
+  "secretRoot": "/var/lib/ruralz-bench/secrets",
+  "tlsDir": "/var/lib/ruralz-bench/secrets/tls",
+  "scope": true,
+  "gomaxprocs": 4,
+  "checks": false,
+  "services": {
+    "mock": "upstream-mock.bench.example:8080",
+    "idp": "idp.bench.example:8443",
+    "sink": "otel-sink.bench.example:4317",
+    "stateStore": "statestore.bench.example:6379",
+    "faultProxy": "statestore.bench.example:6380",
+    "echoPort": 7000
+  }
+}

@@ -1,0 +1,642 @@
+[
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 6,
+    "column": 8,
+    "message": "anchors are not allowed (&a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 8,
+    "message": "anchors are not allowed (&b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 12,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 16,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 20,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 24,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 28,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 32,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 36,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 40,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 44,
+    "message": "aliases are not allowed (*a)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 8,
+    "message": "anchors are not allowed (&c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 12,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 16,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 20,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 24,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 28,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 32,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 36,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 40,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 44,
+    "message": "aliases are not allowed (*b)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 8,
+    "message": "anchors are not allowed (&d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 12,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 16,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 20,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 24,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 28,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 32,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 36,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 40,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 44,
+    "message": "aliases are not allowed (*c)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 8,
+    "message": "anchors are not allowed (&e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 12,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 16,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 20,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 24,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 28,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 32,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 36,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 40,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 10,
+    "column": 44,
+    "message": "aliases are not allowed (*d)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 8,
+    "message": "anchors are not allowed (&f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 12,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 16,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 20,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 24,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 28,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 32,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 36,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 40,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 44,
+    "message": "aliases are not allowed (*e)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 8,
+    "message": "anchors are not allowed (&g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 12,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 16,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 20,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 24,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 28,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 32,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 36,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 40,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 44,
+    "message": "aliases are not allowed (*f)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 8,
+    "message": "anchors are not allowed (&h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 12,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 16,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 20,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 24,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 28,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 32,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 36,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 40,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 13,
+    "column": 44,
+    "message": "aliases are not allowed (*g)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 9,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 13,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 17,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 21,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 25,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 29,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 33,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 37,
+    "message": "aliases are not allowed (*h)"
+  },
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 41,
+    "message": "aliases are not allowed (*h)"
+  }
+]

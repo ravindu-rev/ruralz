@@ -1,29 +1,14 @@
----
-title: Multi-Protocol Support
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0009, ADR-0012, ADR-0013, ADR-0014, ADR-0015]
-milestone_tags_used: [M0, M1, M3, M4, M5]
----
-
 # Multi-Protocol Support
 
 ## Summary
 
-This document decides how Ruralz Gateway carries HTTP/1.1, HTTP/2, HTTP/3, gRPC, GraphQL, WebSocket, Server-Sent Events, Kafka, NATS JetStream and MQTT through a `Route` match, an `Upstream` `protocol` and the fixed Filter Chain. It fixes the protocol matrix, libraries, Phase mapping, limits and wire-proxy stance: no Kafka wire proxying before M4; embedded MQTT broker mode Planned (M4). Nothing is implemented yet; read it before designing a non-REST Route.
+This document decides how Ruralz Gateway carries HTTP/1.1, HTTP/2, HTTP/3, gRPC, GraphQL, WebSocket, Server-Sent Events, Kafka, NATS JetStream and MQTT through a `Route` match, an `Upstream` `protocol` and the fixed Filter Chain. It fixes the protocol matrix, libraries, Phase mapping, limits and wire-proxy stance: no Kafka wire proxying before M4; embedded MQTT broker mode Planned (M4). Read it before designing a non-REST Route.
 
 ## Scope and non-goals
 
 In scope: client protocols, [Configuration model](02-configuration-model.md#upstream) `Upstream` protocols, the Phase mapping principle P7 ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)) requires, libraries, limits and termination. "Pack 8.10" names a [foundation pack](../_meta/foundation-pack.md) section.
 
-Non-goals: listeners, the Router, the error format and chunk mechanics ([Data plane](03-data-plane.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md), [ADR-0014](../adr/0014-ai-api-surface.md)); authentication semantics ([Security and identity](08-security-and-identity.md)); retries and breakers ([Traffic management and resilience](09-traffic-management-and-resilience.md)); durable event storage (vision non-goal 5); new fields, which become Open questions.
+Non-goals: listeners, the Router, the error format and chunk mechanics ([Data plane](03-data-plane.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md), [ADR-0014](../adr/0014-ai-api-surface.md)); authentication semantics ([Security and identity](08-security-and-identity.md)); retries and breakers ([Traffic management and resilience](09-traffic-management-and-resilience.md)); durable event storage (vision non-goal 5); kinds and fields ([Configuration model](02-configuration-model.md)).
 
 ## Protocol matrix
 
@@ -67,9 +52,28 @@ Rows are client protocols, columns `Upstream.spec.protocol` values; `N/A` pairin
 | `Upgrade: websocket` to a `websocket` or `graphql` Upstream | WebSocket session | Planned (M3) |
 | Other requests to a `graphql` Upstream | GraphQL engine | Planned (M3) |
 | `kafka`, `nats` or `mqtt` Upstream | Publisher | Planned (M4) |
-| Anything else | HTTP reverse proxy; `text/event-stream` flushes per read | Planned (M1); SSE flushing Planned (M3) |
+| Anything else | HTTP reverse proxy: a response without `Content-Length` or with `text/event-stream` flushes after every Upstream read, trailers follow the body and a 103 Early Hints is relayed ([Streaming](03-data-plane.md#streaming), [Upstream layer](03-data-plane.md#upstream-layer)) | Planned (M1); SSE events as `onChunk` units Planned (M3) |
 
-An upgrade to an `http` Upstream (a raw tunnel) is rejected, and a plain request to a `websocket` Upstream gets 426 (codes: OQ-multi-protocol-16).
+A WebSocket upgrade, `Upgrade: websocket`, on a Route whose Upstream protocol is `http` is rejected after the match and before `onRequestHeaders` with 400 `RZ-RT-023`, and the response Phases run on it as on any generated response. Any other `Upgrade` token, `h2c` included, is dropped with the other hop-by-hop fields, and the request is served as HTTP/1.1. A plain request to a `websocket` Upstream gets 426, Planned (M3) (code: OQ-multi-protocol-16).
+
+### HTTP intermediary behavior
+
+Toward the client the Node answers as the origin server, and toward the Upstream it is the client: a gateway in the terms of RFC 9110 section 3.7. Beside the framing, hop-by-hop and header-limit rules of [Data plane](03-data-plane.md#listeners-and-protocols) and [Request hardening](08-security-and-identity.md#request-hardening), it treats these HTTP/1.1 and HTTP/2 cases as follows, Planned (M1); the [protocol conformance suite](../engineering/03-testing-and-quality-strategy.md#conformance-suites) holds one case per row.
+
+| Case | The Node's answer | Rule |
+|---|---|---|
+| `Expect: 100-continue` | A request Phase that rejects sends its final status without reading the body; otherwise `100 Continue` goes out when the Node first reads the body. The Upstream request carries no `Expect`. On HTTP/1.1, `net/http` answers any other expectation with a plain 417 before any handler, and ignores the `100-continue` of an HTTP/1.0 request ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/server.go)); on HTTP/2 another expectation is dropped | RFC 9110 section 10.1.1 |
+| `Upgrade` | On HTTP/1.1, `websocket` on a Route whose Upstream protocol is `http` is 400 `RZ-RT-023`; any other token, `h2c` included, is dropped and the request is served as HTTP/1.1 ([above](#one-listener-dispatch-after-the-match)). On HTTP/2, `Upgrade` is a connection-specific field that makes the request malformed, and `net/http` answers it with a plain 400 before any handler ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/internal/http2/server.go)) | RFC 9110 section 7.8; RFC 9113 section 8.2.2 |
+| 1xx responses | An Upstream's 103 Early Hints on a Route with `upstreams` is relayed to an HTTP/1.1 or later client before the final response, as [Upstream layer](03-data-plane.md#upstream-layer) states; an HTTP/1.0 client gets no 1xx. `100 Continue` is handled per hop: a client sees only the Node's own (the `Expect` row), never an Upstream's. Other 1xx responses are not forwarded | RFC 9110 section 15.2 |
+| Trailer fields | An Upstream's trailers reach the client as [Upstream layer](03-data-plane.md#upstream-layer) states; a client's request trailers reach the Upstream after the body by the same rule, without hop-by-hop and framing fields. No Phase reads or edits them | RFC 9110 section 6.5; RFC 9112 section 7.1.2; RFC 9113 section 8.1 |
+| `TE` | Hop-by-hop: a `trailers` member reaches the Upstream as exactly `TE: trailers`, and no other member does. An HTTP/2 request whose `TE` holds anything else is malformed, and `net/http` answers it with a plain 400 before any handler ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/internal/http2/server.go)) | RFC 9110 section 10.1.4; RFC 9113 sections 8.1.1 and 8.2.2 |
+| `Via` | Each Upstream request gains an entry after any the client sent, naming the client hop's protocol and the pseudonym `ruralz`: `1.0 ruralz`, `1.1 ruralz` or `2 ruralz`. A Response Cache replay, which has no client hop, adds none. Responses get none | RFC 9110 section 7.6.3 |
+| `Server` and `Date` | The Node adds no `Server`; an Upstream's passes unless a `headers` Policy removes it. An Upstream's `Date` passes unchanged; a forwarded response without one, and each generated response, gets the Node's | RFC 9110 sections 6.6.1 and 10.2.4 |
+| Absolute-form target | Accepted on HTTP/1.1; its authority replaces `Host` for routing and forwarding. A scheme other than the listener's, `http` on an `http` listener and `https` on an `https` one, is 400 `RZ-RT-017` | RFC 9112 section 3.2.2 |
+| Asterisk-form target | `OPTIONS *` matches no Route: 404 `RZ-RT-001`. The listeners' servers set `DisableGeneralOptionsHandler`, so `net/http` passes the request on instead of answering 200 itself ([source](https://pkg.go.dev/net/http#Server)) | RFC 9112 section 3.2.4 |
+| `Host` and `:authority` | An HTTP/2 request whose `Host` names another host than `:authority`, compared lowercased and without a default port, is malformed and gets 400 `RZ-RT-017`. `net/http` answers an HTTP/1.1 request without `Host`, or with two, with a plain 400 ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/server.go)). Toward the Upstream, `Host` is the Endpoint authority, and the client's host travels in `X-Forwarded-Host` ([Client address](08-security-and-identity.md#ip-filtering-and-geoip)) | RFC 9112 section 3.2; RFC 9113 section 8.3.1 |
+| `Content-Length` | Equal repeated field lines count as one; differing values, or a comma-separated list, get a plain 400 from `net/http`, which closes the connection ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/transfer.go)). On HTTP/2, a `content-length` that differs from the DATA payload makes the request malformed, and the Upstream never receives it complete: `net/http` resets the stream with `PROTOCOL_ERROR` for DATA beyond the declared length and, from Go 1.27, for differing `content-length` field lines or content declared on a stream that ends with its HEADERS, which the Go 1.26 floor's server lets through to the handler's framing check, 400 `RZ-RT-017` ([Data plane](03-data-plane.md#listeners-and-protocols)); a stream that ends short is reset with the `INTERNAL_ERROR` of an aborted request, since a handler cannot choose the reset code ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/net/http/internal/http2/server.go)) | RFC 9110 section 8.6; RFC 9112 section 6.3; RFC 9113 section 8.1.1 |
+| `HEAD` and 304 | `methods` match literally: a HEAD meets a Route whose `methods` list HEAD, or that sets none. A forwarded HEAD stays HEAD, and its response keeps the Upstream's framing fields without content; a 304 has no content; a generated response to a HEAD sends its header section only | RFC 9110 sections 9.3.2 and 15.4.5; RFC 9112 section 6.3 |
 
 ### HTTP/3
 
@@ -108,7 +112,7 @@ Without descriptors the Node cannot tell unary from streaming methods:
 | Other enveloped calls on HTTP/1.x | Half-duplex server stream: one request message, then responses; a second request message is an error | Before the request message is forwarded |
 | Other enveloped calls on HTTP/2 or HTTP/3, including all without descriptors | Bidirectional stream: `onChunk` per message (proposed, OQ-multi-protocol-17); no body Phases or `cache` | Before the first request message is forwarded |
 
-connect-go serves bidirectional handlers only over HTTP/2 (unresearched; spike: OQ-multi-protocol-2), so protocol version also picks the handler ([gRPC proxying](../engineering/01-tech-stack-and-libraries.md#grpc-proxying)).
+connect-go serves bidirectional handlers only over HTTP/2 (spike: OQ-multi-protocol-2), so protocol version also picks the handler ([gRPC proxying](../engineering/01-tech-stack-and-libraries.md#grpc-proxying)).
 
 A unary message is a gate reserved from `maxBufferedBytes`: over `maxRequestBodyBytes` it gets 413 (`RESOURCE_EXHAUSTED`), and unreservable 503 `RZ-RT-004` (`UNAVAILABLE`), before commit.
 
@@ -256,7 +260,7 @@ Clients subscribe over WebSocket (`graphql-transport-ws` or `graphql-ws`) or SSE
 
 - At most 20 concurrent and 10 new operations per second per session (target), counted locally.
 - Each active operation takes one in-flight unit from the proposed long-lived share (OQ-multi-protocol-20); one over a bound or refused gets an `error`.
-- Each operation reserves 32 KiB (target) at admission, else an `error` (`RZ-RT-004`); each resolved event, with its per-event entity fetch bodies, is reserved toward the 1 MiB cap (target) while held, and one over it ends the operation with an `error` (`RZ-RT-013`). The subgraph subscription read limit is that cap (unresearched; OQ-multi-protocol-12).
+- Each operation reserves 32 KiB (target) at admission, else an `error` (`RZ-RT-004`); each resolved event, with its per-event entity fetch bodies, is reserved toward the 1 MiB cap (target) while held, and one over it ends the operation with an `error` (`RZ-RT-013`). The subgraph subscription read limit is that cap (OQ-multi-protocol-12).
 - On Routes attaching `ratelimit` or `quota`, which admit only the session, WebSocket queries and mutations get an `error` unless OQ-multi-protocol-17 adds per-operation admission.
 
 ### Depth, complexity and persisted queries
@@ -467,7 +471,7 @@ sequenceDiagram
 | Library ([ADR-0013](../adr/0013-messaging-client-libraries.md)) | twmb/franz-go | nats.go `jetstream` | paho.golang `autopaho`; mochi-mqtt broker |
 | Kind mapping | Publish: `path` Route; ingress: `match.topic`; `protocol: kafka`, bootstrap `endpoints`, `messaging.topic`, `messaging.key` as record key | `nats`; topic as subject; no key | `mqtt`; no key; embedded PUBLISH matches `match.topic` |
 | Acknowledgment | All in-sync replicas, idempotent producer ([source](https://github.com/twmb/franz-go)); proposed `acks` ([Advanced Kafka options](#advanced-kafka-options)) | Stream `PubAck` | `PUBACK` at QoS 1 |
-| Consume mapping (OQ-multi-protocol-10) | Consumer group; commit after settle | Durable pull consumer, `Consume()` ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)); ack after settle | Undecided: without shared subscriptions (unresearched) every Node gets each message |
+| Consume mapping (OQ-multi-protocol-10) | Consumer group; commit after settle | Durable pull consumer, `Consume()` ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)); ack after settle | Undecided: without shared subscriptions every Node gets each message |
 | Policy applicability | Publish: request-Phase types except `cache`; ingress: [Topic ingress](#topic-ingress) | Same | Same |
 | Limits | Publish: value within `maxRequestBodyBytes`, bounded producer buffer; ingress: [Topic ingress](#topic-ingress) | nats-server 2.9.0 or newer ([source](https://github.com/nats-io/nats.go/blob/main/jetstream/README.md)); otherwise as Kafka | paho.golang ignores inbound Receive Maximum ([source](https://github.com/eclipse-paho/paho.golang)); embedded: [broker mode](#embedded-mqtt-broker-mode) |
 
@@ -485,10 +489,10 @@ Advanced Kafka publisher settings, Planned (M4), live on the same `kafka` `Upstr
 
 | Proposed field | Values and default | Kafka | NATS and MQTT |
 |---|---|---|---|
-| `messaging.acks` | `all` (default), `leader` or `none` | `all` keeps the idempotent producer; `leader` and `none` need it off (unresearched in franz-go; OQ-multi-protocol-8 spike), and with `none` the 202 means the record was sent, not stored | `all`: JetStream `PubAck` or MQTT QoS 1; `none`: core NATS publish or MQTT QoS 0; `leader` rejected |
+| `messaging.acks` | `all` (default), `leader` or `none` | `all` keeps the idempotent producer; `leader` and `none` need it off (OQ-multi-protocol-8 spike), and with `none` the 202 means the record was sent, not stored | `all`: JetStream `PubAck` or MQTT QoS 1; `none`: core NATS publish or MQTT QoS 0; `leader` rejected |
 | `messaging.headers` | A map of header name to CEL string, evaluated in `onUpstreamRequest` like `key`; a CEL error returns 502 | Record headers, beside the W3C trace context | NATS message headers; MQTT 5 user properties |
 | `messaging.compression` | `none` (default), `gzip`, `snappy`, `lz4` or `zstd`, the codecs franz-go supports ([source](https://github.com/twmb/franz-go)) | Producer batch compression | Rejected |
-| `messaging.partitioner` | `key-hash` (default) or `round-robin` | `key-hash` hashes `messaging.key`, so one key keeps one partition, and leaves keyless records to franz-go's default spreading (unresearched); `round-robin` ignores the key | Rejected |
+| `messaging.partitioner` | `key-hash` (default) or `round-robin` | `key-hash` hashes `messaging.key`, so one key keeps one partition, and leaves keyless records to franz-go's default spreading; `round-robin` ignores the key | Rejected |
 
 A rejected field is a validation error (code: OQ-multi-protocol-13). MQTT retain, a per-broker value-size bound and a deduplication ID stay open in OQ-multi-protocol-8.
 
@@ -611,7 +615,7 @@ Ruralz Gateway mediates rather than proxying broker protocols, keeping every mes
 | Kafka | No native Kafka wire-protocol proxying before M4 (pack 7, [ADR-0013](../adr/0013-messaging-client-libraries.md)); Not planned in M0 to M5, revisited at M4 (OQ-multi-protocol-11) | A proxy rewrites metadata and coordinator responses, and Phases would see record batches without a per-message Route |
 | MQTT | Native ingress only through the embedded broker mode, Planned (M4); transparent proxying Not planned | Terminating MQTT gives each PUBLISH a Route; external brokers are `mqtt` Upstreams |
 | NATS | Native client-protocol proxying Not planned | NATS has its own clustering and authorization |
-| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No researched library for AMQP, Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS (OQ-multi-protocol-14) |
+| Other brokers (AMQP, cloud queues) | Not planned in M0 to M5 | No library in the [Tech stack](../engineering/01-tech-stack-and-libraries.md#library-catalog) catalog for AMQP, Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS (OQ-multi-protocol-14) |
 
 ## Filter Chain applicability per protocol
 
@@ -677,8 +681,8 @@ Sessions keep their snapshot until it retires ([System overview](01-system-overv
 | OQ-multi-protocol-13 | Which RZ-CFG registrations cover these validation rules, the topic-ingress `overridable: false` and response-Phase cases, and a broker body-gate row? | (a) New codes and row; (b) Widen RZ-CFG-020 | configuration-model | No |
 | OQ-multi-protocol-14 | Should AMQP (consumer and producer), Azure Service Bus, Google Cloud Pub/Sub, Amazon SNS or Amazon SQS join `Upstream.spec.protocol`? | (a) Not planned in M0 to M5 (current); (b) New values by ADR; (c) Plugins | multi-protocol | No |
 | OQ-multi-protocol-15 | Should the 1 MiB (target) chunk cap be configurable? Fixed, it rejects larger gRPC stream messages | (a) Fixed (current); (b) A Gateway `limits` field; (c) A per-Upstream field | configuration-model | Yes, for gRPC streaming |
-| OQ-multi-protocol-16 | Which codes cover unparsable transcoded bodies, upgrades to `http`, plain requests to `websocket` Upstreams, GraphQL prefix misses, timeouts and rejections, SSE buffered timeouts, multiplexer closes and full producer buffers (an `RZ-UP` bulkhead code)? | (a) New codes; (b) Reuse RZ-RT-003 and RZ-RT-009 | data-plane; `RZ-UP`: traffic-management-and-resilience | Yes, for gRPC and GraphQL |
+| OQ-multi-protocol-16 | Which codes cover unparsable transcoded bodies, plain requests to `websocket` Upstreams, GraphQL prefix misses, timeouts and rejections, SSE buffered timeouts, multiplexer closes and full producer buffers (an `RZ-UP` bulkhead code)? | (a) New codes; (b) Reuse RZ-RT-003 and RZ-RT-009 | data-plane; `RZ-UP`: traffic-management-and-resilience | Yes, for gRPC and GraphQL |
 | OQ-multi-protocol-17 | Pack section 4 amendment: `onChunk` per gRPC message and GraphQL event; `onRequestBody`, `onUpstreamRequest` and admission per GraphQL WebSocket operation; gRPC trailer statuses | (a) Amend (proposed); (b) Plugins only; (c) No WebSocket subscriptions with body-Phase Policies | multi-protocol | Yes, for gRPC and GraphQL |
 | OQ-multi-protocol-18 | Should an ADR record the P7 exception for per-message routing and its pack 8.12 interaction, with a pack section 4 amendment for a Route-less `onRequestHeaders` at MQTT CONNECT? | (a) Yes (proposed); (b) A session Route at CONNECT, PUBLISH as `onChunk`, conforming to P7; (c) No per-message routing; (d) Exempt slot `auth` on `match.topic` Routes, which an `overridable: false` Gateway baseline blocks, and allow mixed Routes | vision-and-positioning | Yes, for event ingress |
 | OQ-multi-protocol-19 | Should the embedded broker offer persistent sessions, retained messages or SUBSCRIBE? | (a) No (current); (b) State Store-backed, under pack 8.7 limits; (c) A bridge from an external broker | multi-protocol | No |
-| OQ-multi-protocol-20 | Should long-lived in-flight units hold at most a share of the Node ceiling (a new OQ-data-plane-6 option)? | (a) 50% (target), refused with 503 `RZ-RT-005` before commit or a GraphQL `error` (proposed); (b) The shared ceiling (current); (c) A Gateway `limits` field | data-plane | Yes, for M3 streaming |
+| OQ-multi-protocol-20 | Should long-lived in-flight units hold at most a share of the Node ceiling? | (a) 50% (target), refused with 503 `RZ-RT-005` before commit or a GraphQL `error` (proposed); (b) The shared ceiling (current); (c) A Gateway `limits` field | data-plane | Yes, for M3 streaming |

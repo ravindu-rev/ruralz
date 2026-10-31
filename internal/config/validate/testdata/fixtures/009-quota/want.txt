@@ -1,0 +1,1 @@
+policies.yaml:20:20 error RZ-CFG-009 Policy/quota-daily spec.config.consumerQuota: no Consumer defines quota "daily-request" with unit requests (did you mean "daily-requests"?)

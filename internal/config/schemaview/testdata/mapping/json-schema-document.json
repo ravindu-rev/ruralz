@@ -1,0 +1,11 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "order-schema"},
+  "spec": {
+    "type": "validation.json-schema",
+    "config": {
+      "schema": "https://schemas.example/order.json"
+    }
+  }
+}

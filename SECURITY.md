@@ -28,4 +28,11 @@ Every user gets a security fix at the same time, through the public signed relea
 
 ## Supported versions
 
-Ruralz has no release yet. From release `0.1.0`, the release lines above are those of the [Release, versioning and compatibility](docs/engineering/04-release-versioning-and-compatibility.md#security-fix-policy) policy, which owns this process.
+A release line is a minor version, such as `0.1`, with its patch releases. The [Release, versioning and compatibility](docs/engineering/04-release-versioning-and-compatibility.md#release-cadence-and-support-windows) policy, which owns this process, sets each line's support window, and the release lines of the table above are these:
+
+| Line | Version | Receives |
+|---|---|---|
+| N, the newest minor | `0.1`, from release `0.1.0` | Bug and security fixes, for about 6 months, until N+2 ships (target) |
+| N-1 and N-2 | None: `0.1` is the first line | Not applicable |
+
+A release candidate, such as `0.1.0-rc.1`, receives no patch: a fix ships in the next candidate.

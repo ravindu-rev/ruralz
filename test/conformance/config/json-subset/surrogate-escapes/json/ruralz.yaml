@@ -1,0 +1,2 @@
+{"apiVersion": "ruralz/v1alpha1", "kind": "Gateway", "metadata": {"name": "edge", "labels": {"mascot": "🚀"}},
+ "spec": {"listeners": [{"name": "http", "protocol": "http", "port": 8080}]}}

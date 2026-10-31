@@ -2,18 +2,6 @@
 id: ADR-0016
 title: "Kubernetes packaging: Helm chart and CRDs mirroring kinds, Gateway API deferred"
 status: proposed
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/operations/01-deployment-topologies.md
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/vision/01-vision-and-positioning.md
 ---
 
 # ADR-0016: Kubernetes packaging: Helm chart and CRDs mirroring kinds, Gateway API deferred
@@ -49,7 +37,7 @@ Chosen option: "Helm chart and mirrored CRDs, Gateway API deferred", because it 
 | Chart | `oci://ghcr.io/ravindu-rev/charts/ruralz` at the product version, Apache-2.0 and Sigstore-signed ([Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts)). It installs `ruralz-control` and Nodes as StatefulSets with separate image tags, upgraded Ruralz Control first (OQ-release-versioning-and-compatibility-11 (b)). Values schema: OQ-deployment-topologies-1 | Planned (M2) |
 | CRDs | `ruralz-crds.yaml`, generated into `deploy/crds/` from the rendered JSON Schema view: one CRD per kind, group `ruralz.io`, version `v1alpha1`, category `ruralz`. Kind names are unchanged; short names are `rz` plus the lower-case kind, except `rzgw` and `rzenv` (OQ-configuration-model-3 (a)). Lowering inlines `$ref` (recursion fails generation); checks with no structural equivalent, over the Kubernetes CEL cost budget or using Ruralz-only variables run only in Ruralz Control, which the generator lists | Planned (M2) |
 | CRD translation | Server-set `metadata` and `status` are dropped; otherwise only the group changes. One bound namespace becomes one Bundle holding exactly one `Gateway` (RZ-CFG-016); `Environment` and `Cluster` are cluster-scoped. `x-ruralz-validations` become `x-kubernetes-validations` where lowering allows; `${VAR}` in non-string fields is rejected; a status subresource carries `Accepted`, `ResolvedRefs` and `Programmed` ([Status conditions](../architecture/02-configuration-model.md#status-conditions-in-the-crd-path)) | Planned (M2) |
-| Reader | Only the Ruralz Control leader watches CRDs, off until process configuration binds a namespace to an Environment (OQ-control-plane-and-gitops-1). It assembles a namespace into a Bundle and runs the Git pipeline once its object set is quiet for a debounce window, or after a maximum delay (both target values), so one multi-object apply yields one Revision. `ruralzd` never reads CRDs (OQ-configuration-model-2 (a)); without Ruralz Control, Kubernetes installs use T2 | Planned (M2) |
+| Reader | Only the Ruralz Control leader watches CRDs, off until process configuration binds a namespace to an Environment. It assembles a namespace into a Bundle and runs the Git pipeline once its object set is quiet for a debounce window, or after a maximum delay (both target values), so one multi-object apply yields one Revision. `ruralzd` never reads CRDs (OQ-configuration-model-2 (a)); without Ruralz Control, Kubernetes installs use T2 | Planned (M2) |
 | CRD source | One primary source per Environment, a Git path or one bound namespace (OQ-system-overview-8 (a) and (b)). Until OQ-deployment-topologies-19 decides, a namespace source shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited) and never promotes | Planned (M2) |
 | CRD versions | While only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs no webhook. From `ruralz.io/v1beta1`, every Ruralz Control replica serves the conversion webhook (port: OQ-deployment-topologies-13). A new served version applies only once every replica runs N, and becomes the storage version no earlier than the next minor | Planned (M2); `ruralz.io/v1beta1` and the webhook Planned (M3) |
 | Gateway API | No conformance work; a later adapter would map Gateway API objects to existing kinds (OQ-vision-and-positioning-4) | Not planned within M0 to M5: mirrored CRDs already expose every feature |
@@ -119,16 +107,16 @@ sequenceDiagram
 - Good, because authors of Bundle kinds need only namespace-scoped RBAC; only authors of cluster-scoped `Environment` and `Cluster` objects need cluster-scoped rights, and no chart component reads Secrets cluster-wide.
 - Bad, because Ruralz stays off the Gateway API conformance list until it implements the specification ([source](https://gateway-api.sigs.k8s.io/implementations/)), and users learn Ruralz kinds instead of a portable `HTTPRoute`.
 - Bad, because admission checks only the structural schema and emitted `x-kubernetes-validations`: reference and slot errors appear only as conditions after apply, and Plugin `configSchema` rules run only in Ruralz Control, since Policy `config` is schemaless in the CRD.
-- Bad, because until the proposed Open questions below close, client-side `kubectl apply`, Helm and Argo CD metadata change the digest of equal resources, and a non-atomic apply slower than the debounce window can expose an intermediate object set.
+- Bad, because client-side `kubectl apply`, Helm and Argo CD metadata change the digest of equal resources, and a non-atomic apply slower than the debounce window can expose an intermediate object set.
 - Bad, because once a second version is served, reads in a non-storage version fail while every Ruralz Control replica is down.
 
 ### Confirmation
 
 - **Generated drift gate**: CI stage 3 in `pr-fast` regenerates `deploy/crds/` and fails on `git diff --exit-code` ([CI stages](../engineering/02-repository-layout-and-conventions.md#ci-stages)), Planned (M2).
-- **Equivalence test** (proposed), Planned (M2): the golden-corpus example Bundle rendered for `prod`, applied by `kubectl apply --server-side` without tool labels or annotations to a bound namespace in kind (Kubernetes in Docker), MUST yield its Git render's digest and RZ-CFG diagnostics ([Golden tests](../engineering/03-testing-and-quality-strategy.md#golden-tests)); once the drop rule exists, it MUST also cover Helm and client-side applies.
+- **Equivalence test** (proposed), Planned (M2): the golden-corpus example Bundle rendered for `prod`, applied by `kubectl apply --server-side` without tool labels or annotations to a bound namespace in kind (Kubernetes in Docker), MUST yield its Git render's digest and RZ-CFG diagnostics ([Golden tests](../engineering/03-testing-and-quality-strategy.md#golden-tests)); once the translation drops tool-managed labels and annotations, it MUST also cover Helm and client-side applies.
 - **kind end-to-end suite**, Planned (M2): chart install, CRD ingestion with conditions, rolling pod replacement with readiness gating and Drain ([End-to-end tests](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)). It also (proposed) fails on any generated CRD the API server rejects or finds over its cost budget, asserts that a multi-object change applied in random order records exactly one Revision, and that a Node's service account is denied `list` on `ruralz.io` resources.
 - **Upgrade test** (proposed), Planned (M3): `ruralz-crds.yaml` applies in [Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts) order and fails on a served-version addition before finalize.
-- **Review checklist item**: a pull request adding a Gateway API resource, a CRD reader outside Ruralz Control, or a CRD field absent from the Configuration model MUST amend this ADR.
+- **Amendment trigger**: a pull request adding a Gateway API resource, a CRD reader outside Ruralz Control, or a CRD field absent from the Configuration model MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -160,5 +148,4 @@ sequenceDiagram
 
 - Owning document: [Deployment topologies](../operations/01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds); CRD mapping: [Configuration model](../architecture/02-configuration-model.md#kubernetes-mapping); CRD source: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources); non-goal 7 in [Vision and positioning](../vision/01-vision-and-positioning.md#product-non-goals).
 - client-go is linked into both binaries ([Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog)); Nodes watch only EndpointSlices and `provider: kubernetes` Secrets.
-- Proposed amendments: the Configuration model, owner of the canonical form, SHOULD open an Open question on which tool-managed labels and annotations the translation drops, and note that not every rule is emitted; Deployment topologies SHOULD open one on how a namespace source signals a complete object set: (a) debounce only; (b) an expected object-set digest, like `ruralz bundle push`.
 - Revisit when OQ-vision-and-positioning-4 schedules conformance.

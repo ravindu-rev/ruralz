@@ -1,0 +1,1 @@
+routes.yaml:9:7 error RZ-CFG-019 Route/orders spec.policies[name=cors]: cannot replace Gateway Policy "cors-locked" in slot "cors": it has overridable: false (declared in locked.yaml:7:3)

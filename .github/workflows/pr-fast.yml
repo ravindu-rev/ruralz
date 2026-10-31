@@ -1,10 +1,12 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# pr-fast: CI stages 1 to 6 (docs/engineering/02-repository-layout-and-conventions.md).
-# Path filters skip stages whose inputs did not change; the pr-fast job
-# aggregates every stage and is the one required status check, so skipped
-# stages never leave a required check pending.
+# pr-fast: CI stages 1 to 6
+# (docs/engineering/02-repository-layout-and-conventions.md). Path filters skip
+# stages whose inputs did not change; the pr-fast job aggregates every stage
+# and is the one required status check, so skipped stages never leave a
+# required check pending. release.yml re-runs it on the tagged commit through
+# workflow_call with all: true.
 name: pr-fast
 
 on:
@@ -13,6 +15,17 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      all:
+        description: Run every stage regardless of the path filters
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      all:
+        description: Run every stage regardless of the path filters (release.yml passes true)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -39,6 +52,7 @@ jobs:
           persist-credentials: false
       - id: paths
         env:
+          ALL: ${{ inputs.all }}
           EVENT: ${{ github.event_name }}
           PR_BASE: ${{ github.event.pull_request.base.sha }}
           PR_HEAD: ${{ github.event.pull_request.head.sha }}
@@ -124,7 +138,10 @@ jobs:
   floor:
     name: 4. Build and test on the Go 1.26 floor
     needs: changes
-    if: needs.changes.outputs.go == 'true'
+    # The test filter (Go changes, examples/, the configuration conformance
+    # fixtures, or the documents the examples tests read): the floor job
+    # also checks the conformance digests.
+    if: needs.changes.outputs.test == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -169,7 +186,16 @@ jobs:
       - shell: bash
         env:
           CGO_ENABLED: "0"
-        run: go test -shuffle=on ./internal/cli/... ./internal/buildinfo/... ./pkg/...
+        run: |
+          pkgs=(./internal/cli/... ./internal/buildinfo/... ./pkg/...)
+          # The untagged configuration conformance suite: identical
+          # digests and JSON golden bytes on every platform.
+          if [[ -d test/conformance/config ]]; then
+            pkgs+=(./test/conformance/config/...)
+          else
+            echo "skip ./test/conformance/config/...: not present yet"
+          fi
+          go test -shuffle=on "${pkgs[@]}"
 
   supply-chain:
     name: 6. Supply chain

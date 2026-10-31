@@ -1,0 +1,4 @@
+routes/duration-bytesize.json:8:30 error RZ-CFG-005 Gateway/edge spec.limits.maxRequestBodyBytes: must be an integer or quantity such as 10Mi
+routes/duration-bytesize.json:9:31 error RZ-CFG-005 Gateway/edge spec.limits.maxResponseBodyBytes: must be an integer or quantity such as 10Mi
+routes/duration-bytesize.json:10:27 error RZ-CFG-005 Gateway/edge spec.limits.maxBufferedBytes: must be an integer or quantity such as 10Mi
+routes/duration-bytesize.json:12:51 error RZ-CFG-005 Gateway/edge spec.stateStore.timeout: must be a Go duration such as 50ms

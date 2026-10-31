@@ -1,0 +1,12 @@
+# PB-10's telemetry-off S2 on the rh-3 profile: the lab hosts by their bench.example names, which
+# deploy/benchhost resolves on every host, under the secret root
+# /var/lib/ruralz-bench/secrets.
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example:8443/.well-known/jwks.json

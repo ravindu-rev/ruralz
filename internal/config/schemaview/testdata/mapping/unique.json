@@ -1,0 +1,14 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {"name": "catalog"},
+  "spec": {
+    "match": {
+      "hosts": ["shop.example", "shop.example"],
+      "methods": ["GET", "HEAD", "GET"],
+      "path": {"prefix": "/catalog"}
+    },
+    "policies": [{"name": "jwt"}, {"name": "cors"}, {"name": "jwt"}],
+    "upstreams": [{"name": "catalog"}]
+  }
+}

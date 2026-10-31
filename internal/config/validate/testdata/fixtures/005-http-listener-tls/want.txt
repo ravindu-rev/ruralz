@@ -1,0 +1,1 @@
+ruralz.yaml:11:9 error RZ-CFG-005 Gateway/edge spec.listeners[name=http].tls: listener "http" has protocol http, which ignores tls (remove tls or use protocol https)

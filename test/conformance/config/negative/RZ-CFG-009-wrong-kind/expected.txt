@@ -1,0 +1,1 @@
+ruralz.yaml:11:13 error RZ-CFG-009 Gateway/edge spec.policies[name=orders].name: Policy "orders" not found ("orders" is an Upstream, not a Policy) (declared in ruralz.yaml:12:1)

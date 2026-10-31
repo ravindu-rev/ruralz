@@ -1,0 +1,32 @@
+[
+  {
+    "code": "RZ-CFG-041",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 51,
+    "column": 20,
+    "resource": {
+      "kind": "Consumer",
+      "name": "acme"
+    },
+    "path": [
+      "spec",
+      "credentials",
+      "apiKeys",
+      {
+        "name": "retrievable"
+      },
+      "secretRef"
+    ],
+    "message": "secretRef \"file:/etc/ruralz/oauth/client-secret\" has destination \"local\" here and \"https://auth.shop.example:443\" at Policy/upstream-oauth spec.config.clientSecret",
+    "hint": "one secret is sent to one destination; use a separate secret for each",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 41,
+        "column": 31,
+        "message": "first used in"
+      }
+    ]
+  }
+]

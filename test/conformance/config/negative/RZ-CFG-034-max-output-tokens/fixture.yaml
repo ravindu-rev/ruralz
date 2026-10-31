@@ -1,0 +1,4 @@
+code: RZ-CFG-034
+stage: K
+binaries: [ruralz, ruralzd]
+source: default

@@ -1,0 +1,8 @@
+{
+  "level": 0,
+  "digests": {
+    "-": "sha256:29cbe1b822d9c03ef57e9d4468a94ce5b7a0432242e95e1e72f6ea305631a4f2",
+    "prod": "sha256:29cbe1b822d9c03ef57e9d4468a94ce5b7a0432242e95e1e72f6ea305631a4f2",
+    "staging": "sha256:29cbe1b822d9c03ef57e9d4468a94ce5b7a0432242e95e1e72f6ea305631a4f2"
+  }
+}

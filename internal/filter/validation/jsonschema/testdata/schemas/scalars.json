@@ -1,0 +1,8 @@
+{
+  "oneOf": [
+    {"type": "integer", "minimum": -100, "exclusiveMaximum": 100},
+    {"type": "string", "pattern": "^\\p{L}+$"},
+    {"const": null},
+    {"enum": [1.5, "x", [1, 2], {"k": false}]}
+  ]
+}

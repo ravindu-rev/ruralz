@@ -1,0 +1,1 @@
+ruralz.yaml:41:18 error RZ-CFG-037 Policy/jwt-default spec.config.issuers[issuer=https://auth.shop.example].jwksUrl: jwksUrl is not an https URL

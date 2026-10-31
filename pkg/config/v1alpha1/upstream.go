@@ -11,18 +11,25 @@ const (
 	// UpstreamProtocolHTTP is Planned (M1).
 	UpstreamProtocolHTTP UpstreamProtocol = "http"
 	// UpstreamProtocolGRPC is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolGRPC UpstreamProtocol = "grpc"
 	// UpstreamProtocolGraphQL is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolGraphQL UpstreamProtocol = "graphql"
 	// UpstreamProtocolWebSocket is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolWebSocket UpstreamProtocol = "websocket"
 	// UpstreamProtocolKafka is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolKafka UpstreamProtocol = "kafka"
 	// UpstreamProtocolNATS is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolNATS UpstreamProtocol = "nats"
 	// UpstreamProtocolMQTT is Planned (M4).
+	// +ruralz:planned=M4
 	UpstreamProtocolMQTT UpstreamProtocol = "mqtt"
 	// UpstreamProtocolAI is Planned (M3).
+	// +ruralz:planned=M3
 	UpstreamProtocolAI UpstreamProtocol = "ai"
 )
 
@@ -35,24 +42,38 @@ type UpstreamSpec struct {
 	Protocol UpstreamProtocol `json:"protocol"`
 	// Endpoints are static addresses.
 	// +ruralz:list=map,key=address
+	// +ruralz:impact=routing
 	Endpoints []Endpoint `json:"endpoints,omitempty"`
 	// Discovery finds Endpoints instead of listing them.
+	// +ruralz:impact=routing
 	Discovery *Discovery `json:"discovery,omitempty"`
 	// LoadBalancing selects an Endpoint per attempt.
+	// +ruralz:impact=traffic
 	LoadBalancing *LoadBalancing `json:"loadBalancing,omitempty"`
-	// HealthCheck configures active and passive health checks.
+	// HealthCheck configures active and passive health checks; passive ejection runs even without it.
+	// +ruralz:impact=traffic
 	HealthCheck *HealthCheck `json:"healthCheck,omitempty"`
 	// Retries configures retries.
+	// +ruralz:impact=traffic
 	Retries *Retries `json:"retries,omitempty"`
-	// CircuitBreaker configures the circuit breaker.
+	// CircuitBreaker configures the circuit breaker and the in-flight ceiling.
+	// +ruralz:impact=traffic
 	CircuitBreaker *CircuitBreaker `json:"circuitBreaker,omitempty"`
-	// TLS configures TLS to the Endpoints.
+	// TLS configures TLS to the Endpoints; without it the Upstream is a cleartext hop.
+	// +ruralz:impact=security
 	TLS *UpstreamTLS `json:"tls,omitempty"`
-	// Timeout is the per-leg deadline.
+	// ConnectTimeout bounds the dial of a new connection to an Endpoint, shared by every address the Endpoint resolves to; when it expires the attempt fails with error kind connect.
+	// +ruralz:default=1s
+	// +ruralz:impact=traffic
+	ConnectTimeout *Duration `json:"connectTimeout,omitempty"`
+	// Timeout is the per-leg deadline; default the Route's timeout.
+	// +ruralz:impact=traffic
 	Timeout *Duration `json:"timeout,omitempty"`
 	// Messaging applies to kafka, nats and mqtt only. Planned (M4).
+	// +ruralz:planned=M4
 	Messaging *Messaging `json:"messaging,omitempty"`
 	// AI applies to protocol ai only; its models replace endpoints. Planned (M3).
+	// +ruralz:impact=ai
 	AI *UpstreamAI `json:"ai,omitempty"`
 	// Policies attaches upstream-leg Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -65,6 +86,7 @@ type Endpoint struct {
 	// +ruralz:required
 	Address string `json:"address"`
 	// Weight is the relative load-balancing weight.
+	// +ruralz:default=1
 	// +ruralz:minimum=0
 	Weight *int32 `json:"weight,omitempty"`
 }
@@ -77,6 +99,7 @@ const (
 	// DiscoveryTypeDNS resolves DNS names. Planned (M1).
 	DiscoveryTypeDNS DiscoveryType = "dns"
 	// DiscoveryTypeKubernetes watches EndpointSlices. Planned (M2).
+	// +ruralz:planned=M2
 	DiscoveryTypeKubernetes DiscoveryType = "kubernetes"
 )
 
@@ -108,9 +131,12 @@ const (
 	LoadBalancingRandom LoadBalancingAlgorithm = "random"
 )
 
-// LoadBalancing selects an Endpoint per attempt.
+// LoadBalancing selects an Endpoint per attempt. algorithm ring-hash
+// without hashKey is RZ-CFG-005.
+// +ruralz:requiredIf=hashKey,algorithm=ring-hash
 type LoadBalancing struct {
 	// Algorithm is round-robin, least-request, ring-hash or random.
+	// +ruralz:default=least-request
 	Algorithm *LoadBalancingAlgorithm `json:"algorithm,omitempty"`
 	// HashKey is the ring-hash key; required when algorithm is ring-hash.
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
@@ -123,20 +149,32 @@ type HealthCheck struct {
 	Active *ActiveHealthCheck `json:"active,omitempty"`
 	// Passive ejects Endpoints that fail requests.
 	Passive *PassiveHealthCheck `json:"passive,omitempty"`
+	// StallTimeout is how long an attempt may wait for response headers before it is stalled; an Endpoint holding a stalled attempt that has sent no response headers for as long is suspect until it does, so selection skips it while another Endpoint remains and an attempt timeout on it ejects it.
+	// +ruralz:default=1s
+	StallTimeout *Duration `json:"stallTimeout,omitempty"`
+	// PingTimeout is how long the ping an HTTP/2 connection to an Endpoint gets after 1 s of silence may go unanswered before the connection is closed and its streams reset.
+	// +ruralz:default=5s
+	PingTimeout *Duration `json:"pingTimeout,omitempty"`
 }
 
-// ActiveHealthCheck probes Endpoints.
+// ActiveHealthCheck probes Endpoints; its presence turns probing on. A probe
+// is GET path, and a status of 200 to 399 within timeout succeeds.
 type ActiveHealthCheck struct {
 	// Path is the probe path.
-	Path string `json:"path,omitempty"`
+	// +ruralz:default=/
+	Path *string `json:"path,omitempty"`
 	// Interval is the time between probes.
+	// +ruralz:default=10s
 	Interval *Duration `json:"interval,omitempty"`
 	// Timeout is the probe deadline.
+	// +ruralz:default=2s
 	Timeout *Duration `json:"timeout,omitempty"`
 	// HealthyThreshold is the consecutive successes that mark an Endpoint healthy.
+	// +ruralz:default=2
 	// +ruralz:minimum=1
 	HealthyThreshold *int32 `json:"healthyThreshold,omitempty"`
 	// UnhealthyThreshold is the consecutive failures that mark an Endpoint unhealthy.
+	// +ruralz:default=3
 	// +ruralz:minimum=1
 	UnhealthyThreshold *int32 `json:"unhealthyThreshold,omitempty"`
 }
@@ -144,55 +182,71 @@ type ActiveHealthCheck struct {
 // PassiveHealthCheck ejects Endpoints that fail requests.
 type PassiveHealthCheck struct {
 	// ConsecutiveErrors matching circuitBreaker.failureWhen eject an Endpoint.
+	// +ruralz:default=5
 	// +ruralz:minimum=1
 	ConsecutiveErrors *int32 `json:"consecutiveErrors,omitempty"`
 	// EjectionTime is multiplied by the Endpoint's ejection count.
+	// +ruralz:default=30s
 	EjectionTime *Duration `json:"ejectionTime,omitempty"`
 }
 
 // Retries configures retries.
 type Retries struct {
 	// Attempts counts retries after the first attempt.
+	// +ruralz:default=1
 	// +ruralz:minimum=0
 	Attempts *int32 `json:"attempts,omitempty"`
-	// PerTryTimeout is the deadline of each attempt.
+	// PerTryTimeout is the deadline of each attempt; default the leg time left divided by the retries left plus one.
 	PerTryTimeout *Duration `json:"perTryTimeout,omitempty"`
-	// RetryOn decides whether an attempt is retried.
+	// RetryOn decides whether an attempt is retried; default a method-dependent rule over connect and reset errors and status 503.
 	// +ruralz:cel=request,response,error,attempt,upstream:bool
 	RetryOn string `json:"retryOn,omitempty"`
 }
 
-// CircuitBreaker configures the circuit breaker and bulkhead.
+// CircuitBreaker configures the circuit breaker and the bulkhead of an
+// Upstream, each kept per Upstream per Node.
 type CircuitBreaker struct {
-	// MaxConnections caps connections per Endpoint set.
+	// MaxConnections caps in-flight attempts per Upstream per Node, HTTP/2 streams included; an attempt takes a slot before it is sent and holds it until its response body closes.
+	// +ruralz:default=1024
 	// +ruralz:minimum=1
 	MaxConnections *int32 `json:"maxConnections,omitempty"`
-	// MaxPendingRequests caps queued requests.
+	// MaxPendingRequests caps attempts waiting for an in-flight slot; when the queue is full an attempt gets 503 RZ-UP-006 at once.
+	// +ruralz:default=256
 	// +ruralz:minimum=0
 	MaxPendingRequests *int32 `json:"maxPendingRequests,omitempty"`
-	// ConsecutiveFailures opens the breaker.
+	// ConsecutiveFailures is the run of failed legs that opens the breaker, once a rolling 10 s window also holds at least 20 legs and at least half of them failed.
+	// +ruralz:default=5
 	// +ruralz:minimum=1
 	ConsecutiveFailures *int32 `json:"consecutiveFailures,omitempty"`
-	// OpenDuration is how long the breaker stays open.
+	// OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through; 3 consecutive probe successes close it and a failed probe reopens it.
+	// +ruralz:default=30s
 	OpenDuration *Duration `json:"openDuration,omitempty"`
-	// FailureWhen decides whether an attempt counts as a failure.
+	// FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.
 	// +ruralz:cel=request,response,error,upstream:bool
 	FailureWhen string `json:"failureWhen,omitempty"`
 }
 
-// UpstreamTLS configures TLS to Endpoints.
+// UpstreamTLS configures the client side of the TLS connections to an
+// Upstream's Endpoints: TLS 1.2 or newer, the server certificate always
+// verified. Set clientCertificate and clientKey together, or neither.
 type UpstreamTLS struct {
-	// SNI is the server name sent in the TLS handshake.
+	// SNI is the server name sent in the TLS handshake and verified in the server certificate.
 	SNI string `json:"sni,omitempty"`
-	// CACertificate verifies the Endpoints.
+	// CACertificate is a PEM bundle that verifies the server instead of the system roots.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	CACertificate *SecretValue `json:"caCertificate,omitempty"`
-	// ClientCertificate is the client certificate for mTLS.
+	// ClientCertificate is the PEM client certificate chain for mTLS.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
-	// ClientKey is the client private key for mTLS.
+	// ClientKey is the PEM client private key for mTLS.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	ClientKey *SecretValue `json:"clientKey,omitempty"`
+	// HandshakeTimeout bounds the TLS handshake of a new connection; when it expires the attempt fails with error kind tls.
+	// +ruralz:default=2s
+	HandshakeTimeout *Duration `json:"handshakeTimeout,omitempty"`
 }
 
 // Messaging configures kafka, nats and mqtt Upstreams. Planned (M4).

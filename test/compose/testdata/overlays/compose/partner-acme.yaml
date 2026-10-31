@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: partner-acme
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        hash: null                      # the example's key is known only by its hash
+        secretRef: {provider: file, name: /etc/ruralz/consumers/partner-acme-primary}

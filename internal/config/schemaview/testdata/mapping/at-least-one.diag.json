@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/at-least-one.json",
+    "line": 7,
+    "column": 15,
+    "resource": {
+      "kind": "Policy",
+      "name": "office-only"
+    },
+    "path": [
+      "spec",
+      "config"
+    ],
+    "message": "at least one of allow, deny is required"
+  }
+]

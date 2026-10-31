@@ -1,0 +1,8 @@
+extra.yaml:13:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=dot].path: step path "/a/../b" is not a valid path (dot segment)
+extra.yaml:16:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=encoded-dot].path: step path "/a/%2E%2e" is not a valid path (dot segment)
+extra.yaml:19:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=no-slash].path: step path "orders" does not begin with /
+extra.yaml:22:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=empty].path: step path "" does not begin with /
+extra.yaml:25:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=nul].path: step path "/a%00" is not a valid path (encoded NUL)
+extra.yaml:28:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=backslash].path: step path "/a\\b" is not a valid path (backslash)
+extra.yaml:31:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=bad-escape].path: step path "/a%zz" is not a valid path (invalid percent escape)
+extra.yaml:34:15 error RZ-CFG-005 Route/step-paths spec.composition.steps[name=query-control].path: step path "/a?x=\x01" holds a control byte in its query

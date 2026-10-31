@@ -1,0 +1,11 @@
+PHASE             LEG     POLICY                FROM     REASON
+onRequestHeaders  client  cors-default          Gateway  slot cors, inherited
+onRequestHeaders  client  apikey-partner        Route    slot auth, replaces jwt-default
+onRequestHeaders  client  geo-block-default     Gateway  own slot
+onRequestHeaders  client  ratelimit-global      Gateway  own slot, not overridable
+onRequestBody     client  token-budget-partner  Route    own slot
+onResponse        client  headers-security      Gateway  own slot, not overridable
+onResponse        client  cors-default          Gateway  slot cors, inherited
+onLog             client  token-budget-partner  Route    own slot
+onChunk           client  token-budget-partner  Route    own slot
+none              none    jwt-default           Gateway  replaced in slot auth by apikey-partner

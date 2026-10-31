@@ -1,0 +1,1 @@
+consumers.yaml:11:20 error RZ-CFG-041 Consumer/acme spec.credentials.apiKeys[name=retrievable].secretRef: secretRef "file:/etc/ruralz/oauth/client-secret" has destination "local" here and "https://auth.shop.example:443" at Policy/upstream-oauth spec.config.clientSecret (one secret is sent to one destination; use a separate secret for each) (first used in policies.yaml:31:31)

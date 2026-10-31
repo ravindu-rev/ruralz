@@ -1,0 +1,1 @@
+ruralz.yaml:38:9 error RZ-CFG-031 Route/summary spec.composition.steps[name=totals]: composition has 3 steps, more than limits.maxCompositionSteps (2) (limit set in ruralz.yaml:11:26)

@@ -1,0 +1,1 @@
+ruralz.yaml:21:35 error RZ-CFG-014 Policy/stamp-status spec.config.request.set[name=x-status].valueExpression: CEL headers config.request.set[].valueExpression: undeclared reference to 'response' (headers config.request.set[].valueExpression has request, source, route, consumer, auth, now)

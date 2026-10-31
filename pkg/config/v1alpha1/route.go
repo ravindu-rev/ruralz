@@ -11,6 +11,7 @@ type RouteSpec struct {
 	Listeners []string `json:"listeners,omitempty"`
 	// Match selects requests; every criterion must hold.
 	// +ruralz:required
+	// +ruralz:impact=routing
 	Match RouteMatch `json:"match"`
 	// Policies attaches Route-scoped Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -20,8 +21,10 @@ type RouteSpec struct {
 	ExcludePolicies []PolicyRef `json:"excludePolicies,omitempty"`
 	// Upstreams are weighted legs; required unless composition is set.
 	// +ruralz:list=map,key=name
+	// +ruralz:impact=routing
 	Upstreams []RouteUpstream `json:"upstreams,omitempty"`
 	// Composition calls several Upstreams per request; mutually exclusive with upstreams.
+	// +ruralz:impact=routing
 	Composition *Composition `json:"composition,omitempty"`
 	// Timeout is the whole-request deadline.
 	// +ruralz:impact=traffic
@@ -43,10 +46,13 @@ type RouteMatch struct {
 	// +ruralz:list=map,key=name
 	Headers []HeaderMatch `json:"headers,omitempty"`
 	// GRPC matches a gRPC service and method. Planned (M3).
+	// +ruralz:planned=M3
 	GRPC *GRPCMatch `json:"grpc,omitempty"`
 	// GraphQL matches a GraphQL operation. Planned (M3).
+	// +ruralz:planned=M3
 	GraphQL *GraphQLMatch `json:"graphql,omitempty"`
 	// Topic matches an event topic. Planned (M4); its ingress declaration is OQ-configuration-model-11.
+	// +ruralz:planned=M4
 	Topic string `json:"topic,omitempty"`
 	// When is a CEL condition over the request without its body.
 	// +ruralz:cel=request,source,now:bool
@@ -135,8 +141,9 @@ type Composition struct {
 }
 
 // CompositionStep is one Upstream call in a composition. Each step has
-// exactly one of path or pathExpression.
+// exactly one of path or pathExpression, and collection true needs group.
 // +ruralz:exactlyOneOf=path,pathExpression
+// +ruralz:requiredIf=group,collection=true
 type CompositionStep struct {
 	// Name identifies the step.
 	// +ruralz:required
@@ -147,24 +154,26 @@ type CompositionStep struct {
 	Upstream string `json:"upstream"`
 	// Method is the HTTP method; default the incoming method.
 	Method string `json:"method,omitempty"`
-	// Path is a literal path.
+	// Path is a literal path starting with / that passes the hardening of the client path, with no . or .. segment; its first ? starts the raw query sent, else the client's query is forwarded.
 	Path string `json:"path,omitempty"`
-	// PathExpression computes the path.
+	// PathExpression computes the path, under the rules of path; splice decoded captures with url.pathEscape or url.queryEscape, or read request.rawPathParams.
 	// +ruralz:cel=request,source,route,consumer,auth,now,steps:string
 	PathExpression string `json:"pathExpression,omitempty"`
-	// Target unwraps a nested object of the response first.
+	// Target is a dot path that unwraps a nested value of the response body first.
 	Target string `json:"target,omitempty"`
 	// Select is an allowlist of response fields.
 	// +ruralz:list=set
 	Select []string `json:"select,omitempty"`
 	// Rename renames response fields.
 	Rename map[string]string `json:"rename,omitempty"`
-	// Collection is true when the body is a JSON array.
+	// Collection is true when the value after target is a JSON array; it needs group.
 	// +ruralz:default=false
 	Collection *bool `json:"collection,omitempty"`
 	// Group is the key under which the body is merged.
 	Group string `json:"group,omitempty"`
-	// MaxBodyBytes caps this step's body; default an equal share of Gateway limits.maxResponseBodyBytes.
+	// MaxBodyBytes caps this step's body, at least 1 byte in either spelling; default an equal share of Gateway limits.maxResponseBodyBytes.
+	// +ruralz:minimum=1
+	// +ruralz:pattern=^[0-9]*[1-9][0-9]*((\.[0-9]+)?(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei))?$|^[0-9]+\.[0-9]*[1-9][0-9]*(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)$
 	MaxBodyBytes *ByteSize `json:"maxBodyBytes,omitempty"`
 	// Optional allows a partial response when the step fails.
 	// +ruralz:default=false

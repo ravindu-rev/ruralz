@@ -1,0 +1,31 @@
+[
+  {
+    "code": "RZ-CFG-035",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 28,
+    "column": 19,
+    "resource": {
+      "kind": "Consumer",
+      "name": "gamma"
+    },
+    "path": [
+      "spec",
+      "credentials",
+      "basic",
+      {
+        "username": "batch"
+      },
+      "username"
+    ],
+    "message": "basic username \"batch\" is already declared by Consumer \"beta\"",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 18,
+        "column": 19,
+        "message": "declared in"
+      }
+    ]
+  }
+]

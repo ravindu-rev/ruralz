@@ -1,0 +1,1 @@
+ruralz.yaml:26:20 warning RZ-CFG-013 Route/orders spec.match.path.prefix: variable "API_TOKEN" looks like a secret (use a secretRef with provider: env instead of substitution)

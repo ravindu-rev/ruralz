@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "order-schema"},
+  "spec": {"type": "validation.json-schema", "failureMode": "closed", "config": {"schema": {
+    "type": "object", "required": ["sku", "quantity"],
+    "properties": {"sku": {"type": "string", "pattern": "^[A-Z]{3}-[0-9]+$"}, "quantity": {"type": "integer", "minimum": 1, "maximum": 100}},
+    "additionalProperties": false}}}
+}

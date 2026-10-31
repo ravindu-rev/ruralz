@@ -1,0 +1,1 @@
+ruralz.yaml:11:7 error RZ-CFG-020 Gateway/edge spec.policies[name=cache]: Policy type "cache" is not allowed at Gateway scope (allowed: Route)

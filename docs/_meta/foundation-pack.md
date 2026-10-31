@@ -1,13 +1,6 @@
----
-title: Ruralz Foundation Pack
-version: v1
-status: binding
-last_updated: 2026-09-25
----
-
 # Ruralz Foundation Pack
 
-This file is **binding** for every document under `docs/`. Writers and reviewers MUST use these names, kinds, phases, Policy types, commands and facts verbatim; deviations are review-blocking. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels. Later changes follow section 14.
+This file is **binding** for every document under `docs/` and for the code: use these names, kinds, phases, Policy types, commands and facts verbatim.
 
 ## 1. Product facts
 
@@ -19,7 +12,6 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Legal owner | **Revington** (https://revington.co). Copyright 2026 Revington. "Ruralz" is a trademark of Revington |
 | Source | `https://github.com/ravindu-rev/ruralz` (monorepo); remote `git@github.com:ravindu-rev/ruralz.git` |
 | License | Apache-2.0 for all components; DCO sign-off for contributions |
-| Snapshot date | 2026-09-23 (external library, license and release facts are as of this date) |
 | Four differentiators (verbatim) | (1) **WASM plugin system**, (2) **AI/LLM gateway**, (3) **built-in control plane + GitOps**, (4) **multi-protocol native** |
 | FIPS build | A build flavor (`GOFIPS140`, Planned (M5)) with the same features and license as the default build, published as separate artifacts; "no enterprise build" means no feature difference, not a single binary |
 | Ruralz Cloud tenancy | One dedicated `ruralz-control` and Control Store per customer; provisioning and billing read only public interfaces (REST API, metrics, OpenTelemetry signals), so no cloud-only hook exists |
@@ -28,12 +20,12 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 
 | Thing | Canonical name | Identifier / artifact | Never write |
 |---|---|---|---|
-| Product | Ruralz | — | RuralZ, RURALZ, ruralz (as product name) |
+| Product | Ruralz | None | RuralZ, RURALZ, ruralz (as product name) |
 | Data plane | **Ruralz Gateway** | binary `ruralzd`; image `ghcr.io/ravindu-rev/ruralzd` | "the proxy", "gateway node" (use **Node**), "data plane binary" |
 | Control plane | **Ruralz Control** | binary `ruralz-control`; image `ghcr.io/ravindu-rev/ruralz-control` | "controller", "management plane", "control server" |
 | Web UI | **Ruralz Console** | served by `ruralz-control` at `/console` | "dashboard", "UI", "admin panel" |
 | CLI | `ruralz` | `ruralz <noun> <verb>`; registry in section 9 | `ruralzctl`, `rz` |
-| Go module | `github.com/ravindu-rev/ruralz` | `cmd/ruralzd`, `cmd/ruralz-control`, `cmd/ruralz`, `internal/`, `pkg/`, `api/`, `sdk/` | — |
+| Go module | `github.com/ravindu-rev/ruralz` | `cmd/ruralzd`, `cmd/ruralz-control`, `cmd/ruralz`, `internal/`, `pkg/`, `api/`, `sdk/` | None |
 | Config unit | **Bundle** (source directory rooted at `ruralz.yaml`) | `apiVersion: ruralz/v1alpha1`; mirrored CRDs use `ruralz.io/v1alpha1` | "config tree", "manifest" |
 | Immutable built config | **Revision** (content-addressed digest of a Bundle rendered for one Environment; section 8.1) | display `rev-<12 hex>`; wire and storage `sha256:<64 hex>` | "version", "release" (for config) |
 | Configuration a Node serves now | **active Revision** (section 8.2) | the Node's current compiled snapshot | "current config", "live config" |
@@ -47,15 +39,34 @@ This file is **binding** for every document under `docs/`. Writers and reviewers
 | Group of Clusters | **Environment** | control-plane kind `Environment` (e.g., `dev`, `staging`, `prod`) | "stage", "tier" (tier is a Consumer concept) |
 | Isolated blast-radius unit | **Cell** | one Cluster and its State Store in one Region, optionally with a regional Ruralz Control (section 8.13) | "shard", "partition" |
 | Persisted boot configuration | **Last-Known-Good** | `${RURALZ_DATA_DIR}/lkg/` (section 8.2) | "fallback config", "cached config" |
-| Default ports | `ruralzd`: **8080** HTTP, **8443** TLS (+ UDP 8443 for HTTP/3, Planned (M3)), **9901** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`, `/config/dump`, `/tap`). `ruralz-control`: **8090** REST API + Console, **8091** Control Stream (mTLS, Nodes dial), **8092** Raft peer transport (mTLS), **9902** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`). Details in section 8.4 | — | — |
-| Env vars | `RURALZ_*`. Process settings that never change a Revision: `RURALZ_CONFIG`, `RURALZ_DATA_DIR`, `RURALZ_LOG_LEVEL`. `RURALZ_STATE_STORE_URL` is the fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning) and the conventional `secretRef` name with `provider: env` | — | — |
-| Metrics | `ruralz_<component>_<name>_<unit>` (e.g., `ruralz_http_request_duration_seconds`; counters end in `_total`); OTel semantic conventions for HTTP and `gen_ai.*` | — | — |
-| Trace spans | `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` | — | — |
-| Error codes | `RZ-<AREA>-<NNN>`; areas `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`, with meanings and registry owners in section 8.6 | — | — |
-| Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | — | — |
-| ADRs | `ADR-0001`..`ADR-0017`, files `docs/adr/NNNN-<slug>.md` | — | — |
-| Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | — | "TBD", "TODO" |
-| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`; features whose design is complete in these docs are still tagged `Planned (Mx)` until implemented | "v1", "v2", "phase 2", "GA" as a milestone |
+| Default ports | `ruralzd`: **8080** HTTP, **8443** TLS (+ UDP 8443 for HTTP/3, Planned (M3)), **9901** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`, `/config/dump`, `/tap`). `ruralz-control`: **8090** REST API + Console, **8091** Control Stream (mTLS, Nodes dial), **8092** Raft peer transport (mTLS), **9902** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`). Details in section 8.4 | None | None |
+| Env vars | `RURALZ_*` process settings, listed under Process settings below; none changes a Revision. `RURALZ_*` also names script, test and tool inputs, such as `RURALZ_QUICKSTART_*` and `RURALZ_TEST_*`, which never reach a Node and are not process settings | None | None |
+| Metrics | `ruralz_<component>_<name>_<unit>` (e.g., `ruralz_http_request_duration_seconds`; counters end in `_total`); OTel semantic conventions for HTTP and `gen_ai.*` | None | None |
+| Trace spans | `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` | None | None |
+| Error codes | `RZ-<AREA>-<NNN>`; areas `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`, with meanings and registry owners in section 8.6 | None | None |
+| Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | None | None |
+| ADRs | `ADR-NNNN`, files `docs/adr/NNNN-<slug>.md` | None | None |
+| Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | None | "TBD", "TODO" |
+| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
+
+**Process settings.** A Node reads them once at start, so a change needs a restart or a Zero-Downtime Upgrade.
+
+| Setting | Meaning |
+|---|---|
+| `RURALZ_CONFIG` | Configuration source of a file-mode Node |
+| `RURALZ_DATA_DIR` | Directory of the Node's durable state (section 8.11); default `/var/lib/ruralz`, which is also the default `--data-dir` of `ruralz node drain` |
+| `RURALZ_LOG_LEVEL` | Process log level |
+| `RURALZ_STATE_STORE_URL` | Fallback source for Gateway `spec.stateStore.url` when `stateStore` is absent (else `memory` with a startup warning), and the conventional `secretRef` name with `provider: env` |
+| `RURALZ_ADMIN_TOKEN_FILE` | File holding the operator token, accepted on every admin path of 9901; also the `ruralz` CLI's default `--admin-token-file` |
+| `RURALZ_ADMIN_METRICS_TOKEN_FILE` | File holding a token accepted on `/metrics` only |
+| `RURALZ_ADMIN_TLS_DIR` | Certificate and key the admin port serves TLS with; its client CA also admits client certificates |
+| `RURALZ_ADMIN_URL` | Read by the `ruralz` CLI only, never by a Node: the default `--admin`, a Node's admin base URL, of the commands that call a Node's admin port |
+| `RURALZ_BIND_LOOPBACK` | `true` or `false`, default `false`: binds every client listener and the admin port to loopback, 127.0.0.1 and ::1, instead of every interface; `ruralz dev run` and the quickstart set it, and any other value refuses start |
+| `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the Enrollment token file or Vault credential |
+| `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
+| `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
+| `RURALZ_ZONE` | The Node's failure-zone name, an operator-set token of 1 to 63 characters from `[a-z0-9-]`, default empty; any other value refuses start. The State client compares it with the zones of `stateStore.zones` and `stateStore.cache.zones` to label each call `same`, `cross` or `unknown` |
+| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; every stored entry records whether it is tagged, so a Node without the key reads a tagged entry as a miss; rotating the key needs a restart and turns existing entries into misses |
 
 ## 3. Resource model (fixed kinds)
 
@@ -93,8 +104,9 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 ## 5. Configuration format (ADR-0003)
 
 - **YAML 1.2** with a published **JSON Schema (draft 2020-12)** in two generated views (authoring, rendered); JSON is accepted as a strict subset, through the same loader, yielding the same Revision digest. Kubernetes-style resource model (`apiVersion`/`kind`/`metadata`/`spec`).
-- Restricted YAML profile: the loader rejects non-UTF-8 input and byte order marks (RZ-CFG-001), duplicate keys (RZ-CFG-002), anchors, aliases and merge keys (RZ-CFG-003) and custom tags (RZ-CFG-004); `yes` and `on` are strings.
+- Restricted YAML profile, read by Ruralz code written for YAML 1.2.2: the loader rejects non-UTF-8 input, byte order marks and YAML syntax errors (RZ-CFG-001), duplicate keys (RZ-CFG-002), anchors, aliases and merge keys (RZ-CFG-003) and custom tags (RZ-CFG-004); `yes` and `on` are strings.
 - Env substitution: `${VAR}` and `${VAR:-default}`; `$${` escapes a literal. It runs once, after overlay merge and before schema validation, on parsed scalars, and is forbidden in keys, `apiVersion`, `kind`, `metadata.name`, references, `SecretValue` and CEL fields (RZ-CFG-011). Secrets ONLY via `secretRef` (providers `env`, `file`, `kubernetes`, `vault`), never inline.
+- Secret limits: on a Node, a `file` reference resolves only under `RURALZ_SECRET_ROOT` and an `env` reference only for `RURALZ_STATE_STORE_URL` and `RURALZ_SECRET_*` names (section 2). Every secret field has a static destination: `auth.upstream-oauth2` `clientSecret` is sent only to the origin of its `tokenUrl`, `stateStore.url` and `stateStore.cache.url` only to the State Store, and, Planned (M3), `AIProvider` `credentials.apiKey` only to the origin of its `baseUrl`; every other secret (TLS keys, CA bundles, CRLs, Consumer API keys) never leaves the Node. One `secretRef` used with two destinations is RZ-CFG-041, and adding a reference or changing a destination has diff impact `security`.
 - A Bundle is a directory rooted at `ruralz.yaml`. Base files form a union read in lexical byte order of their relative paths; a duplicate identity `(kind, metadata.name)` is RZ-CFG-008. Only `overlays/<env>/` patches resources, with Kubernetes strategic-merge semantics driven by the schema's `x-ruralz-list` types (`map`, `orderedMap`, `set`, `atomic`); at most one overlay applies per render.
 - Rejected: HCL (weak schema/IDE story, no CRD path), JSON-only (no comments, poor diffs).
 - YAML keys are `camelCase` (the overlay directive `$patch` is the only exception); kind names are `PascalCase`.
@@ -105,25 +117,23 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 
 ## 7. Technology decisions (fixed; details in `docs/engineering/01-tech-stack-and-libraries.md` and ADRs)
 
-Rows marked **Corrected at freeze** were proven wrong in the previous pack by the tech stack document and are fixed here. Rows marked **Selected at freeze** record a library choice that `docs/_meta/research/tooling-and-licenses.md` resolved after the reviews; the tech stack document adds their catalog rows at conformance.
-
 | Concern | Decision | ADR |
 |---|---|---|
-| Language / build | Go 1.26 floor (`go 1.26.0`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive (go1.27.1 at the snapshot) and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. **Corrected at freeze** | ADR-0001 |
+| Language / build | Go 1.26 floor (`go 1.26.0`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. | ADR-0001 |
 | License | Apache-2.0 everything; DCO; Revington trademark policy | ADR-0002 |
 | Config | YAML 1.2 + JSON Schema, restricted YAML profile, Kubernetes-style resources, strategic-merge overlays | ADR-0003 |
-| WASM runtime | wazero: repository `github.com/wazero/wazero`, Go module path `github.com/tetratelabs/wazero` (pure Go). **Corrected at freeze** | ADR-0004 |
+| WASM runtime | wazero: repository `github.com/wazero/wazero`, Go module path `github.com/tetratelabs/wazero` (pure Go). | ADR-0004 |
 | Plugin ABI | Custom capability-based Plugin ABI v1 with Extism-style memory/Host Function conventions; proxy-wasm compatibility adapter `Planned (M4)` | ADR-0005 |
-| Control Store | Embedded `hashicorp/raft` with `github.com/hashicorp/raft-boltdb/v2` (v2.4.2 or newer) on `go.etcd.io/bbolt`; mutual-TLS peer transport on 8092; MPL-2.0 modules only as named exceptions. Research confirms `hashicorp/raft`, `raft-boltdb/v2` and, linked through `go-metrics`, `go-immutable-radix` and `golang-lru` as MPL-2.0, and `bbolt`, `go-msgpack/v2`, `go-hclog` and `go-metrics` as MIT (`docs/_meta/research/tooling-and-licenses.md` section 3); `postgres` optional behind an interface, Planned (M4). **Corrected at freeze** | ADR-0006 (proposed) |
+| Control Store | Embedded `hashicorp/raft` with `github.com/hashicorp/raft-boltdb/v2` (v2.4.2 or newer) on `go.etcd.io/bbolt`; mutual-TLS peer transport on 8092; MPL-2.0 modules only as named exceptions: `hashicorp/raft`, `raft-boltdb/v2` and, linked through `go-metrics`, `go-immutable-radix` and `golang-lru` are MPL-2.0, and `bbolt`, `go-msgpack/v2`, `go-hclog` and `go-metrics` are MIT; `postgres` optional behind an interface, Planned (M4). | ADR-0006 (proposed) |
 | Control Stream | Own gRPC snapshot+delta protocol with xDS-style ACK/NACK, built with `connectrpc.com/connect` in gRPC mode on both ends; protos gated by `buf breaking`; NOT xDS, NOT go-control-plane | ADR-0007 |
 | Rate limiting | Local token bucket per Node at a per-Node ceiling + GCRA in the State Store (single Lua EVAL); fail-open by default with over-admission bounded by N × per-Node ceiling, configurable per Policy (section 8.8) | ADR-0008 |
-| HTTP stack | `net/http` (HTTP/1.1, HTTP/2, h2c via `Server.Protocols`) + `quic-go` for HTTP/3 (Planned (M3)); `golang.org/x/net/http2` only for non-deprecated low-level APIs, because its `Server` and `Transport` are deprecated in x/net v0.59.0; no fasthttp. **Corrected at freeze** | ADR-0009 |
-| Telemetry | OpenTelemetry-first (traces, metrics); `slog` bridge (`otelslog`) for logs until the OTel Go Logs API is stable | ADR-0010 |
-| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. **Corrected at freeze** | ADR-0011 |
+| HTTP stack | `net/http` (HTTP/1.1, HTTP/2, h2c via `Server.Protocols`) + `quic-go` for HTTP/3 (Planned (M3)); `golang.org/x/net/http2` only for non-deprecated low-level APIs, because its `Server` and `Transport` are deprecated in x/net v0.59.0; no fasthttp. | ADR-0009 |
+| Telemetry | OpenTelemetry-first (traces, metrics); `slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0; `/metrics` through the OpenTelemetry Prometheus exporter on a private `client_golang` registry, fed by an external producer of Ruralz-owned aggregates; only `internal/telemetry` (and the `internal/testkit/otlpsink` test collector) imports OpenTelemetry | ADR-0018 |
+| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline, with a 50 ms (target) stop for comprehensions that can reach the runtime cost limit; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. | ADR-0019 |
 | GraphQL | `github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions) | ADR-0012 |
 | Messaging | `twmb/franz-go` (Kafka), `nats.go/jetstream`, `eclipse-paho/paho.golang` (MQTT 5 client) + `mochi-mqtt` embedded broker mode `Planned (M4)` | ADR-0013 |
 | AI surface | OpenAI-compatible façade **and** native passthrough (Anthropic Messages, Bedrock, Gemini); provider-reported usage is authoritative for billing; tokenizer counts only for pre-admission estimates and the per-request streaming guard; Token Budget reservation and settlement per section 8.9 | ADR-0014 |
-| Upgrades | `SO_REUSEPORT` + graceful Drain + readiness gating (the new process reports ready over a Unix socket under `${RURALZ_DATA_DIR}`); HTTP/2 GOAWAY; `SO_ATTACH_REUSEPORT_CBPF` steering through `golang.org/x/sys/unix` empties the closing listener's accept queue (`net.ipv4.tcp_migrate_req` is an alternative); in-flight QUIC connections on UDP 8443 are lost and reconnect; no listener socket passing between processes | ADR-0015 |
+| Upgrades | `SO_REUSEPORT` + graceful Drain + readiness gating (the new process reports ready over a Unix socket under `${RURALZ_DATA_DIR}`); HTTP/2 GOAWAY; `SO_ATTACH_REUSEPORT_CBPF` steering through `golang.org/x/sys/unix` empties the closing listener's accept queue; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process accepts through a 3 s linger (target); in-flight QUIC connections on UDP 8443 are lost and reconnect; no listener socket passing between processes | ADR-0015 |
 | Kubernetes | Helm chart + CRDs mirroring the kinds `Planned (M2)`, API group `ruralz.io` (`ruralz.io/v1alpha1`, translated to the Bundle `ruralz/v1alpha1` by changing only the group); only Ruralz Control watches CRDs; Gateway API conformance deferred | ADR-0016 (proposed) |
 | Artifact signing | Digest verification always; Ruralz Control signs Revisions; CI and Plugin publishers sign with Sigstore; Nodes verify by default (section 8.14) | ADR-0017 |
 | gRPC ingress / upstream | `connectrpc.com/connect` (gRPC, gRPC-Web, Connect on `net/http`); `grpc-go` for upstream clients | (tech stack doc) |
@@ -131,10 +141,10 @@ Rows marked **Corrected at freeze** were proven wrong in the previous pack by th
 | JOSE / OIDC | `github.com/lestrrat-go/jwx/v4` + `github.com/coreos/go-oidc/v3` | (tech stack doc) |
 | Revision and Plugin distribution | `oras.land/oras-go/v2` (v2.6.2 or newer) and `sigstore/sigstore-go` | (tech stack doc; ADR-0017) |
 | Tokenizer | `tiktoken-go/tokenizer`, estimates only | (tech stack doc; ADR-0014) |
-| Semantic cache | Redis 8 Vector Sets or valkey-search 1.2 on the same State Store deployment through dedicated connections, never the auto-pipelined rate-limit and quota connections. Servers without either (Dragonfly, Valkey below 9.0.1) cannot serve it: the Policy then behaves as a State Store failure under its `failureMode` (default `open`, cache bypassed) and the Node reports a degraded state. **Corrected at freeze** | (AI doc) |
-| YAML 1.2 parser | `github.com/goccy/go-yaml` (MIT): the only researched candidate that claims YAML 1.2-only scalar resolution and rejects duplicate keys by default; the restricted profile's rejection of anchors, aliases, merge keys and custom tags is Ruralz code over its AST (`docs/_meta/research/tooling-and-licenses.md` section 6). **Selected at freeze** | (tech stack doc; ADR-0003) |
-| JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor (`docs/_meta/research/tooling-and-licenses.md` section 7). **Selected at freeze** | (tech stack doc; ADR-0003) |
-| Pending selections | Protobuf runtime, ULID, `/metrics` exporter, SigV4 signer, CLI framework, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14 to -20; candidate licenses in `docs/_meta/research/tooling-and-licenses.md` section 8) and a MaxMind database reader for `authz.geoip` (not yet researched). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds a catalog row backed by research | (tech stack doc) |
+| Semantic cache | Redis 8 Vector Sets or valkey-search 1.2 on the same State Store deployment through dedicated connections, never the auto-pipelined rate-limit and quota connections. Servers without either (Dragonfly, Valkey below 9.0.1) cannot serve it: the Policy then behaves as a State Store failure under its `failureMode` (default `open`, cache bypassed) and the Node reports a degraded state. | (AI doc) |
+| YAML 1.2 parser | Ruralz code in `internal/config/profile`, written for the YAML 1.2.2 productions: it types plain scalars by the YAML 1.2 core schema, refuses duplicate keys, and rejects anchors, aliases, merge keys and custom tags. No YAML module links into a binary; `go.yaml.in/yaml/v3` (MIT and Apache-2.0) serves only the parser's tests, as a differential oracle. | (tech stack doc; ADR-0003) |
+| JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor. | (tech stack doc; ADR-0003) |
+| Pending selections | Protobuf runtime, SigV4 signer, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14, -17, -19 and -20) and a MaxMind database reader for `authz.geoip`. A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
@@ -200,15 +210,15 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 | Endpoint | Meaning |
 |---|---|
 | `ruralzd` `/healthz` | The process responds |
-| `ruralzd` `/readyz` | 200 only when an active validated Revision is loaded, every `secretRef` it uses has resolved, listeners are bound and the Node is not draining. It never fails because the Control Stream is lost or the Node is detached, for any duration, since that would pull every Node during a control-plane incident (an opt-in staleness limit is OQ-system-overview-13). A Node with no usable configuration stays not ready |
+| `ruralzd` `/readyz` | 200 only when an active validated Revision is loaded, every `secretRef` it uses has resolved, listeners are bound and the Node is not draining. It never fails because the Control Stream is lost or the Node is detached, for any duration, since that would pull every Node during a control-plane incident (an opt-in staleness limit is OQ-system-overview-13). A Node with no usable configuration stays not ready; while no Revision is active, the reasons name the unresolved `secretRef` values and unbound listeners of the boot load being retried, and once one is active a newer Revision that fails never changes readiness |
 | `ruralz-control` `/healthz`, `/readyz` on 9902 | Semantics owned by Control plane and GitOps |
 
 ### 8.6 Error-code areas
 
 | Area | Meaning | Registry owner |
 |---|---|---|
-| `CFG` | Configuration parse, validation, render, digest, secret resolution and Plugin artifact or signature checks (RZ-CFG-001 to RZ-CFG-032 today) | configuration-model |
-| `RT` | Request handling on a Node before any Upstream: no matching Route, request size limits, Node buffer budget or overload, CORS and schema-validation rejections | data-plane |
+| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045 in M1 | configuration-model |
+| `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation rejections, Response Cache rejections (`only-if-cached` misses, unsatisfiable ranges), request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |
 | `RL` | Rate Limit and Quota decisions (429; 403 for a missing Consumer quota) | traffic-management-and-resilience |
@@ -224,17 +234,21 @@ A rejection uses `STS` when a State Store call failed or timed out, `PLG` when a
 1. Before the response is committed, each Policy makes at most one blocking State Store round trip per request.
 2. A call's timeout is the smaller of the Policy's `stateStoreTimeout` (default: Gateway `spec.stateStore.timeout`) and the time left in the per-request deadline (the Route's largest `stateStoreTimeout`). After it expires, remaining Policies apply `failureMode` without waiting; an open State client breaker skips calls entirely.
 3. Consumptive calls (GCRA, Quota check, Token Budget reservation) run in chain order and stop at the first deny: one script when their keys share a hash slot, otherwise sequential round trips. Read-only calls that depend on no earlier Filter MAY share one pipelined batch.
-4. Post-commit writes (Response Cache and Semantic Cache stores, Quota and Token Budget settlement) are asynchronous, pass through a bounded per-Node queue and are dropped with a counter when it is full; they never delay a response.
+4. Post-commit writes (Response Cache and Semantic Cache stores, Quota and Token Budget settlement) are asynchronous, pass through a bounded per-Node queue and are dropped with a counter when it is full; they never delay a response. The queue keeps one bounded class per kind of write, so a full class drops only its own writes and Plugin writes never displace settlement.
 5. `onChunk` never calls the State Store.
 6. Any other remote call before commit, such as a Semantic Cache embedding call to an `AIProvider`, is declared on the Policy with a timeout and `failureMode`.
+7. Plugin State Store keys, Planned (M2), live under `rzplg:<Environment name>:`, apart from every built-in key.
 
 Accuracy bounds for dropped writes belong to Scalability and distributed state.
 
 ### 8.8 Rate limiting (ADR-0008)
 
-- Each Node runs a local token bucket per key at a **per-Node ceiling**: declared on the Policy (field authored by Traffic management and resilience), or derived by dividing the limit by the Node count Ruralz Control publishes for the Cluster; never learned from peers. With neither (file mode without a declared ceiling), the ceiling equals the full limit.
-- Requests the local bucket denies never reach the State Store; each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit. Leased allowances instead of per-request GCRA are OQ-system-overview-15.
-- Fail-open over-admission bound: while the State Store is failing, admission per key is at most N × per-Node ceiling per window, where N is the number of serving Nodes (target; Scalability and distributed state owns the bound).
+N_serving is the number of serving Nodes of a Cell, and N_published the Node count Ruralz Control publishes for the Cluster.
+
+- Each Node runs a local token bucket per key at a **per-Node ceiling**: declared on the Policy (`limits[].perNodeCeiling`, authored by Traffic management and resilience), or derived as min(limit, max(10, ceil(2 × limit / N_published))) (target), with 2× headroom for uneven spread and a floor for pinned clients; never learned from peers. With neither (file mode without a declared ceiling, or a Control-mode Node without a count), the ceiling equals the full limit.
+- Requests the local bucket denies never reach the State Store; each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit. Two cases admit on local buckets alone: a Policy with `config.localOnly: true`, for keys too hot for one shard, and a first-seen key past the per-Node first-seen budget, which gets a 10 s local-only entry (target) at the per-Node ceiling in its own segment of the key table. Both admit at most N_serving × per-Node ceiling per window, even while the State Store is healthy (target). Leased allowances instead of per-request GCRA are OQ-system-overview-15.
+- Fail-open over-admission bound: while the State Store is failing, admission per key is at most N_serving × per-Node ceiling per window (target; Scalability and distributed state owns the bound). A derived ceiling then allows max(1, 2 × limit / N_published) per epoch-aligned window, without carry-over and refilled in 60 steps past one minute (target), so its floor never multiplies admission; a Control-mode Node without a count allows max(1, limit / 100) (target).
+- Node count: in Control mode, Planned (M2), a Node persists the last published count under `${RURALZ_DATA_DIR}` (section 8.11) and hands it to its successor in a Zero-Downtime Upgrade; a count read back after a restart is used, flagged stale, until the next one arrives. File mode, Planned (M1), has no count: ceilings equal the full limit, the first-seen budget is 200 keys per second per Node (target), and the Node is not degraded.
 - `failureMode` defaults to `open` and is configurable per Policy. With the `memory` driver every limit multiplies by the Node count, and a Node warns when its Cluster reports more than one Node.
 
 ### 8.9 Token Budgets (ADR-0014)
@@ -248,7 +262,7 @@ Accuracy bounds for dropped writes belong to Scalability and distributed state.
 | Settlement | In `onLog`, asynchronously: charge provider-reported usage (authoritative) and release the rest of R. When usage is missing (interrupted stream, no usage reported), charge all of R and emit a degraded-state metric |
 | Overshoot bound | At most the sum of input-estimate errors across concurrent requests (hypothesis; SM-10), owned by AI/LLM gateway |
 
-The default `failureMode` is `closed`, subject to OQ-configuration-model-8; per-provider estimate accuracy is OQ-vision-and-positioning-15.
+The default `failureMode` is `closed`, as registered; per-provider estimate accuracy is OQ-vision-and-positioning-15.
 
 ### 8.10 failureMode
 
@@ -272,8 +286,10 @@ A Node persists only the following under `${RURALZ_DATA_DIR}`; all other shared 
 | Enrollment identity | `${RURALZ_DATA_DIR}/identity/` | `node.id` (ULID, generated at first boot) and, in Control mode, the per-Node mTLS certificate and key issued at Enrollment; revoked with `ruralz node revoke` |
 | Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only; encrypted secret persistence is OQ-configuration-model-15 |
 | Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts and compiled modules; deleting them costs only warm-up |
+| Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015), Planned (M1) |
+| Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (section 8.8); Control mode, Planned (M2) |
 
-- Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good and holds the Control Stream for its `node.id` (ADR-0015 handover).
+- Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good, `holder.json` and the Node count, and holds the Control Stream for its `node.id` (ADR-0015 handover).
 - Enrollment is one-time and off the request path; file mode needs none. In Control mode, a Node without Last-Known-Good stays not ready until it enrolls and receives its first Revision from Ruralz Control; seeding from an OCI-published Revision during an outage is OQ-system-overview-12.
 - Gateway `spec.limits.maxPluginMemoryBytes` caps aggregate Plugin memory per Node; at the cap new instances are refused (`RZ-PLG` under the Policy's `failureMode`) and the Node never crashes. WASM plugin system owns the default; the Configuration model registers the field.
 
@@ -307,7 +323,7 @@ The trust policy (trusted identities or keys) lives in Ruralz Control's configur
 
 ## 9. CLI command registry
 
-Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, `test`. `docs/reference/01-cli-and-api-surface.md` MUST list every command below; it MAY add verbs and flags under these nouns, and a new noun needs a pack amendment through its Open questions. `ruralz version` and `ruralz completion` are the only commands outside the noun-verb form. Flags proposed in OQ-configuration-model-10 belong to the CLI document.
+Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, `test`. `docs/reference/01-cli-and-api-surface.md` MUST list every command below; it MAY add verbs and flags under these nouns, and a new noun needs the owner's decision. `ruralz version` and `ruralz completion` are the only commands outside the noun-verb form. The CLI document defines every flag.
 
 | Command | Purpose | Planned |
 |---|---|---|
@@ -358,8 +374,8 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 | `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | Planned (M1) |
 | `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M1) |
 | `authz.opa`, `authz.cedar` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M2) |
-| `authz.ip` (added at freeze) | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M1) |
-| `authz.geoip` (added at freeze) | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M2) |
+| `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M1) |
+| `authz.geoip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M2) |
 | `ratelimit` | admission | onRequestHeaders | G, R | `name` | open; either | Planned (M1) |
 | `quota` | admission | onRequestHeaders, onLog | G, R | `name` | open; either | Planned (M1) |
 | `validation.json-schema` | validation | onRequestBody | R | `validation` | closed; either | Planned (M1) |
@@ -375,7 +391,7 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 | `ai.guardrail` | validation | onRequestBody, onChunk, onResponse | G, R | `name` | closed; either | Planned (M3) |
 | `plugin` | `filterClass` | The Plugin's `phases` | Scopes matching those Phases | `name` | closed; closed only for auth and authz classes | Planned (M2) |
 
-IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file and waits for a tech stack catalog row for the reader; header enrichment for Upstreams is an Open question of Security and identity. The Configuration model adds both rows at conformance; the `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stay OQ-configuration-model-8.
+IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file and waits for a tech stack catalog row for the reader; header enrichment for Upstreams is an Open question of Security and identity. The `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stand as registered.
 
 ## 11. Glossary definitions
 
@@ -404,7 +420,7 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 | Host Function | A function the Plugin host exports to Plugins under Plugin ABI v1, callable only with the matching Capability. | wasm-plugin-system |
 | Hot Reload | One Node activating a new Revision without a restart: compile off the request path, then one atomic snapshot swap; in-flight requests keep their snapshot. | zero-downtime-upgrades-and-hot-reload |
 | Last-Known-Good | The persisted Revision under `${RURALZ_DATA_DIR}/lkg/` that a Node boots when it cannot obtain configuration; promoted on activation in file mode, at the promoted digest in Control mode. | system-overview |
-| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good and disposable caches. | system-overview |
+| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good, lock and handover files, the last published Node count and disposable caches. | system-overview |
 | Performance Budget | A latency, allocation or resource ceiling tagged (target) or (hypothesis) that the benchmark suite verifies; the performance document owns the values. | performance-budgets-and-benchmarking |
 | Phase | One fixed hook of the Filter Chain, from `onRequestHeaders` to `onLog`, plus the streaming hook `onChunk`. | data-plane |
 | Plugin | A Bundle kind and the sandboxed WASM artifact it pins by digest, running under Plugin ABI v1 with deny-by-default Capabilities and declared limits. | wasm-plugin-system |
@@ -414,7 +430,7 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 | Prompt Cache | Provider-side prompt caching, such as Anthropic `cache_control`, configured on `AIModel` and preserved by native passthrough. | ai-llm-gateway |
 | Provider Fallback | Moving an AI request to the next `AIModel` candidate after a defined failure class, only before the response is committed. | ai-llm-gateway |
 | Quota | A long-window Consumer allowance (unit requests or tokens) enforced by `quota` or `ai.token-budget`: checked before commit, settled asynchronously. | traffic-management-and-resilience |
-| Rate Limit | A `ratelimit` Policy bounding requests per key and window: a local token bucket at the per-Node ceiling plus GCRA in the State Store; fails open by default. | traffic-management-and-resilience |
+| Rate Limit | A `ratelimit` Policy bounding requests per key and window: a local token bucket at the per-Node ceiling plus GCRA in the State Store, or local buckets alone with `config.localOnly`; fails open by default. | traffic-management-and-resilience |
 | Region | A cloud or data-center region; its Nodes use their own State Store, and no request crosses a Region to reach one. | scalability-and-distributed-state |
 | Response Cache | The `cache` Policy: HTTP-semantics response caching in the State Store, looked up before the Upstream call and stored asynchronously after commit. | traffic-management-and-resilience |
 | Revision | The immutable SHA-256 digest of one Bundle rendered for one Environment in `ruralz.canonical.v1` form; displayed as `rev-<12 hex>`, verified in full. | configuration-model |
@@ -455,38 +471,3 @@ IP filtering and GeoIP (OQ-vision-and-positioning-10) are built-in types. `authz
 ## 13. Feature catalog anchor
 
 `docs/features/01-feature-catalog.md` lists every Ruralz feature by category with its milestone (`Planned (Mx)`) or `Not planned` with a reason, the kind, Policy or Filter that implements it, and the owning document. The CLI commands of section 9 and the Policy types of section 10 are its anchors: a feature claimed in any document MUST appear in the catalog.
-
-## 14. Change control
-
-- History: the previous version was authored on 2026-09-23, before the research files existed. This version was frozen on 2026-09-23 after the System overview and Configuration model judge panels and the Vision and Tech stack reviews; it decides 114 amendment proposals (61 distinct), and its research actions and two library selections were completed against `docs/_meta/research/tooling-and-licenses.md` and the corrected section 11 of `docs/_meta/research/licensing-landscape.md`. All Wave 2 and Wave 3 documents are written against it, and a later step conforms the four foundation documents to it.
-- After the freeze, changes require an ADR or an entry in the owning document's Open questions.
-
-Open questions this freeze decides; owners close them during conformance:
-
-| Open question | Decision |
-|---|---|
-| OQ-system-overview-1 | HTTP/3 is Planned (M3) |
-| OQ-system-overview-2 | Level-triggered Last-Known-Good promotion (section 8.2) |
-| OQ-system-overview-3 | ADR-0017 (section 8.14) |
-| OQ-system-overview-7 | Raft on port 8092; `postgres` Planned (M4) |
-| OQ-system-overview-17 | `paused` Rollout state; batch sizing stays with Control plane and GitOps |
-| OQ-system-overview-20 | Local counts guard the stream within its reservation and are never billed (section 8.9) |
-| OQ-configuration-model-1 | Option (a): CRDs `ruralz.io/v1alpha1`, Bundles `ruralz/v1alpha1` |
-| OQ-configuration-model-9 | Option (a): feature documents author `config`; the Configuration model registers it |
-| OQ-configuration-model-14 | Option (a): `secretRef`-held keys are hashed at load |
-| OQ-vision-and-positioning-10 | Built-in `authz.ip` (M1) and `authz.geoip` (M2) |
-| OQ-vision-and-positioning-11 | CLI import, export and test commands (section 9); serving stays open |
-| OQ-vision-and-positioning-14 | Gateway `limits.maxPluginMemoryBytes` |
-| OQ-tech-stack-and-libraries-1, -2, -3, -7 | Section 7 corrections |
-| OQ-tech-stack-and-libraries-12, -13; OQ-configuration-model-16 | Section 7 selections `goccy/go-yaml` and `santhosh-tekuri/jsonschema/v6`: option (a) of OQ-configuration-model-16 |
-| OQ-tech-stack-and-libraries-16 | `ruralz-control` exposes `/metrics` on 9902; the exporter stays open |
-
-Research actions, required before the dependent work and not waived for CI-only tooling. Status as of 2026-09-23:
-
-| Action | Status | Evidence | Unblocks |
-|---|---|---|---|
-| Add URLs and licenses for MADR 4.0, markdownlint-cli2, lychee and mermaid to `docs/_meta/research/` | Complete | `docs/_meta/research/tooling-and-licenses.md` section 1: MADR `MIT OR CC0-1.0`, markdownlint-cli2 `MIT`, lychee `Apache-2.0 OR MIT`, mermaid `MIT`, each with repository, LICENSE file and release URLs | OQ-tech-stack-and-libraries-5; tech stack acceptance criteria 1 and 2, closed when the tech stack document cites these rows at conformance |
-| Confirm licenses of `raft-boltdb/v2`, `go-msgpack/v2`, `go.etcd.io/bbolt` and raft's other transitive modules | Complete | `docs/_meta/research/tooling-and-licenses.md` section 3 (summary in the section 7 Control Store row). Left to the tech stack document: name `go-immutable-radix` and `golang-lru` as MPL-2.0 exceptions, and decide whether its license gate reads `go mod graph`, which also lists the MPL-2.0 `go-cleanhttp` and `go-retryablehttp` (section 3.4); the Planned (M0) license gate confirms the linked set (Gaps) | OQ-tech-stack-and-libraries-10; ADR-0006; Control Store code |
-| Correct `licensing-landscape.md` section 11: a DCO alone does not stop relicensing of Apache-2.0 contributions; P1 and ADR-0002 are the commitment | Complete | `docs/_meta/research/licensing-landscape.md` section 11: under Apache-2.0 Sections 2, 4 and 5, Revington, like any redistributor, may ship later Derivative Works under different terms; a binding commitment needs a pledge, foundation stewardship or trademark policy, pending legal review | ADR-0002 |
-| Research candidates for the section 7 pending selections (OQ-tech-stack-and-libraries-12 to -20) | Complete | `docs/_meta/research/tooling-and-licenses.md` sections 6 (YAML), 7 (JSON Schema) and 8 (protobuf, ULID, `/metrics`, SigV4, CLI, SAML, `postgres`). The YAML parser and JSON Schema validator are selected in section 7; the other seven stay pending until the tech stack document evaluates them and checks their dependencies' licenses (`crewjam/saml` fails S1) | OQ-tech-stack-and-libraries-12 to -20 |
-| Research a MaxMind-format database reader | Open | Not covered by any research file | `authz.geoip` catalog row |

@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/json-schema-document.json",
+    "line": 8,
+    "column": 17,
+    "resource": {
+      "kind": "Policy",
+      "name": "order-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema"
+    ],
+    "message": "must be an object or a boolean, not a string"
+  }
+]

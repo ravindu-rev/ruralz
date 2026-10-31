@@ -1,0 +1,7 @@
+Usage: ruralz version [FLAGS]
+
+Version, commit, flavor, levels.
+
+Flags:
+  --help              Print this help
+  --output text|json  Output format (text or json, default text)

@@ -1,0 +1,26 @@
+[
+  {
+    "code": "RZ-CFG-008",
+    "severity": "error",
+    "file": "upstreams.yaml",
+    "line": 4,
+    "column": 9,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "metadata",
+      "name"
+    ],
+    "message": "Upstream/orders is declared twice: a resource lives in exactly one place",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 14,
+        "column": 9,
+        "message": "first declared in"
+      }
+    ]
+  }
+]

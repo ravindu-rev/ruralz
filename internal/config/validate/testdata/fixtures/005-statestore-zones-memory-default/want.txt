@@ -1,0 +1,1 @@
+ruralz.yaml:22:7 error RZ-CFG-005 Gateway/edge spec.stateStore.zones: stateStore.zones applies to driver redis only, and this State Store uses the default driver memory (remove zones or use driver redis)

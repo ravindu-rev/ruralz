@@ -1,0 +1,758 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+// Package filter is the Filter SPI: what a built-in Filter implements
+// (Filter, Factory), what it sees of one request (Exchange) and what it
+// returns (Result). Filters under internal/filter/... never import
+// internal/gateway/...; the data plane implements Exchange and runs the
+// executor (internal/gateway/executor), so the offline validators of all
+// three binaries can reuse Filter check code.
+package filter
+
+import (
+	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"errors"
+	"log/slog"
+	"net/http"
+	"net/netip"
+	"reflect"
+	"sync"
+	"time"
+
+	"github.com/ravindu-rev/ruralz/internal/clock"
+	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/expr"
+	"github.com/ravindu-rev/ruralz/internal/phase"
+	"github.com/ravindu-rev/ruralz/internal/secret"
+	"github.com/ravindu-rev/ruralz/internal/statestore"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
+	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
+)
+
+// Outcome is what a Filter decided.
+type Outcome uint8
+
+// Outcomes.
+const (
+	// Continue passes the request or response on.
+	Continue Outcome = iota
+	// Respond short-circuits with Result.Response (request Phases only).
+	Respond
+	// CannotDecide applies the Policy's failureMode.
+	CannotDecide
+	// Retry asks the Upstream layer to retry the current attempt
+	// (onUpstreamResponseHeaders only): every other retry condition still
+	// applies and retryOn is not consulted; the remaining Filters of the
+	// Phase are skipped for this attempt. In any other Phase the executor
+	// treats it as CannotDecide.
+	Retry
+)
+
+// Response is a Filter- or Node-generated response. With Body nil and Code
+// set, the request handler writes the RFC 9457 problem document for Code
+// (internal/problem); the executor only passes the Response on.
+type Response struct {
+	// Status is the HTTP status.
+	Status int
+	// Header holds extra headers (WWW-Authenticate, Retry-After, CORS).
+	Header http.Header
+	// Body is a literal body (a cache hit, a 204 preflight); nil for a
+	// problem document.
+	Body []byte
+	// Code is the RZ code of an error response; "" for a plain response.
+	Code string
+	// Detail is the optional problem detail (RZ-RT-009 keyword location).
+	Detail string
+	// Cached marks a response the Response Cache serves from a stored
+	// response, which it saved as the leg delivered it: a hit, a stale,
+	// revalidated, stale-if-error or coalesced reuse, a 206 range answer
+	// or a client-validation 304. It is no generated response: onResponse
+	// runs every Policy on it, transform.response included, as on an
+	// Upstream response, and Message.Generated reports false
+	// (docs/architecture/03-data-plane.md "Short-circuit"). Code is "".
+	Cached bool
+}
+
+// Received describes the client request as it arrived, before any Policy
+// changed it: what the Response Cache keys its URI with and checks for a
+// body.
+type Received struct {
+	// Authority is the host and optional port the request named (HTTP/1.1
+	// Host, HTTP/2 :authority), as sent.
+	Authority string
+	// RawQuery is the raw query, without the "?".
+	RawQuery string
+	// ContentLength is the declared body length: 0 for no body, -1 for a
+	// body of unknown length (a Transfer-Encoding, or an HTTP/2 or HTTP/3
+	// stream without content-length that carries data).
+	ContentLength int64
+}
+
+// Result is a Filter's answer for one Phase.
+type Result struct {
+	Outcome Outcome
+	// Response is set with Respond.
+	Response *Response
+	// Code is the RZ code to use under closed with CannotDecide; "" means
+	// the class default (docs/architecture/03-data-plane.md "Failure
+	// semantics").
+	Code string
+	// Err is the cause of CannotDecide: logged at debug level and
+	// classified as the span's error.type, never sent to the client. A
+	// Filter names the error.type by returning or wrapping an error with an
+	// `ErrorType() string` method (found with errors.As). Its value is one
+	// of cel_error, invalid_value, null_body, path_error, output_cap,
+	// result_type or internal, or the executor's own state_store,
+	// buffer_budget, too_large or invalid_result. Any other value is
+	// recorded as internal, so the attribute never carries request data.
+	// Without such an error the executor maps *expr.EvalError to cel_error,
+	// *statestore.Error to state_store, ErrBudget to buffer_budget,
+	// ErrTooLarge to too_large, a recovered panic to internal, and an
+	// outcome the Phase does not allow to invalid_result; anything else is
+	// internal.
+	Err error
+}
+
+// Next returns Continue.
+func Next() Result { return Result{} }
+
+// Reply returns Respond with r.
+func Reply(r *Response) Result { return Result{Outcome: Respond, Response: r} }
+
+// Deny returns Respond with a problem document for code at status.
+func Deny(status int, code string, h http.Header) Result {
+	return Result{Outcome: Respond, Response: &Response{Status: status, Code: code, Header: h}}
+}
+
+// Undecided returns CannotDecide with an optional code and cause.
+func Undecided(code string, err error) Result {
+	return Result{Outcome: CannotDecide, Code: code, Err: err}
+}
+
+// RetryAttempt returns Retry (onUpstreamResponseHeaders only).
+func RetryAttempt() Result { return Result{Outcome: Retry} }
+
+// Sentinel errors of the SPI.
+var (
+	// ErrBudget: a limits.maxBufferedBytes reservation failed. 503
+	// RZ-RT-004 under either failureMode, in any Phase before commit.
+	ErrBudget = errors.New("filter: buffer budget spent")
+	// ErrTooLarge: a body or decoded value is over its limit: 413
+	// RZ-RT-003 (request), 502 RZ-UP-010 (plain upstreams response) or a
+	// step failure RZ-RT-015.
+	ErrTooLarge = errors.New("filter: body over limit")
+	// ErrSecondBinding: SetIdentity after a successful authentication
+	// (401 RZ-AUTH-002, Security and identity rule 2).
+	ErrSecondBinding = errors.New("filter: second authentication")
+	// ErrNotAvailable: the message or body is not available in this Phase.
+	ErrNotAvailable = errors.New("filter: not available in this Phase")
+)
+
+// DecodedLimitFactor bounds a decoded JSON body: the values built from a
+// body may cost at most DecodedLimitFactor times the raw limit it arrived
+// under (maxRequestBodyBytes, maxResponseBodyBytes or a composition step's
+// maxBodyBytes), measured as the jsonval cost of the values actually
+// built; past it the body is oversized (ErrTooLarge).
+const DecodedLimitFactor = 4
+
+// Identity methods (auth.method).
+const (
+	MethodJWT    = "jwt"
+	MethodAPIKey = "api-key"
+	MethodBasic  = "basic"
+	MethodMTLS   = "mtls"
+)
+
+// Identity is set once per request by the first successful auth-class
+// Policy; it feeds the CEL consumer and auth variables, quota keys, cache
+// partitions and the access log.
+type Identity struct {
+	// Method is one of the Method constants.
+	Method string
+	// Policy is the authenticating Policy's name.
+	Policy string
+	// Claims is the verified JWT payload; an empty map otherwise.
+	Claims expr.Value
+	// Consumer is the bound Consumer; nil when unbound.
+	Consumer *expr.Consumer
+	// CertSubject is the RFC 4514 leaf subject (auth.mtls only).
+	CertSubject string
+	// Principal is the non-secret cache partition key: the bound Consumer's
+	// name; else, for jwt with a non-empty string sub, "jwt:" + iss + "#" +
+	// sub, with "%" and "#" in iss percent-encoded as %25 and %23 so the
+	// encoding is one-to-one; else, for mtls with a non-empty subject,
+	// "mtls:" + the leaf's RFC 4514 subject; else "": no principal, never a
+	// partition key (OQ-security-and-identity-32). Treat it as opaque.
+	Principal string
+}
+
+// Source is the client address after trusted-proxy and PROXY v2 handling.
+type Source struct {
+	// IP is source.ip, IPv4-mapped unmapped.
+	IP netip.Addr
+	// Port is the peer port; 0 when taken from a forwarding header.
+	Port uint16
+	// Peer is the TCP (or PROXY v2) peer.
+	Peer netip.AddrPort
+	// FromHeader is true when IP came from Forwarded or X-Forwarded-For.
+	FromHeader bool
+}
+
+// ConnTLS is the TLS state of the client connection.
+type ConnTLS struct {
+	// State is the handshake result.
+	State *tls.ConnectionState
+	// ClientCertRequested is true when the handshake requested a client
+	// certificate (a listener serving an auth.mtls Route).
+	ClientCertRequested bool
+	// Cache memoizes per-connection verification results (auth.mtls).
+	Cache *ConnCache
+}
+
+// PeerCertificates returns the presented client chain.
+func (c *ConnTLS) PeerCertificates() []*x509.Certificate {
+	if c == nil || c.State == nil {
+		return nil
+	}
+	return c.State.PeerCertificates
+}
+
+// ConnCache is a small per-connection memo (at most 8 entries), safe for
+// concurrent HTTP/2 streams. Keys are non-nil comparable values, such as a
+// string or a [32]byte digest, compared with ==. A nil key, or one that
+// cannot be compared (a slice, a map, a func, or a struct, array or
+// interface holding one), is never stored and never found, so the caller
+// recomputes instead of panicking.
+type ConnCache struct {
+	mu   sync.Mutex
+	keys [8]any
+	vals [8]any
+	next int
+}
+
+// Get returns the value stored under key; a nil or uncomparable key misses.
+func (c *ConnCache) Get(key any) (any, bool) {
+	if !cacheable(key) {
+		return nil, false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, k := range c.keys {
+		if k == key {
+			return c.vals[i], true
+		}
+	}
+	return nil, false
+}
+
+// Put stores v under key, replacing the value of a stored key in place and
+// otherwise evicting the oldest entry when full; a nil or uncomparable key
+// is not stored.
+func (c *ConnCache) Put(key, v any) {
+	if !cacheable(key) {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for i, k := range c.keys {
+		if k == key {
+			c.vals[i] = v
+			return
+		}
+	}
+	c.keys[c.next], c.vals[c.next] = key, v
+	c.next = (c.next + 1) % len(c.keys)
+}
+
+// cacheable reports whether key is non-nil and == on it cannot panic: it is
+// comparable down to the dynamic values it holds. Empty slots (nil) then
+// never equal a lookup key.
+func cacheable(key any) bool { return reflect.ValueOf(key).Comparable() }
+
+// Message is the HTTP message a Phase acts on: the client request
+// (onRequestHeaders, onRequestBody, onRoute), the leg's outgoing request
+// (onUpstreamRequest), the leg's response (onUpstreamResponseHeaders,
+// onUpstreamResponseBody) or the client response (onResponse). In
+// onUpstreamResponseHeaders of an attempt that got no response the leg's
+// response is empty: status 0, a header map whose edits reach nothing, no
+// body.
+type Message interface {
+	// Header is the live header map; edits are seen by later Policies.
+	Header() http.Header
+	// Body returns the whole body when the Phase is a gate for it;
+	// ErrNotAvailable otherwise; nil for an empty body.
+	Body(ctx context.Context) ([]byte, error)
+	// SetBody replaces the body: it reserves b from the buffer budget
+	// (ErrBudget), sets Content-Length, removes Content-Encoding and body
+	// digests, and invalidates the decoded body and CEL views.
+	SetBody(ctx context.Context, b []byte) error
+	// Decoded returns the shared read-only decoded JSON body (nil when not
+	// JSON); ErrTooLarge past DecodedLimitFactor times the raw limit.
+	Decoded(ctx context.Context) (expr.Value, error)
+	// RawQuery returns the raw query of a request message; "" otherwise.
+	RawQuery() string
+	// SetRawQuery replaces the raw query of a request message.
+	SetRawQuery(q string)
+	// Path returns the path a request message is forwarded with: the one
+	// normalized path, or the one a transform.request set[] entry with
+	// target path rewrote it to; "" for a response.
+	Path() string
+	// SetPath replaces the forwarded path of a request message
+	// (transform.request target path), which CEL request.path reads from
+	// then on; Exchange.Path keeps the client's path. A response ignores
+	// it. p is a normalized path the caller has checked against the
+	// request hardening (docs/architecture/03-data-plane.md "Transform
+	// Policies").
+	SetPath(p string)
+	// Status returns the status of a response message; 0 for requests.
+	Status() int
+	// Generated reports a Node- or Filter-generated response.
+	Generated() bool
+}
+
+// Leg describes the current upstream attempt in upstream-leg Phases.
+// onUpstreamResponseHeaders runs for every attempt that was sent: with the
+// response headers, or, for an attempt that got none, with Response nil
+// and ErrorKind set, so a Filter can still ask for a retry (Retry) or a
+// Provider Fallback before commit.
+type Leg struct {
+	// Upstream is the Upstream name.
+	Upstream string
+	// Step is the composition step name, "" for plain upstreams.
+	Step string
+	// Attempt counts from 1.
+	Attempt int
+	// Endpoint is the selected Endpoint address host:port.
+	Endpoint string
+	// Request is the outgoing request, mutable in onUpstreamRequest.
+	Request *http.Request
+	// Response is set after response headers arrived; nil for an attempt
+	// that got none.
+	Response *http.Response
+	// ErrorKind is the error kind of an attempt that got no response:
+	// connect, timeout, reset or tls (CEL error.kind); "" once response
+	// headers arrived.
+	ErrorKind string
+	// MaxBodyBytes caps the leg's response body when a body Phase reads it
+	// whole: a composition step's maxBodyBytes; 0 means
+	// limits.maxResponseBodyBytes.
+	MaxBodyBytes int64
+}
+
+// RateLimitField is one applied limit for the RateLimit-Policy and
+// RateLimit response fields (OQ-traffic-management-and-resilience-2 (c):
+// the data plane appends them after onResponse).
+type RateLimitField struct {
+	// Name is the Policy name, suffixed .1, .2 for multi-limit Policies.
+	Name string
+	// Q is the quota (requests or quota limit); W the window in seconds.
+	Q, W int64
+	// R is the remaining count and T the seconds to reset, when Known.
+	R, T  int64
+	Known bool
+	// Denied marks the limit that denied the request with a 429 (RZ-RL-001
+	// to RZ-RL-003): R and T are then its count and the seconds until it
+	// admits, equal to Retry-After, and a 429 lists in RateLimit this
+	// limit only (docs/architecture/09-traffic-management-and-resilience.md
+	// "RateLimit response headers").
+	Denied bool
+}
+
+// Final is the outcome of a request, available in onLog.
+type Final struct {
+	// Status is the final HTTP status; 0 when the client went away first.
+	Status int
+	// LegStatus is the status of the response the request's leg delivered,
+	// a plain upstreams leg's response or a merged composition response,
+	// as the Forwarder returned it, before any onResponse Policy changed
+	// it, also when the client went away before commit; 0 when no leg
+	// delivered one (a short-circuit, or a Node-generated failure of the
+	// leg). The Response Cache invalidates on a 2xx or 3xx here.
+	LegStatus int
+	// Code is the final RZ code, if any.
+	Code string
+	// Committed is true once response headers were sent.
+	Committed bool
+	// RejectedAfter is true when a Policy later in request order than the
+	// calling Policy ended the request in a request Phase: a short-circuit
+	// with status 400 or above, or a closed failure (quota refunds; a cache
+	// hit or a preflight served the request and rejects nothing). A leg of
+	// plain upstreams counts like the client, since its response is the
+	// request's; a composition step's leg does not, since the composition
+	// decides its step's outcome.
+	RejectedAfter bool
+	// UpstreamReached is true when some attempt of the request reached an
+	// Upstream: it connected and finished TLS, so the Upstream may have
+	// served it. It is false when no attempt was made, as for a Node
+	// rejection before any attempt (RZ-RT-003, RZ-RT-004, RZ-RT-007,
+	// RZ-RT-014, RZ-RT-016) or an Upstream that took none (RZ-UP-005,
+	// RZ-UP-006, RZ-UP-008), and when every attempt failed to connect or
+	// to finish TLS (RZ-UP-001, RZ-UP-002). A quota Policy refunds a
+	// request no attempt reached unless a Filter served it
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Quotas"). The request handler sets it with Status and Code.
+	UpstreamReached bool
+}
+
+// Refunds reports whether a quota reservation of the calling Policy is
+// returned in onLog (docs/architecture/09-traffic-management-and-resilience.md
+// "Quotas"): a later Filter rejected the request (RejectedAfter), or no
+// attempt reached an Upstream (UpstreamReached false) and the request did
+// not end served: it ended with an RZ code, a Node or Upstream rejection,
+// or before any response (Status 0). A response a Filter served without
+// an Upstream, such as a cache hit, is charged.
+func (f Final) Refunds() bool {
+	return f.RejectedAfter || (!f.UpstreamReached && (f.Code != "" || f.Status == 0))
+}
+
+// Counter identifies one Quota counter a request charges
+// (docs/architecture/09-traffic-management-and-resilience.md "Quotas"):
+// the Consumer quota, its window and the SHA-256 digest of the
+// config.key value. A request charges each counter once.
+type Counter struct {
+	// Quota is the Consumer quota's name.
+	Quota string
+	// Window is the quota's window length; 0 with Month, a UTC calendar
+	// month.
+	Window time.Duration
+	Month  bool
+	// Key is the SHA-256 digest of the config.key value.
+	Key statestore.Digest
+}
+
+// Charge is a request's record of one Counter (Exchange.Charge): the
+// Policy that charged it and, once known, the decision it took, which a
+// later quota Policy whose counter it is takes without a call.
+type Charge struct {
+	// Counter is the counter charged.
+	Counter Counter
+	// Policy is the charging Policy's name.
+	Policy string
+	// Decided is set once the charging Policy decided, with Result its
+	// decision, an emit.Quota* result index; a Policy whose round trip
+	// was never sent never decides.
+	Decided bool
+	Result  int
+}
+
+// Tee is the store side of the Response Cache: a copy kept while the
+// response streams, which stops (skipping the store) past its limit or
+// the buffer budget.
+type Tee interface {
+	// Result returns the copied body and whether it is complete; valid in
+	// Finish, after the response finished streaming.
+	Result() (body []byte, complete bool)
+	// Stopped returns a channel closed once the copy stopped without
+	// completing, while the response may still stream: past its limit or
+	// the buffer budget, or when its response was replaced or abandoned.
+	// It stays open while the copy runs and after it completes. Any
+	// goroutine may wait on it, so a coalesced miss stops waiting for a
+	// body its leader will never store.
+	Stopped() <-chan struct{}
+}
+
+// Exchange is one request as a Filter sees it, valid only during the call
+// it is passed to (Handle, Prepare, Complete, Undo, Finish). The data plane
+// implements it over pooled per-request state. Upstream-leg Phases get a
+// leg view: the same client request read-only, with its own Leg, Message,
+// Vars copy (upstream fields replaced), PolicyState slots and span; legs of
+// an aggregate composition run concurrently, each on its own view, so a
+// Filter never shares a view between goroutines. On a leg view
+// SetIdentity returns ErrNotAvailable, TeeResponse returns nil,
+// LegResponse and Final return the zero value (a leg ends before the
+// request does), Received describes the client request, Charge keeps no
+// record, and ReplaceResponse, AddRateLimitField and SetCacheResult do
+// nothing.
+type Exchange interface {
+	// RequestID returns the 32-hex trace ID.
+	RequestID() string
+	// Now returns the request start time.
+	Now() time.Time
+	// Listener returns the listener name.
+	Listener() string
+	// Route returns the matched Route view.
+	Route() *expr.Route
+	// Method, Scheme, Host and Path describe the client request (Path is
+	// the one normalized path).
+	Method() string
+	Scheme() string
+	Host() string
+	Path() string
+	// Received returns the client request as it arrived: its authority,
+	// raw query and declared body length, which no Policy changes.
+	Received() Received
+	// Header returns the client request headers.
+	Header() http.Header
+	// Source returns the client address.
+	Source() Source
+	// TLS returns the connection TLS state; nil on cleartext.
+	TLS() *ConnTLS
+	// Message returns the message of the current Phase.
+	Message() Message
+	// Leg returns the current attempt in upstream-leg Phases; nil otherwise.
+	Leg() *Leg
+	// Vars returns the CEL activation of the current Phase.
+	Vars() *expr.Vars
+	// Identity returns the request identity; nil before authentication.
+	Identity() *Identity
+	// SetIdentity records a successful authentication; a second one
+	// returns ErrSecondBinding.
+	SetIdentity(id *Identity) error
+	// StateBudget returns the per-request State Store deadline (pack 8.7
+	// rule 2); stores and the post-commit queue come from BuildEnv.
+	StateBudget() *statestore.RequestBudget
+	// Reserve and Release charge decoded values to limits.maxBufferedBytes.
+	Reserve(n int64) error
+	Release(n int64)
+	// LegResponse returns the status and header of the response the
+	// request's leg delivered (Final.LegStatus), as they were before any
+	// client onResponse Policy changed them, which the exchange keeps for
+	// the Response Cache store: the header only on a Route that tees its
+	// response (it is read only), nil elsewhere. Status 0 and a nil header
+	// when no leg response was set, the response being a request Phase's
+	// generated or Cached short-circuit or a Node-generated failure of the
+	// leg, and on a leg view.
+	LegResponse() (status int, header http.Header)
+	// TeeResponse starts the cache store copy of the leg response's body
+	// as the leg delivered it (onResponse), whatever an earlier onResponse
+	// Policy wrote to the client; nil when the budget or limit refuses.
+	// The data plane counts a refusal over the limit, and a copy it stops
+	// later, in ruralz_cache_store_skipped_total on the calling Policy's
+	// handles, so the Filter counts neither.
+	TeeResponse(limit int64) Tee
+	// ReplaceResponse replaces the uncommitted response (stale-if-error).
+	ReplaceResponse(r *Response)
+	// AddRateLimitField records an applied limit of the calling Policy.
+	// The fields stay in request order of their Policies, each Policy's in
+	// the order it recorded them, whatever order the Policies record in:
+	// a batched member that completes after a later member decided in
+	// Prepare still lists first.
+	AddRateLimitField(f RateLimitField)
+	// Charge returns the request's record of Quota counter c and whether
+	// the calling Policy is the first to charge it, which makes it the
+	// charging Policy: a later quota Policy whose counter an earlier
+	// Policy charged takes that Policy's decision without a call, and
+	// only the charging Policy refunds
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Quotas"). The record is the exchange's memory, valid until the
+	// request ends; a leg view keeps none and returns nil and true.
+	Charge(c Counter) (rec *Charge, first bool)
+	// SetCacheResult records the request's cache result for the access
+	// log's cache field: for the Response Cache, the result label of
+	// ruralz_cache_requests_total (catalog.CacheResults: hit, miss, bypass,
+	// stale, stale_error or coalesced), a constant; a later call replaces
+	// an earlier one.
+	SetCacheResult(result string)
+	// Annotate adds an attribute to the current Filter span.
+	Annotate(key string, v slog.Value)
+	// Final returns the request outcome; valid in onLog and Finish.
+	Final() Final
+	// PolicyState returns the per-request slot of the Policy being run
+	// (the executor selects it before every call), for state a Filter
+	// carries between its Phases, Consumptive steps and Finish: a quota
+	// reservation's key digest and window start, the rate-limit tokens
+	// Prepare took, a cache lookup's keys, stale variant and coalescing
+	// role. It holds nil at the Policy's first call. A Filter stores a
+	// pointer to state it pools itself (no allocation) and releases it in
+	// Finish. On a leg view the slot is private to that leg.
+	PolicyState() *any
+	// Stripe returns the request's metric stripe for emit handles.
+	Stripe() emit.Stripe
+	// RouteMetrics returns the matched Route's handles (the Response Cache
+	// records ruralz_cache_requests_total there); never nil.
+	RouteMetrics() *emit.RouteMetrics
+}
+
+// Filter is a compiled Policy at one attachment environment. Handle is
+// called for each Phase the Policy subscribes to, on the request
+// goroutine (or a composition step goroutine); it must not retain x.
+type Filter interface {
+	Handle(ctx context.Context, p phase.Phase, x Exchange) Result
+}
+
+// Finisher is implemented by Filters that act once the request is over:
+// the Response Cache stores the teed body and releases a hit's buffer
+// reservation (its unsafe-method invalidation is an Invalidator's);
+// Filters release their PolicyState. The executor calls Finish for every
+// Filter that implements it and ran in at least one Phase of the request
+// (not skipped by spec.when), after onLog, in request order, on the
+// request goroutine, whether or not the Policy subscribes to onLog,
+// including when the client went away (x.Final() tells). Upstream-scope
+// Filters get Finish on their leg view when the leg ends. Finish must not
+// block: State Store writes go to the post-commit queue.
+type Finisher interface {
+	Finish(ctx context.Context, x Exchange)
+}
+
+// Invalidator is implemented by Filters that act after every request on
+// their Route, whatever spec.when decided: the Response Cache bumps the
+// URI's generation after a 2xx or 3xx to an unsafe method
+// (docs/architecture/09-traffic-management-and-resilience.md "Response
+// caching", Invalidation row), which applies even when the client left
+// before commit. The executor calls Invalidate for every client-scope
+// Policy of the Route's chain that implements it, after onLog and before
+// Finish, in request order, on the request goroutine, including a Policy
+// spec.when skipped or the request never reached; x.Final() tells the
+// leg's status. It must not block: the write goes to the post-commit
+// queue.
+type Invalidator interface {
+	Invalidate(ctx context.Context, x Exchange)
+}
+
+// Substituter is implemented by the Response Cache, which may serve a
+// stored response in place of the one the leg delivered: the stored
+// response a 304 refreshed on a request-path revalidation, or a stored
+// one under stale-if-error in place of an Upstream error or a
+// Node-generated failure of the leg. The executor calls Substitute before
+// onResponse, on every client Policy of onResponse that implements it and
+// runs (spec.when), in onResponse order, for an Upstream response or an
+// Upstream failure, never on a response a request Phase produced; the
+// first non-nil Response replaces the response (Exchange.ReplaceResponse)
+// and the rest are skipped. That Response is Cached, so onResponse then
+// runs every Policy on it, transform.response included, as on the
+// Upstream response it stands for.
+type Substituter interface {
+	Substitute(ctx context.Context, x Exchange) *Response
+}
+
+// Consumptive is implemented by admission Filters whose decision needs one
+// consumptive State Store call (ratelimit, quota). The executor batches a
+// run of consecutive Consumptive Filters of onRequestHeaders into shared
+// round trips (pack 8.7 rule 3) instead of calling Handle, selecting each
+// member's PolicyState before Prepare, Complete and Undo; a member keeps in
+// it what Undo and onLog need (the call is the executor's and is reused).
+type Consumptive interface {
+	Filter
+	// Prepare runs every Node-local step. It either decides (done true,
+	// with r) or fills call and returns done false.
+	Prepare(ctx context.Context, x Exchange, call *statestore.Call) (r Result, done bool)
+	// Complete applies the reply (call.Err set on failure) and decides.
+	Complete(ctx context.Context, x Exchange, call *statestore.Call) Result
+	// Undo returns the local tokens Prepare took when the member will not
+	// be completed. That happens when an earlier member denied or failed
+	// closed, or when the member was waiting for its round trip and a later
+	// member's Prepare denied or failed closed locally, so the round trip
+	// was never sent. Complete never runs for a member that gets Undo. A
+	// member that decided in Prepare gets Undo only when an earlier member
+	// denied or failed closed.
+	Undo(x Exchange)
+}
+
+// Closer is implemented by Filters holding pools, goroutines or secret
+// watches; it is called when no live snapshot shares the Filter.
+type Closer interface{ Close() error }
+
+// Component is a Node-wide part of a Policy type that outlives snapshots:
+// the JWKS manager, the auth.basic throttle, the rate-limit key table, the
+// quota denial cache, the Response Cache revalidation workers, the
+// upstream token registry.
+// internal/filter/builtin constructs each once per process and hands it to
+// the Factories that use it; the ruralzd supervisor runs every Component
+// on one goroutine it owns before the first activation and cancels it at
+// shutdown after the last snapshot retired (Registry.Components).
+type Component interface {
+	// Name identifies the component in logs and shutdown errors.
+	Name() string
+	// Run serves until ctx is done and returns after every goroutine it
+	// started has exited.
+	Run(ctx context.Context) error
+}
+
+// Replayer sends a saved request through one Upstream's leg (upstream-leg
+// Policies, breaker, bulkhead, retries) outside any client request, for
+// Response Cache revalidation. The implementation (internal/gateway/replay)
+// pins the currently published snapshot for the whole call and resolves
+// route and upstream by name in it; either being gone is ErrNotAvailable.
+// The caller closes the response body.
+type Replayer interface {
+	Replay(ctx context.Context, route, upstream string, req *http.Request) (*http.Response, error)
+}
+
+// Limits are the effective Node limits a Filter may need.
+type Limits struct {
+	MaxRequestBodyBytes  int64
+	MaxResponseBodyBytes int64
+	MaxBufferedBytes     int64
+}
+
+// Shared memoizes per-snapshot artifacts (such as the Consumer credential
+// index) across the Factories of one snapshot compile.
+type Shared interface {
+	Get(key any, build func() (any, error)) (any, error)
+}
+
+// BuildEnv is everything a Factory needs to compile one Policy at one
+// attachment environment. Filters are built per (Policy, scope, Phase
+// set), never per Route.
+type BuildEnv struct {
+	// Policy is the typed Policy and Config its typed config.
+	Policy *v1alpha1.Policy
+	Config any
+	// Scope and Phases come from the effective chains (precedence).
+	Scope  phase.Scope
+	Phases phase.Set
+	// Bundle is the validated Revision; Consumers the compiled Consumers.
+	Bundle    *hub.Bundle
+	Consumers map[string]*expr.Consumer
+	// CEL compiles this Policy's expressions; Site refines a place for
+	// this attachment.
+	CEL  expr.Builder
+	Site func(place expr.PlaceID) expr.Site
+	// Secrets is the resolved secret table of the Revision.
+	Secrets secret.Store
+	// StateStore is the main store; CacheStore the Response Cache
+	// connection (the main store when none is configured). Enqueuer is
+	// StateStore's post-commit queue binding, CacheEnqueuer CacheStore's,
+	// which the Response Cache's stores and invalidations go to.
+	StateStore    statestore.Store
+	CacheStore    statestore.Store
+	Enqueuer      statestore.Enqueuer
+	CacheEnqueuer statestore.Enqueuer
+	// StateStoreTimeout is the effective spec.stateStoreTimeout.
+	StateStoreTimeout time.Duration
+	Limits            Limits
+	Metrics           *emit.PolicyMetrics
+	Status            emit.NodeStatus
+	Clock             clock.Clock
+	Logger            *slog.Logger
+	Shared            Shared
+	// Replayer revalidates Response Cache entries (cache type only).
+	Replayer Replayer
+	// Previous is the Filter built for the same Policy identity and
+	// canonical config in the previous snapshot, for carry-over; nil if none.
+	Previous Filter
+}
+
+// Factory builds Filters for one Policy type. An error carries an RZ-CFG
+// code (errcode.Wrap) and rejects the Revision.
+type Factory interface {
+	Build(ctx context.Context, env BuildEnv) (Filter, error)
+}
+
+// Registry maps Policy types to Factories and lists the Node-wide
+// Components they share; internal/filter/builtin constructs it as an
+// explicit table.
+type Registry struct {
+	factories  map[v1alpha1.PolicyType]Factory
+	components []Component
+}
+
+// NewRegistry returns a Registry over a copy of f with the components c.
+func NewRegistry(f map[v1alpha1.PolicyType]Factory, c ...Component) *Registry {
+	m := make(map[v1alpha1.PolicyType]Factory, len(f))
+	for k, v := range f {
+		m[k] = v
+	}
+	return &Registry{factories: m, components: append([]Component(nil), c...)}
+}
+
+// Factory returns the Factory of t.
+func (r *Registry) Factory(t v1alpha1.PolicyType) (Factory, bool) {
+	f, ok := r.factories[t]
+	return f, ok
+}
+
+// Components returns the Node-wide components to run, in construction order.
+func (r *Registry) Components() []Component { return append([]Component(nil), r.components...) }

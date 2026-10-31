@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "headers-security"},
+  "spec": {"type": "headers", "config": {"response": {"set": [{"name": "x-frame-options", "value": "DENY"}, {"name": "strict-transport-security", "value": "max-age=31536000"}], "remove": ["server", "x-powered-by"]}}}
+}

@@ -7,6 +7,9 @@
         "apiKey": {
           "$ref": "#/$defs/SecretValue",
           "description": "APIKey is the provider API key.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         }
       },
@@ -196,7 +199,14 @@
           "description": "Limits cap tokens per request."
         },
         "strategy": {
-          "$ref": "#/$defs/AIModelStrategy",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AIModelStrategy"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Strategy selects among candidates."
         }
       },
@@ -246,15 +256,30 @@
       "description": "AIProviderSpec is the spec of an AIProvider. Planned (M3).",
       "properties": {
         "baseUrl": {
-          "description": "BaseURL overrides the dialect's default base URL; required for ollama.",
-          "type": "string"
+          "description": "BaseURL overrides the dialect's default base URL; required for ollama. It is where credentials.apiKey is sent.",
+          "type": "string",
+          "x-ruralz-impact": [
+            "ai",
+            "security"
+          ]
         },
         "credentials": {
           "$ref": "#/$defs/AICredentials",
-          "description": "Credentials authenticate to the provider; required except for ollama."
+          "description": "Credentials authenticate to the provider; required except for ollama.",
+          "x-ruralz-impact": [
+            "ai",
+            "security"
+          ]
         },
         "dialect": {
-          "$ref": "#/$defs/AIDialect",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AIDialect"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Dialect is the provider's wire dialect."
         },
         "pricing": {
@@ -335,9 +360,16 @@
       "description": "APIKey is one API key, given by exactly one of hash or secretRef.",
       "properties": {
         "hash": {
-          "description": "Hash is the SHA-256 digest of the key.",
-          "pattern": "^sha256:[0-9a-f]{64}$",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^sha256:[0-9a-f]{64}$",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Hash is the SHA-256 digest of the key."
         },
         "name": {
           "description": "Name identifies the key.",
@@ -346,6 +378,9 @@
         "secretRef": {
           "$ref": "#/$defs/SecretRef",
           "description": "SecretRef holds a retrievable key; the Node hashes it at load and keeps only the hash.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         }
       },
@@ -381,7 +416,7 @@
     },
     "ActiveHealthCheck": {
       "additionalProperties": false,
-      "description": "ActiveHealthCheck probes Endpoints.",
+      "description": "ActiveHealthCheck probes Endpoints; its presence turns probing on. A probe is GET path, and a status of 200 to 399 within timeout succeeds.",
       "properties": {
         "healthyThreshold": {
           "anyOf": [
@@ -393,18 +428,36 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 2,
           "description": "HealthyThreshold is the consecutive successes that mark an Endpoint healthy."
         },
         "interval": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "10s",
           "description": "Interval is the time between probes."
         },
         "path": {
+          "default": "/",
           "description": "Path is the probe path.",
           "type": "string"
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "2s",
           "description": "Timeout is the probe deadline."
         },
         "unhealthyThreshold": {
@@ -417,6 +470,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 3,
           "description": "UnhealthyThreshold is the consecutive failures that mark an Endpoint unhealthy."
         }
       },
@@ -445,18 +499,112 @@
     },
     "ArrayOp": {
       "additionalProperties": false,
-      "description": "ArrayOp is one JSON array operation.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "move"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "move"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "to"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "append"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "append"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "to"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "op": {
+                "const": "delete"
+              }
+            },
+            "required": [
+              "op"
+            ]
+          },
+          "then": {
+            "required": [
+              "from"
+            ]
+          }
+        }
+      ],
+      "description": "ArrayOp is one JSON array operation: move and append need from and to, and delete needs from and takes no to.",
       "properties": {
         "from": {
-          "description": "From is the source path.",
+          "description": "From is the body dot path of the values the operation takes; a * segment matches every element of an array.",
           "type": "string"
         },
         "op": {
-          "$ref": "#/$defs/ArrayOpKind",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ArrayOpKind"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Op is move, append or delete."
         },
         "to": {
-          "description": "To is the destination path.",
+          "description": "To is the body dot path the operation writes, without a * segment.",
           "type": "string"
         }
       },
@@ -478,7 +626,8 @@
       "description": "AuthAPIKeyConfig is the config of an auth.api-key Policy.",
       "properties": {
         "header": {
-          "description": "Header carries the API key; it is matched against Consumer apiKeys by hash.",
+          "default": "x-api-key",
+          "description": "Header names the request header that carries the API key, matched case-insensitively; the key is matched against Consumer apiKeys by hash.",
           "type": "string"
         }
       },
@@ -518,11 +667,17 @@
         "caCertificate": {
           "$ref": "#/$defs/SecretValue",
           "description": "CACertificate verifies client certificates.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "crl": {
           "$ref": "#/$defs/SecretValue",
           "description": "CRL is a certificate revocation list.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "subjects": {
@@ -551,6 +706,9 @@
         "clientSecret": {
           "$ref": "#/$defs/SecretValue",
           "description": "ClientSecret is the OAuth2 client secret.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "scopes": {
@@ -564,13 +722,23 @@
           }
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "2s",
           "description": "Timeout bounds a token fetch."
         },
         "tokenUrl": {
-          "description": "TokenURL is the token endpoint; it MUST be https (RZ-CFG-037).",
-          "type": "string"
+          "description": "TokenURL is the token endpoint and the only destination of clientSecret; it MUST be https (RZ-CFG-037).",
+          "type": "string",
+          "x-ruralz-impact": [
+            "security"
+          ]
         }
       },
       "required": [
@@ -585,7 +753,14 @@
       "description": "AuthUpstreamSigV4Config is the config of an auth.upstream-sigv4 Policy.",
       "properties": {
         "payload": {
-          "$ref": "#/$defs/SigV4Payload",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SigV4Payload"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "signed",
           "description": "Payload is signed or unsigned."
         },
@@ -608,7 +783,8 @@
       "description": "AuthzCELConfig is the config of an authz.cel Policy.",
       "properties": {
         "rule": {
-          "description": "Rule allows the request when true.",
+          "description": "Rule allows the request when true; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -656,7 +832,14 @@
         "allow": {
           "description": "Allow lists ISO 3166-1 alpha-2 country codes to allow.",
           "items": {
-            "$ref": "#/$defs/CountryCode"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CountryCode"
+              },
+              {
+                "$ref": "#/$defs/Substitution"
+              }
+            ]
           },
           "type": "array",
           "x-ruralz-list": {
@@ -666,7 +849,14 @@
         "deny": {
           "description": "Deny lists ISO 3166-1 alpha-2 country codes to deny.",
           "items": {
-            "$ref": "#/$defs/CountryCode"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CountryCode"
+              },
+              {
+                "$ref": "#/$defs/Substitution"
+              }
+            ]
           },
           "type": "array",
           "x-ruralz-list": {
@@ -729,9 +919,16 @@
       "description": "BasicCredential is one auth.basic user.",
       "properties": {
         "hash": {
-          "description": "Hash is pbkdf2-sha256:<salt>:<key> in base64url, with a 16-byte salt and a 32-byte key.",
-          "pattern": "^pbkdf2-sha256:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]{43}$",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^pbkdf2-sha256:[A-Za-z0-9_-]{22}:[A-Za-z0-9_-]{43}$",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Hash is pbkdf2-sha256:<salt>:<key> in base64url, with a 16-byte salt and a 32-byte key."
         },
         "iterations": {
           "anyOf": [
@@ -770,10 +967,32 @@
       "description": "A number of bytes: an integer or a Kubernetes quantity such as 64Ki, 10Mi or 1Gi."
     },
     "CORSConfig": {
-      "description": "CORSConfig is the config of a cors Policy.",
+      "additionalProperties": false,
+      "description": "CORSConfig is the config of a cors Policy. allowCredentials true with \"*\" or \"null\" in allowOrigins, or with \"*\" in allowHeaders or exposeHeaders, is RZ-CFG-005.",
       "properties": {
+        "allowCredentials": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "AllowCredentials lets a browser send cookies, HTTP authentication or a client certificate and read the response; absent means false."
+        },
+        "allowHeaders": {
+          "description": "AllowHeaders are the request header names a preflight may ask for, matched ignoring case; \"*\" allows any. Without them only CORS-safelisted request headers are allowed.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
         "allowMethods": {
-          "description": "AllowMethods are the allowed methods.",
+          "description": "AllowMethods are the allowed methods, matched exactly.",
           "items": {
             "type": "string"
           },
@@ -783,7 +1002,7 @@
           }
         },
         "allowOrigins": {
-          "description": "AllowOrigins are the allowed origins.",
+          "description": "AllowOrigins are the allowed origins, matched exactly: \"*\" allows any origin, and every other entry is a serialized origin such as https://shop.example (lower-case scheme and host, no default port, no path) or null, else RZ-CFG-005.",
           "items": {
             "type": "string"
           },
@@ -791,6 +1010,27 @@
           "x-ruralz-list": {
             "type": "set"
           }
+        },
+        "exposeHeaders": {
+          "description": "ExposeHeaders are the response header names a page may read beyond the CORS-safelisted ones; \"*\" exposes all.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
+        "maxAge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "MaxAge is how long a browser may cache a preflight answer, sent in whole seconds; absent sends no Access-Control-Max-Age."
         }
       },
       "type": "object"
@@ -821,7 +1061,14 @@
       "description": "Canary configures the canary step of a Rollout.",
       "properties": {
         "bake": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Bake is how long the canary runs before the Rollout progresses."
         },
         "percent": {
@@ -875,6 +1122,9 @@
         "certificate": {
           "$ref": "#/$defs/SecretValue",
           "description": "Certificate is the PEM certificate chain.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "name": {
@@ -884,6 +1134,9 @@
         "privateKey": {
           "$ref": "#/$defs/SecretValue",
           "description": "PrivateKey is the PEM private key.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         }
       },
@@ -950,14 +1203,16 @@
           ]
         }
       ],
-      "description": "CertificateSubject names a certificate by exactly one of subject or uriSan.",
+      "description": "CertificateSubject names a certificate by exactly one of subject or uriSan, a non-empty string.",
       "properties": {
         "subject": {
-          "description": "Subject is the certificate subject distinguished name.",
+          "description": "Subject is the certificate subject distinguished name; it is not empty.",
+          "minLength": 1,
           "type": "string"
         },
         "uriSan": {
-          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID.",
+          "description": "URISAN is a URI subject alternative name, such as a SPIFFE ID; it is not empty.",
+          "minLength": 1,
           "type": "string"
         }
       },
@@ -965,7 +1220,7 @@
     },
     "CircuitBreaker": {
       "additionalProperties": false,
-      "description": "CircuitBreaker configures the circuit breaker and bulkhead.",
+      "description": "CircuitBreaker configures the circuit breaker and the bulkhead of an Upstream, each kept per Upstream per Node.",
       "properties": {
         "consecutiveFailures": {
           "anyOf": [
@@ -977,10 +1232,11 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "ConsecutiveFailures opens the breaker."
+          "default": 5,
+          "description": "ConsecutiveFailures is the run of failed legs that opens the breaker, once a rolling 10 s window also holds at least 20 legs and at least half of them failed."
         },
         "failureWhen": {
-          "description": "FailureWhen decides whether an attempt counts as a failure.",
+          "description": "FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -1002,7 +1258,8 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "MaxConnections caps connections per Endpoint set."
+          "default": 1024,
+          "description": "MaxConnections caps in-flight attempts per Upstream per Node, HTTP/2 streams included; an attempt takes a slot before it is sent and holds it until its response body closes."
         },
         "maxPendingRequests": {
           "anyOf": [
@@ -1014,11 +1271,20 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "MaxPendingRequests caps queued requests."
+          "default": 256,
+          "description": "MaxPendingRequests caps attempts waiting for an in-flight slot; when the queue is full an attempt gets 503 RZ-UP-006 at once."
         },
         "openDuration": {
-          "$ref": "#/$defs/Duration",
-          "description": "OpenDuration is how long the breaker stays open."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "30s",
+          "description": "OpenDuration is how long the breaker stays open, jittered by 20% either way, before it lets one probe leg through; 3 consecutive probe successes close it and a failed probe reopens it."
         }
       },
       "type": "object"
@@ -1068,7 +1334,14 @@
           "description": "Canary configures the canary step."
         },
         "strategy": {
-          "$ref": "#/$defs/RolloutStrategy",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RolloutStrategy"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Strategy is all-at-once or canary."
         }
       },
@@ -1102,7 +1375,14 @@
       "description": "Composition calls several Upstreams for one request.",
       "properties": {
         "mode": {
-          "$ref": "#/$defs/CompositionMode",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositionMode"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Mode is aggregate, sequential or conditional."
         },
         "steps": {
@@ -1149,9 +1429,26 @@
               ]
             }
           ]
+        },
+        {
+          "if": {
+            "properties": {
+              "collection": {
+                "const": true
+              }
+            },
+            "required": [
+              "collection"
+            ]
+          },
+          "then": {
+            "required": [
+              "group"
+            ]
+          }
         }
       ],
-      "description": "CompositionStep is one Upstream call in a composition. Each step has exactly one of path or pathExpression.",
+      "description": "CompositionStep is one Upstream call in a composition. Each step has exactly one of path or pathExpression, and collection true needs group.",
       "properties": {
         "collection": {
           "anyOf": [
@@ -1163,7 +1460,7 @@
             }
           ],
           "default": false,
-          "description": "Collection is true when the body is a JSON array."
+          "description": "Collection is true when the value after target is a JSON array; it needs group."
         },
         "group": {
           "description": "Group is the key under which the body is merged.",
@@ -1172,13 +1469,15 @@
         "maxBodyBytes": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ByteSize"
+              "$ref": "#/$defs/ByteSize",
+              "minimum": 1,
+              "pattern": "^[0-9]*[1-9][0-9]*((\\.[0-9]+)?(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei))?$|^[0-9]+\\.[0-9]*[1-9][0-9]*(k|M|G|T|P|E|Ki|Mi|Gi|Ti|Pi|Ei)$"
             },
             {
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "MaxBodyBytes caps this step's body; default an equal share of Gateway limits.maxResponseBodyBytes."
+          "description": "MaxBodyBytes caps this step's body, at least 1 byte in either spelling; default an equal share of Gateway limits.maxResponseBodyBytes."
         },
         "method": {
           "description": "Method is the HTTP method; default the incoming method.",
@@ -1201,11 +1500,11 @@
           "description": "Optional allows a partial response when the step fails."
         },
         "path": {
-          "description": "Path is a literal path.",
+          "description": "Path is a literal path starting with / that passes the hardening of the client path, with no . or .. segment; its first ? starts the raw query sent, else the client's query is forwarded.",
           "type": "string"
         },
         "pathExpression": {
-          "description": "PathExpression computes the path.",
+          "description": "PathExpression computes the path, under the rules of path; splice decoded captures with url.pathEscape or url.queryEscape, or read request.rawPathParams.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1238,7 +1537,7 @@
           }
         },
         "target": {
-          "description": "Target unwraps a nested object of the response first.",
+          "description": "Target is a dot path that unwraps a nested value of the response body first.",
           "type": "string"
         },
         "upstream": {
@@ -1300,7 +1599,10 @@
       "properties": {
         "credentials": {
           "$ref": "#/$defs/Credentials",
-          "description": "Credentials identify the Consumer; at least one credential."
+          "description": "Credentials identify the Consumer; at least one credential.",
+          "x-ruralz-impact": [
+            "security"
+          ]
         },
         "quotas": {
           "description": "Quotas are named quotas used by quota and ai.token-budget Policies.",
@@ -1308,6 +1610,9 @@
             "$ref": "#/$defs/Quota"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "traffic"
+          ],
           "x-ruralz-list": {
             "key": "name",
             "type": "map"
@@ -1319,13 +1624,19 @@
             "type": "string"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "metadata"
+          ],
           "x-ruralz-list": {
             "type": "set"
           }
         },
         "tier": {
           "description": "Tier is a free-form Tier name read by Policies.",
-          "type": "string"
+          "type": "string",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         }
       },
       "required": [
@@ -1430,7 +1741,14 @@
           "type": "string"
         },
         "type": {
-          "$ref": "#/$defs/DiscoveryType",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DiscoveryType"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Type is dns or kubernetes."
         }
       },
@@ -1470,6 +1788,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 1,
           "description": "Weight is the relative load-balancing weight."
         }
       },
@@ -1597,11 +1916,17 @@
       "properties": {
         "admin": {
           "$ref": "#/$defs/Admin",
-          "description": "Admin configures the admin listener."
+          "description": "Admin configures the admin listener.",
+          "x-ruralz-impact": [
+            "security"
+          ]
         },
         "limits": {
           "$ref": "#/$defs/Limits",
-          "description": "Limits are Node-wide limits."
+          "description": "Limits are Node-wide limits.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "listeners": {
           "description": "Listeners are the client listeners; at least one.",
@@ -1610,6 +1935,9 @@
           },
           "minItems": 1,
           "type": "array",
+          "x-ruralz-impact": [
+            "routing"
+          ],
           "x-ruralz-list": {
             "key": "name",
             "type": "map"
@@ -1628,11 +1956,17 @@
         },
         "stateStore": {
           "$ref": "#/$defs/StateStore",
-          "description": "StateStore is the State Store connection. Without it a Node reads RURALZ_STATE_STORE_URL, else uses memory."
+          "description": "StateStore is the State Store connection. Without it a Node reads RURALZ_STATE_STORE_URL, else uses memory.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "telemetry": {
           "$ref": "#/$defs/Telemetry",
-          "description": "Telemetry configures OTLP export, trace sampling and the access log."
+          "description": "Telemetry configures OTLP export, trace sampling and the access log.",
+          "x-ruralz-impact": [
+            "metadata"
+          ]
         },
         "trustedProxies": {
           "description": "TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).",
@@ -1640,6 +1974,9 @@
             "type": "string"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-list": {
             "type": "set"
           }
@@ -1720,10 +2057,31 @@
       "type": "object"
     },
     "HeaderRequestOps": {
+      "additionalProperties": false,
       "description": "HeaderRequestOps are request header operations.",
       "properties": {
+        "add": {
+          "description": "Add appends one request header field line per entry, keeping existing lines.",
+          "items": {
+            "$ref": "#/$defs/HeaderRequestSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "remove": {
+          "description": "Remove deletes every field line of each named request header.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
         "set": {
-          "description": "Set sets request headers.",
+          "description": "Set replaces every field line of each named request header with one line.",
           "items": {
             "$ref": "#/$defs/HeaderRequestSet"
           },
@@ -1737,6 +2095,7 @@
       "type": "object"
     },
     "HeaderRequestSet": {
+      "additionalProperties": false,
       "allOf": [
         {
           "oneOf": [
@@ -1753,18 +2112,19 @@
           ]
         }
       ],
-      "description": "HeaderRequestSet sets one request header from exactly one of value or valueExpression.",
+      "description": "HeaderRequestSet is one request header entry of set or add: a name and exactly one of value or valueExpression.",
       "properties": {
         "name": {
           "description": "Name is the header name.",
           "type": "string"
         },
         "value": {
-          "description": "Value is a literal value.",
+          "description": "Value is a literal value; it may be empty.",
           "type": "string"
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1785,10 +2145,31 @@
       "type": "object"
     },
     "HeaderResponseOps": {
+      "additionalProperties": false,
       "description": "HeaderResponseOps are response header operations.",
       "properties": {
+        "add": {
+          "description": "Add appends one response header field line per entry, keeping existing lines.",
+          "items": {
+            "$ref": "#/$defs/HeaderResponseSet"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          }
+        },
+        "remove": {
+          "description": "Remove deletes every field line of each named response header.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "set"
+          }
+        },
         "set": {
-          "description": "Set sets response headers.",
+          "description": "Set replaces every field line of each named response header with one line.",
           "items": {
             "$ref": "#/$defs/HeaderResponseSet"
           },
@@ -1802,6 +2183,7 @@
       "type": "object"
     },
     "HeaderResponseSet": {
+      "additionalProperties": false,
       "allOf": [
         {
           "oneOf": [
@@ -1818,18 +2200,19 @@
           ]
         }
       ],
-      "description": "HeaderResponseSet sets one response header from exactly one of value or valueExpression.",
+      "description": "HeaderResponseSet is one response header entry of set or add: a name and exactly one of value or valueExpression.",
       "properties": {
         "name": {
           "description": "Name is the header name.",
           "type": "string"
         },
         "value": {
-          "description": "Value is a literal value.",
+          "description": "Value is a literal value; it may be empty.",
           "type": "string"
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value; it is not empty.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1852,15 +2235,16 @@
       "type": "object"
     },
     "HeadersConfig": {
-      "description": "HeadersConfig is the config of a headers Policy.",
+      "additionalProperties": false,
+      "description": "HeadersConfig is the config of a headers Policy. Each side applies its remove, then set, then add entries; more than 32 entries across all lists is RZ-CFG-005.",
       "properties": {
         "request": {
           "$ref": "#/$defs/HeaderRequestOps",
-          "description": "Request sets request headers."
+          "description": "Request edits request headers."
         },
         "response": {
           "$ref": "#/$defs/HeaderResponseOps",
-          "description": "Response sets response headers."
+          "description": "Response edits response headers."
         }
       },
       "type": "object"
@@ -1876,6 +2260,30 @@
         "passive": {
           "$ref": "#/$defs/PassiveHealthCheck",
           "description": "Passive ejects Endpoints that fail requests."
+        },
+        "pingTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "5s",
+          "description": "PingTimeout is how long the ping an HTTP/2 connection to an Endpoint gets after 1 s of silence may go unanswered before the connection is closed and its streams reset."
+        },
+        "stallTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "1s",
+          "description": "StallTimeout is how long an attempt may wait for response headers before it is stalled; an Endpoint holding a stalled attempt that has sent no response headers for as long is suspect until it does, so selection skips it while another Endpoint remains and an attempt timeout on it ejects it."
         }
       },
       "type": "object"
@@ -1890,6 +2298,13 @@
         }
       ],
       "description": "An integer or a string, such as a port number or a port name."
+    },
+    "JSONSchemaDocument": {
+      "description": "An inline JSON Schema document (draft 2020-12): an object or a boolean. Its keywords are checked when its Policy is validated.",
+      "type": [
+        "object",
+        "boolean"
+      ]
     },
     "JWTBinding": {
       "additionalProperties": false,
@@ -1916,6 +2331,7 @@
             "type": "string"
           },
           "description": "Claims are expected claim values.",
+          "minProperties": 1,
           "type": "object"
         },
         "issuer": {
@@ -1924,6 +2340,7 @@
         },
         "subject": {
           "description": "Subject is the expected sub claim.",
+          "minLength": 1,
           "type": "string"
         }
       },
@@ -2012,6 +2429,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 10485760,
           "description": "MaxRequestBodyBytes caps a request body; above it the request gets 413 RZ-RT-003."
         },
         "maxRequestHeaderBytes": {
@@ -2023,6 +2441,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 65536,
           "description": "MaxRequestHeaderBytes caps a request header block; above it the request gets 431 RZ-RT-002."
         },
         "maxResponseBodyBytes": {
@@ -2083,7 +2502,14 @@
           "description": "Port is the TCP port."
         },
         "protocol": {
-          "$ref": "#/$defs/ListenerProtocol",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ListenerProtocol"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Protocol is http or https."
         },
         "proxyProtocol": {
@@ -2096,11 +2522,17 @@
             }
           ],
           "default": false,
-          "description": "ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1)."
+          "description": "ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).",
+          "x-ruralz-impact": [
+            "security"
+          ]
         },
         "tls": {
           "$ref": "#/$defs/ListenerTLS",
-          "description": "TLS configures TLS termination; required for https."
+          "description": "TLS configures TLS termination; required for https.",
+          "x-ruralz-impact": [
+            "security"
+          ]
         }
       },
       "required": [
@@ -2134,7 +2566,14 @@
           }
         },
         "minVersion": {
-          "$ref": "#/$defs/TLSVersion",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TLSVersion"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "1.3",
           "description": "MinVersion is the lowest accepted TLS version."
         }
@@ -2143,10 +2582,37 @@
     },
     "LoadBalancing": {
       "additionalProperties": false,
-      "description": "LoadBalancing selects an Endpoint per attempt.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "algorithm": {
+                "const": "ring-hash"
+              }
+            },
+            "required": [
+              "algorithm"
+            ]
+          },
+          "then": {
+            "required": [
+              "hashKey"
+            ]
+          }
+        }
+      ],
+      "description": "LoadBalancing selects an Endpoint per attempt. algorithm ring-hash without hashKey is RZ-CFG-005.",
       "properties": {
         "algorithm": {
-          "$ref": "#/$defs/LoadBalancingAlgorithm",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoadBalancingAlgorithm"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "least-request",
           "description": "Algorithm is round-robin, least-request, ring-hash or random."
         },
         "hashKey": {
@@ -2208,11 +2674,25 @@
       "description": "ModelPrice is the price of one provider model, per million tokens.",
       "properties": {
         "cachedInputPerMillionTokens": {
-          "$ref": "#/$defs/Decimal",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Decimal"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "CachedInputPerMillionTokens is the cached input token price."
         },
         "inputPerMillionTokens": {
-          "$ref": "#/$defs/Decimal",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Decimal"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "InputPerMillionTokens is the input token price."
         },
         "model": {
@@ -2220,7 +2700,14 @@
           "type": "string"
         },
         "outputPerMillionTokens": {
-          "$ref": "#/$defs/Decimal",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Decimal"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "OutputPerMillionTokens is the output token price."
         }
       },
@@ -2245,10 +2732,60 @@
     },
     "OTLP": {
       "additionalProperties": false,
-      "description": "OTLP configures OTLP export.",
+      "description": "OTLP configures OTLP export over gRPC.",
       "properties": {
         "endpoint": {
-          "description": "Endpoint is the OTLP collector URL.",
+          "anyOf": [
+            {
+              "pattern": "^https?://[^/?#@\\s]+/?$",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Endpoint is the OTLP/gRPC collector URL: http or https, a host and an optional port (default 4317), without path, user information, query or fragment. Unset, the Node exports nothing over OTLP."
+        },
+        "tls": {
+          "$ref": "#/$defs/OTLPTLS",
+          "description": "TLS configures the client side of an https endpoint: server name, trust anchors and a client certificate. Without it an https endpoint is verified against the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "OTLPTLS": {
+      "additionalProperties": false,
+      "description": "OTLPTLS configures the client side of the TLS connection to the OTLP collector, with the Upstream tls fields sni, caCertificate, clientCertificate and clientKey: TLS 1.2 or newer, the server certificate always verified. Set clientCertificate and clientKey together, or neither.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate is a PEM bundle that verifies the server instead of the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientCertificate is the PEM client certificate chain for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientKey is the PEM client private key for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "sni": {
+          "description": "SNI is the server name sent in the TLS handshake and verified in the server certificate.",
           "type": "string"
         }
       },
@@ -2299,10 +2836,19 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 5,
           "description": "ConsecutiveErrors matching circuitBreaker.failureWhen eject an Endpoint."
         },
         "ejectionTime": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "30s",
           "description": "EjectionTime is multiplied by the Endpoint's ejection count."
         }
       },
@@ -2425,7 +2971,14 @@
           "description": "MemoryBytes is the linear memory limit per instance."
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "5ms",
           "description": "Timeout is the wall-clock limit per call."
         }
@@ -2437,13 +2990,27 @@
       "description": "PluginSpec is the spec of a Plugin. Planned (M2).",
       "properties": {
         "abi": {
-          "$ref": "#/$defs/PluginABI",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PluginABI"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "ABI is the Plugin ABI the artifact implements."
         },
         "capabilities": {
           "description": "Capabilities are the granted Capabilities; nothing else is granted.",
           "items": {
-            "$ref": "#/$defs/Capability"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Capability"
+              },
+              {
+                "$ref": "#/$defs/Substitution"
+              }
+            ]
           },
           "type": "array",
           "x-ruralz-impact": [
@@ -2473,7 +3040,14 @@
         "phases": {
           "description": "Phases are the Filter Chain Phases the Plugin implements.",
           "items": {
-            "$ref": "#/$defs/Phase"
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Phase"
+              },
+              {
+                "$ref": "#/$defs/Substitution"
+              }
+            ]
           },
           "minItems": 1,
           "type": "array",
@@ -2532,6 +3106,23 @@
     "PolicySpec": {
       "additionalProperties": false,
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "plugin"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "plugin"
+            ]
+          }
+        },
         {
           "if": {
             "properties": {
@@ -2970,19 +3561,33 @@
           }
         }
       ],
-      "description": "PolicySpec is the spec of a Policy.",
+      "description": "PolicySpec is the spec of a Policy. type plugin without plugin is RZ-CFG-005.",
       "properties": {
         "config": {
           "description": "Config is validated by the schema registered for type.",
           "type": "object"
         },
         "failureMode": {
-          "$ref": "#/$defs/FailureMode",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FailureMode"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "FailureMode is open or closed; default from the type registry. Security types allow closed only (RZ-CFG-029)."
         },
         "filterClass": {
-          "$ref": "#/$defs/FilterClass",
-          "description": "FilterClass places a plugin Policy in the Filter Chain; plugin only, default custom."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FilterClass"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "FilterClass places the Policy in the Filter Chain; default the type registry's class, custom for plugin. Only a plugin Policy may choose its class; any other type may only restate its registry class (RZ-CFG-005)."
         },
         "overridable": {
           "anyOf": [
@@ -2994,7 +3599,10 @@
             }
           ],
           "default": true,
-          "description": "Overridable, when false on a Gateway Policy, forbids Route replace or exclude."
+          "description": "Overridable, when false on a Gateway Policy, forbids Route replace or exclude.",
+          "x-ruralz-impact": [
+            "security"
+          ]
         },
         "plugin": {
           "description": "Plugin is the metadata.name of a Plugin; required when type is plugin.",
@@ -3006,11 +3614,25 @@
           "type": "string"
         },
         "stateStoreTimeout": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "StateStoreTimeout bounds State Store calls; default Gateway spec.stateStore.timeout."
         },
         "type": {
-          "$ref": "#/$defs/PolicyType",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PolicyType"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Type is the registered Policy type; it selects the config schema."
         },
         "when": {
@@ -3070,9 +3692,16 @@
       "description": "Pricing is a provider's price table.",
       "properties": {
         "currency": {
-          "description": "Currency is an ISO 4217 code.",
-          "pattern": "^[A-Z]{3}$",
-          "type": "string"
+          "anyOf": [
+            {
+              "pattern": "^[A-Z]{3}$",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Currency is an ISO 4217 code."
         },
         "models": {
           "description": "Models are per-model prices.",
@@ -3127,7 +3756,14 @@
       "description": "PromptCache configures the provider-side Prompt Cache.",
       "properties": {
         "mode": {
-          "$ref": "#/$defs/PromptCacheMode",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PromptCacheMode"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Mode is passthrough or disabled."
         }
       },
@@ -3143,8 +3779,35 @@
     },
     "Quota": {
       "additionalProperties": false,
-      "description": "Quota is one named Consumer quota.",
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "window"
+              ]
+            },
+            {
+              "required": [
+                "calendar"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "Quota is one named Consumer quota, counted per fixed window or per UTC calendar month: exactly one of window or calendar.",
       "properties": {
+        "calendar": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuotaCalendar"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Calendar counts the quota per UTC calendar month instead of a window; a month starts at 00:00 UTC on its first day."
+        },
         "limit": {
           "anyOf": [
             {
@@ -3162,28 +3825,65 @@
           "type": "string"
         },
         "unit": {
-          "$ref": "#/$defs/QuotaUnit",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QuotaUnit"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Unit is requests or tokens."
         },
         "window": {
-          "$ref": "#/$defs/Duration",
-          "description": "Window is the window length."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Window is the window length, at least 1s in whole seconds; windows are fixed and epoch-aligned in UTC, so 24h resets at midnight."
         }
       },
       "required": [
         "name",
         "unit",
-        "limit",
-        "window"
+        "limit"
       ],
       "type": "object"
     },
+    "QuotaCalendar": {
+      "description": "QuotaCalendar is the calendar period a quota counts in.",
+      "enum": [
+        "month"
+      ],
+      "type": "string"
+    },
     "QuotaConfig": {
+      "additionalProperties": false,
       "description": "QuotaConfig is the config of a quota Policy.",
       "properties": {
         "consumerQuota": {
           "description": "ConsumerQuota names a Consumer quota with unit requests.",
           "type": "string"
+        },
+        "cost": {
+          "default": "1",
+          "description": "Cost is the number of units a request reserves, at least 1, and a refund returns; a runtime error or a smaller value applies failureMode, and a cost above the units left in the window is denied, reserving nothing.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "int",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
         },
         "key": {
           "default": "consumer.name",
@@ -3216,6 +3916,7 @@
       "type": "string"
     },
     "RateLimit": {
+      "additionalProperties": false,
       "description": "RateLimit is one limit window.",
       "properties": {
         "burst": {
@@ -3254,9 +3955,31 @@
           ],
           "description": "Requests is the number of requests allowed per window."
         },
+        "when": {
+          "description": "When applies the limit only to requests for which it is true; absent, the limit always applies.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "bool",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
         "window": {
-          "$ref": "#/$defs/Duration",
-          "description": "Window is the window length."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Window is the window length, at least 1ms in whole milliseconds."
         }
       },
       "required": [
@@ -3266,10 +3989,27 @@
       "type": "object"
     },
     "RateLimitConfig": {
-      "description": "RateLimitConfig is the config of a ratelimit Policy.",
+      "additionalProperties": false,
+      "description": "RateLimitConfig is the config of a ratelimit Policy. More than 8 limits, two limits with equal requests and window, a window below 1ms or not in whole milliseconds, a window divided by requests below 1µs, and a perNodeCeiling or burst above requests are RZ-CFG-005.",
       "properties": {
+        "cost": {
+          "default": "1",
+          "description": "Cost is the number of tokens a request takes from every applied limit, at least 1; a runtime error or a smaller value applies failureMode.",
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "int",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          }
+        },
         "key": {
-          "description": "Key partitions the limit, for example per Consumer.",
+          "description": "Key partitions the limit, for example per Consumer; absent, or an empty result, puts every request of the Policy in one partition.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -3284,7 +4024,7 @@
           }
         },
         "limits": {
-          "description": "Limits are the enforced windows.",
+          "description": "Limits are the enforced windows, 1 to 8.",
           "items": {
             "$ref": "#/$defs/RateLimit"
           },
@@ -3304,7 +4044,19 @@
             }
           ],
           "default": false,
-          "description": "LocalOnly keeps the limit in the Node; it waits for OQ-scalability-and-distributed-state-11."
+          "description": "LocalOnly keeps the limit in each Node's local buckets and never calls the State Store, so a Cell admits at most the Node count times the per-Node ceiling per window, even when the State Store is healthy (OQ-scalability-and-distributed-state-11 (a))."
+        },
+        "responseHeaders": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RateLimitResponseHeaders"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "ietf",
+          "description": "ResponseHeaders selects the RateLimit-Policy and RateLimit response fields the Policy records: ietf records them, none records nothing, though a 429 of the Policy still carries Retry-After."
         }
       },
       "required": [
@@ -3312,9 +4064,17 @@
       ],
       "type": "object"
     },
+    "RateLimitResponseHeaders": {
+      "description": "RateLimitResponseHeaders selects the RateLimit response fields a ratelimit Policy records.",
+      "enum": [
+        "ietf",
+        "none"
+      ],
+      "type": "string"
+    },
     "Replace": {
       "additionalProperties": false,
-      "description": "Replace rewrites a string value. A pattern over 1 KiB or not valid RE2 is RZ-CFG-005.",
+      "description": "Replace rewrites matches in the strings at a body path, or in the raw body. A pattern over 1 KiB, or one that is not valid RE2 unless literal is true, is RZ-CFG-005.",
       "properties": {
         "literal": {
           "anyOf": [
@@ -3325,24 +4085,23 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
-          "description": "Literal treats pattern as literal text."
+          "description": "Literal treats pattern and replacement as plain text; absent means false."
         },
         "path": {
-          "description": "Path selects the value.",
+          "description": "Path is the body dot path of the strings to rewrite; without it the raw body is rewritten.",
           "type": "string"
         },
         "pattern": {
-          "description": "Pattern is an RE2 pattern, or a literal when literal is true.",
+          "description": "Pattern is an RE2 pattern, or plain text when literal is true.",
           "maxLength": 1024,
           "type": "string"
         },
         "replacement": {
-          "description": "Replacement is the replacement text.",
+          "description": "Replacement replaces each match: $1 or $name refers to a group of an RE2 pattern (write ${1} as $${1}, which environment substitution requires), and with literal it is plain text.",
           "type": "string"
         }
       },
       "required": [
-        "path",
         "pattern"
       ],
       "type": "object"
@@ -3361,14 +4120,22 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 1,
           "description": "Attempts counts retries after the first attempt."
         },
         "perTryTimeout": {
-          "$ref": "#/$defs/Duration",
-          "description": "PerTryTimeout is the deadline of each attempt."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "PerTryTimeout is the deadline of each attempt; default the leg time left divided by the retries left plus one."
         },
         "retryOn": {
-          "description": "RetryOn decides whether an attempt is retried.",
+          "description": "RetryOn decides whether an attempt is retried; default a method-dependent rule over connect and reset errors and status 503.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -3506,7 +4273,10 @@
       "properties": {
         "composition": {
           "$ref": "#/$defs/Composition",
-          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams."
+          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "excludePolicies": {
           "description": "ExcludePolicies removes inherited Gateway Policies.",
@@ -3531,7 +4301,10 @@
         },
         "match": {
           "$ref": "#/$defs/RouteMatch",
-          "description": "Match selects requests; every criterion must hold."
+          "description": "Match selects requests; every criterion must hold.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "policies": {
           "description": "Policies attaches Route-scoped Policies in authored order.",
@@ -3545,7 +4318,14 @@
           }
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Timeout is the whole-request deadline.",
           "x-ruralz-impact": [
             "traffic"
@@ -3557,6 +4337,9 @@
             "$ref": "#/$defs/RouteUpstream"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "routing"
+          ],
           "x-ruralz-list": {
             "key": "name",
             "type": "map"
@@ -3632,7 +4415,7 @@
     },
     "SecretValue": {
       "additionalProperties": false,
-      "description": "SecretValue is a secret field: only a secretRef is accepted, a literal is RZ-CFG-012, and the value is never rendered.",
+      "description": "SecretValue is a secret field: only a secretRef is accepted, a literal is RZ-CFG-012, and the value is never rendered. Every SecretValue field carries the security impact class, so adding or changing a reference is a security change in diffs.",
       "properties": {
         "secretRef": {
           "$ref": "#/$defs/SecretRef",
@@ -3662,7 +4445,14 @@
           "description": "SimilarityThreshold is the minimum similarity, 0 to 1, for a hit."
         },
         "ttl": {
-          "$ref": "#/$defs/Duration",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "TTL is how long an entry lives."
         }
       },
@@ -3678,28 +4468,142 @@
     },
     "StateStore": {
       "additionalProperties": false,
-      "description": "StateStore is the State Store connection.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "driver": {
+                "const": "redis"
+              }
+            },
+            "required": [
+              "driver"
+            ]
+          },
+          "then": {
+            "required": [
+              "url"
+            ]
+          }
+        }
+      ],
+      "description": "StateStore is the State Store connection. driver redis without url is RZ-CFG-005.",
       "properties": {
+        "cache": {
+          "$ref": "#/$defs/StateStoreCache",
+          "description": "Cache is a second connection that serves only the Response Cache. Without it the cache shares this connection under the State Store memory protection rules, and a Node warns at startup when it shares it with limit Policies."
+        },
         "driver": {
-          "$ref": "#/$defs/StateStoreDriver",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateStoreDriver"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "memory",
           "description": "Driver is memory or redis."
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
-          "description": "Timeout is the per-operation default for Policies."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "50ms",
+          "description": "Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004)."
+        },
+        "tls": {
+          "$ref": "#/$defs/StateStoreTLS",
+          "description": "TLS configures the client side of this connection's TLS: trust anchors and a client certificate. Without it a rediss:// server is verified against the system roots; beside a cleartext url a Node refuses it (RZ-CFG-042).",
+          "x-ruralz-impact": [
+            "security"
+          ]
         },
         "topology": {
-          "$ref": "#/$defs/StateStoreTopology",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateStoreTopology"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "default": "standalone",
           "description": "Topology applies to redis only. Planned (M1)."
         },
         "url": {
           "$ref": "#/$defs/SecretValue",
-          "description": "URL is the rueidis connection URL; it may carry credentials.",
+          "description": "URL is the rueidis connection URL; it may carry credentials. Required with driver redis.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
+        },
+        "zones": {
+          "description": "Zones maps the server hosts of this connection to failure zones, which the Node compares with its RURALZ_ZONE to label each State Store call's duration same, cross or unknown. Driver redis only. A host the connection never dials has no effect, and a server whose host has no entry is unknown.",
+          "items": {
+            "$ref": "#/$defs/StateStoreZone"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "host",
+            "type": "map"
+          }
         }
       },
+      "type": "object"
+    },
+    "StateStoreCache": {
+      "additionalProperties": false,
+      "description": "StateStoreCache is the State Store connection of the Response Cache (OQ-scalability-and-distributed-state-3 (a)): a redis deployment separate from the main State Store, so cache entries never evict Rate Limit, Quota or Token Budget keys. Cache Policies still default their stateStoreTimeout to the main connection's timeout.",
+      "properties": {
+        "tls": {
+          "$ref": "#/$defs/StateStoreTLS",
+          "description": "TLS configures the client side of the cache connection's TLS, as stateStore.tls does the main connection's; the cache connection never uses stateStore.tls. Beside a cleartext url a Node refuses it (RZ-CFG-042).",
+          "x-ruralz-impact": [
+            "security"
+          ]
+        },
+        "topology": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StateStoreTopology"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "standalone",
+          "description": "Topology is the redis deployment shape."
+        },
+        "url": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "URL is the rueidis connection URL of the cache deployment; it may carry credentials.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "zones": {
+          "description": "Zones maps the server hosts of the cache connection to failure zones, as stateStore.zones does the main connection's; the cache connection never uses stateStore.zones.",
+          "items": {
+            "$ref": "#/$defs/StateStoreZone"
+          },
+          "type": "array",
+          "x-ruralz-list": {
+            "key": "host",
+            "type": "map"
+          }
+        }
+      },
+      "required": [
+        "url"
+      ],
       "type": "object"
     },
     "StateStoreDriver": {
@@ -3710,13 +4614,74 @@
       ],
       "type": "string"
     },
+    "StateStoreTLS": {
+      "additionalProperties": false,
+      "description": "StateStoreTLS configures the client side of one State Store connection's TLS (stateStore.tls, stateStore.cache.tls): its rediss:// or valkeys:// servers, cluster nodes and sentinels. The server is always verified for the host the Node dials. Set clientCertificate and clientKey together, or neither.",
+      "properties": {
+        "caCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "CACertificate is a PEM bundle that verifies every State Store server instead of the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientCertificate": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientCertificate is the PEM client certificate chain the Node presents to State Store servers.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        },
+        "clientKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ClientKey is the PEM private key of clientCertificate.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true
+        }
+      },
+      "type": "object"
+    },
     "StateStoreTopology": {
       "description": "StateStoreTopology is the Redis deployment shape.",
       "enum": [
         "standalone",
-        "cluster"
+        "cluster",
+        "sentinel"
       ],
       "type": "string"
+    },
+    "StateStoreZone": {
+      "additionalProperties": false,
+      "description": "StateStoreZone maps one server host of a State Store connection (stateStore.zones, stateStore.cache.zones) to its failure zone. Hosts compare case-insensitively and IP literals in canonical form, so one host is named once per connection.",
+      "properties": {
+        "host": {
+          "description": "Host is a hostname or an IP literal, written as the URL names it or the topology announces it: the standalone endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name.",
+          "type": "string"
+        },
+        "zone": {
+          "anyOf": [
+            {
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z0-9-]+$",
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Zone is the server's failure zone, in the form of RURALZ_ZONE: 1 to 63 characters from [a-z0-9-]."
+        }
+      },
+      "required": [
+        "host",
+        "zone"
+      ],
+      "type": "object"
     },
     "Substitution": {
       "description": "A value that is exactly one ${VAR} or ${VAR:-default} expression, substituted before the rendered view validates it.",
@@ -3754,6 +4719,7 @@
               "$ref": "#/$defs/Substitution"
             }
           ],
+          "default": 0.01,
           "description": "TraceSampling is the head sampling ratio, 0 to 1."
         }
       },
@@ -3761,10 +4727,10 @@
     },
     "TransformRequestConfig": {
       "additionalProperties": false,
-      "description": "TransformRequestConfig is the config of a transform.request Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "description": "TransformRequestConfig is the config of a transform.request Policy. It applies body, then arrayOps, set, remove and replace, each list in order, and every CEL field reads the request as it reached the Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
       "properties": {
         "arrayOps": {
-          "description": "ArrayOps edit JSON arrays.",
+          "description": "ArrayOps move, append or delete JSON values at body paths.",
           "items": {
             "$ref": "#/$defs/ArrayOp"
           },
@@ -3774,7 +4740,7 @@
           }
         },
         "body": {
-          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "description": "Body computes the forwarded request body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",
@@ -3791,11 +4757,11 @@
         },
         "contentType": {
           "default": "application/json",
-          "description": "ContentType is the content type of a computed body.",
+          "description": "ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.",
           "type": "string"
         },
         "remove": {
-          "description": "Remove removes headers, query parameters or body fields.",
+          "description": "Remove drops headers, every occurrence of a query parameter, or body paths.",
           "items": {
             "$ref": "#/$defs/TransformRequestRemove"
           },
@@ -3805,7 +4771,7 @@
           }
         },
         "replace": {
-          "description": "Replace rewrites string values with RE2 patterns.",
+          "description": "Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.",
           "items": {
             "$ref": "#/$defs/Replace"
           },
@@ -3815,7 +4781,7 @@
           }
         },
         "set": {
-          "description": "Set sets headers, query parameters or body fields.",
+          "description": "Set sets headers or query parameters to a computed string, rewrites the forwarded path, or writes computed JSON values at body paths, creating missing objects.",
           "items": {
             "$ref": "#/$defs/TransformRequestSet"
           },
@@ -3829,14 +4795,21 @@
     },
     "TransformRequestRemove": {
       "additionalProperties": false,
-      "description": "TransformRequestRemove removes one request value.",
+      "description": "TransformRequestRemove removes one request value: a header, every occurrence of a query parameter, or a body path. Target path is RZ-CFG-005.",
       "properties": {
         "name": {
-          "description": "Name is the header, parameter or body path.",
+          "description": "Name is the header name, the query parameter name or the body dot path.",
           "type": "string"
         },
         "target": {
-          "$ref": "#/$defs/TransformRequestTarget",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformRequestTarget"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Target is header, query or body."
         }
       },
@@ -3848,21 +4821,82 @@
     },
     "TransformRequestSet": {
       "additionalProperties": false,
-      "description": "TransformRequestSet sets one request value.",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "header"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "query"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "target": {
+                "const": "body"
+              }
+            },
+            "required": [
+              "target"
+            ]
+          },
+          "then": {
+            "required": [
+              "name"
+            ]
+          }
+        }
+      ],
+      "description": "TransformRequestSet sets one request value: a header, a query parameter, a body field, or the forwarded path. At most one entry has target path, and it takes no name.",
       "properties": {
         "name": {
-          "description": "Name is the header, parameter or body path.",
+          "description": "Name is the header name, the query parameter name or the body dot path; target path takes none.",
           "type": "string"
         },
         "target": {
-          "$ref": "#/$defs/TransformRequestTarget",
-          "description": "Target is header, query or body."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformRequestTarget"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Target is header, query, body or path."
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value: a string for targets header, query and path, and any value for target body, written there as JSON.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
-            "result": "string",
+            "result": "dyn",
             "variables": [
               "request",
               "source",
@@ -3877,26 +4911,26 @@
       },
       "required": [
         "target",
-        "name",
         "valueExpression"
       ],
       "type": "object"
     },
     "TransformRequestTarget": {
-      "description": "TransformRequestTarget is where a transform.request operation applies.",
+      "description": "TransformRequestTarget is what a transform.request set or remove entry edits.",
       "enum": [
         "header",
         "query",
-        "body"
+        "body",
+        "path"
       ],
       "type": "string"
     },
     "TransformResponseConfig": {
       "additionalProperties": false,
-      "description": "TransformResponseConfig is the config of a transform.response Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
+      "description": "TransformResponseConfig is the config of a transform.response Policy. It applies body, then arrayOps, set, remove and replace, each list in order, and every CEL field reads the response as it reached the Policy. More than 32 entries across set, remove, arrayOps and replace is RZ-CFG-005.",
       "properties": {
         "arrayOps": {
-          "description": "ArrayOps edit JSON arrays.",
+          "description": "ArrayOps move, append or delete JSON values at body paths.",
           "items": {
             "$ref": "#/$defs/ArrayOp"
           },
@@ -3906,7 +4940,7 @@
           }
         },
         "body": {
-          "description": "Body computes the new body; a map or list is written as JSON, a string as its bytes.",
+          "description": "Body computes the response body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",
@@ -3924,11 +4958,11 @@
         },
         "contentType": {
           "default": "application/json",
-          "description": "ContentType is the content type of a computed body.",
+          "description": "ContentType is the Content-Type set whenever body is set; an RFC 9110 media type, else RZ-CFG-005.",
           "type": "string"
         },
         "remove": {
-          "description": "Remove removes headers or body fields.",
+          "description": "Remove drops headers or body paths.",
           "items": {
             "$ref": "#/$defs/TransformResponseRemove"
           },
@@ -3938,7 +4972,7 @@
           }
         },
         "replace": {
-          "description": "Replace rewrites string values with RE2 patterns.",
+          "description": "Replace rewrites matches in the strings at a body path, or in the raw body, with an RE2 or a literal pattern.",
           "items": {
             "$ref": "#/$defs/Replace"
           },
@@ -3948,7 +4982,7 @@
           }
         },
         "set": {
-          "description": "Set sets headers or body fields.",
+          "description": "Set sets headers to a computed string, or writes computed JSON values at body paths, creating missing objects.",
           "items": {
             "$ref": "#/$defs/TransformResponseSet"
           },
@@ -3962,14 +4996,21 @@
     },
     "TransformResponseRemove": {
       "additionalProperties": false,
-      "description": "TransformResponseRemove removes one response value.",
+      "description": "TransformResponseRemove removes one response value: a header or a body path.",
       "properties": {
         "name": {
-          "description": "Name is the header or body path.",
+          "description": "Name is the header name or the body dot path.",
           "type": "string"
         },
         "target": {
-          "$ref": "#/$defs/TransformResponseTarget",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformResponseTarget"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Target is header or body."
         }
       },
@@ -3981,21 +5022,29 @@
     },
     "TransformResponseSet": {
       "additionalProperties": false,
-      "description": "TransformResponseSet sets one response value.",
+      "description": "TransformResponseSet sets one response value: a header or a body field.",
       "properties": {
         "name": {
-          "description": "Name is the header or body path.",
+          "description": "Name is the header name or the body dot path.",
           "type": "string"
         },
         "target": {
-          "$ref": "#/$defs/TransformResponseTarget",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TransformResponseTarget"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Target is header or body."
         },
         "valueExpression": {
-          "description": "ValueExpression computes the value.",
+          "description": "ValueExpression computes the value: a string for target header, and any value for target body, written there as JSON.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
-            "result": "string",
+            "result": "dyn",
             "variables": [
               "request",
               "source",
@@ -4017,7 +5066,7 @@
       "type": "object"
     },
     "TransformResponseTarget": {
-      "description": "TransformResponseTarget is where a transform.response operation applies.",
+      "description": "TransformResponseTarget is what a transform.response set or remove entry edits.",
       "enum": [
         "header",
         "body"
@@ -4065,7 +5114,14 @@
           }
         },
         "surface": {
-          "$ref": "#/$defs/AISurface",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AISurface"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Surface is openai or native."
         }
       },
@@ -4101,15 +5157,39 @@
       "properties": {
         "ai": {
           "$ref": "#/$defs/UpstreamAI",
-          "description": "AI applies to protocol ai only; its models replace endpoints. Planned (M3)."
+          "description": "AI applies to protocol ai only; its models replace endpoints. Planned (M3).",
+          "x-ruralz-impact": [
+            "ai"
+          ]
         },
         "circuitBreaker": {
           "$ref": "#/$defs/CircuitBreaker",
-          "description": "CircuitBreaker configures the circuit breaker."
+          "description": "CircuitBreaker configures the circuit breaker and the in-flight ceiling.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
+        },
+        "connectTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "1s",
+          "description": "ConnectTimeout bounds the dial of a new connection to an Endpoint, shared by every address the Endpoint resolves to; when it expires the attempt fails with error kind connect.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "discovery": {
           "$ref": "#/$defs/Discovery",
-          "description": "Discovery finds Endpoints instead of listing them."
+          "description": "Discovery finds Endpoints instead of listing them.",
+          "x-ruralz-impact": [
+            "routing"
+          ]
         },
         "endpoints": {
           "description": "Endpoints are static addresses.",
@@ -4117,6 +5197,9 @@
             "$ref": "#/$defs/Endpoint"
           },
           "type": "array",
+          "x-ruralz-impact": [
+            "routing"
+          ],
           "x-ruralz-list": {
             "key": "address",
             "type": "map"
@@ -4124,11 +5207,17 @@
         },
         "healthCheck": {
           "$ref": "#/$defs/HealthCheck",
-          "description": "HealthCheck configures active and passive health checks."
+          "description": "HealthCheck configures active and passive health checks; passive ejection runs even without it.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "loadBalancing": {
           "$ref": "#/$defs/LoadBalancing",
-          "description": "LoadBalancing selects an Endpoint per attempt."
+          "description": "LoadBalancing selects an Endpoint per attempt.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "messaging": {
           "$ref": "#/$defs/Messaging",
@@ -4146,20 +5235,43 @@
           }
         },
         "protocol": {
-          "$ref": "#/$defs/UpstreamProtocol",
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UpstreamProtocol"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
           "description": "Protocol is the protocol the Upstream speaks."
         },
         "retries": {
           "$ref": "#/$defs/Retries",
-          "description": "Retries configures retries."
+          "description": "Retries configures retries.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "timeout": {
-          "$ref": "#/$defs/Duration",
-          "description": "Timeout is the per-leg deadline."
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "description": "Timeout is the per-leg deadline; default the Route's timeout.",
+          "x-ruralz-impact": [
+            "traffic"
+          ]
         },
         "tls": {
           "$ref": "#/$defs/UpstreamTLS",
-          "description": "TLS configures TLS to the Endpoints."
+          "description": "TLS configures TLS to the Endpoints; without it the Upstream is a cleartext hop.",
+          "x-ruralz-impact": [
+            "security"
+          ]
         }
       },
       "required": [
@@ -4169,33 +5281,63 @@
     },
     "UpstreamTLS": {
       "additionalProperties": false,
-      "description": "UpstreamTLS configures TLS to Endpoints.",
+      "description": "UpstreamTLS configures the client side of the TLS connections to an Upstream's Endpoints: TLS 1.2 or newer, the server certificate always verified. Set clientCertificate and clientKey together, or neither.",
       "properties": {
         "caCertificate": {
           "$ref": "#/$defs/SecretValue",
-          "description": "CACertificate verifies the Endpoints.",
+          "description": "CACertificate is a PEM bundle that verifies the server instead of the system roots.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "clientCertificate": {
           "$ref": "#/$defs/SecretValue",
-          "description": "ClientCertificate is the client certificate for mTLS.",
+          "description": "ClientCertificate is the PEM client certificate chain for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
         "clientKey": {
           "$ref": "#/$defs/SecretValue",
-          "description": "ClientKey is the client private key for mTLS.",
+          "description": "ClientKey is the PEM client private key for mTLS.",
+          "x-ruralz-impact": [
+            "security"
+          ],
           "x-ruralz-secret": true
         },
+        "handshakeTimeout": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Duration"
+            },
+            {
+              "$ref": "#/$defs/Substitution"
+            }
+          ],
+          "default": "2s",
+          "description": "HandshakeTimeout bounds the TLS handshake of a new connection; when it expires the attempt fails with error kind tls."
+        },
         "sni": {
-          "description": "SNI is the server name sent in the TLS handshake.",
+          "description": "SNI is the server name sent in the TLS handshake and verified in the server certificate.",
           "type": "string"
         }
       },
       "type": "object"
     },
     "ValidationJSONSchemaConfig": {
-      "description": "ValidationJSONSchemaConfig is the config of a validation.json-schema Policy; its fields are not yet registered.",
-      "properties": {},
+      "additionalProperties": false,
+      "description": "ValidationJSONSchemaConfig is the config of a validation.json-schema Policy, which validates JSON request bodies (400 RZ-RT-009 on failure).",
+      "properties": {
+        "schema": {
+          "$ref": "#/$defs/JSONSchemaDocument",
+          "description": "Schema is the inline JSON Schema (draft 2020-12) a request body must match: an object or a boolean. Its $ref resolves only within the document, formats are annotations, patterns are RE2, and an invalid schema is RZ-CFG-005. Environment substitution applies to its strings, so a literal ${ is written $${."
+        }
+      },
+      "required": [
+        "schema"
+      ],
       "type": "object"
     }
   },

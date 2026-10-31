@@ -1,0 +1,1 @@
+extra.yaml:16:16 error RZ-CFG-005 Route/step-groups spec.composition.steps[name=empty-group].group: step "empty-group" sets collection: true with an empty group (name the key the array merges under)

@@ -1,0 +1,15 @@
+Usage: ruralz completion SHELL [FLAGS]
+
+Print a shell completion script.
+
+Install:
+  bash        source <(ruralz completion bash)
+  zsh         ruralz completion zsh > "${fpath[1]}/_ruralz"
+  fish        ruralz completion fish > ~/.config/fish/completions/ruralz.fish
+  powershell  ruralz completion powershell | Out-String | Invoke-Expression
+
+Arguments:
+  SHELL  Shell to complete for (bash, zsh, fish or powershell)
+
+Flags:
+  --help  Print this help

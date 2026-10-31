@@ -1,0 +1,49 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-exact
+spec:
+  match:
+    path: {exact: orders}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-empty
+spec:
+  match:
+    path: {exact: ""}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-template
+spec:
+  match:
+    path: {template: "/v1/{id}/{id}"}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-regex
+spec:
+  match:
+    path: {regex: "/v1/(orders"}
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-regex-empty
+spec:
+  match:
+    path: {regex: ""}
+  upstreams:
+    - name: orders

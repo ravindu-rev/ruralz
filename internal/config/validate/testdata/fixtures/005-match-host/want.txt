@@ -1,0 +1,1 @@
+extra.yaml:7:13 error RZ-CFG-005 Route/wild spec.match.hosts[item=api.*.example]: host "api.*.example": "*" is allowed only as one whole leading label, as in "*.example.com"

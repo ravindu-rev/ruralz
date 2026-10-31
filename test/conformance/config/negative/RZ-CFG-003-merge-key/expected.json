@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-003",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 7,
+    "column": 7,
+    "message": "merge keys (<<) are not allowed"
+  }
+]

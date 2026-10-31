@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - <<: {protocol: http}
+      name: http
+      port: 8080

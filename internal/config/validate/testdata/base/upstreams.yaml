@@ -1,0 +1,23 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+    - address: "10.1.2.3:8080"
+  loadBalancing: {algorithm: ring-hash, hashKey: 'request.headers["x-user"]'}
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: inventory
+spec:
+  protocol: http
+  discovery:
+    type: dns
+    service: inventory.shop.svc
+    port: http
+  policies:
+    - name: upstream-oauth

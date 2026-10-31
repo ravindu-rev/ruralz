@@ -1,0 +1,14 @@
+# null removes a field, which then takes its default.
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  timeout: null
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  timeout: null

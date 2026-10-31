@@ -1,0 +1,30 @@
+[
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 20,
+    "column": 7,
+    "resource": {
+      "kind": "Policy",
+      "name": "check"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "$patch"
+    ],
+    "message": "$patch is valid only in overlays: this base $patch is no longer inside a JSON Schema document after the overlay merge",
+    "hint": "the overlay changes how this value is read, as a new Policy spec.type does; remove $patch from the base value or keep the base type",
+    "related": [
+      {
+        "file": "overlays/prod/check.yaml",
+        "line": 6,
+        "column": 9,
+        "message": "the overlay changes its schema in"
+      }
+    ],
+    "environment": "prod"
+  }
+]

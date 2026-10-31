@@ -1,0 +1,222 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# release-build: step 3 of CI stage 12
+# (docs/engineering/04-release-versioning-and-compatibility.md, "Release
+# pipeline" and "Packaging and audit"), the reusable workflow release.yml
+# calls once the release gates passed. Its OIDC identity,
+# .github/workflows/release-build.yml at the release tag, signs every
+# artifact and attestation, which is what verification checks, and running
+# the attestations in a reusable workflow reaches SLSA Build Level 3.
+#   Image     make release RELEASE_PART=image: the binaries with stage 4's
+#             flags (-s -w included), the notices, the ruralzd image for
+#             linux/amd64 and linux/arm64 pushed untagged by digest, and
+#             its cosign signature, which goes to the registry as an OCI
+#             referrer.
+#   Package   make release RELEASE_PART=package on the image job's dist/:
+#             the deterministic archives, the schema files, the benchmark
+#             records archive of the release's Latency and soak records,
+#             release-manifest.json with the image digests, every SBOM,
+#             NOTES.md with the skipped gates, SHA256SUMS and its cosign
+#             bundle, audited before and after signing.
+#   Attest    SLSA provenance and the CycloneDX SBOM of every archive and
+#             of the image, the image's pushed to the registry as OCI
+#             referrers.
+# The image and package jobs hold id-token: write for keyless signing, the
+# image job adds packages: write; the attest jobs hold id-token: write and
+# attestations: write, the image's adding packages: write. Only the
+# publish job of release.yml tags the image and publishes.
+name: release-build
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        description: The product version without its v, X.Y.Z or X.Y.Z-rc.N, which release.yml's tag check derived
+        type: string
+        required: true
+      bench-artifacts:
+        description: Name pattern of the calling run's artifacts holding the ruralz.bench.v1 records of the Latency and soak jobs
+        type: string
+        required: true
+      skipped-artifact:
+        description: Artifact of the calling run holding the ruralz.skippedgates.v1 file the release gates wrote
+        type: string
+        required: true
+    outputs:
+      digest:
+        description: The image index digest, sha256:<64 hex>, pushed untagged
+        value: ${{ jobs.image.outputs.digest }}
+      release-artifact:
+        description: The artifact holding the release directory
+        value: ${{ jobs.package.outputs.artifact }}
+
+permissions:
+  contents: read
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  image:
+    name: 12. Image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+      packages: write
+    outputs:
+      digest: ${{ steps.digest.outputs.digest }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags and history give the commit time and Go's module version.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Check the version
+        run: |
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]]; then
+            echo "::error title=Invalid version::version must be X.Y.Z or X.Y.Z-rc.N"
+            exit 2
+          fi
+      - name: Sign in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: Binaries, notices and the image, pushed untagged by digest and signed
+        run: make release RELEASE_PART=image
+      - id: digest
+        run: echo "digest=$(go run ./internal/tool/releasekit image -dir dist/image)" >>"$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist-${{ inputs.version }}
+          path: |
+            dist/
+            !dist/release/
+          if-no-files-found: error
+          retention-days: 7
+          overwrite: true
+
+  package:
+    name: 12. Package
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      artifact: release-${{ inputs.version }}
+      archives: ${{ steps.archives.outputs.archives }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The notes read the commits since the previous release tag.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist-${{ inputs.version }}
+          path: dist
+      - name: The Latency and soak records
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: ${{ inputs.bench-artifacts }}
+          merge-multiple: true
+          path: ${{ runner.temp }}/bench
+      - name: The skipped gates
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.skipped-artifact }}
+          path: ${{ runner.temp }}/skipped
+      - name: Archives, SBOMs, notes and checksums, signed and audited
+        env:
+          BENCH_RECORDS: ${{ runner.temp }}/bench
+          SKIPPED_GATES: ${{ runner.temp }}/skipped/skipped-gates.json
+        run: make release RELEASE_PART=package
+      - name: The notes in the run summary, which the owner reads before approving
+        run: cat dist/release/NOTES.md >>"$GITHUB_STEP_SUMMARY"
+      - id: archives
+        run: echo "archives=$(jq -c '[.archives[].name]' dist/release/release-manifest.json)" >>"$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ inputs.version }}
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 30
+          overwrite: true
+
+  attest-archives:
+    name: 12. Attest ${{ matrix.archive }}
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        archive: ${{ fromJSON(needs.package.outputs.archives) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.package.outputs.artifact }}
+          path: ${{ runner.temp }}/release
+      - name: SLSA provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: ${{ runner.temp }}/release/${{ matrix.archive }}
+      - name: CycloneDX SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-path: ${{ runner.temp }}/release/${{ matrix.archive }}
+          sbom-path: ${{ runner.temp }}/release/${{ matrix.archive }}.cdx.json
+
+  attest-image:
+    name: 12. Attest the image
+    needs: [image, package]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+      packages: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.package.outputs.artifact }}
+          path: ${{ runner.temp }}/release
+      - name: Sign in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: SLSA provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ghcr.io/ravindu-rev/ruralzd
+          subject-digest: ${{ needs.image.outputs.digest }}
+          push-to-registry: true
+      - name: CycloneDX SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ghcr.io/ravindu-rev/ruralzd
+          subject-digest: ${{ needs.image.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/release/ruralzd_${{ inputs.version }}_image.cdx.json
+          push-to-registry: true

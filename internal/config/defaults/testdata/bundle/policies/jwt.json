@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "jwt-default"},
+  "spec": {"type": "auth.jwt", "config": {"issuers": [{"issuer": "https://idp.shop.example", "jwksUrl": "https://idp.shop.example/jwks", "audiences": ["shop", "api"]}]}}
+}

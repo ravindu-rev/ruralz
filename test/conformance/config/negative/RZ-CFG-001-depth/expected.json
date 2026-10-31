@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-001",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 6,
+    "column": 74,
+    "message": "nesting depth exceeds 64"
+  }
+]

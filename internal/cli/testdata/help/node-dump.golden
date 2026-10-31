@@ -1,0 +1,18 @@
+Usage: ruralz node dump [FLAGS]
+
+Save /config/dump, secrets omitted.
+
+Reads the Node's /config/dump, checks that its content hashes to its digest
+and decodes at the schema levels this CLI serves, then writes it exactly as
+received, so the file is a ruralz bundle diff source. A document that fails
+the check is not written.
+
+Flags:
+  --admin URL              Admin base URL of the Node (default $RURALZ_ADMIN_URL, else http://127.0.0.1:9901)
+  --admin-token-file PATH  Operator admin token file (default $RURALZ_ADMIN_TOKEN_FILE)
+  --ca-file PATH           Extra trust anchors (PEM), added to the system roots
+  --client-cert PATH       Client certificate (PEM) for admin mTLS over https
+  --client-key PATH        Unencrypted PEM key of --client-cert
+  --help                   Print this help
+  --output-file PATH       Write the document to PATH instead of standard output
+  --timeout DURATION       Deadline of each admin call that does not stream (default 5m; 0 means none)

@@ -1,0 +1,27 @@
+[
+  {
+    "code": "RZ-CFG-030",
+    "severity": "error",
+    "file": "overlays/prod/upstreams.yaml",
+    "line": 1,
+    "column": 13,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "apiVersion"
+    ],
+    "message": "overlay apiVersion \"ruralz/v0test\" differs from the base resource's \"ruralz/v1alpha1\"",
+    "hint": "patch a resource with the apiVersion of its base document",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 11,
+        "column": 13,
+        "message": "base resource declared in"
+      }
+    ],
+    "environment": "prod"
+  }
+]

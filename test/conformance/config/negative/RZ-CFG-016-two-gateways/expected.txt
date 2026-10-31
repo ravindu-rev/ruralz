@@ -1,0 +1,1 @@
+ruralz.yaml:12:7 error RZ-CFG-016 Gateway/edge-internal kind: a Bundle has exactly one Gateway, and ruralz.yaml already declares Gateway/edge (first declared in ruralz.yaml:4:9)

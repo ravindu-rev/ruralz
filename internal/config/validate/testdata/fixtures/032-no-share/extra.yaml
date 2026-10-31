@@ -1,0 +1,17 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: full
+spec:
+  match:
+    path: {prefix: /full}
+  composition:
+    mode: aggregate
+    steps:
+      - name: a
+        upstream: orders
+        path: /a
+        maxBodyBytes: 1Mi
+      - name: b
+        upstream: orders
+        path: /b

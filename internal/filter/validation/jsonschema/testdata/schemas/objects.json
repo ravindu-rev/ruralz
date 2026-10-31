@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "propertyNames": {"pattern": "^[a-z][a-z0-9_]*$", "maxLength": 16},
+  "minProperties": 1,
+  "maxProperties": 8,
+  "patternProperties": {"^n_": {"type": "number"}, "^s_": {"type": "string"}},
+  "dependentRequired": {"card": ["cvv"]},
+  "dependentSchemas": {"ship": {"required": ["address"]}},
+  "unevaluatedProperties": {"type": ["boolean", "null"]}
+}

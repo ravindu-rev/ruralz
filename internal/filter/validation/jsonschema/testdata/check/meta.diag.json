@@ -1,0 +1,41 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 5,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "type",
+      1
+    ],
+    "message": "invalid JSON Schema: value must be one of 'array', 'boolean', 'integer', 'null', 'number', 'object', 'string'"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 6,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "properties",
+      "a",
+      "required"
+    ],
+    "message": "invalid JSON Schema: got string, want array"
+  }
+]

@@ -1,0 +1,189 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package resilience
+
+import (
+	"time"
+
+	"github.com/ravindu-rev/ruralz/internal/expr"
+)
+
+// Field defaults (targets). The Upstream core applies them when a field or
+// its parent object is absent, so the runtime values equal the defaults of
+// docs/architecture/09-traffic-management-and-resilience.md "Deadlines".
+const (
+	// DefaultRouteTimeout is Route.spec.timeout for every M1 Route: the
+	// default its protocol computes, a runtime rule kept out of the
+	// canonical form.
+	DefaultRouteTimeout = 15 * time.Second
+	// DefaultAttempts is retries.attempts: one retry.
+	DefaultAttempts = 1
+	// DefaultMaxConnections is circuitBreaker.maxConnections.
+	DefaultMaxConnections = 1024
+	// DefaultMaxPendingRequests is circuitBreaker.maxPendingRequests.
+	DefaultMaxPendingRequests = 256
+	// DefaultConsecutiveFailures is circuitBreaker.consecutiveFailures.
+	DefaultConsecutiveFailures = 5
+	// DefaultOpenDuration is circuitBreaker.openDuration.
+	DefaultOpenDuration = 30 * time.Second
+	// DefaultConnectTimeout is Upstream.spec.connectTimeout, the bound of
+	// one dial; its expiry is error kind connect.
+	DefaultConnectTimeout = time.Second
+	// DefaultHandshakeTimeout is Upstream.spec.tls.handshakeTimeout, the
+	// bound of one TLS handshake; its expiry is error kind tls.
+	DefaultHandshakeTimeout = 2 * time.Second
+)
+
+// Fixed targets. They are constants, not fields: backoff, the retry budget
+// and the breaker guards (docs/architecture/09-traffic-management-and-resilience.md
+// "Retries", "Retry budget" and "Circuit breakers").
+const (
+	// BackoffBase is the backoff ceiling of the first retry.
+	BackoffBase = 25 * time.Millisecond
+	// BackoffCap caps the backoff ceiling of every retry.
+	BackoffCap = 250 * time.Millisecond
+	// RetryBudgetMin is the retries in flight the budget always allows.
+	RetryBudgetMin = 3
+	// RetryBudgetPercent is the share of in-flight originals the budget
+	// allows as retries in flight, rounded down.
+	RetryBudgetPercent = 20
+	// MaxRetryAfter is the longest Upstream Retry-After a retry honors.
+	MaxRetryAfter = 10 * time.Second
+	// RetryDrainBytes is how much of a retried response's body the
+	// Upstream layer drains, within the leg deadline, before closing it
+	// (docs/architecture/09-traffic-management-and-resilience.md "Retries").
+	RetryDrainBytes = 64 << 10
+	// BreakerWindow is the breaker's rolling window.
+	BreakerWindow = 10 * time.Second
+	// BreakerBuckets is the number of 1 s buckets of BreakerWindow.
+	BreakerBuckets = 10
+	// BreakerMinimumLegs is the counted legs the rolling window must hold
+	// before the breaker may open; below it the breaker never opens.
+	BreakerMinimumLegs = 20
+	// BreakerFailurePercent is the share of the window's counted legs that
+	// must have failed, at least, for the breaker to open.
+	BreakerFailurePercent = 50
+	// HalfOpenSuccesses is the run of successful probe legs that closes a
+	// half-open breaker.
+	HalfOpenSuccesses = 3
+	// OpenJitterPercent spreads openDuration by this share either way.
+	OpenJitterPercent = 20
+	// EjectedMajorityPercent is the share of ejected Endpoints above which
+	// a leg ending in a connect error counts for the breaker.
+	EjectedMajorityPercent = 50
+	// EndpointCapMin is the smallest per-Endpoint in-flight cap.
+	EndpointCapMin = 8
+	// EndpointCapSharePercent caps an Endpoint's share of maxConnections.
+	EndpointCapSharePercent = 50
+)
+
+// Config is the resilience configuration of one Upstream in one snapshot.
+// The Upstream core builds it from Upstream.spec (starting from
+// DefaultConfig and overriding the fields present) at snapshot compile;
+// it is immutable afterwards and shared by every leg of the snapshot.
+type Config struct {
+	// Timeout is Upstream.spec.timeout, the leg bound; 0 means the
+	// Route's timeout.
+	Timeout time.Duration
+	// Retry is Upstream.spec.retries.
+	Retry RetryConfig
+	// Breaker is Upstream.spec.circuitBreaker without the bulkhead fields.
+	Breaker BreakerConfig
+	// Bulkhead is circuitBreaker.maxConnections and maxPendingRequests.
+	Bulkhead BulkheadConfig
+}
+
+// RetryConfig is Upstream.spec.retries.
+type RetryConfig struct {
+	// Attempts counts retries after the first attempt (attempts: 2 allows
+	// three attempts); 0 disables retries.
+	Attempts int
+	// PerTryTimeout bounds each attempt; 0 means the leg time left divided
+	// by the retries left plus one, computed at each attempt start.
+	PerTryTimeout time.Duration
+	// RetryOn is the compiled retryOn program; nil runs the native form of
+	// expr.DefaultRetryOn (DefaultRetryOn). TestNativeDefaultsEqualCEL in
+	// internal/gateway/upstream holds the native form equal to the CEL
+	// default over the 7 × 5 × 6 matrix; it lives there because it needs
+	// internal/cel.
+	RetryOn expr.Program
+}
+
+// BreakerConfig is Upstream.spec.circuitBreaker: the breaker thresholds
+// and failureWhen. The window guard (BreakerMinimumLegs and
+// BreakerFailurePercent) and HalfOpenSuccesses are fixed.
+type BreakerConfig struct {
+	// ConsecutiveFailures is the run of failed counted legs that opens the
+	// breaker, together with the window guard.
+	ConsecutiveFailures int
+	// OpenDuration is the open time before one probe leg is let through,
+	// jittered by OpenJitterPercent either way; 0 lets the probe through at
+	// once.
+	OpenDuration time.Duration
+	// FailureWhen is the compiled failureWhen program; nil runs the native
+	// form of expr.DefaultFailureWhen (DefaultFailureWhen), held equal to
+	// the CEL default by the same test as RetryConfig.RetryOn.
+	FailureWhen expr.Program
+}
+
+// BulkheadConfig is the in-flight ceiling of circuitBreaker.
+type BulkheadConfig struct {
+	// MaxConnections bounds in-flight attempts per Upstream per Node,
+	// HTTP/2 streams included.
+	MaxConnections int
+	// MaxPendingRequests bounds the attempts waiting for a slot; 0 fails
+	// at once when every slot is taken.
+	MaxPendingRequests int
+}
+
+// DefaultConfig returns the configuration of an Upstream whose timeout,
+// retries and circuitBreaker are absent.
+func DefaultConfig() Config {
+	return Config{
+		Retry:    DefaultRetryConfig(),
+		Breaker:  DefaultBreakerConfig(),
+		Bulkhead: DefaultBulkheadConfig(),
+	}
+}
+
+// DefaultRetryConfig returns the retries defaults: one retry, derived
+// perTryTimeout, default retryOn.
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{Attempts: DefaultAttempts}
+}
+
+// DefaultBreakerConfig returns the breaker defaults: 5 consecutive
+// failures, 30 s open, default failureWhen.
+func DefaultBreakerConfig() BreakerConfig {
+	return BreakerConfig{
+		ConsecutiveFailures: DefaultConsecutiveFailures,
+		OpenDuration:        DefaultOpenDuration,
+	}
+}
+
+// DefaultBulkheadConfig returns 1,024 in-flight attempts and 256 waiters.
+func DefaultBulkheadConfig() BulkheadConfig {
+	return BulkheadConfig{MaxConnections: DefaultMaxConnections, MaxPendingRequests: DefaultMaxPendingRequests}
+}
+
+// Normalize replaces values outside the schema ranges with safe ones:
+// negative durations and counts that allow 0 become 0, and fields that
+// must be positive take their defaults. A validated Revision never needs
+// it; it keeps a hand-built Config from wedging a breaker or a bulkhead.
+// An openDuration of 0 is kept: the breaker lets a probe leg through as
+// soon as it opens.
+func (c *Config) Normalize() {
+	c.Timeout = max(c.Timeout, 0)
+	c.Retry.Attempts = max(c.Retry.Attempts, 0)
+	c.Retry.PerTryTimeout = max(c.Retry.PerTryTimeout, 0)
+	b := &c.Breaker
+	b.OpenDuration = max(b.OpenDuration, 0)
+	if b.ConsecutiveFailures < 1 {
+		b.ConsecutiveFailures = DefaultConsecutiveFailures
+	}
+	if c.Bulkhead.MaxConnections < 1 {
+		c.Bulkhead.MaxConnections = DefaultMaxConnections
+	}
+	c.Bulkhead.MaxPendingRequests = max(c.Bulkhead.MaxPendingRequests, 0)
+}

@@ -1,0 +1,134 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# chaos-scale: the chaos experiments at the target scale profile
+# (docs/engineering/03-testing-and-quality-strategy.md, "Test pyramid",
+# "Chaos testing" and "Scale profiles"): CE-3, CE-5 at 100 Nodes, CE-12 at
+# 1,000,000 calls per second, CE-15 at 100,000 new keys per second and
+# GD-2, every criterion gating, latency and CPU included, on the four RH-1
+# hosts of deploy/benchhost/rh-1.json (`make chaos-scale`). It runs every
+# Sunday at 07:17 UTC, on demand, and when release.yml calls it, on the
+# self-hosted rh-1 runner once the repository variable RH1_PROVISIONED=true
+# is set; until then it fails with an "RH-1 not provisioned" annotation.
+# It takes at most 180 minutes, in the rh-1 concurrency group it shares
+# with nightly's Latency job and the release soak job, which never cancels
+# a running job, and first refuses any ref that is not protected and any
+# pull-request event. It uploads the ruralz.chaos.v1 records (90 days) and,
+# on failure, the harness's evidence: as chaos-records and chaos-evidence,
+# or under release.yml, whose run also holds nightly's Chaos job, as
+# chaos-scale-records and chaos-scale-evidence. A failed scheduled run
+# opens or updates a nightly-failure issue, which blocks the next release.
+name: chaos-scale
+
+on:
+  schedule:
+    - cron: "17 7 * * 0"
+  workflow_dispatch:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; chaos-scale always runs the whole target profile
+        type: boolean
+        default: false
+  workflow_call:
+    inputs:
+      all:
+        description: Accepted for symmetry with pr-fast and pr-full; chaos-scale always runs the whole target profile
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  chaos:
+    name: Chaos at target scale
+    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # One rh-1 job at a time; a running one is never cancelled.
+    concurrency:
+      group: rh-1
+      cancel-in-progress: false
+    timeout-minutes: 180
+    steps:
+      - name: Protected ref
+        # The self-hosted RH-1 runner runs only jobs of protected branches
+        # and tags (scheduled, dispatched, or called by release.yml), never
+        # pull-request code.
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then
+            echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
+            exit 1
+          fi
+      - name: RH-1 check
+        if: vars.RH1_PROVISIONED != 'true'
+        run: |
+          echo "::error title=RH-1 not provisioned::chaos-scale runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered (deploy/benchhost/README.md)."
+          exit 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: CE-3, CE-5, CE-12, CE-15 and GD-2 at target scale
+        # make chaos-scale writes the ruralz.chaos.v1 records and interval
+        # logs to dist/chaos (RURALZ_CHAOS_RECORDS), and a failed test
+        # leaves the harness's evidence under RURALZ_TEST_ARTIFACT_DIR.
+        env:
+          BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+        run: make chaos-scale
+      - name: Upload the chaos records
+        # A failed run's records are its evidence too.
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.workflow == 'chaos-scale' && 'chaos-records' || 'chaos-scale-records' }}
+          path: dist/chaos/
+          if-no-files-found: ignore
+          retention-days: 90
+      - name: Upload the failure evidence
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ github.workflow == 'chaos-scale' && 'chaos-evidence' || 'chaos-scale-evidence' }}
+          path: ${{ runner.temp }}/chaos-evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  issues:
+    name: Chaos-scale issues
+    needs: chaos
+    # Scheduled runs of this workflow only: under release.yml
+    # (workflow_call) the github context, and so github.workflow, is the
+    # caller's, and the release run reports its own failures.
+    if: failure() && github.workflow == 'chaos-scale' && github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+          title="nightly failure: Chaos at target scale"
+          body="$RUNNER_TEMP/body.md"
+          printf 'The weekly chaos-scale job "Chaos at target scale" failed in %s (commit %s). A chaos-scale failure blocks the next release.\n' "$RUN_URL" "$SHA" >"$body"
+          n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body-file "$body"
+          else
+            gh issue create --label nightly-failure --title "$title" --body-file "$body"
+          fi

@@ -1,0 +1,82 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  upstreams:
+    - name: orders
+  match:
+    path: {prefix: /orders}
+    when: >-
+      request.headers.exists(k, k == "x0") ||
+      request.headers.exists(k, k == "x1") ||
+      request.headers.exists(k, k == "x2") ||
+      request.headers.exists(k, k == "x3") ||
+      request.headers.exists(k, k == "x4") ||
+      request.headers.exists(k, k == "x5") ||
+      request.headers.exists(k, k == "x6") ||
+      request.headers.exists(k, k == "x7") ||
+      request.headers.exists(k, k == "x8") ||
+      request.headers.exists(k, k == "x9") ||
+      request.headers.exists(k, k == "x10") ||
+      request.headers.exists(k, k == "x11") ||
+      request.headers.exists(k, k == "x12") ||
+      request.headers.exists(k, k == "x13") ||
+      request.headers.exists(k, k == "x14") ||
+      request.headers.exists(k, k == "x15") ||
+      request.headers.exists(k, k == "x16") ||
+      request.headers.exists(k, k == "x17") ||
+      request.headers.exists(k, k == "x18") ||
+      request.headers.exists(k, k == "x19") ||
+      request.headers.exists(k, k == "x20") ||
+      request.headers.exists(k, k == "x21") ||
+      request.headers.exists(k, k == "x22") ||
+      request.headers.exists(k, k == "x23") ||
+      request.headers.exists(k, k == "x24") ||
+      request.headers.exists(k, k == "x25") ||
+      request.headers.exists(k, k == "x26") ||
+      request.headers.exists(k, k == "x27") ||
+      request.headers.exists(k, k == "x28") ||
+      request.headers.exists(k, k == "x29") ||
+      request.headers.exists(k, k == "x30") ||
+      request.headers.exists(k, k == "x31") ||
+      request.headers.exists(k, k == "x32") ||
+      request.headers.exists(k, k == "x33") ||
+      request.headers.exists(k, k == "x34") ||
+      request.headers.exists(k, k == "x35") ||
+      request.headers.exists(k, k == "x36") ||
+      request.headers.exists(k, k == "x37") ||
+      request.headers.exists(k, k == "x38") ||
+      request.headers.exists(k, k == "x39") ||
+      request.headers.exists(k, k == "x40") ||
+      request.headers.exists(k, k == "x41") ||
+      request.headers.exists(k, k == "x42") ||
+      request.headers.exists(k, k == "x43") ||
+      request.headers.exists(k, k == "x44") ||
+      request.headers.exists(k, k == "x45") ||
+      request.headers.exists(k, k == "x46") ||
+      request.headers.exists(k, k == "x47") ||
+      request.headers.exists(k, k == "x48") ||
+      request.headers.exists(k, k == "x49") ||
+      request.headers.exists(k, k == "x50") ||
+      request.path.contains("a") ||
+      request.path.contains("b")

@@ -1,23 +1,8 @@
----
-title: Release, Versioning and Compatibility
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-adrs: [ADR-0001, ADR-0002, ADR-0003, ADR-0005, ADR-0007, ADR-0015, ADR-0016, ADR-0017]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Release, Versioning and Compatibility
 
 ## Summary
 
-This document fixes how Ruralz is versioned, released and kept compatible: one Semantic Versioning scheme for every binary and the Helm chart; own identifiers and change rules for the Bundle apiVersion, Plugin ABI v1 and the Control Stream; N and N-1 skew between Ruralz Control, Ruralz Gateway and the CLI, with a finalize step for Raft upgrades; quarterly releases with support windows in months; security fixes by severity, public to everyone at once; and signed artifacts with SBOM and provenance. Nothing is implemented yet; all of it is Planned. Contributors, operators and plugin authors should read it.
+This document fixes how Ruralz is versioned, released and kept compatible: one Semantic Versioning scheme for every binary and the Helm chart; own identifiers and change rules for the Bundle apiVersion, Plugin ABI v1 and the Control Stream; N and N-1 skew between Ruralz Control, Ruralz Gateway and the CLI, with a finalize step for Raft upgrades; quarterly releases with support windows in months; security fixes by severity, public to everyone at once; and signed artifacts with SBOM and provenance. Contributors, operators and plugin authors should read it.
 
 ## Scope and non-goals
 
@@ -51,20 +36,20 @@ Patches never raise a level or change a digest, so they never matter for skew. S
 | Surface | Identifier | Compatibility rule | Owner |
 |---|---|---|---|
 | Bundle schema, CRDs | `ruralz/v1alpha1` to `ruralz/v1`; `ruralz.io/v1alpha1` | Lifecycle below; additions raise `x-ruralz-since` ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Configuration model](../architecture/02-configuration-model.md#version-skew) |
-| Revision serialization | `ruralz.canonical.v1` | Every release reproduces the golden corpus byte for byte at every schema level inside the skew window, except entries recording a change shipped as a new `ruralz/v1alpha1` schema level; any other serialization change needs a new format identifier | Configuration model |
+| Revision serialization | `ruralz.canonical.v1` | Every release reproduces the golden corpus byte for byte at every schema level inside the skew window, except entries recording a change shipped as a new `ruralz/v1alpha1` schema level, whose outputs are added beside the earlier levels'; a corpus file the newest release tag holds never changes ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)); any other serialization change needs a new format identifier | Configuration model |
 | Diff JSON | `ruralz.diff.v1` | Additive fields only | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | Plugin ABI | `ruralz.plugin.v1` | [Plugin ABI versioning](#plugin-abi-versioning) | [WASM plugin system](../architecture/05-wasm-plugin-system.md#contract) |
 | Control Stream | `ruralz.control.v1` | [Control Stream versioning](#control-stream-versioning) | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#control-stream) |
 | Control Store Raft state | Control Store version | [Ruralz Control upgrades](#ruralz-control-upgrades) | Control plane and GitOps |
 | Control Store content: Revision content, diffs, plans, sealed audit segments | Format marker per object | Immutable, never re-encoded; every release decodes every format still referenced or retained | Control plane and GitOps |
 | REST API | `/api/v1/` | Additive; a `/api/v2/` runs beside it for 4 minor releases (target) | Control plane and GitOps |
-| CLI | Pack 9 registry, flags, exit codes | Flags and added verbs are deprecated for 2 minor releases before removal (target); pack 9 commands need a pack amendment; exit codes never change | CLI and API surface |
+| CLI | Pack 9 registry, flags, exit codes | Flags and added verbs are deprecated for 2 minor releases before removal (target); pack 9 commands are fixed by the registry; exit codes never change | CLI and API surface |
 | Error codes, metrics | `RZ-<AREA>-<NNN>`, `ruralz_<component>_<name>_<unit>` | Codes never change meaning or get reused; a renamed metric keeps its old name for 2 minor releases (target) | Pack 8.6 registries; [Observability](../architecture/10-observability.md) |
 | Node handover and identity | `${RURALZ_DATA_DIR}` file lock, candidate, Unix-socket readiness message; under `${RURALZ_DATA_DIR}/identity/`, the persisted (`storeEpoch`, `assignmentSeq`) pair, last accepted `promotionSeq` and anchor-set `version` | Hand over from every supported line, and back within the [binary rollback limit](#binary-rollback-limit); format changes are additive or version-marked | [Data plane](../architecture/03-data-plane.md); [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas); Zero-downtime upgrades |
 
 ## apiVersion lifecycle and deprecation windows
 
-The first served version is `ruralz/v1alpha1`, Planned (M0) ([ADR-0003](../adr/0003-configuration-format.md)), first loaded by a released binary in `0.1.0`, Planned (M1); its schema `$id` and hosting are OQ-repository-layout-and-conventions-4.
+The first served version is `ruralz/v1alpha1`, Planned (M0) ([ADR-0003](../adr/0003-configuration-format.md)), first loaded by a released binary in `0.1.0`, Planned (M1); its schema `$id` will use a Revington-owned domain, because release asset URLs change per release, and is absent from `0.1.0`.
 
 | Stage | Promise (Configuration model) | Served after the successor ships | Planned |
 |---|---|---|---|
@@ -74,7 +59,7 @@ The first served version is `ruralz/v1alpha1`, Planned (M0) ([ADR-0003](../adr/0
 
 Inside `ruralz/v1alpha1`, a change announced in minor N with a deprecation warning (OQ-release-versioning-and-compatibility-7) takes effect no earlier than the later of minor N+2 and the next milestone's first release. Deprecated fields work until their apiVersion stops being served; an unserved version fails with RZ-CFG-007.
 
-This answers OQ-configuration-model-6 by combining its options in minors: `ruralz/v1beta1` ships in the first minor after the first CRD release, Planned (M2), and two consecutive minors without a breaking `ruralz/v1alpha1` change, targeting Planned (M3).
+`ruralz/v1beta1` ships in the first minor after both the first CRD release, Planned (M2), and two consecutive minors without a breaking `ruralz/v1alpha1` change, targeting Planned (M3).
 
 *Figure 1: Bundle apiVersion progression, served windows and conversion.*
 
@@ -94,14 +79,15 @@ flowchart LR
 
 ### Migration tooling
 
-- `ruralz bundle render --api-version` converts through the hub, Planned (M1), and drops comments (OQ-configuration-model-7).
+- `ruralz bundle render --api-version` converts through the hub, Planned (M1), and drops comments.
 - Conversion MUST yield the same Revision and an empty `ruralz bundle diff` ([Hub-and-spoke conversion](../architecture/02-configuration-model.md#hub-and-spoke-conversion)); round-trip property tests run from Planned (M1), golden-corpus conversion from Planned (M3).
 - `ruralz bundle validate` reports deprecated fields and apiVersions as RZ-CFG-025 with the removing release; release notes list every deprecation with its removal release.
+- The commit that deprecates a surface announces it in a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, one per surface; the release notes read these footers. `commitcheck deprecations` checks in stage 1 that the removing release is a minor or major release at least two minor releases after the one that ships the deprecation: the next minor after the newest `vX.Y.Z` tag reachable from the commit, or `0.1.0` before the first release. Two minor releases is the shortest window of this policy; a surface with a longer window, or one removed only in a major release, is held to it in review.
 - From `ruralz.io/v1beta1`, Planned (M3), CRDs serve every served version through Ruralz Control's conversion webhook, so non-storage versions depend on its availability; while only `ruralz.io/v1alpha1` is served, `conversion.strategy: None` needs none. Before dropping a version, Ruralz Control rewrites stored objects and prunes `status.storedVersions`, needing cluster-scoped RBAC on CRD status.
 
 ## Plugin ABI versioning
 
-Plugin ABI v1, `ruralz.plugin.v1` ([ADR-0005](../adr/0005-plugin-abi-v1.md)), freezes when the Plugin system ships, Planned (M2); preview Plugins need rebuilds. After it, a compiled Plugin runs on every release serving v1, whatever Go toolchain built `ruralzd`, because the contract is WASM imports, not Go linkage, so no Plugin needs an exact Go toolchain match.
+Plugin ABI v1, `ruralz.plugin.v1` ([ADR-0005](../adr/0005-plugin-abi-v1.md)), freezes when the Plugin system ships, Planned (M2); preview Plugins need rebuilds. After it, a compiled Plugin runs on every release serving v1, whatever Go toolchain built `ruralzd`, because the contract is WASM imports, not Go linkage.
 
 Only new Host Functions count as additions ([WASM plugin system](../architecture/05-wasm-plugin-system.md#contract)):
 
@@ -116,7 +102,7 @@ Only new Host Functions count as additions ([WASM plugin system](../architecture
 2. A Node at level L, implied by its product version, accepts v1 Plugins at L or below. Once Ruralz Control learns Node versions (OQ-release-versioning-and-compatibility-4), it refuses a Rollout whose Plugins exceed the oldest target Node's level. Until then an older Node NACKs with RZ-CFG-028, which Ruralz Control cannot reproduce, so it quarantines the Node as transient; operators MUST NOT roll out a Plugin needing a level some Node of the Cluster lacks.
 3. The proposed OCI media types `application/vnd.ruralz.plugin.v1` and `application/vnd.ruralz.plugin.config.v1+json` evolve additively.
 
-Rules 1 and 2 propose option (c) for OQ-wasm-plugin-system-13, levels implied by reported product versions, and a missing-import NACK that pauses the Rollout instead of quarantining, since retries never succeed; control-plane-and-gitops decides at conformance.
+Rules 1 and 2 propose option (c) for OQ-wasm-plugin-system-13, levels implied by reported product versions, and a missing-import NACK that pauses the Rollout instead of quarantining, since retries never succeed.
 
 A major creates the import namespace `ruralz.plugin.v2` and a new `abi` value; Nodes serve v1 and v2 for 4 minor releases, about 12 months (target), and `ruralz bundle validate` warns on v1 Plugins. The proxy-wasm compatibility adapter, Planned (M4), is identified per OQ-wasm-plugin-system-8.
 
@@ -131,7 +117,7 @@ The Control Stream is the gRPC package `ruralz.control.v1`, service `ControlStre
 | Removed field, either direction | Only as `reserved`, after at least 2 minor releases (target) in which no in-policy version reads or requires it, while the sender keeps populating it | No |
 | Renumbering, re-typing or changing a field's meaning; ACK meaning, digest encoding, dial direction | Never | Yes |
 
-Ruralz Control upgrades first and MUST NOT depend on an older Node understanding additions. Only `EnrollRequest` carries a binary `version` (`Hello` carries the anchor set's), which goes stale after an upgrade or rollback (OQ-release-versioning-and-compatibility-4, recommending a `binaryVersion` field in `Hello`). Until then Ruralz Control sends a new `oneof` member or enum value only to Nodes whose version it learned on the current stream, and treats others as the first `ruralz.control.v1` release, Planned (M2).
+Ruralz Control upgrades first and MUST NOT depend on an older Node understanding additions. Only `EnrollRequest` carries a binary `version` (`Hello` carries the anchor set's), which goes stale after an upgrade or rollback (OQ-release-versioning-and-compatibility-4). Until then Ruralz Control sends a new `oneof` member or enum value only to Nodes whose version it learned on the current stream, and treats others as the first `ruralz.control.v1` release, Planned (M2).
 
 A `ruralz.control.v2` uses distinct gRPC paths, so 8091 serves both for 4 minor releases, about 12 months (target); Nodes fall back on `Unimplemented`.
 
@@ -143,10 +129,10 @@ Here N is the newest Ruralz Control binary minor; the Control Store version stay
 |---|---|---|---|
 | Ruralz Control and Ruralz Gateway Nodes | N-1; N once the Control Store version is N | N-2 or older; newer than the Control Store version | Every enrolled Node's stream is accepted, so in-policy skew costs no active Revision (P9) within the [binary rollback limit](#binary-rollback-limit); flagging: OQ-release-versioning-and-compatibility-4 |
 | Ruralz Control replicas, voters and non-voters | N-1 and N while the Control Store version is N-1 | N-2; N-1 after finalize; more than one minor above the Control Store version, or one above it before every replica reported its post-finalize snapshot | The binary halts, or its status report is rejected and it stops (rule 4 of [Ruralz Control upgrades](#ruralz-control-upgrades)) |
-| Regional Ruralz Control relay, Planned (M4) | N-1 and N while the Control Store version is N-1; N after finalize; upgrades after every replica reports N and before finalize | N-2; N-1 after finalize; newer than the replicas | Reports its binary version like a replica and counts toward finalize (rules 1 and 3); same halt rule. Form: the read-only relay that [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#relay-feed) decided for OQ-system-overview-16 |
+| Regional Ruralz Control relay, Planned (M4) | N-1 and N while the Control Store version is N-1; N after finalize; upgrades after every replica reports N and before finalize | N-2; N-1 after finalize; newer than the replicas | Reports its binary version like a replica and counts toward finalize (rules 1 and 3); same halt rule. Form: the read-only relay of [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#relay-feed) (OQ-system-overview-16) |
 | `ruralz` CLI and REST API | CLI at N or N-1 | N-2; newer than Ruralz Control | Unknown Bundle field: RZ-CFG-006; other unknown request fields: an `RZ-CP` code |
 | `ruralz bundle push` to Ruralz Control | CLI at the Control Store version; one minor older only if N added no schema level | Other versions | Re-render mismatch: RZ-CFG-027 |
-| CLI and Nodes (`ruralz dev tap`, `ruralz node dump`, file-mode Revisions) | Oldest Node's minor or one newer | Two or more newer | File-mode Node: RZ-CFG-024 |
+| CLI and Nodes (`ruralz dev tap`, `ruralz node dump`, file-mode Revisions) | Oldest Node's minor or one newer | Two or more newer | File-mode Node: RZ-CFG-024; admin calls: the CLI warns on standard error from the Node's `ruralz-version` response header ([Admin API conventions](../reference/01-cli-and-api-surface.md#admin-api-conventions)) |
 | Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version | Rollouts with fields newer than the oldest Node are refused (RZ-CFG-024) |
 | `ruralzd` upgrade handover | From any supported line; back within the binary rollback limit | Unsupported lines | An unknown format marker refuses the handover; the old process keeps serving |
 | Plugin and Node | ABI level at or below the Node's | Above it | RZ-CFG-028, or earlier refusal (rule 2 of [Plugin ABI versioning](#plugin-abi-versioning)) |
@@ -186,7 +172,7 @@ Once a Revision uses a field above N-1's levels, a Node restarted on N-1 (a Kube
 
 ### Upgrade order
 
-Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first. Skipping a minor is refused: upgrade through each minor in turn. Once every replica reports N, relays move to N one at a time, before finalize, and their Nodes stay on N-1 until after it. After finalize, Nodes move from N-1 to N by handover or, on Kubernetes, Drain and restart ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md), [ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
+Ruralz Control moves one minor at a time (rules 3 and 4), replicas one at a time, leadership moved off each first. Skipping a minor is refused. Once every replica reports N, relays move to N one at a time, before finalize, and their Nodes stay on N-1 until after it. After finalize, Nodes move from N-1 to N by handover or, on Kubernetes, Drain and restart ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md), [ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Pushes pause from the backup, the one rule 5 restores, until finalize, then resume from a CI CLI at N. A chart that deploys Nodes takes two upgrades, Ruralz Control first.
 
 *Figure 2: upgrading one deployment from N-1 to N without leaving the skew window.*
 
@@ -252,11 +238,9 @@ PDK package names are [WASM plugin system](../architecture/05-wasm-plugin-system
 
 One cadence and support policy covers every artifact, Planned (M1) from `0.1.0`. No payment buys another line, a longer window or an earlier patch; commercial support buys help only, and the FIPS build gets the same windows (P1).
 
-- A minor ships every 3 months (target), after a signed release candidate `vX.Y.0-rc.N` at least 2 weeks earlier (target); patches ship as needed, at least monthly while a line has unreleased fixes (target).
+- A minor ships every 3 months (target), after a signed release candidate `vX.Y.0-rc.N` at least 2 weeks earlier (target); patches ship as needed, at least monthly while a line has unreleased fixes (target). `internal/tool/releasegate` refuses `vX.Y.0` unless a `vX.Y.0-rc.N` tag names the same commit, its release run passed and it was published at least 14 days earlier (target), the "Release candidate" gate, which a maintainer may skip ([Release gates](03-testing-and-quality-strategy.md#release-gates)); a patch needs no candidate.
 - Release builds pin the newest Go patch through the `toolchain` directive ([ADR-0001](../adr/0001-implementation-language-go.md)); a Go security release reachable per `govulncheck` triggers patches per its severity row, otherwise it rides the next patch.
-- Fixes land on the main branch, then are cherry-picked to `release-X.Y` branches; embargoed security fixes instead merge to every named branch at disclosure.
-
-In this table N is the newest released minor.
+- Fixes land on `main`, then are cherry-picked by pull request to `release-X.Y` branches, which the `main` ruleset also protects ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)); embargoed security fixes instead merge to every named branch at disclosure. `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed, and later candidates, `vX.Y.0` and its patches are tagged on it.
 
 | Line | Receives | Duration from its release |
 |---|---|---|
@@ -312,27 +296,104 @@ Reachable `govulncheck` findings in linked modules or the Go toolchain follow th
 
 ## Release artifacts
 
-One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED=0` builds on the pinned toolchain; a CI job checks that rebuilding a tag reproduces identical binaries (target).
+Stage 12 builds, signs and publishes every artifact of a tag on the pinned toolchain. `release-verify.yml` rebuilds the tag on a second runner, `ubuntu-24.04-arm`, with `make release-dry-run` and the release run's benchmark records and skipped-gates file, and the release fails unless every archive, schema file and `release-manifest.json` matches `SHA256SUMS` and the rebuilt image matches the pushed digest ([Release pipeline](#release-pipeline)).
 
 | Artifact | Name and location | Platforms | Planned |
 |---|---|---|---|
-| Binaries | `ruralzd_<version>_<os>_<arch>.tar.gz`, likewise `ruralz-control` and `ruralz` (`.zip` on Windows), on the release page | Servers: linux/amd64, linux/arm64, darwin for development; `ruralz`: linux, darwin, windows/amd64 | Planned (M1); `ruralz-control` Planned (M2) |
-| Checksums | `SHA256SUMS` for every archive | All | Planned (M1) |
-| Container images | `ghcr.io/ravindu-rev/ruralzd`, `ghcr.io/ravindu-rev/ruralz-control`; tags `X.Y.Z`, never re-pushed (policy), and `X.Y`, no `latest`; deployments SHOULD pin by digest | linux/amd64, linux/arm64 | Planned (M1); `ruralz-control` Planned (M2) |
+| Binaries | `ruralzd_<version>_<os>_<arch>.tar.gz`, likewise `ruralz-control` and `ruralz` (`.zip` on Windows), each with the binary, `LICENSE`, `NOTICE`, `README.md` and its own `THIRD_PARTY_LICENSES`; linux `ruralzd` archives add `deploy/systemd/` | Servers: linux/amd64, linux/arm64, darwin for development; `ruralz`: linux, darwin, windows/amd64 | Planned (M1); `ruralz-control` Planned (M2) |
+| Checksums | `SHA256SUMS`, `sha256sum` format, for every other file of the release directory: the archives and their SBOMs, the image SBOM, the schema files, `release-manifest.json`, `NOTES.md` and the benchmark records archive, so its one signature covers every asset | All | Planned (M1) |
+| Release manifest | `release-manifest.json` (format `ruralz.release.v1`): every archive's platform, support level, digest and members, the schema files, the image plan with the image digests, and the benchmark records archive ([Packaging and audit](#packaging-and-audit)) | All | Planned (M1) |
+| Container images | `ghcr.io/ravindu-rev/ruralzd`, `ghcr.io/ravindu-rev/ruralz-control`, built from the released binaries on an empty base with a CA bundle ([Static builds](01-tech-stack-and-libraries.md#static-builds)), pushed untagged by digest at build and tagged only by the publish job once every check passed; tags `X.Y.Z`, never re-pushed, `X.Y` and `X.Y.Z-rc.N`, no `latest`; deployments SHOULD pin by digest | linux/amd64, linux/arm64 | Planned (M1); `ruralz-control` Planned (M2) |
 | FIPS build | `-fips` images and archives with the same feature set except HTTP/3, off per OQ-tech-stack-and-libraries-9 (pack 8.4) | linux/amd64, linux/arm64 | Planned (M5) |
 | Helm chart | `oci://ghcr.io/ravindu-rev/charts/ruralz` at the product version; `ruralz-crds.yaml`, applied in the order below | Kubernetes | Planned (M2) |
-| SBOM | CycloneDX per archive and image, as an attestation | All | Planned (M1) |
-| Signatures | Sigstore bundles for images, chart and `SHA256SUMS` | All | Planned (M1) |
+| SBOM | CycloneDX 1.7 per archive (`<archive>.cdx.json`) and for the image (`ruralzd_<version>_image.cdx.json`), each also an attestation; no SPDX in `0.1.0` | All | Planned (M1) |
+| Signatures | Sigstore bundles: `SHA256SUMS.sigstore.json`, image signatures as OCI referrers; the chart from M2. Sigstore only: no Apple notarization or Authenticode, and the release notes explain that a `curl` download is not quarantined and how to clear the macOS quarantine flag of a browser download | All | Planned (M1) |
 | Provenance | SLSA Build Level 3 attestation per archive and image | All | Planned (M1) |
-| JSON Schema, OpenAPI | Schema files per apiVersion and view; `/api/v1/` OpenAPI | All | Planned (M1); OpenAPI Planned (M2) |
-| Release notes | Features, fixes, deprecations, upgrade notes, schema, ABI and Control Stream additions | All | Planned (M1) |
+| JSON Schema, OpenAPI | `ruralz-v1alpha1-authoring.schema.json` and `ruralz-v1alpha1-rendered.schema.json`, byte copies of `api/schema/`; `/api/v1/` OpenAPI | All | Planned (M1); OpenAPI Planned (M2) |
+| Release notes | Features, fixes, deprecations, upgrade notes, schema, ABI and Control Stream additions, budget results, verification steps, skipped gates and who skipped them | All | Planned (M1) |
+| Benchmark records | `ruralz_<version>_bench.tar.gz`: the `ruralz.bench.v1` records, raw histograms and CPU profiles of the release's Latency and soak jobs, also committed to the `bench-records` branch ([Publication](../architecture/12-performance-budgets-and-benchmarking.md#publication)) | RH-1 | Planned (M1) |
 
-- Signing is keyless Sigstore, bound to the release workflow's OIDC identity and logged in Rekor v2, generally available since 2025-10-10 ([source](https://blog.sigstore.dev/rekor-v2-ga/)). Verification instructions using cosign MUST require 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98) ([source](https://github.com/sigstore/cosign/releases)); the tool is OQ-release-versioning-and-compatibility-3.
-- SBOMs use CycloneDX 1.7, standardized as ECMA-424 2nd edition ([source](https://cyclonedx.org/news/cyclonedx-v1.7-released/)) ([source](https://ecma-international.org/publications-and-standards/standards/ecma-424/)); SPDX 3.0.1 ([source](https://spdx.github.io/spdx-spec/latest/)) is an option in the same question.
-- SLSA Build L3 needs a hardened, isolating platform protecting signing material ([source](https://slsa.dev/spec/v1.1/levels)); v1.2 is backward compatible ([source](https://slsa.dev/blog/2025/11/announce-slsa-v1.2)) ([source](https://slsa.dev/spec/v1.2/whats-new)). GitHub artifact attestations reach L3 with reusable workflows ([source](https://docs.github.com/en/actions/concepts/security/artifact-attestations)).
+- Signing is keyless Sigstore, bound to the release workflow's OIDC identity and logged in Rekor v2, generally available since 2025-10-10 ([source](https://blog.sigstore.dev/rekor-v2-ga/)). Verification instructions using cosign MUST require 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98) ([source](https://github.com/sigstore/cosign/releases)).
+- SBOMs use CycloneDX 1.7, standardized as ECMA-424 2nd edition ([source](https://cyclonedx.org/news/cyclonedx-v1.7-released/)) ([source](https://ecma-international.org/publications-and-standards/standards/ecma-424/)); SPDX 3.0.1 ([source](https://spdx.github.io/spdx-spec/latest/)) may join later.
+- SLSA Build L3 needs a hardened platform protecting signing material ([source](https://slsa.dev/spec/v1.1/levels)); GitHub artifact attestations reach it with reusable workflows ([source](https://docs.github.com/en/actions/concepts/security/artifact-attestations)).
 - SM-12 targets an OpenSSF Scorecard of 8.0 or higher, including Signed-Releases, from Planned (M2) (hypothesis) ([source](https://github.com/ossf/scorecard)).
-- Release signing is separate from Revision and Plugin signing (pack 8.14).
-- `ruralz-crds.yaml` that changes only the schemas of already served versions applies before the chart. One that adds a served version, such as `ruralz.io/v1beta1` when `ruralz/v1beta1` ships, Planned (M3), applies only once every Ruralz Control replica runs N, because an N-1 conversion webhook cannot convert to it and the API server would fail every request in that version; Figure 2 places it after finalize, so a rolling rollback before finalize never meets it. A version becomes the storage version no earlier than the minor after it is first served, so a restore to N-1 (rule 6 of [Ruralz Control upgrades](#ruralz-control-upgrades)) never meets a stored version N-1 cannot convert, and re-applying N-1's manifest can drop the new version. Removals keep the rewrite-and-prune rule of [Migration tooling](#migration-tooling). Zero-downtime upgrades and hot reload owns the procedure.
+- No image scanner runs in `0.1.0`; `govulncheck` covers the binaries ([Security scanning](03-testing-and-quality-strategy.md#security-scanning)).
+- A `ruralz-crds.yaml` that changes only the schemas of served versions applies before the chart; one that adds a served version, such as `ruralz.io/v1beta1`, Planned (M3), applies after finalize (Figure 2), since an N-1 conversion webhook cannot convert to it. Storage versions follow the skew table, so a restore to N-1 (rule 6 of [Ruralz Control upgrades](#ruralz-control-upgrades)) never meets one N-1 cannot convert.
+
+### Packaging and audit
+
+`make release-dry-run` runs the stage 12 tooling, Planned (M1), without signing; `make release` adds the signatures. Both run steps 1 and 2 (the binaries with stage 4's flags, the notices and the image) and then steps 3 to 5, or one of these halves with `RELEASE_PART=image` or `RELEASE_PART=package`, which the image and package jobs of `release-build.yml` run:
+
+1. `internal/tool/depgate -notices dist/notices` runs the stage 6 gates, then writes each artifact's `NOTICE` and `THIRD_PARTY_LICENSES` into `dist/notices/<binary>_<os>_<arch>/` ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)).
+2. When Docker is present, `docker buildx` builds the `ruralzd` image for linux/amd64 and linux/arm64 with `SOURCE_DATE_EPOCH` set to the commit time, timestamps rewritten, and BuildKit's own provenance and SBOM off, into the OCI layout `dist/image/`; `releasekit image` checks that the layout holds one image index of one image manifest per platform, each blob matching its digest. `make release` also pushes the same build untagged by digest, checks that the digest buildx recorded and the registry holds is the layout's index digest, so the audited image is the published one, and signs that digest with cosign. The layout records the index digest and each platform's manifest digest. Without Docker the dry run prints a skip line and records no image, which `package` refuses for a release or candidate.
+3. `internal/tool/releasekit package` writes into `dist/release/` one archive per artifact, the schema files, `release-manifest.json` with the image digests, and `ruralz_<version>_bench.tar.gz` holding the benchmark records.
+4. Syft writes each archive's SBOM and scans each platform image of the layout; `releasekit sbom` merges those scans into the image SBOM `ruralzd_<version>_image.cdx.json`, one CycloneDX 1.7 document whose subject is the image index and whose components are each platform image, holding that image's packages, after checking that each scan's subject is that platform's manifest digest. `releasekit notes` then writes `NOTES.md`, and `releasekit checksums` writes `SHA256SUMS` over every other file of the directory.
+5. `releasekit verify` audits the directory and the image, and `sha256sum -c` checks `SHA256SUMS`; `make release` then signs `SHA256SUMS` with cosign, as step 2 signed the image digest, and audits again.
+
+| Item | Rule |
+|---|---|
+| Archive members | Flat: the binary (`ruralz.exe` on Windows), `LICENSE` and `README.md` from the repository, `NOTICE` and `THIRD_PARTY_LICENSES` from `dist/notices/`; linux `ruralzd` archives add `deploy/`, `deploy/systemd/` and the files of the [T5 table](../operations/01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites): `ruralzd.service`, `ruralzd-handover`, `ruralzd.sysusers`, `ruralzd.env` and `99-ruralzd.conf`, which are exactly the repository's `deploy/systemd/` |
+| Determinism | Members sorted by path bytes, each dated the commit's committer time, owner and group 0 without names, USTAR headers; gzip and Deflate at the default level, a gzip header without name or time; mode 0755 for the binary, directories and files starting with `#!`, 0644 otherwise |
+| Binary admission | `package` and the audit refuse a binary whose Go build information shows another main package or platform, a toolchain other than the `go.mod` `toolchain` line, a `GOEXPERIMENT`, cgo, no `-trimpath`, build tags, a symbol table or DWARF (no `-s -w`), or another commit; a release or candidate also needs a clean checkout whose module version is its tag ([source](https://go.dev/doc/go1.24)). With `-trimpath` the go command records no `-ldflags` ([source](https://github.com/golang/go/blob/release-branch.go1.27/src/cmd/go/internal/load/pkg.go)), so the `-X` metadata is checked through the commit and module version that Go stamps from Git |
+| `THIRD_PARTY_LICENSES` | The Go standard library and runtime, then each linked module by path, each with its license, its source address (the module proxy's zip, kept for every published version) and its license and patent texts. A linked package in a directory with its own license text is governed by that text, which G2 checks and the file reproduces. MPL-2.0 modules are stated as used unmodified, with that address as their Source Code Form |
+| `NOTICE` | The repository `NOTICE`, then the `NOTICE` texts of the linked modules (Apache-2.0 section 4(d)) and the license elections, such as EDL-1.0 for paho.golang |
+| `release-manifest.json` | Format `ruralz.release.v1`, published with the release and listed in `SHA256SUMS`: version, commit, commit time, toolchain; every archive with its platform, support level (production or development), size, SHA-256, SBOM name and members; the schema files with their sources; the image plan with the index digest, each platform's manifest digest and the image SBOM's name; the benchmark records archive with its size, SHA-256 and record count; the names of `SHA256SUMS`, `SHA256SUMS.sigstore.json` and `NOTES.md` |
+| Audit | Each archive's size and digest; members, modes, times and owners as packaged; `LICENSE`, `README.md` and the `deploy/systemd/` files equal to the repository's; `NOTICE` starting with the repository `NOTICE`; a `THIRD_PARTY_LICENSES` section and an SBOM component, with the module's `pkg:golang` package URL and version, for every module the binary's build information lists; the binary admission rules; byte-identical schema files; `SHA256SUMS` covering every other file of the directory, its manifest line included; the notes title; the image plan and the image digests; the image SBOM's subject, the image index, and its one component per platform image, each naming every module that platform's `ruralzd` links; the benchmark records archive laid out as the archives are, holding exactly the records the manifest counts and the histograms and profiles they name; per platform, the image's exported filesystem: `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES` as built, `/usr/local/bin/ruralzd` byte-equal to that linux archive's binary, the CA bundle, `/var/lib/ruralz` at mode 0700 owned by 65532, `USER 65532:65532`, ports 8080, 8443 and 9901, the OCI labels and no other file; a Sigstore bundle when present; no other file. It reads at most 1 GiB of content per archive |
+
+Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd`, at the repository root once `make build` left `dist/linux_<arch>/ruralzd` and step 1 `dist/notices/`; `Dockerfile.dockerignore` admits only those and `LICENSE`, and nothing runs on the target platform, so a multi-platform build needs no emulation. Every file of the image is newer than the commit, the CA bundle copied anew rather than kept with the base image's time, which differs between its platform variants, so the rewritten timestamps make a rebuild of the commit on either build platform give the same image digest. On `scratch` it holds `/usr/local/bin/ruralzd`, the CA bundle `/etc/ssl/certs/ca-certificates.crt` from the digest-pinned `golang:1.27.1-bookworm` stage, an owner-only `/var/lib/ruralz`, and `LICENSE`, `NOTICE` and `THIRD_PARTY_LICENSES` under `/usr/share/doc/ruralzd/`; its `THIRD_PARTY_LICENSES` appends the CA bundle's Debian copyright and MPL-2.0 source address. It runs as user and group 65532 and exposes 8080, 8443 and 9901. It needs nothing beyond a read-only root filesystem, no capabilities and no new privileges, with its data directory on a volume, and a container stop grace period above the 30 s Drain exit bound (target): the [Compose suite](03-testing-and-quality-strategy.md#compose-suite) runs it so, with 40 s. `make image-checks` runs that suite on `IMAGE=<ref>@<digest>`, or builds the image for the runner's platform with `docker buildx build --load` from the same Dockerfile and `dist/` inputs and runs it on that. The manifest's image plan carries the tags: `X.Y.Z` and `X.Y` for a release, `X.Y.Z-rc.N` for a candidate, none for any other build.
+
+`releasekit notes` reads the Conventional Commits titles after the previous `vX.Y.Z` tag, never a candidate's, or from the root for the first release. The notes list the artifacts with their support level and image tags; features (`feat`), fixes (`fix`), performance (`perf`) and dependency updates (`build(deps)`); deprecations from the `Deprecated:` footers ([Migration tooling](#migration-tooling)), each naming the surface and its removal release; upgrade notes from breaking titles and `BREAKING CHANGE:` footers; per apiVersion the authoring schema's changes (kinds, definitions, properties, enum values, defaults, schema levels, required members) and whether `ruralz.plugin.v1` and `ruralz.control.v1` are served or changed; the budget results of the `ruralz.bench.v1` records, marking records of another commit; verification steps with cosign and the GitHub CLI against the signer identity, `release-build.yml` at the release tag: `cosign verify-blob` and `cosign verify` with `--certificate-identity` and `--certificate-oidc-issuer`, each also as its cosign 2.x variant with `--new-bundle-format`, which 2.x needs to read the bundles cosign 3 writes, and `gh attestation verify` with `--signer-workflow ravindu-rev/ruralz/.github/workflows/release-build.yml`, for provenance and with `--predicate-type https://cyclonedx.org/bom` for the SBOM; how to clear the macOS quarantine flag of a browser download, which a `curl` download never carries; and the gates a maintainer skipped, from the `ruralz.skippedgates.v1` file that `internal/tool/releasegate` writes from the tag's tracking issue (the `SKIPPED_GATES` input of `make release-dry-run`): per skipped gate, the gate's row of the [release gates](03-testing-and-quality-strategy.md#release-gates), the maintainer's GitHub login, role (admin or maintain) and reason.
+
+### Release pipeline
+
+`release.yml`, Planned (M1), runs on every `v*` tag. Its first job checks through the GitHub API that the tag is `vX.Y.Z` or `vX.Y.Z-rc.N` and an annotated tag whose signature GitHub verified against a maintainer's registered SSH or GPG signing key; any other tag stops the run. Only the publish job runs in the GitHub Environment `release`, which admits `v*` tags only and requires the owner's approval, so one approval follows every check; the build, attest and image jobs hold only their OIDC permissions ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)). The workflow signs with cosign, generates SBOMs with Syft ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)) and attests provenance with GitHub artifact attestations.
+
+1. **Re-run.** `pr-fast`, `pr-full`, `main` (with secret leak assertions), `nightly`, `t5-systemd.yml` and `chaos-scale.yml` run on the tagged commit, path filters off.
+   - `nightly` runs with its `rotation-all` input, so its one Latency job on `rh-1` runs S1, S2, the component benchmarks and every M1 slot against the previous release's signed linux/amd64 archive, with absolute budgets only for `0.1.0`.
+   - A separate soak job (`make soak`) on `rh-1` follows through the `rh-1` concurrency group.
+   - Both upload their `ruralz.bench.v1` records ([Suite layers](../architecture/12-performance-budgets-and-benchmarking.md#suite-layers)), which `nightly`'s records job and the release's soak records job commit to the `bench-records` branch.
+   - A job before the re-run downloads the previous release's linux/amd64 `ruralzd` archive and verifies it against that release's signed `SHA256SUMS`; `nightly`'s Latency job receives the binary and version as its comparison baseline.
+2. **Gates.**
+   - `internal/tool/releasegate` decides the [release gates](03-testing-and-quality-strategy.md#release-gates) from the re-run's job results, the `nightly-failure` and `fuzz-crasher` issues and the benchmark records, and applies the skips recorded on the tag's tracking issue. It writes the `ruralz.skippedgates.v1` file of the gates a maintainer skipped, with who skipped each, for the release notes ([Packaging and audit](#packaging-and-audit)).
+   - The ADR-0002 release audit's source checks rerun the no-license-check scan and depgate G2 and G3 per binary and platform.
+   - `commitcheck dco` and `commitcheck deprecations` run over the commits since the previous `vX.Y.Z` tag, with Dependabot's commits exempt from the sign-off check. For `0.1.0`, which has no previous tag, they run over the commits after `fc3a100`, the newest commit without a sign-off.
+3. **Build.** The reusable `release-build.yml` builds with stage 4's flags, `-s -w` included, so the stage 9 size gate measures the shipped binary.
+   - Its image job builds the image and pushes it untagged by digest.
+   - Its package job then writes the deterministic archives (sorted entries, commit-time timestamps), the schema files, `release-manifest.json` with the image digests, and the benchmark records archive from step 1's records. It also generates every SBOM, the image's included, writes `NOTES.md` and `SHA256SUMS`, and signs `SHA256SUMS`.
+   - The image job signs the image digest with cosign, and the attest jobs attest provenance and SBOMs for every archive and for the image, pushing the image's attestations to the registry as OCI referrers.
+   - The image and package jobs hold `id-token: write` for keyless signing, the image job adding `packages: write`; the attest jobs hold `id-token: write` and `attestations: write`, the image's attest job adding `packages: write` to push its attestations.
+4. **Verify.**
+   - `releasekit verify` audits every archive and, per platform, the image ([Packaging and audit](#packaging-and-audit)).
+   - `image-checks.yml` runs the Compose suite and the air-gapped start on the image digest, on linux/amd64 and linux/arm64, with the CLI from the release's linux `ruralz` archives in the run's artifact that `release.yml` names beside the digest ([Compose suite](03-testing-and-quality-strategy.md#compose-suite)).
+   - `release-verify.yml` checks every signature, checksum and attestation (SM-12), and rebuilds the tag ([Release artifacts](#release-artifacts)). It runs on a runner that holds only the downloaded assets, the release run's artifacts before publish, and cosign, and executes the exact verification commands `NOTES.md` prints, cosign 3.x's: the blocks passing `--new-bundle-format` are the 2.x variants. The rebuild compares every archive, schema file and `release-manifest.json` with the release's `SHA256SUMS` and the rebuilt layout's index digest with the pushed one.
+   - `release-verify.yml` also runs on demand for any tag and weekly for the newest release of each supported line; a failed scheduled run opens or updates a `nightly-failure` issue.
+5. **Publish.**
+   - The owner approves the publish job in the `release` Environment. It creates the GitHub Release as a draft, uploads every file of the release directory, checks the uploaded digests against `SHA256SUMS`, and publishes.
+   - A candidate publishes as a pre-release, and a release as a full release marked latest only when it is the highest `X.Y.Z`, so an older line's patch never becomes latest; the body is `NOTES.md`.
+   - The publish job also holds `packages: write`: it checks that the image tag is absent, then tags the verified digest `X.Y.Z` and `X.Y`, or `X.Y.Z-rc.N`, so a failed run uses up no version.
+   - After publishing, the quickstart's download path runs on its four stage 10 platforms with `RURALZ_QUICKSTART_VERSION` set to the release ([Quickstart](../operations/01-deployment-topologies.md#quickstart)); a failure opens or updates a `nightly-failure` issue.
+   - Besides the jobs that commit benchmark records to the `bench-records` branch, `nightly`'s records job and the release's soak records job ([Publication](../architecture/12-performance-budgets-and-benchmarking.md#publication)), only the publish job holds `contents: write`.
+
+### Release runbook
+
+A maintainer cuts a release in this order:
+
+1. **Preconditions.**
+   - A milestone's other exit criteria hold before its release's first candidate: `v0.1.0-rc.1` is tagged only once M1 exit criteria 2 to 7 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
+   - The `go.mod` `toolchain` line names the newest Go patch ([Release cadence and support windows](#release-cadence-and-support-windows)).
+   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `v0.1.0-rc.1`:
+     - `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest), a Quickstart section (`examples/quickstart/quickstart.sh`) and a status section;
+     - `SECURITY.md`'s supported versions name `0.1` as line N.
+2. **Branches.**
+   - Before `v0.1.0-rc.1` only: `develop`, where the M1 work landed, merges into `main` once with a merge commit, under a one-time exception to the `main` ruleset, so the `0.1.0` notes list every M1 commit. `develop` is then deleted, and pull requests and Dependabot target `main`.
+   - `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed.
+3. **Tag.** `git tag -s` creates a signed annotated `vX.Y.0-rc.N` on `release-X.Y`; only admins may create `v*` tags ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
+4. **Run.** `release.yml` runs the [pipeline](#release-pipeline). On a failed gate, the tag's tracking issue lists the failures. A maintainer either fixes them in a new candidate, or skips a gate there with a reason and re-runs the gates job ([Release gates](03-testing-and-quality-strategy.md#release-gates)).
+5. **Approve.** The owner reads the run summary and `NOTES.md`, then approves the publish job in the `release` Environment.
+6. **Window.** A candidate stays published at least 14 days (target) before `vX.Y.0` is tagged on its commit; a fix means a new candidate and a new window.
+7. **Release.** `vX.Y.0` is tagged the same way on the last candidate's commit, and the pipeline runs again in full. A patch `vX.Y.Z` is tagged on `release-X.Y` after its cherry-picks, without a candidate.
+8. **Manual settings.** After the first candidate's image push, the maintainer applies the steps `scripts/repo-settings.sh` prints because no API covers them: the `ghcr.io/ravindu-rev/ruralzd` package made public and linked to the repository. `scripts/repo-settings.sh --check` then reports no drift.
+9. **Milestone exit.** Once the release that exits a milestone ships, one pass removes that milestone's `Planned (Mx)` tags from the documents: a shipped capability carries no tag, and its design text states it. The [Feature Catalog](../features/01-feature-catalog.md#how-to-read-this-catalog) records the release that shipped each capability ([style guide](../_meta/style-guide.md) section 4). The roadmap deletes the milestone's section and fills the steps table for the next milestone.
 
 ## Open questions
 
@@ -340,16 +401,13 @@ One tagged workflow builds, signs and publishes every artifact from `CGO_ENABLED
 |---|---|---|---|---|
 | OQ-release-versioning-and-compatibility-1 | When do `ruralz/v1` and `1.0.0` ship? | (a) First release meeting the criteria; (b) At Planned (M5); (c) After M5 | release-versioning-and-compatibility | No |
 | OQ-release-versioning-and-compatibility-2 | Should a long-term line exist after `1.0.0`? | (a) No (current); (b) One free yearly line with 24 months of security fixes; (c) Longer windows for all | release-versioning-and-compatibility | No |
-| OQ-release-versioning-and-compatibility-3 | Which tools sign artifacts and generate SBOMs; does SPDX ship too? | (a) cosign plus an SBOM generator after research; (b) A `sigstore-go` tool; (c) GitHub attestations only | tech-stack-and-libraries | Yes, for Planned (M1) artifacts |
 | OQ-release-versioning-and-compatibility-4 | How does Ruralz Control learn a Node's binary version after an upgrade or rollback? | (a) A `binaryVersion` field in `Hello` (recommended); (b) In `Heartbeat`; (c) From `schemaLevels` | control-plane-and-gitops | Yes, for Planned (M2) skew checks |
 | OQ-release-versioning-and-compatibility-5 | May redistributors get advance notice of a fix? | (a) No (current); (b) Up to 5 days, free, never binaries | security-and-identity | No |
 | OQ-release-versioning-and-compatibility-6 | Should `ruralz version` print schema, ABI and Control Stream levels? | (a) Yes, with `--output json`; (b) A separate verb | cli-and-api-surface | No |
 | OQ-release-versioning-and-compatibility-7 | How are announced default changes and deprecated field values, such as an old `abi`, reported? | (a) Widen RZ-CFG-025; (b) A new warning code (recommended, since codes never change meaning) | configuration-model | No |
 | OQ-release-versioning-and-compatibility-8 | Which surface finalizes a Ruralz Control upgrade; may a timed soak finalize it? | (a) A REST API action; (b) A `control` verb; (c) Either, plus optional timed soak | control-plane-and-gitops | Yes, for Planned (M2) |
-| OQ-release-versioning-and-compatibility-9 | How do Nodes learn the Cluster's minimum Node version, which starts lazy migration, and a Quota layout switch's absolute boundary, published at least one full window ahead? | (a) A new Control Stream field, operator-set in file mode; (b) Operator-set everywhere | scalability-and-distributed-state | Yes, for the first layout change |
+| OQ-release-versioning-and-compatibility-9 | How do Nodes learn the Cluster's minimum Node version, which starts lazy migration, and a Quota layout switch's boundary, published a window ahead? | (a) A new Control Stream field, operator-set in file mode; (b) Operator-set everywhere | scalability-and-distributed-state | Yes, for the first layout change |
 | OQ-release-versioning-and-compatibility-10 | May `ruralz.plugin.v1` add more than Host Functions, such as optional guest JSON fields? | (a) No (current); (b) Also record a required level in the OCI config and take the maximum with imports | wasm-plugin-system | No |
 | OQ-release-versioning-and-compatibility-11 | Does the Helm chart deploy Nodes, and how does it replace Ruralz Control replicas? | (a) Ruralz Control only; (b) Both, separate tags, two upgrades; either with partitioned or `OnDelete` replica updates | deployment-topologies | Yes, for Planned (M2) |
 | OQ-release-versioning-and-compatibility-12 | How does Ruralz Control render at pinned schema levels and defaults while replicas run mixed binaries? | (a) The renderer takes the Control Store version's levels as input; (b) Rendering pauses until finalize | configuration-model | Yes, for Planned (M2) |
-| OQ-release-versioning-and-compatibility-13 | Does the golden-corpus exception in the Configuration model's Canonical form and Revision cover a digest-changing render or canonicalization fix shipped as a new `ruralz/v1alpha1` schema level, or only a default change? | (a) Amend it to cover any change shipped as a new `ruralz/v1alpha1` schema level (proposed); (b) Keep it narrow, so such a fix needs a new format identifier | configuration-model | Yes, for the first digest-changing fix |
-
-This document also owns OQ-repository-layout-and-conventions-4, recommending (b), since release asset URLs change per release, and OQ-testing-and-quality-strategy-5, recommending (a). As release owner of OQ-tech-stack-and-libraries-9 it keeps (a), HTTP/3 off in FIPS builds. It proposes option (c) for OQ-wasm-plugin-system-13 ([Plugin ABI versioning](#plugin-abi-versioning)).
+| OQ-release-versioning-and-compatibility-13 | Does the Configuration model's golden-corpus exception cover a digest-changing render or canonicalization fix shipped as a new `ruralz/v1alpha1` schema level, or only a default change? | (a) Amend it to cover any such level (proposed); (b) Keep it narrow: such a fix needs a new format identifier | configuration-model | Yes, for the first digest-changing fix |

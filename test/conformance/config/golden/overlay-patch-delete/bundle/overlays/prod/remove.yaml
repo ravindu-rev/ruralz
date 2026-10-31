@@ -1,0 +1,19 @@
+# A keyed list entry with $patch: delete is removed: from the orderedMap
+# spec.policies and from the map spec.endpoints.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  policies:
+    - name: cors-default
+      $patch: delete
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  endpoints:
+    - address: "orders-b.shop.svc:8080"
+      $patch: delete

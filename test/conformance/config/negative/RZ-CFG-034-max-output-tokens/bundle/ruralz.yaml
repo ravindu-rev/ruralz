@@ -1,0 +1,75 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: AIProvider
+metadata:
+  name: provider
+spec:
+  dialect: openai
+  credentials:
+    apiKey: {secretRef: {provider: env, name: RURALZ_SECRET_AI}}
+---
+apiVersion: ruralz/v1alpha1
+kind: AIModel
+metadata:
+  name: chat
+spec:
+  strategy: fallback
+  candidates:
+    - name: primary
+      provider: provider
+      model: gpt-4.1-mini
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: llm
+spec:
+  protocol: ai
+  ai:
+    models:
+      - name: chat
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: acme
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        hash: "sha256:d1bec0f9342e5607570b2636ed0256023b13be7d7d4bb45e1bed3cfee80dc1b6"
+  quotas:
+    - name: daily-tokens
+      unit: tokens
+      limit: 1000
+      window: 24h
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: budget
+spec:
+  type: ai.token-budget
+  config:
+    consumerQuota: daily-tokens
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: chat
+spec:
+  match:
+    path: {prefix: /chat}
+  policies:
+    - name: budget
+  upstreams:
+    - name: llm

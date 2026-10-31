@@ -1,0 +1,12 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: bad-addresses
+spec:
+  protocol: http
+  endpoints:
+    - address: "billing.shop.svc"
+    - address: "billing.shop.svc:0"
+    - address: "bad_host!:80"
+    - address: "[::1]:99999"
+    - address: "[2001:db8::1]:443"

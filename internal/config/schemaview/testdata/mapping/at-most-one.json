@@ -1,0 +1,10 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Upstream",
+  "metadata": {"name": "inventory"},
+  "spec": {
+    "protocol": "http",
+    "endpoints": [{"address": "10.0.0.1:8080"}],
+    "discovery": {"type": "dns", "service": "inventory.shop.example", "port": false}
+  }
+}

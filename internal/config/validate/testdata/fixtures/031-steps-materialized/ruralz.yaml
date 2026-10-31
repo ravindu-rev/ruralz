@@ -1,0 +1,25 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+    - name: https
+      protocol: https
+      port: 8443
+      hostnames: ["api.shop.example", "*.shop.example"]
+      tls:
+        certificates:
+          - name: api-shop
+            certificate: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.crt}}
+            privateKey: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.key}}
+  limits:
+    maxRequestBodyBytes: 10Mi
+  stateStore:
+    driver: redis
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+  policies:
+    - name: jwt

@@ -1,0 +1,8 @@
+[
+  {
+    "code": "RZ-CFG-016",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "message": "the directory holds no ruralz.yaml, so it is not a Bundle: ruralz.yaml is the Bundle root and declares its Gateway"
+  }
+]

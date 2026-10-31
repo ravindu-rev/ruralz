@@ -1,0 +1,74 @@
+# S1 drops the Gateway policies; S3, S7, O1 and C2 add an https listener on 8443.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: memory                   # GCRA in process, no round trip: SM-4's "no State Store Policy";
+                                     # this GCRA counts as gateway-added CPU
+  policies:
+    - name: jwt-bench
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:                    # defaults cap one Endpoint at 512 attempts (hypothesis)
+    maxConnections: 65536            # above S1's 50,000 attempts/s; one Endpoint's 50%: 32,768 (target)
+    maxPendingRequests: 1024         # S6's provider Upstream sets the same values (target)
+  timeout: 2s                        # (target)
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s                        # (target)
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  type: auth.jwt                     # generator rotates 10,000 tokens (target) from two keys; no verified-token cache
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example/.well-known/jwks.json
+        audiences: [bench]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  config:
+    key: 'request.headers["x-bench-key"]'   # the generator cycles 100,000 values uniformly (target)
+    limits: [{requests: 20000, window: 1s}] # under 25,000/s per key (target); never denies at the offered rate
+# At 40,000 rps each key sees about 0.4 requests/s (hypothesis), so S5 denies none and calls GCRA on every request of a key
+# the first-seen budget gave full buckets (OQ-performance-budgets-and-benchmarking-15).
+# The S5, S5x and O2 Bundles set stateStore {driver: redis, url: secretRef env RURALZ_STATE_STORE_URL};
+# O2's also sets the Policy's stateStoreTimeout: 1s, S5x's 10ms (target).
+# A Zipf variant keeps its hottest key under 25,000 calls/s (target); single-key runs belong to CE-12.
