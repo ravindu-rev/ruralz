@@ -51,6 +51,7 @@ readonly admin_role=5
 readonly ruleset_branches='main and release-*'
 readonly ruleset_tag_creation='v* tag creation'
 readonly ruleset_tag_changes='v* tag updates and deletion'
+readonly ruleset_develop='develop'
 readonly environment=release
 
 # Areas, in the order they are compared and written: Dependabot alerts
@@ -69,12 +70,13 @@ readonly area_immutable='Releases: immutable releases'
 readonly area_ruleset_branches="Ruleset \"$ruleset_branches\""
 readonly area_ruleset_tag_creation="Ruleset \"$ruleset_tag_creation\""
 readonly area_ruleset_tag_changes="Ruleset \"$ruleset_tag_changes\""
+readonly area_ruleset_develop="Ruleset \"$ruleset_develop\""
 readonly area_environment="Environment \"$environment\""
 readonly area_branches="Environment \"$environment\" deployment branches"
 areas=(
   "$area_merging" "$area_secret_scanning" "$area_pvr" "$area_alerts" "$area_security_updates"
   "$area_actions" "$area_workflow" "$area_fork" "$area_immutable"
-  "$area_ruleset_branches" "$area_ruleset_tag_creation" "$area_ruleset_tag_changes"
+  "$area_ruleset_branches" "$area_ruleset_tag_creation" "$area_ruleset_tag_changes" "$area_ruleset_develop"
   "$area_environment" "$area_branches"
 )
 
@@ -243,7 +245,7 @@ read_immutable() {
 read_rulesets() {
   local list name area id
   list=$(api GET "repos/$repo/rulesets?includes_parents=false" --paginate --jq '.[] | [(.id | tostring), .name] | join("\t")') || return 1
-  for name in "$ruleset_branches" "$ruleset_tag_creation" "$ruleset_tag_changes"; do
+  for name in "$ruleset_branches" "$ruleset_tag_creation" "$ruleset_tag_changes" "$ruleset_develop"; do
     area="Ruleset \"$name\""
     id=$(printf '%s\n' "$list" | awk -F'\t' -v n="$name" '$2 == n && id == "" { id = $1 } END { print id }')
     if [[ -z $id ]]; then
@@ -310,7 +312,7 @@ source_of() {
     "$area_workflow") echo workflow ;;
     "$area_fork") echo fork ;;
     "$area_immutable") echo immutable ;;
-    "$area_ruleset_branches" | "$area_ruleset_tag_creation" | "$area_ruleset_tag_changes") echo rulesets ;;
+    "$area_ruleset_branches" | "$area_ruleset_tag_creation" | "$area_ruleset_tag_changes" | "$area_ruleset_develop") echo rulesets ;;
     "$area_environment") echo environment ;;
     "$area_branches") echo branch_policies ;;
   esac
@@ -421,6 +423,16 @@ wants() {
   # update_allows_fetch_and_merge, which lets a branch sync its fork, only
   # on branch rulesets.
   want "$a" rules '["deletion","update"]'
+  # develop: nobody deletes it, so the head branch of the develop to main
+  # pull requests outlives their merge, which deletes head branches.
+  a=$area_ruleset_develop
+  want "$a" exists true
+  want "$a" target '"branch"'
+  want "$a" enforcement '"active"'
+  want "$a" include '["refs/heads/develop"]'
+  want "$a" exclude '[]'
+  want "$a" bypass_actors '[]'
+  want "$a" rules '["deletion"]'
   # The release Environment: deployments from v* tags only, the owner as
   # its one required reviewer, who approves the runs of the tags they
   # push, so self-review stays allowed; no wait timer.
@@ -558,6 +570,14 @@ EOF
  "rules":[{"type":"update"},{"type":"deletion"}]}
 EOF
       ;;
+    "$ruleset_develop")
+      cat <<EOF
+{"name":"$ruleset_develop","target":"branch","enforcement":"active",
+ "conditions":{"ref_name":{"include":["refs/heads/develop"],"exclude":[]}},
+ "bypass_actors":[],
+ "rules":[{"type":"deletion"}]}
+EOF
+      ;;
   esac
 }
 
@@ -613,6 +633,7 @@ write_area() {
     "$area_ruleset_branches") write_ruleset "$ruleset_branches" ;;
     "$area_ruleset_tag_creation") write_ruleset "$ruleset_tag_creation" ;;
     "$area_ruleset_tag_changes") write_ruleset "$ruleset_tag_changes" ;;
+    "$area_ruleset_develop") write_ruleset "$ruleset_develop" ;;
     "$area_environment") write_environment ;;
     "$area_branches") write_branch_policies ;;
   esac

@@ -385,7 +385,7 @@ A maintainer cuts a release in this order:
      - `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest), a Quickstart section (`examples/quickstart/quickstart.sh`) and a status section;
      - `SECURITY.md`'s supported versions name `0.1` as line N.
 2. **Branches.**
-   - Before `v0.1.0-rc.1` only: `develop`, where the M1 work landed, merges into `main` once with a merge commit, under a one-time exception to the `main` ruleset, so the `0.1.0` notes list every M1 commit. `develop` is then deleted, and pull requests and Dependabot target `main`.
+   - Before `v0.1.0-rc.1` only: `develop`, where the M1 work landed, merges into `main` once with a merge commit, under a one-time exception to the `main` ruleset, so the `0.1.0` notes list every M1 commit. `develop` stays, since its ruleset blocks its deletion ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)), and pull requests and Dependabot target `main`.
    - `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed.
 3. **Tag.** `git tag -s` creates a signed annotated `vX.Y.0-rc.N` on `release-X.Y`; only admins may create `v*` tags ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
 4. **Run.** `release.yml` runs the [pipeline](#release-pipeline). On a failed gate, the tag's tracking issue lists the failures. A maintainer either fixes them in a new candidate, or skips a gate there with a reason and re-runs the gates job ([Release gates](03-testing-and-quality-strategy.md#release-gates)).
