@@ -180,23 +180,20 @@ jobs:
         env:
           RURALZ_QUICKSTART_ARCHIVE: ${{ runner.temp }}/quickstart/ruralzd_${{ needs.quickstart-archives.outputs.version }}_${{ matrix.os }}_${{ matrix.arch }}.tar.gz
         run: |
-          # Each PATH directory that holds go goes; one that also holds more
-          # than the Go toolchain's go and gofmt fails the job instead.
-          path=
+          # Each PATH directory that holds go gives way to a directory of
+          # links to its other entries, so go and gofmt leave PATH and the
+          # other tools there, such as the Ubuntu runners' /usr/bin, stay.
+          path='' n=0
           IFS=: read -r -a dirs <<<"$PATH"
           for d in "${dirs[@]}"; do
             if [[ -n $d && -f $d/go && -x $d/go ]]; then
-              for f in "$d"/*; do
-                case ${f##*/} in
-                  go | gofmt) ;;
-                  *)
-                    echo "::error::$d holds go and ${f##*/}, so it cannot leave PATH"
-                    exit 1
-                    ;;
-                esac
-              done
-              echo "go leaves PATH with $d"
-              continue
+              n=$((n + 1))
+              links=$RUNNER_TEMP/path-$n
+              mkdir "$links"
+              ln -s "$d"/* "$links"/
+              rm -f "$links/go" "$links/gofmt"
+              echo "go leaves PATH with $d, whose other entries stay through $links"
+              d=$links
             fi
             path=${path:+$path:}$d
           done
