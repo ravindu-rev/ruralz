@@ -27,6 +27,9 @@ const (
 	// EnvNetNSResolvConf carries NetNSOptions.ResolvConf; empty without
 	// one.
 	EnvNetNSResolvConf = "RURALZ_TEST_NETNS_RESOLV_CONF"
+	// EnvNetNSUser is "1" in a child started with NetNSOptions.User and
+	// empty otherwise.
+	EnvNetNSUser = "RURALZ_TEST_NETNS_USER"
 )
 
 // ResolvConfPath is the resolver configuration NetNSOptions.ResolvConf
@@ -139,7 +142,11 @@ func InNetNS(ctx context.Context, testName string, sysctls map[string]string) (i
 // child it brings the loopback interface up, applies the parent's sysctls
 // (idempotent) and, with NetNSOptions.ResolvConf, bind-mounts that file
 // over ResolvConfPath in its own mount namespace, failing t when any of
-// it fails.
+// it fails. A child in a user namespace whose root holds no capability
+// over the network namespace, as Ubuntu's AppArmor leaves every
+// unprivileged one (kernel.apparmor_restrict_unprivileged_userns=1),
+// skips with ErrNamespace in its reason: it could not have the
+// namespaces, as when clone(2) refuses them.
 func NetNSChild(t testing.TB) bool {
 	if os.Getenv(EnvInNetNS) != "1" {
 		return false
@@ -150,6 +157,9 @@ func NetNSChild(t testing.TB) bool {
 		t.Fatal(err)
 	}
 	if err := SetupNetNS(sysctls); err != nil {
+		if os.Getenv(EnvNetNSUser) == "1" && errors.Is(err, os.ErrPermission) {
+			t.Skipf("%v: the user namespace grants no capability over the network namespace: %v", ErrNamespace, err)
+		}
 		t.Fatalf("proc: network namespace setup: %v", err)
 	}
 	if p := os.Getenv(EnvNetNSResolvConf); p != "" {

@@ -202,9 +202,40 @@ func TestInNetNSUser(t *testing.T) { // a user namespace maps the caller to root
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	if code, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSUserChild", User: true}); err != nil || code != 0 {
+	code, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSUserChild", User: true})
+	if errors.Is(err, ErrChildSkipped) {
+		t.Skip(err)
+	}
+	if err != nil || code != 0 {
 		t.Fatalf("RunInNetNS(User) = %d, %v", code, err)
 	}
+}
+
+// TestNetNSChildSkipsWithoutCapability: a child of RunInNetNS with User
+// whose user namespace grants no capability over the network namespace,
+// as Ubuntu's AppArmor leaves every unprivileged one, skips naming
+// ErrNamespace instead of failing. The child here stays in the test's own
+// namespaces without privilege, where bringing the loopback interface up
+// fails with the same EPERM.
+func TestNetNSChildSkipsWithoutCapability(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root brings the loopback interface up in any network namespace")
+	}
+	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestNetNSChildSkipsWithoutCapabilityChild$", "-test.count=1", "-test.v=true") //nolint:gosec // G204: this test binary
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"=", EnvNetNSResolvConf+"=", EnvNetNSUser+"=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "--- SKIP: TestNetNSChildSkipsWithoutCapabilityChild") || !strings.Contains(string(out), ErrNamespace.Error()) {
+		t.Fatalf("child without the capability = %v:\n%s\nwant a skip naming %q", err, out, ErrNamespace)
+	}
+}
+
+// TestNetNSChildSkipsWithoutCapabilityChild is the child of
+// TestNetNSChildSkipsWithoutCapability.
+func TestNetNSChildSkipsWithoutCapabilityChild(t *testing.T) {
+	if !NetNSChild(t) {
+		t.Skip("run by TestNetNSChildSkipsWithoutCapability")
+	}
+	t.Fatal("NetNSChild set up a network namespace without the capability")
 }
 
 func TestIsVerboseFlag(t *testing.T) {

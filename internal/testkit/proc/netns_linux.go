@@ -60,9 +60,14 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 		}
 	}
 	cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // G204: re-executing this test binary
-	// EnvNetNSResolvConf is always set, empty without a ResolvConf, so the
-	// child never takes one from the environment it inherits.
-	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc, EnvNetNSResolvConf+"="+o.ResolvConf)
+	// EnvNetNSResolvConf and EnvNetNSUser are always set, empty without a
+	// ResolvConf or User, so the child never takes them from the
+	// environment it inherits.
+	user := ""
+	if o.User {
+		user = "1"
+	}
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc, EnvNetNSResolvConf+"="+o.ResolvConf, EnvNetNSUser+"="+user)
 	cmd.Env = append(cmd.Env, o.Env...)
 	tail := newRing(64 << 10)
 	res := newTestResult(o.TestName)
