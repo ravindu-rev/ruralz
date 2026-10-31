@@ -7,6 +7,7 @@ package telemetry
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"io/fs"
 	"math"
@@ -154,11 +155,18 @@ func TestBlockedStdout(t *testing.T) {
 	})
 
 	unblock()
+	// A record that reaches the stdout sink while the blocked run's backlog
+	// still fills its queue is dropped (queue_full), as designed, so
+	// requests go on until the access record of one is written.
 	marker := "/work/resumed-" + strconv.FormatInt(int64(served), 10)
-	requests(t, top, n, marker, 1)
-	if _, err := n.Process().WaitOutput(t.Context(), regexp.MustCompile(regexp.QuoteMeta(`"path":"`+marker+`"`))); err != nil {
-		t.Fatalf("stdout did not resume once read again: %v", err)
-	}
+	resumed := regexp.MustCompile(regexp.QuoteMeta(`"path":"` + marker + `"`))
+	eventually(t, "stdout to resume once read again", func() bool {
+		requests(t, top, n, marker, 1)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		_, err := n.Process().WaitOutput(ctx, resumed)
+		return err == nil
+	})
 }
 
 // seconds formats a histogram value in seconds as a duration.
