@@ -81,6 +81,61 @@ func TestEstimateChargesDynSelections(t *testing.T) {
 	}
 }
 
+// TestEstimateChargesRelativeAttributes checks the correction of cel-go's
+// estimate for a selection, presence test or index whose operand is not
+// an attribute, such as a literal, a call result or a comprehension
+// result: cel-go evaluates it as a relative attribute over the operand
+// and charges that attribute a unit per evaluation its estimator leaves
+// out, so its estimate of these constant expressions falls short of the
+// actual cost. The static estimate and the capped bound, which add the
+// unit for each evaluation of each such attribute, cover it; the last
+// case's nominal sizes alone would hide the shortfall the capped bound
+// shows.
+func TestEstimateChargesRelativeAttributes(t *testing.T) {
+	tests := []struct{ name, src string }{
+		{"index of an empty list literal", `[][0]`},
+		{"index of a map literal", `{"a": 1}["a"]`},
+		{"selection of a map literal", `{"a": 1}.a`},
+		{"presence test on a map literal", `has({"a": 1}.a)`},
+		{"indexes of one list literal", `[[1]][0][0]`},
+		{"index of a call result", `([1] + [2])[0]`},
+		{"index with a computed key", `[1][size([1]) - 1]`},
+		{"selections of a dyn call result", `dyn({"a": {"b": 1}}).a.b`},
+		{"index of a comprehension result", `[1, 2].map(x, x)[0]`},
+		{"two indexed literals", `[1][0] + [2][0]`},
+		{"an index in every iteration", `[1, 2, 3].all(x, [x][0] > 0)`},
+		{"a selection in every inner iteration", `[[1, 2, 3]].map(l, l.map(x, {"v": x}.v))`},
+	}
+	c := newCompiler(t)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cc, iss := c.compile(at(expr.PlaceTransformRequestBody), tt.src)
+			if cc == nil {
+				t.Fatalf("compile(%q) = %+v", tt.src, iss)
+			}
+			// With every input unbounded, cel-go sizes only the literals.
+			raw, err := cc.env.EstimateCost(cc.ast, cappedEstimator{paths: cc.facts.paths})
+			if err != nil {
+				t.Fatal(err)
+			}
+			actual := actualCost(t, cc, testVars())
+			if actual <= raw.Max {
+				t.Fatalf("cel-go's estimate %d already covers the actual cost %d: the case shows nothing", raw.Max, actual)
+			}
+			if actual > cc.cost.Max {
+				t.Errorf("actual cost %d above the static estimate %d", actual, cc.cost.Max)
+			}
+			bound, err := cc.cappedBound(expr.InputCaps{})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if actual > bound {
+				t.Errorf("actual cost %d above the capped bound %d", actual, bound)
+			}
+		})
+	}
+}
+
 // TestSplitEstimateCountsTheLastEntry checks the split estimate: "," splits
 // into two entries, one more than ext.Strings' own estimate counts, so a
 // comprehension whose every iteration scans a 32-entry list costs about
@@ -155,7 +210,8 @@ func TestCappedEstimatorSizesOnlyValuesFromVariables(t *testing.T) {
 // range has no size bound, here an index into a map result: the
 // selections in that loop are bounded through their chain's base, so the
 // bound is the estimate times one plus the longest such chain, plus one
-// unit for each selection outside a loop. It still covers the actual cost.
+// unit for each uncounted unit outside a loop. It still covers the actual
+// cost.
 func TestBoundFallsBackToTheChainFactor(t *testing.T) {
 	c := newCompiler(t)
 	src := `request.body.lists.map(l, l)[0].exists(x, x.a.b == 1)`
@@ -168,9 +224,10 @@ func TestBoundFallsBackToTheChainFactor(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// x.a.b is a chain of two in the unsized loop; request.body.lists is
-	// one selection outside any loop.
-	if want := raw.Max*3 + 1; cc.cost.Max != want {
+	// x.a.b is a chain of two in the unsized loop; outside any loop are
+	// one selection, request.body.lists, and the relative attribute of the
+	// index into the map result.
+	if want := raw.Max*3 + 2; cc.cost.Max != want {
 		t.Errorf("static estimate %d, want %d (raw %d)", cc.cost.Max, want, raw.Max)
 	}
 	inner := make([]any, nominalContainerSize)
