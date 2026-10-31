@@ -18,6 +18,7 @@ DIST := $(CURDIR)/dist
 GOLANGCI_LINT := $(BIN)/golangci-lint
 GOVULNCHECK := $(BIN)/govulncheck
 ACTIONLINT := $(BIN)/actionlint
+SHELLCHECK := $(BIN)/shellcheck
 PROMTOOL := $(BIN)/promtool
 OHA := $(BIN)/oha
 VEGETA := $(BIN)/vegeta
@@ -180,7 +181,7 @@ has_tests = $(shell find $(1) -name '*_test.go' -print -quit 2>/dev/null)
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
-tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(ACTIONLINT) $(PROMTOOL) ## Install the pinned, checksum-verified developer tools into bin/
+tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(ACTIONLINT) $(SHELLCHECK) $(PROMTOOL) ## Install the pinned, checksum-verified developer tools into bin/
 
 $(GOLANGCI_LINT): scripts/install-tools.sh
 	bash scripts/install-tools.sh golangci-lint
@@ -190,6 +191,9 @@ $(GOVULNCHECK): scripts/install-tools.sh
 
 $(ACTIONLINT): scripts/install-tools.sh
 	bash scripts/install-tools.sh actionlint
+
+$(SHELLCHECK): scripts/install-tools.sh
+	bash scripts/install-tools.sh shellcheck
 
 $(PROMTOOL): scripts/install-tools.sh
 	bash scripts/install-tools.sh promtool
@@ -201,11 +205,11 @@ hygiene: ## Stage 1: repocheck and the no-license-check scan; DCO_RANGE adds the
 	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck golden -range "$$DCO_RANGE"; fi
 	if [[ -n "$${PR_TITLE:-}" ]]; then go run ./internal/tool/commitcheck title; fi
 
-lint: $(GOLANGCI_LINT) $(ACTIONLINT) ## Stage 2: gofumpt, goimports, golangci-lint and actionlint
+lint: $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) ## Stage 2: gofumpt, goimports, golangci-lint and actionlint, with the pinned shellcheck on the workflows' run steps
 	$(GOLANGCI_LINT) config verify
 	$(GOLANGCI_LINT) fmt --diff ./...
 	$(GOLANGCI_LINT) run ./...
-	$(ACTIONLINT)
+	$(ACTIONLINT) -shellcheck=$(SHELLCHECK)
 
 fmt: $(GOLANGCI_LINT) ## Rewrite files with gofumpt and goimports
 	$(GOLANGCI_LINT) fmt ./...

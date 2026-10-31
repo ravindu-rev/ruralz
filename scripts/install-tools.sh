@@ -12,19 +12,22 @@
 #   golangci-lint  stage 2 lint and format
 #   govulncheck    stage 6 supply chain
 #   actionlint     stage 2 workflow lint
+#   shellcheck     stage 2, the shell checks actionlint runs on the workflows'
+#                  run steps, the same version on every host
 #   promtool       stage 8 alert rule checks (from the Prometheus release archive)
 #   oha, vegeta    stage 11 Latency job load tools
 #   cosign, syft   stage 12 keyless signing and CycloneDX SBOMs
 #
 # Pins cover linux and darwin on amd64 and arm64. The SHA-256 values come
-# from each release's checksums file; oha publishes none, so its values were
-# recorded from the release assets when the version was pinned. TOOLS_BIN
-# overrides the install directory (default bin/).
+# from each release's checksums file; oha and shellcheck publish none, so
+# their values were recorded from the release assets when the version was
+# pinned. TOOLS_BIN overrides the install directory (default bin/).
 set -euo pipefail
 
 GOLANGCI_LINT_VERSION=2.15.0
 GOVULNCHECK_VERSION=v1.8.0
 ACTIONLINT_VERSION=1.7.12
+SHELLCHECK_VERSION=0.11.0
 PROMETHEUS_VERSION=3.15.0
 OHA_VERSION=1.16.0
 VEGETA_VERSION=12.13.0
@@ -42,6 +45,10 @@ pin() {
     "actionlint linux-arm64") echo 325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
     "actionlint darwin-amd64") echo 5b44c3bc2255115c9b69e30efc0fecdf498fdb63c5d58e17084fd5f16324c644 ;;
     "actionlint darwin-arm64") echo aba9ced2dee8d27fecca3dc7feb1a7f9a52caefa1eb46f3271ea66b6e0e6953f ;;
+    "shellcheck linux-amd64") echo b7af85e41cc99489dcc21d66c6d5f3685138f06d34651e6d34b42ec6d54fe6f6 ;;
+    "shellcheck linux-arm64") echo 68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc ;;
+    "shellcheck darwin-amd64") echo c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51 ;;
+    "shellcheck darwin-arm64") echo 339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f ;;
     "promtool linux-amd64") echo 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 ;;
     "promtool linux-arm64") echo f1f90ec08e849d494ca66c611470afc50192f0355f1a61c33f2cbde02d067823 ;;
     "promtool darwin-amd64") echo 2d79e744c2d7e505db936fbc898e05abc74fcb6e437c25befd26e9c9f00aa58b ;;
@@ -109,6 +116,7 @@ current() {
   case "$1" in
     golangci-lint) "$bin/$1" version 2>/dev/null | grep -q "version $2 " ;;
     actionlint | oha | syft) "$bin/$1" --version 2>&1 | grep -q "$2" ;;
+    shellcheck) "$bin/$1" --version 2>&1 | grep -qx "version: $2" ;;
     cosign) "$bin/$1" version 2>&1 | grep -q "GitVersion: *v$2\$" ;;
     vegeta) "$bin/$1" -version 2>&1 | grep -q "$2" ;;
     promtool) "$bin/$1" --version 2>&1 | grep -q "version $2 " ;;
@@ -158,6 +166,20 @@ install_actionlint() {
   install_archive actionlint "$ACTIONLINT_VERSION" \
     "https://github.com/rhysd/actionlint/releases/download/v$ACTIONLINT_VERSION/actionlint_${ACTIONLINT_VERSION}_${plat/-/_}.tar.gz" \
     actionlint
+}
+
+install_shellcheck() {
+  local plat arch
+  plat=$(platform)
+  # shellcheck names the architectures x86_64 and aarch64.
+  arch=${plat#*-}
+  case "$arch" in
+    amd64) arch=x86_64 ;;
+    arm64) arch=aarch64 ;;
+  esac
+  install_archive shellcheck "$SHELLCHECK_VERSION" \
+    "https://github.com/koalaman/shellcheck/releases/download/v$SHELLCHECK_VERSION/shellcheck-v$SHELLCHECK_VERSION.${plat%-*}.$arch.tar.gz" \
+    "shellcheck-v$SHELLCHECK_VERSION/shellcheck"
 }
 
 install_promtool() {
@@ -215,12 +237,13 @@ install_govulncheck() {
 # With no arguments install the tools of `make tools` (stages 2, 6 and 8);
 # otherwise only the named ones.
 tools=("$@")
-(( ${#tools[@]} )) || tools=(golangci-lint govulncheck actionlint promtool)
+(( ${#tools[@]} )) || tools=(golangci-lint govulncheck actionlint shellcheck promtool)
 for tool in "${tools[@]}"; do
   case "$tool" in
     golangci-lint) install_golangci_lint ;;
     govulncheck) install_govulncheck ;;
     actionlint) install_actionlint ;;
+    shellcheck) install_shellcheck ;;
     promtool) install_promtool ;;
     oha) install_oha ;;
     vegeta) install_vegeta ;;
