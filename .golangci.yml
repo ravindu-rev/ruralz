@@ -42,8 +42,9 @@ linters:
             - go.opentelemetry.io/contrib/bridges/otelslog
             - go.opentelemetry.io/otel
             - go.opentelemetry.io/proto/otlp
-            # Test-only: the differential oracle of internal/config/profile
-            # (ADR-0003); the yamlv3 rule below confines it.
+            # This module imports it only as the differential oracle of
+            # internal/config/profile's tests (ADR-0003), which the yamlv3
+            # rule below confines; cel-go links it into both binaries.
             - go.yaml.in/yaml/v3
             - golang.org/x/net/http2
             - golang.org/x/sys/unix

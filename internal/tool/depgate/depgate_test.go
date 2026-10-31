@@ -352,6 +352,8 @@ func TestAnalyzeTestSupport(t *testing.T) {
 		"github.com/testcontainers/testcontainers-go/modules/redis": lic(mitText),
 		"go.yaml.in/yaml/v3": lic(mitText),
 	})
+	// go.yaml.in/yaml/v3 ships: cel-go's common/env links it into both
+	// binaries (docs/engineering/01-tech-stack-and-libraries.md).
 	denied := []goPackage{
 		inMain("internal/testkit/proc"),
 		inMain("internal/tool/depgate"),
@@ -363,9 +365,9 @@ func TestAnalyzeTestSupport(t *testing.T) {
 		{ImportPath: "net/http/httptest", Standard: true},
 		pkg("github.com/testcontainers/testcontainers-go", mod("github.com/testcontainers/testcontainers-go", "v0.44.0")),
 		pkg("github.com/testcontainers/testcontainers-go/modules/redis", mod("github.com/testcontainers/testcontainers-go/modules/redis", "v0.44.0")),
-		pkg("go.yaml.in/yaml/v3", mod("go.yaml.in/yaml/v3", "v3.0.4")),
 	}
 	allowed := []goPackage{
+		pkg("go.yaml.in/yaml/v3", mod("go.yaml.in/yaml/v3", "v3.0.5")),
 		inMain("internal/cli/test"),
 		inMain("internal/signing/attest"),
 		inMain("internal/testdata"),

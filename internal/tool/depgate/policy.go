@@ -121,7 +121,9 @@ func testOnlyStandard() []string {
 
 // testOnlyModules are third-party modules admitted for tests only (the
 // Library catalog row "Test tooling (not shipped)"); a path covers the
-// modules below it.
+// modules below it. go.yaml.in/yaml/v3 is not one: cel-go's common/env
+// links it into both binaries, and the yamlv3 depguard rule confines this
+// module's own imports of it to the YAML profile's tests.
 func testOnlyModules() []string {
-	return []string{"github.com/testcontainers", "go.yaml.in/yaml/v3"}
+	return []string{"github.com/testcontainers"}
 }
