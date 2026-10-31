@@ -207,11 +207,18 @@ func window(id, value, hist string, count int64, d time.Duration) benchrecord.Bu
 	return judge(id, value, lo >= d-d/1000 && hi <= d+TimeoutSlack, fmt.Sprintf("%d expiries from %s to %s", h.Count(), lo, hi))
 }
 
+// heldWait bounds how long the body flood keeps its bodies paused until a
+// scrape shows the bytes they hold.
+const heldWait = 10 * time.Second
+
 // bodyFlood runs the body flood: Bodies POSTs of BodyBytes each into the
 // gated flood Route at once, together above the 512 MiB buffer budget, each
-// paused at 90% of its body until every one has reserved that much or been
-// refused: reservations past the budget get 503 RZ-RT-004, the buffered
-// bytes never pass 512 MiB and the Node stays up.
+// paused at 90% of its body until every one has reached that point or been
+// refused and a scrape has shown the bytes the Node holds for them:
+// reservations past the budget get 503 RZ-RT-004, the buffered bytes never
+// pass 512 MiB and the Node stays up. /metrics reuses one collection for
+// up to a second, longer than the pause lasts on a fast host, so bodies
+// released at once could leave every scrape before or after the flood.
 func (e Env) bodyFlood(ctx context.Context, s Scale, res *Result) error {
 	sc, err := constantsScenario("constants-body-flood", s.Constants.BackgroundRate)
 	if err != nil {
@@ -221,12 +228,18 @@ func (e Env) bodyFlood(ctx context.Context, s Scale, res *Result) error {
 		node := st.Node()
 		stop := make(chan struct{})
 		peak := make(chan float64, 1)
+		// seen closes at the first scrape that shows buffered bytes.
+		seen := make(chan struct{})
 		go func() {
 			var hi float64
 			defer func() { peak <- hi }()
 			for {
 				if m, err := node.Scrape(ctx); err == nil {
-					hi = max(hi, m.Sum(metricBuffered, nil))
+					v := m.Sum(metricBuffered, nil)
+					if v > 0 && hi == 0 {
+						close(seen)
+					}
+					hi = max(hi, v)
 				}
 				select {
 				case <-stop:
@@ -235,7 +248,16 @@ func (e Env) bodyFlood(ctx context.Context, s Scale, res *Result) error {
 				}
 			}
 		}()
-		codes, statuses, err := e.flood(ctx, s.Constants.Bodies, s.Constants.BodyBytes)
+		tr := &http.Transport{MaxConnsPerHost: s.Constants.Bodies, MaxIdleConnsPerHost: s.Constants.Bodies, DisableCompression: true}
+		codes, statuses, err := flood(ctx, tr, "http://"+e.listenerAddr(portHTTP)+pathFlood, s.Constants.Bodies, s.Constants.BodyBytes, func() {
+			t := time.NewTimer(heldWait)
+			defer t.Stop()
+			select {
+			case <-seen:
+			case <-t.C:
+			case <-ctx.Done():
+			}
+		})
 		close(stop)
 		hi := <-peak
 		if err != nil {
@@ -252,13 +274,15 @@ func (e Env) bodyFlood(ctx context.Context, s Scale, res *Result) error {
 	}, res)
 }
 
-// flood sends n POSTs of size bytes each to the flood Route at once and
-// returns the RZ codes and statuses of their answers.
-func (e Env) flood(ctx context.Context, n int, size int64) (map[string]int, map[int]int, error) {
+// flood sends n POSTs of size bytes each to url through rt at once, each
+// paused at 90% of its body. Once every body has paused or its request
+// ended, held runs, and the bodies go on only after it returns. flood
+// returns the RZ codes and statuses of the answers.
+func flood(ctx context.Context, rt http.RoundTripper, url string, n int, size int64, held func()) (map[string]int, map[int]int, error) {
 	release := make(chan struct{})
 	var reached sync.WaitGroup
 	reached.Add(n)
-	client := &http.Client{Transport: &http.Transport{MaxConnsPerHost: n, MaxIdleConnsPerHost: n, DisableCompression: true}, Timeout: 2 * time.Minute}
+	client := &http.Client{Transport: rt, Timeout: 2 * time.Minute}
 	defer client.CloseIdleConnections()
 	type answer struct {
 		status int
@@ -266,7 +290,6 @@ func (e Env) flood(ctx context.Context, n int, size int64) (map[string]int, map[
 		err    error
 	}
 	answers := make(chan answer, n)
-	url := "http://" + e.listenerAddr(portHTTP) + pathFlood
 	for range n {
 		go func() {
 			body := &pausedBody{size: size, pauseAt: size * 9 / 10, reached: reached.Done, release: release}
@@ -293,6 +316,7 @@ func (e Env) flood(ctx context.Context, n int, size int64) (map[string]int, map[
 	go func() { reached.Wait(); close(waited) }()
 	select {
 	case <-waited:
+		held()
 	case <-time.After(time.Minute):
 	case <-ctx.Done():
 	}
