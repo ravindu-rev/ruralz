@@ -27,6 +27,13 @@ func cacheable() mockup.Behavior {
 	return mockup.Behavior{Body: []byte("cached body\n"), ContentType: "text/plain", Header: http.Header{"Cache-Control": {"max-age=600"}}}
 }
 
+// quotaWindow is the window of the round trip's quotas: windows are fixed
+// and epoch-aligned in UTC (docs/architecture/09-traffic-management-and-resilience.md
+// "Quotas") and a Node keeps a denial no further than its window's end, so
+// an hour's window would end inside a run that started minutes before the
+// hour. One of 100 years, 1970 to 2070, ends inside none.
+const quotaWindow = "876000h"
+
 // roundTripBundle is the round trip's Bundle: a Route per case on the
 // State Store of kind k, with the Response Cache on the main connection.
 func roundTripBundle(k redisserver.Kind, upstream string) []byte {
@@ -34,7 +41,7 @@ func roundTripBundle(k redisserver.Kind, upstream string) []byte {
 		stateStore: redisStore(topologyName(k), urlRef),
 		upstream:   upstream,
 		docs: []string{
-			consumer(2, "1h"),
+			consumer(2, quotaWindow),
 			apiKeyPolicy(),
 			// rl-local's bucket holds its 2 tokens per minute: a third
 			// request is a local denial.
@@ -66,7 +73,7 @@ func roundTripBundle(k redisserver.Kind, upstream string) []byte {
 		},
 	}
 	// The Consumer of the refund Route has a quota of its own.
-	b.docs[0] = strings.Replace(b.docs[0], "  quotas:\n", "  quotas:\n    - {name: r, unit: requests, limit: 100, window: 1h}\n", 1)
+	b.docs[0] = strings.Replace(b.docs[0], "  quotas:\n", "  quotas:\n    - {name: r, unit: requests, limit: 100, window: "+quotaWindow+"}\n", 1)
 	return b.render()
 }
 
@@ -196,7 +203,7 @@ func rateLimitRoundTrips(t *testing.T, e *env, m *meter) {
 }
 
 // quotaRoundTrips runs the quota cases of the round trip: the Consumer's
-// quota q admits 2 requests per hour.
+// quota q admits 2 requests per quotaWindow.
 func quotaRoundTrips(t *testing.T, e *env, m *meter) {
 	key := []string{"x-api-key", apiKey}
 	d := m.phase(func() { expect(t, "a quota admission", e.get("/quota", key...), http.StatusOK, "") })
