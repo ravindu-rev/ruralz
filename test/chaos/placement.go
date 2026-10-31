@@ -284,19 +284,23 @@ func (pl *Placement) serverArgv(s redisserver.HostServer, container string) []st
 }
 
 // dockerServer returns the command that runs the pinned Valkey 9 image as
-// one server of a deployment: host networking, as owner, the deployment
-// directory dir shared at its own path, OpenFiles, and the State Store
-// host's measured cpuset, since a container joins neither the scope nor
-// the limits of the docker client labhost starts (harness.DockerValkey).
+// one server of a deployment: valkey-server as the container's process,
+// in place of the image's entrypoint, which runs it under tini, so the
+// SIGSTOP docker kill delivers freezes the server rather than tini; host
+// networking, as owner, the deployment directory dir shared at its own
+// path, OpenFiles, and the State Store host's measured cpuset, since a
+// container joins neither the scope nor the limits of the docker client
+// labhost starts (harness.DockerValkey).
 func dockerServer(p *harness.Profile, owner, container, dir string) []string {
 	argv := []string{
 		"docker", "run", "--rm", "--name", container, "--network", "host", "--user", owner,
 		"--ulimit", fmt.Sprintf("nofile=%d:%d", harness.OpenFiles, harness.OpenFiles), "-v", dir + ":" + dir,
+		"--entrypoint", "valkey-server",
 	}
 	if c := p.Hosts[harness.RoleStateStore].CPUs; c != "" {
 		argv = append(argv, "--cpuset-cpus", c)
 	}
-	return append(argv, redisserver.ImageValkey9, "valkey-server")
+	return append(argv, redisserver.ImageValkey9)
 }
 
 // storeProc is a server labhost run supervises on the State Store host.

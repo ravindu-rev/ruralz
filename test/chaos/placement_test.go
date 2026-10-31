@@ -63,8 +63,9 @@ func TestPlacementPlan(t *testing.T) {
 // once it wrote its readiness line and its port accepts connections: the
 // pinned Valkey 9 image as the inventory's user with host networking, its
 // deployment directory shared at its own path, on the State Store host's
-// measured cpuset with the benchmark processes' open-file limit, its
-// signals reaching the container through docker kill; with the
+// measured cpuset with the benchmark processes' open-file limit, and
+// valkey-server the container's own process, so the signals docker kill
+// delivers reach the server, not the image's tini; with the
 // inventory's server executable, that server runs directly.
 func TestServerArgv(t *testing.T) {
 	pl := rh1Placement(t)
@@ -79,7 +80,7 @@ func TestServerArgv(t *testing.T) {
 		"-container", container, "--",
 		"docker", "run", "--rm", "--name", container, "--network", "host", "--user", "998:998",
 		"--ulimit", fmt.Sprintf("nofile=%d:%d", harness.OpenFiles, harness.OpenFiles), "-v", dir + ":" + dir,
-		"--cpuset-cpus", "2-5", redisserver.ImageValkey9, "valkey-server", s.Args[0],
+		"--entrypoint", "valkey-server", "--cpuset-cpus", "2-5", redisserver.ImageValkey9, s.Args[0],
 	}
 	if got := pl.serverArgv(s, container); !slices.Equal(got, want) {
 		t.Errorf("serverArgv =\n%q\nwant\n%q", got, want)
