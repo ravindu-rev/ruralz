@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
@@ -25,6 +26,17 @@ import (
 // StateStoreUser is the Valkey ACL user of every run; the password is
 // fresh per run.
 const StateStoreUser = "bench"
+
+// The names the harness starts the lab's processes under, which their
+// logs and errors carry: the labhost services and Valkey.
+const (
+	procEcho       = "echo"
+	procMock       = "mock"
+	procSink       = "sink"
+	procIDP        = "idp"
+	procStateStore = "statestore"
+	procFaultProxy = "faultproxy"
+)
 
 // BuildLabhost builds test/bench/labhost from repoRoot into out, static
 // and trimmed, for the lab hosts.
@@ -48,7 +60,7 @@ type Lab struct {
 	keyFile string
 	keys    *lab.KeyFile
 
-	Mock, Sink, IdP, Valkey, Proxy *Proc
+	Mock, Sink, IDP, Valkey, Proxy *Proc
 	// extra are the further mocks StartMock started.
 	extra []*Proc
 	// StateStorePassword is the run's Valkey ACL password.
@@ -115,15 +127,19 @@ func (l *Lab) StartUpstream(ctx context.Context, w Workload) error {
 	up := l.p.Runner(RoleUpstream)
 	h := l.p.Hosts[RoleUpstream]
 	var err error
-	if l.Mock, err = up.Start(ctx, "mock", l.mockArgv(l.p.Services.Mock, w), h.CPUs); err != nil {
+	if l.Mock, err = up.Start(ctx, procMock, l.mockArgv(l.p.Services.Mock, w), h.CPUs); err != nil {
 		return err
 	}
-	if l.Sink, err = up.Start(ctx, "sink", []string{l.bins[RoleUpstream], "sink", "-listen", l.p.Services.Sink,
-		"-cert", l.tls(LeafSink + ".crt"), "-key", l.tls(LeafSink + ".key")}, h.AuxCPUs); err != nil {
+	if l.Sink, err = up.Start(ctx, procSink, []string{
+		l.bins[RoleUpstream], "sink", "-listen", l.p.Services.Sink,
+		"-cert", l.tls(LeafSink + ".crt"), "-key", l.tls(LeafSink + ".key"),
+	}, h.AuxCPUs); err != nil {
 		return err
 	}
-	if l.IdP, err = up.Start(ctx, "idp", []string{l.bins[RoleUpstream], "idp", "-listen", l.p.Services.IdP,
-		"-cert", l.tls(LeafIdP + ".crt"), "-key", l.tls(LeafIdP + ".key"), "-issuer", BenchIssuer, "-keys", l.remoteKeys()}, h.AuxCPUs); err != nil {
+	if l.IDP, err = up.Start(ctx, procIDP, []string{
+		l.bins[RoleUpstream], "idp", "-listen", l.p.Services.IDP,
+		"-cert", l.tls(LeafIDP + ".crt"), "-key", l.tls(LeafIDP + ".key"), "-issuer", BenchIssuer, "-keys", l.remoteKeys(),
+	}, h.AuxCPUs); err != nil {
 		return err
 	}
 	return nil
@@ -179,7 +195,7 @@ func (l *Lab) SinkMode(mode string) error {
 
 // CA returns the run CA's PEM, for a client the harness runs itself.
 func (l *Lab) CA() ([]byte, error) {
-	return os.ReadFile(l.pki.Path(FileCA)) //nolint:gosec // G304: the run's own CA file
+	return os.ReadFile(l.pki.Path(FileCA))
 }
 
 // ValkeyArgs returns the State Store server's arguments (PBB "Reference
@@ -197,6 +213,47 @@ func (l *Lab) ValkeyArgs() []string {
 	}
 }
 
+// OpenFiles is the open-file limit of every benchmark process,
+// LimitNOFILE 1,048,576 (target) in the settings baseline, which a
+// container takes only from its own --ulimit.
+const OpenFiles = 1 << 20
+
+// DockerValkey returns the command that runs the pinned Valkey 9 image as
+// the State Store: host networking and the TLS directory read-only, as
+// owner ("uid:gid"), the lab user whose run key files are mode 0600, since
+// the image's entrypoint otherwise drops to its own valkey user; on the
+// State Store host's measured cpuset and with OpenFiles, because a
+// container joins neither the scope nor the limits of the docker client
+// the harness starts.
+func DockerValkey(p *Profile, owner string) []string {
+	argv := []string{
+		"docker", "run", "--rm", "--network", "host", "--user", owner,
+		"--ulimit", fmt.Sprintf("nofile=%d:%d", OpenFiles, OpenFiles),
+		"-v", p.TLSDir + ":" + p.TLSDir + ":ro",
+	}
+	if c := p.Hosts[RoleStateStore].CPUs; c != "" {
+		argv = append(argv, "--cpuset-cpus", c)
+	}
+	return append(argv, redisserver.ImageValkey9, "valkey-server")
+}
+
+// owner returns the "uid:gid" of the user running the commands of r.
+func owner(ctx context.Context, r *Runner) (string, error) {
+	var ids []string
+	for _, flag := range []string{"-u", "-g"} {
+		out, err := r.Output(ctx, []string{"id", flag}, nil)
+		if err != nil {
+			return "", err
+		}
+		id := strings.TrimSpace(string(out))
+		if _, err := strconv.ParseUint(id, 10, 32); err != nil {
+			return "", fmt.Errorf("harness: id %s on the State Store host: %q", flag, id)
+		}
+		ids = append(ids, id)
+	}
+	return strings.Join(ids, ":"), nil
+}
+
 // StartStateStore starts Valkey, empty, on RH-1S's measured cpuset (the
 // pinned image with host networking, or the profile's server executable),
 // and S5x's fault proxy in front of it when the scenario asks. It returns
@@ -206,21 +263,27 @@ func (l *Lab) StartStateStore(ctx context.Context, s Scenario) (string, error) {
 	h := l.p.Hosts[RoleStateStore]
 	server := []string{l.p.Services.StateStoreServer}
 	if l.p.Services.StateStoreServer == "" {
-		server = []string{"docker", "run", "--rm", "--network", "host", "-v", l.p.TLSDir + ":" + l.p.TLSDir + ":ro", redisserver.ImageValkey9, "valkey-server"}
+		who, err := owner(ctx, ss)
+		if err != nil {
+			return "", err
+		}
+		server = DockerValkey(l.p, who)
 	}
 	argv := append([]string{l.bins[RoleStateStore], "run", "-ready", l.p.Services.StateStore, "--"}, append(server, l.ValkeyArgs()...)...)
 	var err error
-	if l.Valkey, err = ss.Start(ctx, "statestore", argv, h.CPUs); err != nil {
+	if l.Valkey, err = ss.Start(ctx, procStateStore, argv, h.CPUs); err != nil {
 		return "", err
 	}
 	addr := l.p.Services.StateStore
 	if s.Proxy != nil {
-		argv := []string{l.bins[RoleStateStore], "faultproxy", "-listen", l.p.Services.FaultProxy,
-			"-upstream", l.p.Services.StateStore, "-mean", s.Proxy.Mean.String(), "-stddev", s.Proxy.StdDev.String()}
+		argv := []string{
+			l.bins[RoleStateStore], "faultproxy", "-listen", l.p.Services.FaultProxy,
+			"-upstream", l.p.Services.StateStore, "-mean", s.Proxy.Mean.String(), "-stddev", s.Proxy.StdDev.String(),
+		}
 		if s.Proxy.PassFirst {
 			argv = append(argv, "-pass-first")
 		}
-		if l.Proxy, err = ss.Start(ctx, "faultproxy", argv, h.AuxCPUs); err != nil {
+		if l.Proxy, err = ss.Start(ctx, procFaultProxy, argv, h.AuxCPUs); err != nil {
 			return "", err
 		}
 		addr = l.p.Services.FaultProxy
@@ -238,7 +301,7 @@ func (l *Lab) LoadSpec(w Workload, target string, warmup, duration time.Duration
 	}
 	if w.Protocol == "h2" {
 		scheme = "https"
-		ca, err := os.ReadFile(l.pki.Path(FileCA)) //nolint:gosec // G304: the run's own CA file
+		ca, err := os.ReadFile(l.pki.Path(FileCA))
 		if err != nil {
 			return spec, err
 		}
@@ -286,7 +349,7 @@ func (l *Lab) Reset() error {
 
 func (l *Lab) procs() []*Proc {
 	var out []*Proc
-	for _, p := range append([]*Proc{l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy}, l.extra...) {
+	for _, p := range append([]*Proc{l.Mock, l.Sink, l.IDP, l.Valkey, l.Proxy}, l.extra...) {
 		if p != nil {
 			out = append(out, p)
 		}
@@ -297,7 +360,7 @@ func (l *Lab) procs() []*Proc {
 // Close stops every service, the State Store last.
 func (l *Lab) Close() error {
 	var errs []error
-	stop := append(append([]*Proc{l.Proxy}, l.extra...), l.Mock, l.IdP, l.Sink, l.Valkey)
+	stop := append(append([]*Proc{l.Proxy}, l.extra...), l.Mock, l.IDP, l.Sink, l.Valkey)
 	for _, p := range stop {
 		if p == nil {
 			continue
@@ -306,6 +369,6 @@ func (l *Lab) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	l.Mock, l.Sink, l.IdP, l.Valkey, l.Proxy, l.extra = nil, nil, nil, nil, nil, nil
+	l.Mock, l.Sink, l.IDP, l.Valkey, l.Proxy, l.extra = nil, nil, nil, nil, nil, nil
 	return errors.Join(errs...)
 }

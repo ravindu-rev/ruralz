@@ -50,11 +50,12 @@ func pass(id string) benchBudget {
 	return benchBudget{ID: id, Value: "v", Result: "r", Verdict: "pass"}
 }
 
-// releaseRecords is a passing release run's records: S1 and S2 A/B
-// comparisons of macro runs against baseline (none for the first release),
-// a component comparison, an S2 ladder, a single PB-15 run with its
-// invalid first attempt superseded by the re-run, and the S2 soak.
-func releaseRecords(commit, baseline string) []rec {
+// releaseRecords is a passing release run's records at commitA: S1 and S2
+// A/B comparisons of macro runs against baseline (none for the first
+// release), a component comparison, an S2 ladder, a single PB-15 run with
+// its invalid first attempt superseded by the re-run, and the S2 soak.
+func releaseRecords(baseline string) []rec {
+	commit := commitA
 	verdict := "pass"
 	if baseline == "" {
 		verdict = "none"
@@ -109,9 +110,9 @@ func writeRecords(t *testing.T, records []rec) string {
 // state skipped; a foreign JSON file or a summary without its summary is
 // an error; a missing directory holds none.
 func TestReadRecords(t *testing.T) {
-	dir := writeRecords(t, releaseRecords(commitA, ""))
+	dir := writeRecords(t, releaseRecords(""))
 	got, err := readRecords(dir)
-	if err != nil || len(got) != len(releaseRecords(commitA, "")) {
+	if err != nil || len(got) != len(releaseRecords("")) {
 		t.Fatalf("readRecords = %d records, %v", len(got), err)
 	}
 	if got[0].file != "latency/S1/run-1-baseline.json" {
@@ -147,10 +148,10 @@ func TestBenchmarkFindings(t *testing.T) {
 		}
 		return out
 	}
-	if got := benchmarkFindings(read(t, releaseRecords(commitA, "")), commitA, nil); len(got) != 0 {
+	if got := benchmarkFindings(read(t, releaseRecords("")), commitA, nil); len(got) != 0 {
 		t.Errorf("first release on absolute budgets: findings %q", got)
 	}
-	if got := benchmarkFindings(read(t, releaseRecords(commitA, commitB)), commitA, prev); len(got) != 0 {
+	if got := benchmarkFindings(read(t, releaseRecords(commitB)), commitA, prev); len(got) != 0 {
 		t.Errorf("release compared with the previous release: findings %q", got)
 	}
 	edit := func(file string, change func(*rec)) func([]rec) []rec {
@@ -218,7 +219,7 @@ func TestBenchmarkFindings(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			rs := releaseRecords(commitA, c.baseline)
+			rs := releaseRecords(c.baseline)
 			if c.change != nil {
 				rs = c.change(rs)
 			}

@@ -53,7 +53,7 @@ func startConns(t *testing.T, c ConnsConfig) *Conns {
 // returns its address; the test's end closes it.
 func serve(t *testing.T, srv *http.Server, tlsOn bool) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestConnsStallH2C(t *testing.T) {
 			panic(http.ErrAbortHandler)
 		}
 		w.WriteHeader(http.StatusNotFound)
-		http.NewResponseController(w).Flush() //nolint:errcheck // the HEADERS go out or the stream is gone
+		_ = http.NewResponseController(w).Flush() // the HEADERS go out or the stream is gone
 		select {
 		case <-release:
 		case <-r.Context().Done():
@@ -209,7 +209,7 @@ func TestConnsStallH2C(t *testing.T) {
 // connection whose header or body deadline passed.
 func rawServer(t *testing.T, done func([]byte) bool) string {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

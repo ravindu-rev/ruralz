@@ -137,8 +137,10 @@ func (m *Mock) Handle(_ context.Context, r Request) Response {
 	case OpStats:
 		st := m.srv.Stats()
 		m.mu.Lock()
-		ms := &MockStats{Requests: m.count, Connections: st.Connections, Open: st.OpenConnections,
-			Excess: EncodeHistogram(m.h), ExcessP99: m.h.ValueAtPercentile(99)}
+		ms := &MockStats{
+			Requests: m.count, Connections: st.Connections, Open: st.OpenConnections,
+			Excess: EncodeHistogram(m.h), ExcessP99: m.h.ValueAtPercentile(99),
+		}
 		m.mu.Unlock()
 		return Response{OK: true, Process: m.cpu.stats(), Mock: ms}
 	default:
@@ -242,7 +244,7 @@ func (s *Sink) Handle(ctx context.Context, r Request) Response {
 		default:
 			return failed(fmt.Errorf("lab: sink mode %q is not %s or %s", r.Name, SinkStall, SinkAccept))
 		}
-		if err := s.s.SetMode(m); err != nil {
+		if err := s.s.SetMode(m); err != nil { //nolint:contextcheck // a sink leaving Down listens again for its own lifetime, not the request's
 			return failed(err)
 		}
 		return Response{OK: true}
@@ -333,8 +335,8 @@ func (kf *KeyFile) Signers() ([]*mockidp.Key, error) {
 	return out, nil
 }
 
-// IdPConfig configures the mock IdP.
-type IdPConfig struct {
+// IDPConfig configures the mock IdP.
+type IDPConfig struct {
 	Listen            string
 	CertFile, KeyFile string
 	// Issuer is the iss the tokens carry, the Bundle's issuer.
@@ -343,14 +345,14 @@ type IdPConfig struct {
 	Keys string
 }
 
-// IdP is the mock IdP service: it publishes the key file's keys.
-type IdP struct {
+// IDP is the mock IdP service: it publishes the key file's keys.
+type IDP struct {
 	s   *mockidp.Server
 	cpu *cpuMeter
 }
 
-// StartIdP starts the mock IdP.
-func StartIdP(ctx context.Context, c IdPConfig) (*IdP, error) {
+// StartIDP starts the mock IdP.
+func StartIDP(ctx context.Context, c IDPConfig) (*IDP, error) {
 	tc, err := serverTLS(c.CertFile, c.KeyFile)
 	if err != nil {
 		return nil, err
@@ -367,14 +369,14 @@ func StartIdP(ctx context.Context, c IdPConfig) (*IdP, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &IdP{s: s, cpu: newCPUMeter()}, nil
+	return &IDP{s: s, cpu: newCPUMeter()}, nil
 }
 
 // Ready describes the IdP.
-func (i *IdP) Ready() Ready { return ready("idp", i.s.Addr()) }
+func (i *IDP) Ready() Ready { return ready("idp", i.s.Addr()) }
 
 // Handle answers stats and reset.
-func (i *IdP) Handle(_ context.Context, r Request) Response {
+func (i *IDP) Handle(_ context.Context, r Request) Response {
 	switch r.Op {
 	case OpReset:
 		i.cpu.reset()
@@ -387,7 +389,7 @@ func (i *IdP) Handle(_ context.Context, r Request) Response {
 }
 
 // Close stops the IdP.
-func (i *IdP) Close() error { return i.s.Close() }
+func (i *IDP) Close() error { return i.s.Close() }
 
 // ProxyConfig configures the fault proxy: S5x's 500 µs ± 100 µs of normal
 // delay each way (target).
@@ -458,7 +460,7 @@ func (p *Proxy) Handle(_ context.Context, r Request) Response {
 		default:
 			return failed(fmt.Errorf("lab: fault proxy mode %q is not %s or %s", r.Name, ProxyDelay, ProxyPass))
 		}
-		if err := p.p.SetMode(m); err != nil {
+		if err := p.p.SetMode(m); err != nil { //nolint:contextcheck // a proxy leaving Refuse listens again for its own lifetime, not the request's
 			return failed(err)
 		}
 		return Response{OK: true}

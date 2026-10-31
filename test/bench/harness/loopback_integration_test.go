@@ -125,7 +125,7 @@ func TestLoopbackRun(t *testing.T) {
 	// the profile's fixed secret root.
 	p.SecretRoot, p.TLSDir = filepath.Join(work, "secrets"), filepath.Join(work, "tls")
 	port := func() string { return "127.0.0.1:" + strconv.Itoa(freePort(t)) }
-	p.Services = Services{Mock: port(), IdP: port(), Sink: port(), StateStore: port(), FaultProxy: port(), EchoPort: freePort(t)}
+	p.Services = Services{Mock: port(), IDP: port(), Sink: port(), StateStore: port(), FaultProxy: port(), EchoPort: freePort(t)}
 	p.AdminPort = freePort(t)
 	sc := writeScenario(t, filepath.Join(work, "scenarios"), p, freePort(t))
 	st := Settings{Records: filepath.Join(work, "records")}

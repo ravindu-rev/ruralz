@@ -33,10 +33,10 @@ func TestParseHeapAlloc(t *testing.T) {
 	}
 }
 
-// TestParseVmHWM covers the peak RSS R1 reads from /proc/<pid>/status
+// TestParseVMHWM covers the peak RSS R1 reads from /proc/<pid>/status
 // without a scope: VmHWM in kB, returned in bytes, or an error for a
 // missing or malformed line.
-func TestParseVmHWM(t *testing.T) {
+func TestParseVMHWM(t *testing.T) {
 	for _, c := range []struct {
 		name    string
 		in      string
@@ -50,9 +50,9 @@ func TestParseVmHWM(t *testing.T) {
 		{"not a number", "VmHWM:\tlots kB\n", 0, true},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := ParseVmHWM([]byte(c.in))
+			got, err := ParseVMHWM([]byte(c.in))
 			if (err != nil) != c.wantErr || got != c.want {
-				t.Errorf("ParseVmHWM(%q) = %d, %v; want %d, error %v", c.in, got, err, c.want, c.wantErr)
+				t.Errorf("ParseVMHWM(%q) = %d, %v; want %d, error %v", c.in, got, err, c.want, c.wantErr)
 			}
 		})
 	}

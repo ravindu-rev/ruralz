@@ -9,10 +9,10 @@
 # maintainer registered. Then:
 #   1. Re-run   pr-fast, pr-full (alloc/op against the previous release),
 #               main, nightly (every benchmark slot, against the previous
-#               release's verified linux/amd64 ruralzd) and t5-systemd on
-#               the tagged commit, path filters off, and the release-only
-#               S2 soak on rh-1, whose records a records job commits to the
-#               bench-records branch.
+#               release's verified linux/amd64 ruralzd), t5-systemd and
+#               chaos-scale on the tagged commit, path filters off, and the
+#               release-only S2 soak on rh-1, whose records a records job
+#               commits to the bench-records branch.
 #   2. Gates    make release-gates: internal/tool/releasegate decides the
 #               release gates from the run's jobs, the nightly-failure and
 #               fuzz-crasher issues and the benchmark records, applies the
@@ -176,6 +176,18 @@ jobs:
       actions: read
       issues: write
 
+  chaos-scale:
+    name: chaos-scale
+    needs: tag
+    # The target chaos profile on rh-1, in the rh-1 concurrency group with
+    # nightly's Latency job and the soak job.
+    uses: ./.github/workflows/chaos-scale.yml
+    with:
+      all: true
+    permissions:
+      contents: read
+      issues: write
+
   soak:
     name: 12. Soak
     needs: [tag, nightly]
@@ -189,6 +201,18 @@ jobs:
       cancel-in-progress: false
     timeout-minutes: 180
     steps:
+      - name: Protected ref
+        # The self-hosted RH-1 runner runs only jobs of protected branches
+        # and tags, never pull-request code.
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then
+            echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
+            exit 1
+          fi
       - name: RH-1 check
         if: vars.RH1_PROVISIONED != 'true'
         run: |
@@ -275,7 +299,7 @@ jobs:
 
   gates:
     name: 12. Release gates
-    needs: [tag, pr-fast, pr-full, main, nightly, t5-systemd, soak]
+    needs: [tag, pr-fast, pr-full, main, nightly, t5-systemd, chaos-scale, soak]
     if: always() && needs.tag.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30

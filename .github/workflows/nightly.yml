@@ -16,17 +16,28 @@
 #            constants run at reduced scale on the loopback profile with
 #            the release build, asserting only criteria that hold on any
 #            hardware.
-#   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine.
-#            Until RH-1 is registered and the repository variable
+#   Latency  RH-1 only (self-hosted runner label rh-1), alone on the machine:
+#            the rh-1 concurrency group it shares with the release soak job
+#            and chaos-scale.yml never cancels a running job. It first
+#            refuses any ref that is not protected and any pull-request
+#            event. Until RH-1 is registered and the repository variable
 #            RH1_PROVISIONED=true is set, the job fails with an explicit
 #            "RH-1 not provisioned" annotation. It runs S1 and S2 A/B, the
 #            component benchmarks and one slot of the rotation (every slot
 #            with rotation-all), reading the rotation state and baselines
 #            from the orphan bench-records branch, and uploads its
-#            ruralz.bench.v1 records with the next state.
+#            ruralz.bench.v1 records with the next state, reaching the lab
+#            hosts through deploy/benchhost/rh-1.json.
 #   Records  commits the Latency job's records and state to bench-records:
 #            the only job here holding contents: write, so the rh-1 job
 #            keeps a read-only token.
+#   RH-1 runner status  once RH1_PROVISIONED=true, on a GitHub-hosted
+#            runner, lists the repository's runners with the read-only
+#            REPO_SETTINGS_TOKEN (Administration: read) and opens or updates
+#            the "RH-1 runner offline" nightly-failure issue when no online
+#            runner carries the rh-1 label. A Latency job cancelled while
+#            queued, as GitHub does after 24 hours without a runner, counts
+#            as that failure too.
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
 # A failure opens a nightly-failure issue (a fuzz crasher opens a
 # fuzz-crasher issue with the failing input) and blocks the next release.
@@ -303,12 +314,28 @@ jobs:
 
   latency:
     name: 11. Latency
-    # The self-hosted RH-1 runner runs only jobs of protected branches
-    # and tags (scheduled, dispatched, or called by release.yml), never
-    # pull-request code.
     runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # One rh-1 job at a time: the Latency job, the release soak job and
+    # chaos-scale.yml share the rh-1 group, which never cancels a running
+    # job.
+    concurrency:
+      group: rh-1
+      cancel-in-progress: false
     timeout-minutes: 180
     steps:
+      - name: Protected ref
+        # The self-hosted RH-1 runner runs only jobs of protected branches
+        # and tags (scheduled, dispatched, or called by release.yml), never
+        # pull-request code.
+        env:
+          EVENT: ${{ github.event_name }}
+          REF: ${{ github.ref }}
+          PROTECTED: ${{ github.ref_protected }}
+        run: |
+          if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then
+            echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
+            exit 1
+          fi
       - name: RH-1 check
         if: vars.RH1_PROVISIONED != 'true'
         run: |
@@ -438,6 +465,50 @@ jobs:
           git commit -q -m "bench: records of run $RUN_ID at $SHA"
           git -c http.extraheader="$auth" push -q origin bench-records
 
+  runner-status:
+    name: 11. RH-1 runner status
+    # Once the rh-1 runner is registered: a Latency job waits for it, and
+    # GitHub cancels a job queued 24 hours without a runner.
+    if: vars.RH1_PROVISIONED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: An online runner carries the rh-1 label
+        env:
+          # Listing a repository's runners takes Administration: read,
+          # which no GITHUB_TOKEN holds: a fine-grained read-only token.
+          RUNNERS_TOKEN: ${{ secrets.REPO_SETTINGS_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [[ -z "$RUNNERS_TOKEN" ]]; then
+            echo "::error title=RH-1 runner status::the read-only REPO_SETTINGS_TOKEN secret (Administration: read) is not set, so the rh-1 runner cannot be checked"
+            exit 1
+          fi
+          online=$(GH_TOKEN="$RUNNERS_TOKEN" gh api --paginate "repos/$GH_REPO/actions/runners?per_page=100" \
+            --jq '[.runners[] | select(.status == "online" and any(.labels[]; .name == "rh-1"))] | length' |
+            awk '{ n += $1 } END { print n + 0 }')
+          echo "online rh-1 runners: $online"
+          if ((online > 0)); then
+            exit 0
+          fi
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+          title="RH-1 runner offline"
+          body="$RUNNER_TEMP/body.md"
+          printf 'No online runner carries the rh-1 label (%s). The Latency job, the release soak job and chaos-scale.yml wait for it; check ruralz-bench-runner.service on RH-1 (deploy/benchhost/README.md). An open nightly-failure issue blocks the next release.\n' "$RUN_URL" >"$body"
+          n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body-file "$body"
+          else
+            gh issue create --label nightly-failure --title "$title" --body-file "$body"
+          fi
+          echo "::error title=$title::no online runner carries the rh-1 label; the issue \"$title\" records it"
+
   supply-chain:
     name: 6. Supply chain rescan
     runs-on: ubuntu-latest
@@ -452,8 +523,9 @@ jobs:
 
   issues:
     name: Nightly issues
-    needs: [fuzz-plan, fuzz, chaos, functional, latency, records, supply-chain]
-    if: always() && contains(needs.*.result, 'failure')
+    needs: [fuzz-plan, fuzz, chaos, functional, latency, records, runner-status, supply-chain]
+    # A Latency job cancelled while queued counts as a failure too.
+    if: always() && (contains(needs.*.result, 'failure') || needs.latency.result == 'cancelled')
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -473,6 +545,7 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           SHA: ${{ github.sha }}
+          LATENCY: ${{ needs.latency.result }}
         run: |
           gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
           gh label create fuzz-crasher --color D93F0B --description "A fuzz target found a failing input; blocks the next release" --force
@@ -529,3 +602,16 @@ jobs:
               printf 'The nightly job "%s" failed in %s (commit %s). A nightly failure blocks the next release.\n' "$job" "$RUN_URL" "$SHA" >"$body"
               upsert nightly-failure "nightly failure: $job" "$body"
             done
+
+          # A Latency job cancelled before any runner took it, as GitHub
+          # cancels a job queued 24 hours without a runner, counts as the
+          # failure "RH-1 runner offline", the issue the runner status job
+          # also opens.
+          if [[ "$LATENCY" == cancelled ]]; then
+            queued=$(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs?per_page=100" \
+              --jq '.jobs[] | select((.name | test("(^|/ )11\\. Latency$")) and .conclusion == "cancelled" and (.runner_name // "") == "") | .name')
+            if [[ -n "$queued" ]]; then
+              printf 'The nightly Latency job was cancelled before any runner took it in %s (commit %s): no rh-1 runner was online. Check ruralz-bench-runner.service on RH-1 (deploy/benchhost/README.md). An open nightly-failure issue blocks the next release.\n' "$RUN_URL" "$SHA" >"$body"
+              upsert nightly-failure "RH-1 runner offline" "$body"
+            fi
+          fi

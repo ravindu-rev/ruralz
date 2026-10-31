@@ -247,8 +247,11 @@ func Render(ctx context.Context, ruralz, repoRoot string, s Scenario, p *Profile
 		Digest   string `json:"digest"`
 		Revision string `json:"revision"`
 	}
-	if err := json.Unmarshal(out, &doc); err != nil || doc.Digest == "" {
-		return Revision{}, fmt.Errorf("harness: ruralz bundle build output %q: %v", out, err)
+	if err := json.Unmarshal(out, &doc); err != nil {
+		return Revision{}, fmt.Errorf("harness: ruralz bundle build output %q: %w", out, err)
+	}
+	if doc.Digest == "" {
+		return Revision{}, fmt.Errorf("harness: ruralz bundle build output %q: no digest", out)
 	}
 	return Revision{Rendered: rendered, Digest: doc.Digest, Rev: doc.Revision}, nil
 }

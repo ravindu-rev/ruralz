@@ -40,8 +40,8 @@ func (r *Runner) Remote() bool { return r.host.SSH != "" }
 // shellQuote quotes s for a POSIX shell.
 func shellQuote(s string) string {
 	if s != "" && strings.IndexFunc(s, func(c rune) bool {
-		return !(c == '-' || c == '_' || c == '.' || c == '/' || c == '=' || c == ':' || c == ',' || c == '+' || c == '@' ||
-			('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9'))
+		return c != '-' && c != '_' && c != '.' && c != '/' && c != '=' && c != ':' && c != ',' && c != '+' && c != '@' &&
+			(c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9')
 	}) < 0 {
 		return s
 	}
@@ -50,8 +50,10 @@ func shellQuote(s string) string {
 
 // sshArgs are the options of every ssh and scp call.
 func (r *Runner) sshArgs() []string {
-	return []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=" + r.p.KnownHosts,
-		"-o", "ServerAliveInterval=15", "-i", r.p.SSHKey}
+	return []string{
+		"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "UserKnownHostsFile=" + r.p.KnownHosts,
+		"-o", "ServerAliveInterval=15", "-i", r.p.SSHKey,
+	}
 }
 
 // Argv returns the local command line that runs argv on the host, in a
@@ -110,7 +112,7 @@ func (r *Runner) Put(ctx context.Context, src, dst string, mode os.FileMode) err
 		if err != nil {
 			return err
 		}
-		return os.WriteFile(dst, b, mode)
+		return os.WriteFile(dst, b, mode) //nolint:gosec // G703: a copy of a run directory file to the path the harness names
 	}
 	if _, err := r.Output(ctx, []string{"mkdir", "-p", filepath.Dir(dst)}, nil); err != nil {
 		return err

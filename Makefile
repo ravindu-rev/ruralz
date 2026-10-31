@@ -351,10 +351,13 @@ else
 	@# Each run starts dist/chaos empty, so the records it uploads, and the
 	@# saturation record a later package reads, are this run's alone.
 	rm -rf $(DIST)/chaos
-	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) RURALZ_CHAOS_RECORDS=$(DIST)/chaos go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
+	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) RURALZ_CHAOS_RECORDS=$(DIST)/chaos RURALZ_BENCH_PROFILE="$$BENCH_PROFILE" \
+		go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
 endif
 
-chaos-scale: ## Chaos at target scale on RH-1 (CE-5 at 100 Nodes, CE-12, CE-15), run by chaos-scale.yml
+# The target profile runs on the hosts of the inventory BENCH_PROFILE names,
+# deploy/benchhost/rh-1.json in chaos-scale.yml.
+chaos-scale: ## Chaos at target scale on the RH-1 hosts (CE-3, CE-5 at 100 Nodes, CE-12, CE-15, GD-2), run by chaos-scale.yml
 	$(MAKE) --no-print-directory chaos CHAOS_SCALE=target
 
 bench-functional: ## Stage 11 Functional job: every M1 benchmark scenario and constants run at reduced scale on loopback (tag e2e, test/bench/functional)

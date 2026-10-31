@@ -155,7 +155,7 @@ Every host runs one settings baseline, which `deploy/benchhost` applies and each
 | Setting | Value | Reason |
 |---|---|---|
 | Operating system | Debian stable with its longterm kernel on all four hosts; packages pinned, automatic updates off, updates applied only in a recorded maintenance window | A night's A/B runs share one kernel, and every record names it |
-| CPU | SMT off (`nosmt`); turbo off; the `performance` governor with the minimum frequency at the fixed maximum, 3.0 GHz or more (target); idle states deeper than C1 disabled | RH-1's specification: CPU per request holds still between runs |
+| CPU | SMT off through the kernel's SMT control, set at every boot; turbo off; the `performance` governor with the minimum frequency at the fixed maximum, 3.0 GHz or more (target); idle states deeper than C1 disabled | RH-1's specification: CPU per request holds still between runs |
 | cpusets (cgroup v2) | RH-1: `ruralzd` on 4 cores of the NIC's NUMA node, the runner and the harness on other cores; RH-1L: the load tools on 8 cores; RH-1U: the mock on 8 cores, the OTLP sink and the IdP on 4; RH-1S: Valkey on 4 cores, the fault proxy on 2 (target) | No measured process shares a core, and the generator and mock stay below 70% CPU at S1 saturation (hypothesis) |
 | Interrupts | `irqbalance` off; NIC queue interrupts pinned to cores outside each host's measured cpusets, on the NIC's NUMA node | Interrupt work never lands on `ruralzd`'s cores |
 | NIC | Ring buffers at the NIC's maximum; adaptive interrupt coalescing off, `rx-usecs` and `tx-usecs` 0 | Bursts never overflow a ring, and no packet waits for a coalescing timer |

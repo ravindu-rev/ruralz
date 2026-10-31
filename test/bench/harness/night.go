@@ -103,7 +103,7 @@ func (n *Night) rerun() bool {
 	if cost == 0 {
 		cost = Warmup + Measured
 	}
-	if n.reserve < cost && !(n.Plan.Slot == 0) {
+	if n.reserve < cost && n.Plan.Slot != 0 {
 		return false
 	}
 	n.reserve -= cost
@@ -193,6 +193,8 @@ func (n *Night) item(ctx context.Context, it Item) (Outcome, error) {
 			return Failed, fmt.Errorf("no driver for %s yet", it.ID)
 		}
 		return d(ctx, n, it)
+	case KindAB, KindLadder, KindSingle, KindCrossCheck:
+		// A catalog scenario's kinds: they run on its Revision below.
 	}
 	sc, ok := Find(n.Catalog, it.Scenario)
 	if !ok {

@@ -83,14 +83,14 @@ func RunO1(ctx context.Context, e Env, s Scale) (*Result, error) {
 		return nil, err
 	}
 	sa := scenario("O1a", s.O1.Dir, wa, S3Saturation)
-	if _, err := e.run(ctx, sa, harness.RunSpec{
+	if err := e.run(ctx, sa, harness.RunSpec{
 		Warmup: warm, Duration: dur, NoSettle: noSettle, Sample: sampleEvery,
 		Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 			win := inWindow(o.Samples, o.MeasureStart, o.MeasureEnd)
 			return []benchrecord.BudgetResult{
 				accounting("O1a-accounting", "admitted plus RZ-RT-005 within 0.5% of offered (target)", o.Load),
-				noCode("O1a-no-rz-up-006", "zero RZ-UP-006 (target)", o.Load, codeUpstream),
-				plateau("O1a-plateau", "active requests plateau at 20,000 (target)", win, metricActive, nil, InFlightUnits),
+				noCode("O1a-no-rz-up-006", "zero RZ-UP-006 (target)", o.Load),
+				plateau("O1a-plateau", "active requests plateau at 20,000 (target)", win, metricActive, InFlightUnits),
 				s.hardware(skipped("O1a-rejection-p99", "RZ-RT-005 at an internal p99 of 1ms or less (target)", noRejectionView)),
 			}
 		},
@@ -103,14 +103,14 @@ func RunO1(ctx context.Context, e Env, s Scale) (*Result, error) {
 			return nil, err
 		}
 		sb := scenario("O1b", s.O1.Dir, wb, S3Saturation)
-		if _, err := e.run(ctx, sb, harness.RunSpec{
+		if err := e.run(ctx, sb, harness.RunSpec{
 			Warmup: warm, Duration: dur, NoSettle: noSettle, Sample: sampleEvery,
 			Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 				win := inWindow(o.Samples, o.MeasureStart, o.MeasureEnd)
 				return []benchrecord.BudgetResult{
 					accounting("O1b-accounting", "admitted plus RZ-RT-005 within 0.5% of offered (target)", o.Load),
-					noCode("O1b-no-rz-up-006", "zero RZ-UP-006 (target)", o.Load, codeUpstream),
-					plateau("O1b-plateau", "active requests plateau at 20,000 (target)", win, metricActive, nil, InFlightUnits),
+					noCode("O1b-no-rz-up-006", "zero RZ-UP-006 (target)", o.Load),
+					plateau("O1b-plateau", "active requests plateau at 20,000 (target)", win, metricActive, InFlightUnits),
 					s.hardware(withSLO(goodput(o.Load, o.MeasureEnd.Sub(o.MeasureStart)), "SLO-GW-1")),
 				}
 			},
@@ -244,7 +244,7 @@ func RunO2(ctx context.Context, e Env, s Scale) (*Result, error) {
 			failed := counterDelta(win, metricStateCalls, promtext.L("op", "gcra", "result", "timeout")) +
 				counterDelta(win, metricStateCalls, promtext.L("op", "gcra", "result", "error"))
 			out := []benchrecord.BudgetResult{
-				plateau("O2-plateau", "State Store calls in flight plateau at 8,192 (target)", win, metricStateInflight, nil, StateInFlight),
+				plateau("O2-plateau", "State Store calls in flight plateau at 8,192 (target)", win, metricStateInflight, StateInFlight),
 				judge("O2-skipped", "the excess skipped and counted in ruralz_state_calls_total, without timeouts or errors (target)",
 					skippedCalls > 0 && failed == 0, fmt.Sprintf("%s skipped, %s timed out or failed", fmtCount(skippedCalls), fmtCount(failed))),
 				goroutineBound("O2-goroutines", "goroutines below 1 per client connection and request in flight, 2 per upstream connection, 8,192 and 1,000 more (target)", win),
@@ -340,8 +340,9 @@ func addWindows(sink *harness.Proc, prefix string, start time.Time, span time.Du
 	return out, nil
 }
 
-// foldedP99 merges the windows inside [start, end) and returns their p99.
-func foldedP99(sink *harness.Proc, wins []foldWindow, start, end time.Time) (time.Duration, int64, error) {
+// foldedP99 merges the windows inside [start, end) and returns their p99
+// and count.
+func foldedP99(sink *harness.Proc, wins []foldWindow, start, end time.Time) (time.Duration, uint64, error) {
 	h, err := harness.Pool()
 	if err != nil {
 		return 0, 0, err
@@ -362,7 +363,7 @@ func foldedP99(sink *harness.Proc, wins []foldWindow, start, end time.Time) (tim
 			return 0, 0, err
 		}
 	}
-	return h.ValueAtPercentile(99), int64(h.Count()), nil
+	return h.ValueAtPercentile(99), h.Count(), nil
 }
 
 // skippedP99 judges O2's skipped requests: their internal p99 at most 1 ms
@@ -382,16 +383,6 @@ func skippedP99(st *harness.Stage, wins []foldWindow, start, end time.Time, s5 t
 	return judge(id, value, p99 <= s5+O2InternalSlack, fmt.Sprintf("%s over %d skipped requests against S5's %s", p99, n, s5))
 }
 
-// gaugeMaxOf returns a gauge's highest value over the samples, 0 without
-// one.
-func gaugeMaxOf(samples []harness.NodeSample, name string, match promtext.Labels) float64 {
-	v, n := gaugeMax(samples, name, match)
-	if n == 0 || math.IsInf(v, 0) {
-		return 0
-	}
-	return v
-}
-
 // warmStateStore makes the Node's State client connect before the fault
 // proxy starts delaying: the client dials its shard's connections on
 // demand, and a TLS handshake through a proxy holding every chunk for
@@ -407,12 +398,12 @@ func warmStateStore(ctx context.Context, s *harness.Session, st *harness.Stage, 
 	if err != nil {
 		return err
 	}
-	for i := range uint64(min(src.Cardinality(), FirstSeenBurst)) {
+	for i := range min(src.Cardinality(), FirstSeenBurst) {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if err != nil {
 			return err
 		}
-		req.Header.Set("X-Bench-Key", src.Key(i))
+		req.Header.Set("X-Bench-Key", src.Key(uint64(i)))
 		resp, err := client.Do(req)
 		if err != nil {
 			return fmt.Errorf("scenarios: warming the State Store: %w", err)
@@ -436,7 +427,10 @@ func warmStateStore(ctx context.Context, s *harness.Session, st *harness.Stage, 
 			return nil
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("scenarios: the Node did not connect to the State Store: %v", err)
+			if err != nil {
+				return fmt.Errorf("scenarios: the Node did not connect to the State Store: %w", err)
+			}
+			return fmt.Errorf("scenarios: the Node did not connect to the State Store (%d clients, the harness's own included)", v.ConnectedClients)
 		}
 		if err := sleepCtx(ctx, 100*time.Millisecond); err != nil {
 			return err

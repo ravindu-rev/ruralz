@@ -227,7 +227,7 @@ func RunLoad(ctx context.Context, s LoadSpec) (*LoadResult, error) {
 		}
 		cfg.Tokens = toks
 	}
-	target, err := loadgen.NewHTTP(cfg)
+	target, err := loadgen.NewHTTP(cfg) //nolint:contextcheck // NewHTTP only checks the URL with a request it never sends; the run below takes ctx
 	if err != nil {
 		return nil, err
 	}

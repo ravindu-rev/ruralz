@@ -415,6 +415,6 @@ func pgpSignature(fingerprint []byte) string {
 	body = binary.BigEndian.AppendUint16(body, uint16(len(unhashed))) //nolint:gosec // A short test subpacket area.
 	body = append(body, unhashed...)
 	body = append(body, 0xAB, 0xCD, 0, 8, 0xFF)
-	packet := append([]byte{0xC2, byte(len(body))}, body...)
+	packet := append([]byte{0xC2, byte(len(body))}, body...) //nolint:gosec // G115: a short test packet, under the one-octet length limit of 192.
 	return armor("PGP SIGNATURE", packet, "Comment: test")
 }

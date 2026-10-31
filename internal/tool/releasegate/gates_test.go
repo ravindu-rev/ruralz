@@ -38,7 +38,7 @@ func releaseJobs() []workflowJob {
 		ok("nightly / 11. Fuzz plan"), ok("nightly / 11. Fuzz shard 0"), ok("nightly / 11. Fuzz shard 1"), ok("nightly / 11. Chaos"),
 		ok("nightly / 11. Latency"), ok("nightly / 11. Benchmark records"), ok("nightly / 6. Supply chain rescan"), skipped("nightly / Nightly issues"),
 		ok("t5-systemd / T5 systemd (ubuntu-24.04)"), skipped("t5-systemd / T5 issues"),
-		ok("chaos-scale / Chaos at target scale"),
+		ok("chaos-scale / Chaos at target scale"), skipped("chaos-scale / Chaos-scale issues"),
 		ok("12. Soak"),
 	}
 }
@@ -66,7 +66,7 @@ func TestGateSelections(t *testing.T) {
 		gate, job, status, conclusion, want string
 	}{
 		{gateGolden, "pr-fast / 5. CLI tests on windows-latest", "completed", "failure", `"pr-fast / 5. CLI tests on windows-latest" concluded failure`},
-		{gateGolden, "pr-fast / 4. Build and test on the Go 1.26 floor", "completed", "cancelled", "concluded cancelled"},
+		{gateGolden, "pr-fast / 4. Build and test on the Go 1.26 floor", "completed", "cancelled", "concluded cancelled"}, //nolint:misspell // GitHub spells the conclusion "cancelled".
 		{gateConformance, "pr-full / 8. Integration and conformance (linux/arm64 process)", "in_progress", "", "has not finished (in_progress)"},
 		{gateFuzzing, "nightly / 11. Fuzz shard 1", "completed", "failure", "11. Fuzz shard 1"},
 		{gateChaos, "chaos-scale / Chaos at target scale", "completed", "failure", "chaos-scale / Chaos at target scale"},
@@ -87,8 +87,34 @@ func TestGateSelections(t *testing.T) {
 			noChaos = append(noChaos, j)
 		}
 	}
-	if got := selectionFindings(noChaos, sels[gateChaos]); !strings.Contains(strings.Join(got, "\n"), `no job "chaos-scale / *" ran`) {
+	if got := selectionFindings(noChaos, sels[gateChaos]); !strings.Contains(strings.Join(got, "\n"), `no job "chaos-scale / Chaos at target scale" ran`) {
 		t.Errorf("Chaos without chaos-scale.yml: %q", got)
+	}
+}
+
+// TestChaosScaleWorkflowJob: release.yml calls chaos-scale.yml as the
+// job the Chaos gate and the re-run list name, gates on it, and
+// chaos-scale.yml's job carries the name the Chaos gate selects.
+func TestChaosScaleWorkflowJob(t *testing.T) {
+	read := func(name string) string {
+		b, err := os.ReadFile(filepath.Join("..", "..", "..", ".github", "workflows", name)) //nolint:gosec // G304: a workflow of the repository
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.ReplaceAll(string(b), "\r\n", "\n")
+	}
+	release := read("release.yml")
+	if !strings.Contains(release, "\n  chaos-scale:\n    name: chaos-scale\n") || !strings.Contains(release, "uses: ./.github/workflows/chaos-scale.yml\n") {
+		t.Error("release.yml does not call chaos-scale.yml as its chaos-scale job")
+	}
+	if !strings.Contains(release, "needs: [tag, pr-fast, pr-full, main, nightly, t5-systemd, chaos-scale, soak]") {
+		t.Error("release.yml's gates job does not wait for chaos-scale")
+	}
+	if !slices.Contains(reruns(), rerun{"chaos-scale", "chaos-scale.yml"}) {
+		t.Error("the re-run list lacks chaos-scale.yml")
+	}
+	if !strings.Contains(read("chaos-scale.yml"), "\n    name: "+chaosScaleJob+"\n") {
+		t.Errorf("chaos-scale.yml has no job named %q", chaosScaleJob)
 	}
 }
 
@@ -173,7 +199,7 @@ func TestReadSkips(t *testing.T) {
 // maintainer skips the Benchmarks gate of 0.1.0 or its candidates, and a
 // patch needs no candidate.
 func TestDecide(t *testing.T) {
-	recs, err := readRecords(writeRecords(t, releaseRecords(commitA, "")))
+	recs, err := readRecords(writeRecords(t, releaseRecords("")))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -323,7 +349,7 @@ func TestRunGates(t *testing.T) {
 	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
 	f := gatesFixture(t, now)
 	dir := t.TempDir()
-	records := writeRecords(t, releaseRecords(commitA, commitB))
+	records := writeRecords(t, releaseRecords(commitB))
 	o := gatesOptions{
 		tag: "v0.2.0", commit: commitA, runID: 42, runURL: "https://github.example/run/42", records: records,
 		skipped: filepath.Join(dir, "skipped.json"), summary: filepath.Join(dir, "summary.md"), dir: ".",

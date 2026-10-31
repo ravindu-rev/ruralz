@@ -47,7 +47,7 @@ func AtScale(sc harness.Scenario, rate float64) harness.Scenario {
 func RunScenario(ctx context.Context, e Env, s Scale, sc harness.Scenario) (*Result, error) {
 	res := &Result{}
 	warm, dur, noSettle := e.lengths(s)
-	_, err := e.run(ctx, sc, harness.RunSpec{
+	err := e.run(ctx, sc, harness.RunSpec{
 		Warmup: warm, Duration: dur, NoSettle: noSettle,
 		Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 			return []benchrecord.BudgetResult{served(sc.ID+"-served", o)}
@@ -80,12 +80,11 @@ func CheckRecords(dir string) ([]string, int, error) {
 			return nil
 		}
 		n++
-		rec, err := benchrecord.ReadFile(path)
-		if err != nil {
-			problems = append(problems, path+": "+err.Error())
-			return nil
-		}
-		if rec.Identity.Kind == benchrecord.KindMacro && !(rec.Load.AchievedRate > 0) {
+		// A record that does not read back is a problem, not a walk error.
+		switch rec, rerr := benchrecord.ReadFile(path); {
+		case rerr != nil:
+			problems = append(problems, path+": "+rerr.Error())
+		case rec.Identity.Kind == benchrecord.KindMacro && !(rec.Load.AchievedRate > 0):
 			problems = append(problems, path+": the run served nothing")
 		}
 		return nil

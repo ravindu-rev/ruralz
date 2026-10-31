@@ -18,7 +18,7 @@ import (
 const (
 	NameGateway    = "gateway.bench.example"
 	NameMock       = "upstream-mock.bench.example"
-	NameIdP        = "idp.bench.example"
+	NameIDP        = "idp.bench.example"
 	NameSink       = "otel-sink.bench.example"
 	NameStateStore = "statestore.bench.example"
 )
@@ -28,7 +28,7 @@ const (
 const (
 	FileCA       = "ca.pem"
 	LeafListener = "listener"
-	LeafIdP      = "idp"
+	LeafIDP      = "idp"
 	LeafSink     = "sink"
 	LeafValkey   = "valkey"
 )
@@ -60,7 +60,7 @@ func NewRunPKI(dir string, p *Profile) (*RunPKI, error) {
 		dns  string
 	}{
 		{LeafListener, RoleGateway, NameGateway},
-		{LeafIdP, RoleUpstream, NameIdP},
+		{LeafIDP, RoleUpstream, NameIDP},
 		{LeafSink, RoleUpstream, NameSink},
 		{LeafValkey, RoleStateStore, NameStateStore},
 	}
@@ -88,7 +88,7 @@ func (rp *RunPKI) Distribute(ctx context.Context, p *Profile) error {
 	files := map[Role][]string{
 		RoleGateway:    {FileCA, LeafListener + ".crt", LeafListener + ".key"},
 		RoleLoad:       {FileCA},
-		RoleUpstream:   {FileCA, LeafIdP + ".crt", LeafIdP + ".key", LeafSink + ".crt", LeafSink + ".key"},
+		RoleUpstream:   {FileCA, LeafIDP + ".crt", LeafIDP + ".key", LeafSink + ".crt", LeafSink + ".key"},
 		RoleStateStore: {FileCA, LeafValkey + ".crt", LeafValkey + ".key"},
 	}
 	for _, role := range Roles() {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/benchrecord"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
@@ -226,7 +227,7 @@ func soakPoints(samples []NodeSample, start time.Time, d time.Duration) []SoakPo
 		if smp.Err != nil || at < 0 || at > d {
 			continue
 		}
-		points = append(points, SoakPoint{At: at, RSS: smp.RSS, Goroutines: int64(smp.Metrics.Sum("ruralz_runtime_goroutines", promtext.Labels(nil)))})
+		points = append(points, SoakPoint{At: at, RSS: smp.RSS, Goroutines: int64(smp.Metrics.Sum(catalog.RuntimeGoroutines, promtext.Labels(nil)))})
 	}
 	return points
 }

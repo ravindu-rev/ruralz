@@ -179,7 +179,7 @@ func StartConns(ctx context.Context, c ConnsConfig) (*Conns, error) {
 		setup: newHistogram(), expired: newHistogram(), closed: newHistogram(),
 	}
 	if c.Kind == ConnsIdleH2 {
-		pem, err := os.ReadFile(c.CAFile) //nolint:gosec // G304: the run's CA file the harness names
+		pem, err := os.ReadFile(c.CAFile)
 		if err != nil {
 			return nil, fmt.Errorf("lab: conns: %w", err)
 		}
@@ -463,10 +463,12 @@ func settingsPayload(params map[uint16]uint32) []byte {
 
 // writeFrame writes one HTTP/2 frame.
 func writeFrame(w io.Writer, typ, flags byte, stream uint32, payload []byte) error {
-	if len(payload) >= h2MaxFrame {
+	n := len(payload)
+	if n >= h2MaxFrame {
 		return errors.New("frame payload too long")
 	}
-	h := []byte{byte(len(payload) >> 16), byte(len(payload) >> 8), byte(len(payload)), typ, flags, 0, 0, 0, 0}
+	// The 24-bit length, big-endian, one masked byte at a time.
+	h := []byte{byte((n >> 16) & 0xff), byte((n >> 8) & 0xff), byte(n & 0xff), typ, flags, 0, 0, 0, 0}
 	binary.BigEndian.PutUint32(h[5:], stream&0x7fffffff)
 	_, err := w.Write(append(h, payload...))
 	return err

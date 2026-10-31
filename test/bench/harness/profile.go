@@ -12,6 +12,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 
@@ -99,8 +100,8 @@ type Profile struct {
 type Services struct {
 	// Mock is the mock Upstream on RH-1U.
 	Mock string `json:"mock"`
-	// IdP is the mock IdP (HTTPS) on RH-1U.
-	IdP string `json:"idp"`
+	// IDP is the mock IdP (HTTPS) on RH-1U.
+	IDP string `json:"idp"`
 	// Sink is the OTLP sink (gRPC over TLS) on RH-1U.
 	Sink string `json:"sink"`
 	// StateStore is Valkey (TLS) on RH-1S; FaultProxy is S5x's fault
@@ -121,7 +122,7 @@ type Services struct {
 // stay equal across runs (PBB "Scenarios"). Like the profile's fixed
 // ports, they let one loopback run at a time use a host.
 const (
-	LoopbackSecretRoot = "/tmp/ruralz-bench/secrets"
+	LoopbackSecretRoot = "/tmp/ruralz-bench/secrets" //nolint:gosec // G101: a directory path, not a credential
 	LoopbackTLSDir     = LoopbackSecretRoot + "/tls"
 )
 
@@ -166,7 +167,7 @@ func LocalStateStoreServer(getenv func(string) string, lookPath func(string) (st
 // across runs.
 func LoopbackServices() Services {
 	return Services{
-		Mock: "127.0.0.1:18080", IdP: "127.0.0.1:18443", Sink: "127.0.0.1:14317",
+		Mock: "127.0.0.1:18080", IDP: "127.0.0.1:18443", Sink: "127.0.0.1:14317",
 		StateStore: "127.0.0.1:16379", FaultProxy: "127.0.0.1:16380", EchoPort: 17000,
 	}
 }
@@ -210,7 +211,7 @@ func (p *Profile) Validate() error {
 			errs = append(errs, fmt.Errorf("no %s host", r))
 			continue
 		}
-		if h.Address == "" || h.Dir == "" || !filepath.IsAbs(h.Dir) {
+		if h.Address == "" || h.Dir == "" || !hostAbs(h.Dir) {
 			errs = append(errs, fmt.Errorf("%s host needs an address and an absolute dir", r))
 		}
 		for _, c := range []string{h.CPUs, h.AuxCPUs} {
@@ -231,7 +232,7 @@ func (p *Profile) Validate() error {
 		errs = append(errs, errors.New("remote hosts need sshUser, sshKey and knownHosts"))
 	}
 	for _, f := range []struct{ name, v string }{{"secretRoot", p.SecretRoot}, {"tlsDir", p.TLSDir}} {
-		if !filepath.IsAbs(f.v) {
+		if !hostAbs(f.v) {
 			errs = append(errs, fmt.Errorf("%s %q is not absolute", f.name, f.v))
 		}
 	}
@@ -239,8 +240,11 @@ func (p *Profile) Validate() error {
 		errs = append(errs, errors.New("negative gomaxprocs or round trip bound"))
 	}
 	for _, sv := range []struct{ name, addr string }{
-		{"mock", p.Services.Mock}, {"idp", p.Services.IdP}, {"sink", p.Services.Sink},
-		{"stateStore", p.Services.StateStore}, {"faultProxy", p.Services.FaultProxy},
+		{"mock", p.Services.Mock},
+		{"idp", p.Services.IDP},
+		{"sink", p.Services.Sink},
+		{"stateStore", p.Services.StateStore},
+		{"faultProxy", p.Services.FaultProxy},
 	} {
 		if _, port, err := net.SplitHostPort(sv.addr); err != nil || port == "" || port == "0" {
 			errs = append(errs, fmt.Errorf("services.%s %q is not a fixed host:port", sv.name, sv.addr))
@@ -251,6 +255,12 @@ func (p *Profile) Validate() error {
 	}
 	return errors.Join(errs...)
 }
+
+// hostAbs reports whether p is an absolute path on a lab host: a
+// slash-separated absolute path, as on the Linux lab hosts the inventories
+// name, or an absolute path of the harness's own system, as the loopback
+// profile's run directory.
+func hostAbs(p string) bool { return path.IsAbs(p) || filepath.IsAbs(p) }
 
 // Host returns the host of role r.
 func (p *Profile) Host(r Role) Host { return p.Hosts[r] }

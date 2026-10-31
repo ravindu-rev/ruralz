@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -67,13 +68,13 @@ func TestPlateau(t *testing.T) {
 		for i, v := range c.vals {
 			samples = append(samples, at(t, i, g(v)))
 		}
-		r := plateau("p", "v", samples, metricStateInflight, nil, StateInFlight)
+		r := plateau("p", "v", samples, metricStateInflight, StateInFlight)
 		if r.Verdict != c.want {
 			t.Errorf("%s: plateau = %s (%s), want %s", c.name, r.Verdict, r.Result, c.want)
 		}
 	}
 	bad := harness.NodeSample{Err: errors.New("scrape failed")}
-	verdict(t, plateau("p", "v", []harness.NodeSample{bad}, metricStateInflight, nil, StateInFlight), benchrecord.BudgetFail)
+	verdict(t, plateau("p", "v", []harness.NodeSample{bad}, metricStateInflight, StateInFlight), benchrecord.BudgetFail)
 }
 
 // TestAccounting covers O1's accounting: within 0.5% passes, beyond fails,
@@ -87,8 +88,8 @@ func TestAccounting(t *testing.T) {
 
 // TestNoCode covers a code the load must never see.
 func TestNoCode(t *testing.T) {
-	verdict(t, noCode("n", "v", &lab.LoadResult{Codes: map[string]int64{codeFull: 9}}, codeUpstream), benchrecord.BudgetPass)
-	verdict(t, noCode("n", "v", &lab.LoadResult{Codes: map[string]int64{codeUpstream: 1}}, codeUpstream), benchrecord.BudgetFail)
+	verdict(t, noCode("n", "v", &lab.LoadResult{Codes: map[string]int64{codeFull: 9}}), benchrecord.BudgetPass)
+	verdict(t, noCode("n", "v", &lab.LoadResult{Codes: map[string]int64{codeUpstream: 1}}), benchrecord.BudgetFail)
 }
 
 // TestGoroutineBound covers O2's goroutine rule, judged on its tightest
@@ -107,7 +108,7 @@ func TestGoroutineBound(t *testing.T) {
 	// Bound: 12,000 + 8,200 + 2 x 100 + 8,192 + 1,000 = 29,592.
 	ok := []harness.NodeSample{at(t, 0, text("5000", "12000", "0", "100")), at(t, 1, text("29591", "12000", "8200", "100"))}
 	verdict(t, goroutineBound("g", "v", ok), benchrecord.BudgetPass)
-	over := append(ok, at(t, 2, text("29592", "12000", "8200", "100")))
+	over := slices.Concat(ok, []harness.NodeSample{at(t, 2, text("29592", "12000", "8200", "100"))})
 	verdict(t, goroutineBound("g", "v", over), benchrecord.BudgetFail)
 	// Without requests in flight the bound is the connections' alone.
 	idle := []harness.NodeSample{at(t, 0, text("21392", "12000", "0", "100"))}
@@ -119,16 +120,16 @@ func TestGoroutineBound(t *testing.T) {
 // and the first at or above it.
 func TestInterpolate(t *testing.T) {
 	rates := []float64{50000, 55000, 60000}
-	if r, ok := interpolate(rates, []float64{0.5, 0.6, 0.8}, 0.7); !ok || math.Abs(r-57500) > 1e-6 {
+	if r, ok := interpolate(rates, []float64{0.5, 0.6, 0.8}); !ok || math.Abs(r-57500) > 1e-6 {
 		t.Errorf("interpolate = %v, %v, want 57500", r, ok)
 	}
-	if r, ok := interpolate(rates, []float64{0.5, 0.7, 0.8}, 0.7); !ok || r != 55000 {
+	if r, ok := interpolate(rates, []float64{0.5, 0.7, 0.8}); !ok || r != 55000 {
 		t.Errorf("interpolate on a step = %v, %v, want 55000", r, ok)
 	}
-	if _, ok := interpolate(rates, []float64{0.75, 0.8, 0.9}, 0.7); ok {
+	if _, ok := interpolate(rates, []float64{0.75, 0.8, 0.9}); ok {
 		t.Error("interpolate with the first step past the level reported a figure")
 	}
-	if _, ok := interpolate(rates, []float64{0.1, 0.2, 0.3}, 0.7); ok {
+	if _, ok := interpolate(rates, []float64{0.1, 0.2, 0.3}); ok {
 		t.Error("interpolate with no step reaching the level reported a figure")
 	}
 }
@@ -144,17 +145,19 @@ func TestQuantileBound(t *testing.T) {
 			"ruralz_listener_tls_handshake_duration_seconds_count{listener=\"https\"} " + inf + "\n"
 	}
 	in := []harness.NodeSample{at(t, 0, h("0", "0")), at(t, 1, h("100", "100"))}
-	verdict(t, quantileBound("q", "v", in, metricHandshake, promtext.L("listener", "https"), 0.99, time.Second), benchrecord.BudgetPass)
+	verdict(t, quantileBound("q", "v", in, promtext.L("listener", "https"), time.Second), benchrecord.BudgetPass)
 	slow := []harness.NodeSample{at(t, 0, h("0", "0")), at(t, 1, h("0", "100"))}
-	verdict(t, quantileBound("q", "v", slow, metricHandshake, promtext.L("listener", "https"), 0.99, 500*time.Millisecond), benchrecord.BudgetFail)
-	verdict(t, quantileBound("q", "v", in[:1], metricHandshake, nil, 0.99, time.Second), benchrecord.BudgetFail)
+	verdict(t, quantileBound("q", "v", slow, promtext.L("listener", "https"), 500*time.Millisecond), benchrecord.BudgetFail)
+	verdict(t, quantileBound("q", "v", in[:1], nil, time.Second), benchrecord.BudgetFail)
 }
 
 // TestGoodput covers PB-11: O1b's 2xx per second against 90% of S3's
 // saturation, every other answer RZ-RT-005.
 func TestGoodput(t *testing.T) {
-	ok := &lab.LoadResult{Statuses: map[int]int64{200: 26000 * 10, 503: 16000 * 10}, Codes: map[string]int64{codeFull: 16000 * 10},
-		Outcomes: map[string]int64{loadgen.Success.String(): 260000, loadgen.ServerError.String(): 160000}}
+	ok := &lab.LoadResult{
+		Statuses: map[int]int64{200: 26000 * 10, 503: 16000 * 10}, Codes: map[string]int64{codeFull: 16000 * 10},
+		Outcomes: map[string]int64{loadgen.Success.String(): 260000, loadgen.ServerError.String(): 160000},
+	}
 	verdict(t, goodput(ok, 10*time.Second), benchrecord.BudgetPass)
 	low := &lab.LoadResult{Statuses: map[int]int64{200: 20000 * 10}, Outcomes: map[string]int64{loadgen.Success.String(): 200000}}
 	verdict(t, goodput(low, 10*time.Second), benchrecord.BudgetFail)
@@ -419,8 +422,10 @@ func TestR1Criteria(t *testing.T) {
 	for _, r := range r1Criteria(Full(), R1StageRoutes, idle, r1Loaded{reloads: 3, reloadMax: 600 * time.Millisecond}, o) {
 		ids[r.ID] = r.Verdict
 	}
-	for _, id := range []string{"R1-activations", "R1-lkg-revision", "R1-loaded-failures", "R1-cold-start", "R1-lkg-start", "PB-7",
-		"R1-snapshot-heap", "R1-peak-config", "PB-6", "R1-stage-verify", "R1-stage-compile", "R1-stage-plugin-compile", "R1-stage-swap", "R1-loaded-reload"} {
+	for _, id := range []string{
+		"R1-activations", "R1-lkg-revision", "R1-loaded-failures", "R1-cold-start", "R1-lkg-start", "PB-7",
+		"R1-snapshot-heap", "R1-peak-config", "PB-6", "R1-stage-verify", "R1-stage-compile", "R1-stage-plugin-compile", "R1-stage-swap", "R1-loaded-reload",
+	} {
 		if ids[id] != benchrecord.BudgetPass {
 			t.Errorf("%s = %q, want pass", id, ids[id])
 		}
@@ -545,7 +550,7 @@ func TestO2Keys(t *testing.T) {
 // ports and secret root, the named lab's CA under the RH secret root.
 func TestLabsMatchProfiles(t *testing.T) {
 	l, sv := gen.LoopbackLab(), harness.LoopbackServices()
-	if l.MockHost+":"+strconv.Itoa(l.MockPorts[0]) != sv.Mock || !strings.Contains(l.JWKSURL, sv.IdP) || !strings.Contains(l.OTLPEndpoint, sv.Sink) {
+	if l.MockHost+":"+strconv.Itoa(l.MockPorts[0]) != sv.Mock || !strings.Contains(l.JWKSURL, sv.IDP) || !strings.Contains(l.OTLPEndpoint, sv.Sink) {
 		t.Errorf("loopback lab %+v does not match the loopback services %+v", l, sv)
 	}
 	if !strings.HasPrefix(l.OTLPCA, harness.LoopbackTLSDir+"/") || !strings.HasPrefix(gen.NamedLab().OTLPCA, RHSecretRoot+"/") {

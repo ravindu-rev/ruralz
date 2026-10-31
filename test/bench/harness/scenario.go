@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
@@ -134,7 +135,7 @@ func pb4() Budget {
 func gcraBudget(id, zone, value, slo string, limit time.Duration) Budget {
 	return Budget{
 		ID: id, Value: value, SLO: slo, Kind: MetricP99, Limit: float64(limit),
-		Metric: "ruralz_state_call_duration_seconds", Labels: map[string]string{"op": "gcra", "zone": zone},
+		Metric: catalog.StateCallDurationSeconds, Labels: map[string]string{"op": "gcra", "zone": zone},
 	}
 }
 

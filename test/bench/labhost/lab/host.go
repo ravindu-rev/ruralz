@@ -57,7 +57,7 @@ type HostFacts struct {
 // tests). Missing files leave their facts empty.
 func ReadHostFacts(root string) HostFacts {
 	read := func(parts ...string) string {
-		b, err := os.ReadFile(filepath.Join(append([]string{root}, parts...)...)) //nolint:gosec // G304: sysfs and procfs paths under the given root
+		b, err := os.ReadFile(filepath.Join(append([]string{root}, parts...)...))
 		if err != nil {
 			return ""
 		}

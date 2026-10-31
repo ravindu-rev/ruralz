@@ -255,13 +255,13 @@ func catalog(id string) (harness.Scenario, error) {
 
 // run renders sc's Revision, runs spec on it and re-runs an invalid run
 // once from the reserve; the record's criteria come from spec.Criteria.
-func (e Env) run(ctx context.Context, sc harness.Scenario, spec harness.RunSpec, res *Result) (*harness.RunOutcome, error) {
+func (e Env) run(ctx context.Context, sc harness.Scenario, spec harness.RunSpec, res *Result) error {
 	if err := e.check(ctx, sc); err != nil {
-		return nil, err
+		return err
 	}
 	rev, err := harness.Render(ctx, e.Head.Ruralz, e.S.RepoRoot, sc, e.S.Profile)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	spec.Scenario, spec.Build, spec.Revision = sc, e.Head, rev
 	if spec.Name == "" {
@@ -273,13 +273,13 @@ func (e Env) run(ctx context.Context, sc harness.Scenario, spec harness.RunSpec,
 		out, err = e.S.Run(ctx, spec)
 	}
 	if err != nil {
-		return nil, err
+		return err
 	}
 	res.add(sc.ID, out.Path, criteriaOf(out.Record))
 	if !out.Valid {
 		res.Invalid = append(res.Invalid, sc.ID+": "+strings.Join(out.Record.Validity.Reasons, "; "))
 	}
-	return out, nil
+	return nil
 }
 
 // criteriaOf returns a record's budget results.
@@ -316,7 +316,7 @@ func codesOf(r *lab.LoadResult, c string) int64 {
 // RHSecretRoot is the fixed secret root of the RH-1 and RH-3 profiles: their
 // overlays name the run's TLS files under it, and their inventories in
 // deploy/benchhost set it as the Node's RURALZ_SECRET_ROOT.
-const RHSecretRoot = "/var/lib/ruralz-bench/secrets"
+const RHSecretRoot = "/var/lib/ruralz-bench/secrets" //nolint:gosec // G101: a directory path, not a credential
 
 // s2Intro starts the sentence that introduces the S2 Bundle block of
 // docs/architecture/12-performance-budgets-and-benchmarking.md.

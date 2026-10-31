@@ -69,12 +69,18 @@ func celBudget() Budget {
 // Components returns the component benchmarks.
 func Components() []Component {
 	return append([]Component{
-		{Name: "cel-match", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
-			Setup: celCall(expr.PlaceRouteMatchWhen, `request.headers["x-tenant"] == "acme"`, true)},
-		{Name: "cel-key-header", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
-			Setup: celCall(expr.PlaceRateLimitKey, `request.headers["x-bench-key"]`, false)},
-		{Name: "cel-key-consumer", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
-			Setup: celCall(expr.PlaceRateLimitKey, `consumer == null ? source.ip : consumer.name`, false)},
+		{
+			Name: "cel-match", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
+			Setup: celCall(expr.PlaceRouteMatchWhen, `request.headers["x-tenant"] == "acme"`, true),
+		},
+		{
+			Name: "cel-key-header", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
+			Setup: celCall(expr.PlaceRateLimitKey, `request.headers["x-bench-key"]`, false),
+		},
+		{
+			Name: "cel-key-consumer", Calls: 1_000_000, Warm: 100_000, Budgets: []Budget{celBudget()},
+			Setup: celCall(expr.PlaceRateLimitKey, `consumer == null ? source.ip : consumer.name`, false),
+		},
 		{Name: "rz-rt-005-rejection", Calls: 200_000, Warm: 20_000, Setup: rejectionCall, Budgets: []Budget{{
 			ID: "rz-rt-005-mean-cpu", Value: "<= 16µs mean CPU (target)", Kind: MaxMeanCPU, Limit: float64(16 * time.Microsecond),
 		}}},

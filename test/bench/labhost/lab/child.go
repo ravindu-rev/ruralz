@@ -82,7 +82,10 @@ func StartChild(ctx context.Context, c ChildConfig) (*Child, error) {
 		}
 		select {
 		case <-ch.done:
-			return nil, fmt.Errorf("lab: run %s exited before serving on %s: %v", c.Argv[0], c.ReadyAddr, ch.err)
+			if ch.err == nil { // exit status 0: Wait has no error to wrap
+				return nil, fmt.Errorf("lab: run %s exited before serving on %s: exit status 0", c.Argv[0], c.ReadyAddr)
+			}
+			return nil, fmt.Errorf("lab: run %s exited before serving on %s: %w", c.Argv[0], c.ReadyAddr, ch.err)
 		case <-rctx.Done():
 			_ = ch.Close()
 			return nil, fmt.Errorf("lab: run %s: not serving on %s: %w", c.Argv[0], c.ReadyAddr, rctx.Err())

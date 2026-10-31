@@ -181,9 +181,9 @@ func Serve(ctx context.Context, svc Service, in io.Reader, out io.Writer) error 
 	for {
 		select {
 		case <-ctx.Done():
-			return finish(svc, enc)
+			return finish(ctx, svc, enc)
 		case err := <-readErr:
-			if ferr := finish(svc, enc); ferr != nil {
+			if ferr := finish(ctx, svc, enc); ferr != nil {
 				return ferr
 			}
 			return err
@@ -203,9 +203,10 @@ func Serve(ctx context.Context, svc Service, in io.Reader, out io.Writer) error 
 	}
 }
 
-// finish closes svc and writes the session's last counters.
-func finish(svc Service, enc *json.Encoder) error {
-	last := svc.Handle(context.Background(), Request{Op: OpStats})
+// finish closes svc and writes the session's last counters, which it
+// reads after ctx ended too.
+func finish(ctx context.Context, svc Service, enc *json.Encoder) error {
+	last := svc.Handle(context.WithoutCancel(ctx), Request{Op: OpStats})
 	err := svc.Close()
 	if err != nil {
 		last.OK, last.Error = false, err.Error()
@@ -231,8 +232,11 @@ func NewClient(in io.Writer, out io.Reader) (*Client, error) {
 	if !sc.Scan() {
 		return nil, fmt.Errorf("lab: no ready line: %w", errors.Join(sc.Err(), io.ErrUnexpectedEOF))
 	}
-	if err := json.Unmarshal(sc.Bytes(), &c.Ready); err != nil || c.Ready.Service == "" {
-		return nil, fmt.Errorf("lab: bad ready line %q: %v", sc.Text(), err)
+	if err := json.Unmarshal(sc.Bytes(), &c.Ready); err != nil {
+		return nil, fmt.Errorf("lab: bad ready line %q: %w", sc.Text(), err)
+	}
+	if c.Ready.Service == "" {
+		return nil, fmt.Errorf("lab: bad ready line %q: no service", sc.Text())
 	}
 	return c, nil
 }

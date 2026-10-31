@@ -27,7 +27,7 @@ import (
 // ConstantsAPIKey is the constants runs' API key: the constants Bundle's
 // Consumer bench holds its SHA-256 hash, and the Quota denial cache run
 // sends it as x-api-key.
-const ConstantsAPIKey = "ruralz-bench-constants-api-key"
+const ConstantsAPIKey = "ruralz-bench-constants-api-key" //nolint:gosec // G101: the benchmark Bundle's published test key, not a credential
 
 // Constants the runs verify (PBB "Constants the suite verifies"), targets.
 const (
@@ -82,16 +82,16 @@ func RunConstants(ctx context.Context, e Env, s Scale) (*Result, error) {
 	return res.finish(), nil
 }
 
-// constantsScenario is a constants run over a Bundle directory, offering
+// constantsScenario is a constants run over the constants Bundle, offering
 // S1's workload to bench-1k at rate with loadgen.
-func constantsScenario(id, dir string, rate float64) (harness.Scenario, error) {
+func constantsScenario(id string, rate float64) (harness.Scenario, error) {
 	s1, err := catalog("S1")
 	if err != nil {
 		return harness.Scenario{}, err
 	}
 	w := s1.Workload
 	w.Tool, w.Rate = harness.ToolLoadgen, rate
-	return scenario(id, dir, w, s1.Saturation), nil
+	return scenario(id, DirConstants, w, s1.Saturation), nil
 }
 
 // action is what a constants run does to its Node while background
@@ -161,7 +161,7 @@ func (e Env) listenerAddr(port int) string {
 // handlers abort without writing, and each blocked write expires at the
 // 5 s pre-routing write deadline.
 func (e Env) preRouting(ctx context.Context, s Scale, res *Result) error {
-	sc, err := constantsScenario("constants-pre-routing", DirConstants, s.Constants.BackgroundRate)
+	sc, err := constantsScenario("constants-pre-routing", s.Constants.BackgroundRate)
 	if err != nil {
 		return err
 	}
@@ -213,7 +213,7 @@ func window(id, value, hist string, count int64, d time.Duration) benchrecord.Bu
 // refused: reservations past the budget get 503 RZ-RT-004, the buffered
 // bytes never pass 512 MiB and the Node stays up.
 func (e Env) bodyFlood(ctx context.Context, s Scale, res *Result) error {
-	sc, err := constantsScenario("constants-body-flood", DirConstants, s.Constants.BackgroundRate)
+	sc, err := constantsScenario("constants-body-flood", s.Constants.BackgroundRate)
 	if err != nil {
 		return err
 	}
@@ -514,7 +514,7 @@ func (e Env) activations(ctx context.Context, s Scale, res *Result) error {
 // 5 s, each with its digest.
 func s2Variants(ctx context.Context, ruralz string, rev harness.Revision, dir string) ([2]r1Variant, error) {
 	var vs [2]r1Variant
-	b, err := os.ReadFile(rev.Rendered) //nolint:gosec // G304: the run's rendered Bundle
+	b, err := os.ReadFile(rev.Rendered)
 	if err != nil {
 		return vs, err
 	}
@@ -527,7 +527,7 @@ func s2Variants(ctx context.Context, ruralz string, rev harness.Revision, dir st
 		if err := os.MkdirAll(src, 0o750); err != nil {
 			return vs, err
 		}
-		if err := os.WriteFile(filepath.Join(src, "ruralz.yaml"), body, 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(src, "ruralz.yaml"), body, 0o600); err != nil { //nolint:gosec // G703: S2's render, edited, under the run's directory
 			return vs, err
 		}
 		r, err := renderBundle(ctx, ruralz, src, filepath.Join(dir, "rendered-"+strconv.Itoa(i)+".yaml"))
@@ -725,7 +725,7 @@ func achievedRate(loads []*lab.LoadResult) float64 {
 // RZ-RL-003, however many keys are denied.
 func (e Env) quotaFlood(ctx context.Context, s Scale, res *Result) error {
 	c := s.Constants
-	sc, err := constantsScenario("constants-quota", DirConstants, c.QuotaRate)
+	sc, err := constantsScenario("constants-quota", c.QuotaRate)
 	if err != nil {
 		return err
 	}
@@ -734,7 +734,7 @@ func (e Env) quotaFlood(ctx context.Context, s Scale, res *Result) error {
 	sc.Workload.Header = map[string][]string{"x-api-key": {ConstantsAPIKey}}
 	sc.Workload.Count = []string{codeQuotaDenied}
 	dur := time.Duration(float64(2*c.QuotaKeys) / c.QuotaRate * float64(time.Second))
-	_, err = e.run(ctx, sc, harness.RunSpec{
+	err = e.run(ctx, sc, harness.RunSpec{
 		Warmup: -1, Duration: dur, NoSettle: true, Sample: sampleEvery,
 		Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 			r := o.Load
@@ -759,7 +759,7 @@ func (e Env) quotaFlood(ctx context.Context, s Scale, res *Result) error {
 // hot-entry layer fills and evicts; every request is answered.
 func (e Env) cacheFlood(ctx context.Context, s Scale, res *Result) error {
 	c := s.Constants
-	sc, err := constantsScenario("constants-cache", DirConstants, c.CacheRate)
+	sc, err := constantsScenario("constants-cache", c.CacheRate)
 	if err != nil {
 		return err
 	}
@@ -767,7 +767,7 @@ func (e Env) cacheFlood(ctx context.Context, s Scale, res *Result) error {
 	sc.Workload.Keys = &lab.KeySpec{Kind: lab.KeysRotate, Prefix: "entry-", PerKey: 2}
 	sc.Workload.MockHeader = []string{"Cache-Control: public, max-age=60", "Vary: X-Bench-Key"}
 	dur := time.Duration(float64(2*c.CacheKeys) / c.CacheRate * float64(time.Second))
-	_, err = e.run(ctx, sc, harness.RunSpec{
+	err = e.run(ctx, sc, harness.RunSpec{
 		Warmup: -1, Duration: dur, NoSettle: true, Sample: sampleEvery,
 		Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 			win := good(o.Samples)
@@ -798,7 +798,7 @@ func (e Env) ringLadder(ctx context.Context, s Scale, res *Result) error {
 		if err != nil {
 			return err
 		}
-		sc, err := constantsScenario(id, DirConstants, c.BackgroundRate)
+		sc, err := constantsScenario(id, c.BackgroundRate)
 		if err != nil {
 			return err
 		}
@@ -826,7 +826,7 @@ func (e Env) ringLadder(ctx context.Context, s Scale, res *Result) error {
 // Node at its ReadHeaderTimeout, each between 10 s and 12 s.
 func (e Env) connMemory(ctx context.Context, s Scale, res *Result) error {
 	c := s.Constants
-	sc, err := constantsScenario("constants-conn-memory", DirConstants, c.BackgroundRate)
+	sc, err := constantsScenario("constants-conn-memory", c.BackgroundRate)
 	if err != nil {
 		return err
 	}

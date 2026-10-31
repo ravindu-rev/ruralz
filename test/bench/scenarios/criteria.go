@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	telcatalog "github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/benchrecord"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 	"github.com/ravindu-rev/ruralz/test/bench/harness"
@@ -18,28 +19,28 @@ import (
 // Metric names the criteria read (docs/architecture/10-observability.md
 // "Ruralz Gateway metrics").
 const (
-	metricActive         = "ruralz_http_active_requests"
-	metricOpenConns      = "ruralz_listener_open_connections"
-	metricConnsTotal     = "ruralz_listener_connections_total"
-	metricHandshake      = "ruralz_listener_tls_handshake_duration_seconds"
-	metricNodeResponses  = "ruralz_http_node_responses_total"
-	metricGoroutines     = "ruralz_runtime_goroutines"
-	metricHeap           = "ruralz_runtime_heap_bytes"
-	metricPoolConns      = "ruralz_upstream_pool_connections"
-	metricStateInflight  = "ruralz_state_inflight_calls"
-	metricStateCalls     = "ruralz_state_calls_total"
-	metricRetired        = "ruralz_config_retired_snapshots"
-	metricActivations    = "ruralz_config_activations_total"
-	metricActivationTime = "ruralz_config_activation_duration_seconds"
-	metricBuffered       = "ruralz_node_buffered_bytes"
-	metricDegraded       = "ruralz_node_degraded_info"
-	metricUpDegraded     = "ruralz_upstream_degraded_info"
-	metricLogsDropped    = "ruralz_telemetry_logs_dropped_total"
-	metricSpansDropped   = "ruralz_telemetry_spans_dropped_total"
-	metricUnsampled      = "ruralz_telemetry_traces_unsampled_total"
-	metricQuota          = "ruralz_quota_decisions_total"
-	metricCache          = "ruralz_cache_requests_total"
-	metricRequests       = "ruralz_http_requests_total"
+	metricActive         = telcatalog.HTTPActiveRequests
+	metricOpenConns      = telcatalog.ListenerOpenConnections
+	metricConnsTotal     = telcatalog.ListenerConnectionsTotal
+	metricHandshake      = telcatalog.ListenerTLSHandshakeDurationSeconds
+	metricNodeResponses  = telcatalog.HTTPNodeResponsesTotal
+	metricGoroutines     = telcatalog.RuntimeGoroutines
+	metricHeap           = telcatalog.RuntimeHeapBytes
+	metricPoolConns      = telcatalog.UpstreamPoolConnections
+	metricStateInflight  = telcatalog.StateInflightCalls
+	metricStateCalls     = telcatalog.StateCallsTotal
+	metricRetired        = telcatalog.ConfigRetiredSnapshots
+	metricActivations    = telcatalog.ConfigActivationsTotal
+	metricActivationTime = telcatalog.ConfigActivationDurationSeconds
+	metricBuffered       = telcatalog.NodeBufferedBytes
+	metricDegraded       = telcatalog.NodeDegradedInfo
+	metricUpDegraded     = telcatalog.UpstreamDegradedInfo
+	metricLogsDropped    = telcatalog.TelemetryLogsDroppedTotal
+	metricSpansDropped   = telcatalog.TelemetrySpansDroppedTotal
+	metricUnsampled      = telcatalog.TelemetryTracesUnsampledTotal
+	metricQuota          = telcatalog.QuotaDecisionsTotal
+	metricCache          = telcatalog.CacheRequestsTotal
+	metricRequests       = telcatalog.HTTPRequestsTotal
 )
 
 // Ceilings the criteria check (targets).
@@ -118,8 +119,8 @@ func fmtCount(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
 // plateau judges a gauge that reaches its ceiling, within the tolerance,
 // and never passes it, over the samples of the measured window.
-func plateau(id, value string, samples []harness.NodeSample, name string, match promtext.Labels, ceiling float64) benchrecord.BudgetResult {
-	hi, n := gaugeMax(samples, name, match)
+func plateau(id, value string, samples []harness.NodeSample, name string, ceiling float64) benchrecord.BudgetResult {
+	hi, n := gaugeMax(samples, name, nil)
 	if n == 0 {
 		return judge(id, value, false, "no Node sample in the measured window")
 	}
@@ -148,10 +149,10 @@ func breakdown(r *lab.LoadResult) string {
 	return s
 }
 
-// noCode judges a code the load must never see.
-func noCode(id, value string, r *lab.LoadResult, code string) benchrecord.BudgetResult {
-	n := codesOf(r, code)
-	return judge(id, value, n == 0, fmt.Sprintf("%d responses with %s", n, code))
+// noCode judges codeUpstream, a code the load must never see.
+func noCode(id, value string, r *lab.LoadResult) benchrecord.BudgetResult {
+	n := codesOf(r, codeUpstream)
+	return judge(id, value, n == 0, fmt.Sprintf("%d responses with %s", n, codeUpstream))
 }
 
 // goroutineBound judges O2's goroutine rule on every sample: fewer
@@ -203,37 +204,38 @@ func histogramDelta(samples []harness.NodeSample, name string, match promtext.La
 	return out, true
 }
 
-// quantileBound judges a Node histogram's quantile q over the samples
-// against limit.
-func quantileBound(id, value string, samples []harness.NodeSample, name string, match promtext.Labels, q float64, limit time.Duration) benchrecord.BudgetResult {
-	h, ok := histogramDelta(samples, name, match)
+// quantileBound judges the p99 of the Node's TLS handshake histogram over
+// the samples against limit.
+func quantileBound(id, value string, samples []harness.NodeSample, match promtext.Labels, limit time.Duration) benchrecord.BudgetResult {
+	h, ok := histogramDelta(samples, metricHandshake, match)
 	if !ok || h.Count == 0 {
-		return judge(id, value, false, "no observation of "+name)
+		return judge(id, value, false, "no observation of "+metricHandshake)
 	}
-	v := h.Quantile(q)
+	v := h.Quantile(0.99)
 	if math.IsNaN(v) {
-		return judge(id, value, false, "no quantile of "+name)
+		return judge(id, value, false, "no quantile of "+metricHandshake)
 	}
 	d := time.Duration(v * float64(time.Second))
 	return judge(id, value, d <= limit, fmt.Sprintf("%s over %s observations", d, fmtCount(h.Count)))
 }
 
-// interpolate returns the rate at which a measured level reaches target,
-// linearly between the last step below it and the first at or above it;
-// ok is false when no step reaches it or the first step already does.
-func interpolate(rates, levels []float64, target float64) (float64, bool) {
-	for i := range levels {
-		if levels[i] < target {
+// interpolate returns the rate at which the measured script CPU share
+// reaches G1ScriptCPU, linearly between the last step below it and the
+// first at or above it; ok is false when no step reaches it or the first
+// step already does.
+func interpolate(rates, levels []float64) (float64, bool) {
+	if len(levels) > 0 && levels[0] >= G1ScriptCPU {
+		return rates[0], false
+	}
+	for i := 1; i < len(levels); i++ {
+		if levels[i] < G1ScriptCPU {
 			continue
-		}
-		if i == 0 {
-			return rates[0], false
 		}
 		r0, r1, l0, l1 := rates[i-1], rates[i], levels[i-1], levels[i]
 		if l1 == l0 {
 			return r1, true
 		}
-		return r0 + (target-l0)*(r1-r0)/(l1-l0), true
+		return r0 + (G1ScriptCPU-l0)*(r1-r0)/(l1-l0), true
 	}
 	return 0, false
 }

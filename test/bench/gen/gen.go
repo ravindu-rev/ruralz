@@ -86,8 +86,8 @@ type Lab struct {
 // port one above the first), NamedLab's the bench.example names and the
 // secret root of the RH-1 and RH-3 overlays.
 const (
-	loopbackSecretRoot = "/tmp/ruralz-bench/secrets"
-	namedSecretRoot    = "/var/lib/ruralz-bench/secrets"
+	loopbackSecretRoot = "/tmp/ruralz-bench/secrets"     //nolint:gosec // G101: a directory path, not a credential
+	namedSecretRoot    = "/var/lib/ruralz-bench/secrets" //nolint:gosec // G101: a directory path, not a credential
 )
 
 // LoopbackLab returns the loopback profile's lab.

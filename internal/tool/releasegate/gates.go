@@ -50,6 +50,10 @@ func reruns() []rerun {
 // soakJob is release.yml's soak job, the release-only S2 soak on RH-1.
 const soakJob = "12. Soak"
 
+// chaosScaleJob is chaos-scale.yml's job: the target chaos profile on the
+// RH-1 hosts.
+const chaosScaleJob = "Chaos at target scale"
+
 // jobSel selects jobs of the release run: the jobs a caller's workflow
 // ran, by exact name or by name prefix (a matrix job), or all of them.
 // An empty Caller selects jobs of release.yml itself.
@@ -119,8 +123,9 @@ func gateJobs() map[string][]jobSel {
 		gateConformance: {stage8},
 		// Every 11. Fuzz shard job.
 		gateFuzzing: {{Caller: "nightly", Name: "11. Fuzz shard ", Prefix: true}},
-		// The 11. Chaos job and chaos-scale.yml.
-		gateChaos: {{Caller: "nightly", Name: "11. Chaos"}, {Caller: "chaos-scale"}},
+		// The 11. Chaos job and chaos-scale.yml's chaos job, whose issue
+		// job a release run skips.
+		gateChaos: {{Caller: "nightly", Name: "11. Chaos"}, {Caller: "chaos-scale", Name: chaosScaleJob}},
 		// The release's Latency and soak jobs, whose records the gate also
 		// reads, and stage 9's alloc/op, size and idle RSS gates.
 		gateBenchmarks: {

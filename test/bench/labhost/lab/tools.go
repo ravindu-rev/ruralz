@@ -14,6 +14,7 @@ import (
 	"io"
 	"maps"
 	"math"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -191,9 +192,11 @@ func RunTool(ctx context.Context, s LoadSpec) (*LoadResult, error) {
 // OhaArgs returns oha's arguments for one phase of d: a fixed rate with
 // latency correction and per-request CSV lines.
 func OhaArgs(s LoadSpec, d time.Duration, caFile string) []string {
-	a := []string{"-z", d.String(), "-q", strconv.FormatFloat(s.Rate, 'f', -1, 64), "-c", strconv.Itoa(max(s.Connections, 1)),
-		"--latency-correction", "--no-tui", "--output-format", "csv"}
-	if s.Method != "" && s.Method != "GET" {
+	a := []string{
+		"-z", d.String(), "-q", strconv.FormatFloat(s.Rate, 'f', -1, 64), "-c", strconv.Itoa(max(s.Connections, 1)),
+		"--latency-correction", "--no-tui", "--output-format", "csv",
+	}
+	if s.Method != "" && s.Method != http.MethodGet {
 		a = append(a, "-m", s.Method)
 	}
 	if s.Host != "" {
@@ -297,9 +300,11 @@ func secondsDuration(s float64) time.Duration {
 
 // VegetaArgs returns vegeta attack's arguments for one phase of d.
 func VegetaArgs(s LoadSpec, d time.Duration, caFile string) []string {
-	a := []string{"attack", "-rate", strconv.FormatFloat(s.Rate, 'f', -1, 64) + "/s", "-duration", d.String(),
+	a := []string{
+		"attack", "-rate", strconv.FormatFloat(s.Rate, 'f', -1, 64) + "/s", "-duration", d.String(),
 		"-connections", strconv.Itoa(max(s.Connections, 1)), "-max-connections", strconv.Itoa(max(s.Connections, 1)),
-		"-keepalive=true", "-max-body", "0", "-http2=" + strconv.FormatBool(s.Protocol == "h2")}
+		"-keepalive=true", "-max-body", "0", "-http2=" + strconv.FormatBool(s.Protocol == "h2"),
+	}
 	if s.Protocol == "h2c" {
 		a = append(a, "-h2c")
 	}

@@ -401,7 +401,7 @@ func RunC2(ctx context.Context, e Env, s Scale) (*Result, error) {
 		return []benchrecord.BudgetResult{
 			held("C2-held", fmt.Sprintf("%d new TLS connections within %s, every one held (target)", s.C2.Burst, s.C2.Within), cs, s.C2.Burst),
 			s.hardware(externalP99("C2-existing-p99", "existing traffic's external p99 <= 5ms (target)", o, C2ExistingP99)),
-			s.hardware(quantileBound("C2-handshake-p99", "TLS handshake p99 <= 1s (target)", win, metricHandshake, promtext.L("listener", listenerHTTPS), 0.99, C2HandshakeP99)),
+			s.hardware(quantileBound("C2-handshake-p99", "TLS handshake p99 <= 1s (target)", win, promtext.L("listener", listenerHTTPS), C2HandshakeP99)),
 		}
 	}
 	out, err := e.S.Measure(ctx, st, spec)
@@ -485,8 +485,10 @@ func RunGOMEMLIMIT(ctx context.Context, e Env, s Scale) (*Result, error) {
 		}
 		return []benchrecord.BudgetResult{
 			held("S2-gomemlimit-held", "the idle TLS connections held through S2's load (target)", cs, idle),
-			{ID: "S2-gomemlimit-gc", Value: "informational: GC CPU with GOMEMLIMIT at 90% of a 2.5 GiB container",
-				Result: "GC CPU share " + strconv.FormatFloat(o.Measures.GCShare*100, 'f', 2, 64) + "%", Verdict: benchrecord.BudgetSkipped},
+			{
+				ID: "S2-gomemlimit-gc", Value: "informational: GC CPU with GOMEMLIMIT at 90% of a 2.5 GiB container",
+				Result: "GC CPU share " + strconv.FormatFloat(o.Measures.GCShare*100, 'f', 2, 64) + "%", Verdict: benchrecord.BudgetSkipped,
+			},
 		}
 	}
 	out, err := e.S.Measure(ctx, st, spec)

@@ -47,7 +47,7 @@ func RunPB10(ctx context.Context, e Env, s Scale) (*Result, error) {
 		on, onErr = summaryCPU(e.S, "S2")
 		recording, recErr = summaryCPU(e.S, "component-"+ComponentMetricRecording)
 	}
-	_, err = e.run(ctx, sc, harness.RunSpec{
+	err = e.run(ctx, sc, harness.RunSpec{
 		Warmup: warm, Duration: dur, NoSettle: noSettle, NoInternal: true,
 		Criteria: func(o *harness.RunOutcome) []benchrecord.BudgetResult {
 			return []benchrecord.BudgetResult{s.hardware(withSLO(pb10(on, o.Measures.CPUPerRequest, recording, onErr, recErr), "SLO-GW-7"))}

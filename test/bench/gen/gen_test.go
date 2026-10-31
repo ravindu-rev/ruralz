@@ -317,7 +317,7 @@ func TestDigests(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(golden) //nolint:gosec // G304: a golden file under testdata
 	if err != nil {
 		t.Fatalf("%v (run go test ./test/bench/gen -run TestDigests -update)", err)
 	}

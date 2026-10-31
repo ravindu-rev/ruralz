@@ -142,7 +142,7 @@ func (h *HostChecker) roundTrips(ctx context.Context) ([]string, error) {
 	}()
 	for _, role := range Roles() {
 		addr := net.JoinHostPort(p.Hosts[role].Address, strconv.Itoa(p.Services.EchoPort))
-		e, err := p.Runner(role).Start(ctx, "echo", []string{h.bin(role), "echo", "-listen", addr}, p.Hosts[role].AuxCPUs)
+		e, err := p.Runner(role).Start(ctx, procEcho, []string{h.bin(role), "echo", "-listen", addr}, p.Hosts[role].AuxCPUs)
 		if err != nil {
 			return nil, err
 		}

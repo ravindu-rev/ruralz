@@ -141,7 +141,7 @@ func TestBundlesValidate(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	want, err := os.ReadFile(golden)
+	want, err := os.ReadFile(golden) //nolint:gosec // G304: a golden file under testdata
 	if err != nil {
 		t.Fatalf("%v (go test ./test/bench/scenarios -run TestBundlesValidate -update writes it)", err)
 	}
@@ -216,13 +216,13 @@ func TestEnvironments(t *testing.T) {
 func TestOverlaysAreFixed(t *testing.T) {
 	sv := harness.LoopbackServices()
 	var ports []string
-	for _, a := range []string{sv.Mock, sv.IdP, sv.Sink, sv.StateStore, sv.FaultProxy} {
+	for _, a := range []string{sv.Mock, sv.IDP, sv.Sink, sv.StateStore, sv.FaultProxy} {
 		ports = append(ports, a[strings.LastIndexByte(a, ':')+1:])
 	}
 	addr := regexp.MustCompile(`127\.0\.0\.1:(\d+)`)
 	secret := regexp.MustCompile(`name: (/[^\s}]+)`)
 	for _, dir := range bundleDirs(t) {
-		base, err := os.ReadFile(filepath.Join(scenarioRoot(t), dir, "ruralz.yaml"))
+		base, err := os.ReadFile(filepath.Join(scenarioRoot(t), dir, "ruralz.yaml")) //nolint:gosec // G304: a scenario Bundle of the repository
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -230,7 +230,7 @@ func TestOverlaysAreFixed(t *testing.T) {
 			t.Errorf("%s's base uses a ${VAR}", dir)
 		}
 		for _, p := range profilesOf(t, dir) {
-			b, err := os.ReadFile(filepath.Join(scenarioRoot(t), dir, "overlays", p, "bench.yaml"))
+			b, err := os.ReadFile(filepath.Join(scenarioRoot(t), dir, "overlays", p, "bench.yaml")) //nolint:gosec // G304: a scenario overlay of the repository
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,7 +263,7 @@ func TestS2MatchesDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	doc, err := os.ReadFile(filepath.Join(root, "docs", "architecture", "12-performance-budgets-and-benchmarking.md"))
+	doc, err := os.ReadFile(filepath.Join(root, "docs", "architecture", "12-performance-budgets-and-benchmarking.md")) //nolint:gosec // G304: the repository's own document
 	if err != nil {
 		t.Fatal(err)
 	}

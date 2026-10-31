@@ -149,7 +149,8 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 	if s.StateStoreURL != "" {
 		env = append(env, "RURALZ_STATE_STORE_URL="+s.StateStoreURL)
 	}
-	n.env = append(env, s.Env...)
+	env = append(env, s.Env...)
+	n.env = env
 	argv := p.Runner(RoleGateway).Argv([]string{s.Binary}, g.CPUs, s.ScopeProperties...)
 	n.cmd = exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the harness starts the binary it built
 	n.cmd.Env = n.env
@@ -193,7 +194,7 @@ func (n *Node) waitReady(ctx context.Context) error {
 	for time.Now().Before(deadline) {
 		select {
 		case <-n.done:
-			return fmt.Errorf("harness: ruralzd exited before ready (%v): %s", n.err, n.errb.String())
+			return n.exitError(" before ready")
 		default:
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, n.adminURL+"/readyz", nil)
@@ -227,7 +228,7 @@ func (n *Node) waitHealthy(ctx context.Context) error {
 	for time.Now().Before(deadline) {
 		select {
 		case <-n.done:
-			return fmt.Errorf("harness: ruralzd exited before it answered /healthz (%v): %s", n.err, n.errb.String())
+			return n.exitError(" before it answered /healthz")
 		default:
 		}
 		if code, _, err := n.open(ctx, "/healthz"); err == nil && code == http.StatusOK {
@@ -266,7 +267,7 @@ func (n *Node) WaitRevision(ctx context.Context, rev string, limit time.Duration
 	var last string
 	for time.Now().Before(deadline) {
 		if n.Exited() {
-			return time.Time{}, fmt.Errorf("harness: ruralzd exited (%v): %s", n.err, n.errb.String())
+			return time.Time{}, n.exitError("")
 		}
 		code, b, err := n.open(ctx, "/readyz")
 		if err == nil && code == http.StatusOK {
@@ -325,7 +326,7 @@ func (n *Node) ResetPeak() error {
 		_ = n.peak.Close()
 		n.peak = nil
 	}
-	f, err := os.OpenFile(filepath.Join("/sys/fs/cgroup", n.cgroup, "memory.peak"), os.O_RDWR, 0) //nolint:gosec // G304: a cgroup file of the Node's scope
+	f, err := os.OpenFile(filepath.Join("/sys/fs/cgroup", n.cgroup, "memory.peak"), os.O_RDWR, 0)
 	if err != nil {
 		return err
 	}
@@ -351,15 +352,15 @@ func (n *Node) Peak() (int64, error) {
 		}
 		return strconv.ParseInt(strings.TrimSpace(string(b[:k])), 10, 64)
 	}
-	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(n.pid), "status")) //nolint:gosec // G304: procfs
+	b, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(n.pid), "status"))
 	if err != nil {
 		return 0, err
 	}
-	return ParseVmHWM(b)
+	return ParseVMHWM(b)
 }
 
-// ParseVmHWM reads VmHWM, in bytes, from /proc/<pid>/status.
-func ParseVmHWM(b []byte) (int64, error) {
+// ParseVMHWM reads VmHWM, in bytes, from /proc/<pid>/status.
+func ParseVMHWM(b []byte) (int64, error) {
 	for line := range strings.SplitSeq(string(b), "\n") {
 		v, ok := strings.CutPrefix(line, "VmHWM:")
 		if !ok {
@@ -389,6 +390,16 @@ func (n *Node) Exited() bool {
 	default:
 		return false
 	}
+}
+
+// exitError reports that the Node exited, when (such as " before ready")
+// naming the wait it ended, with its wait error wrapped and its standard
+// error; a Node that exited 0 has no wait error to wrap.
+func (n *Node) exitError(when string) error {
+	if n.err == nil {
+		return fmt.Errorf("harness: ruralzd exited%s (exit status 0): %s", when, n.errb.String())
+	}
+	return fmt.Errorf("harness: ruralzd exited%s (%w): %s", when, n.err, n.errb.String())
 }
 
 // admin issues an authenticated admin GET.
@@ -423,7 +434,7 @@ func (n *Node) Admin(ctx context.Context, path string) ([]byte, error) {
 // Reload of a replaced file.
 func (n *Node) Signal(sig os.Signal) error {
 	if n.Exited() {
-		return fmt.Errorf("harness: ruralzd exited (%v): %s", n.err, n.errb.String())
+		return n.exitError("")
 	}
 	return n.cmd.Process.Signal(sig)
 }
@@ -516,7 +527,7 @@ func (n *Node) Stop(ctx context.Context) error {
 		<-n.done
 	}
 	var exit *exec.ExitError
-	if n.err != nil && !(errors.As(n.err, &exit) && exit.ExitCode() == 0) && !errors.Is(n.err, exec.ErrWaitDelay) {
+	if n.err != nil && (!errors.As(n.err, &exit) || exit.ExitCode() != 0) && !errors.Is(n.err, exec.ErrWaitDelay) {
 		if errors.As(n.err, &exit) && !exit.Exited() {
 			return nil // ended by the signal
 		}

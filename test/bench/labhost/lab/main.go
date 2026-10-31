@@ -79,7 +79,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		issuer := fs.String("issuer", "", "token issuer")
 		keys := fs.String("keys", "", "key file to publish")
 		svc = func() (Service, error) {
-			return StartIdP(ctx, IdPConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, Issuer: *issuer, Keys: *keys})
+			return StartIDP(ctx, IDPConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, Issuer: *issuer, Keys: *keys})
 		}
 	case "faultproxy":
 		upstream := fs.String("upstream", "", "upstream address")

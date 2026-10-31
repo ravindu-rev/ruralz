@@ -31,7 +31,7 @@ func TestComponentWorker(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(os.Getenv(EnvComponentOut), b, 0o600); err != nil {
+	if err := os.WriteFile(os.Getenv(EnvComponentOut), b, 0o600); err != nil { //nolint:gosec // G703: the result file the harness names for its worker
 		t.Fatal(err)
 	}
 }

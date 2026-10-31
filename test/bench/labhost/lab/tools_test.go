@@ -70,8 +70,10 @@ func TestVegetaParser(t *testing.T) {
 func TestToolArgs(t *testing.T) {
 	s := LoadSpec{URL: "https://10.0.0.1:8443/bench/1k", Rate: 40000, Connections: 256, Protocol: "h2", Host: "g.example", Header: map[string][]string{"X-B": {"1"}, "X-A": {"2"}}}
 	oha := OhaArgs(s, 180*time.Second, "/ca.pem")
-	want := []string{"-z", "3m0s", "-q", "40000", "-c", "256", "--latency-correction", "--no-tui", "--output-format", "csv",
-		"-H", "Host: g.example", "-H", "X-A: 2", "-H", "X-B: 1", "--http2", "--cacert", "/ca.pem", "https://10.0.0.1:8443/bench/1k"}
+	want := []string{
+		"-z", "3m0s", "-q", "40000", "-c", "256", "--latency-correction", "--no-tui", "--output-format", "csv",
+		"-H", "Host: g.example", "-H", "X-A: 2", "-H", "X-B: 1", "--http2", "--cacert", "/ca.pem", "https://10.0.0.1:8443/bench/1k",
+	}
 	if !slices.Equal(oha, want) {
 		t.Errorf("OhaArgs = %q\nwant %q", oha, want)
 	}

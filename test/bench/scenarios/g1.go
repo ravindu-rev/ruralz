@@ -123,7 +123,7 @@ func g1Rate(steps []g1Step) benchrecord.BudgetResult {
 	for i, st := range steps {
 		rates[i], cpus[i] = st.achieved, st.cpu
 	}
-	r, ok := interpolate(rates, cpus, G1ScriptCPU)
+	r, ok := interpolate(rates, cpus)
 	last := steps[len(steps)-1]
 	switch {
 	case ok:

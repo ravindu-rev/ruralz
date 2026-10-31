@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/benchrecord"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
@@ -272,12 +273,12 @@ func window(samples []NodeSample, start, end time.Time) (a, b *NodeSample, err e
 // windowMeasures computes the resource measures between two samples.
 func windowMeasures(a, b *NodeSample, metricBudgets []Budget) (Measures, int64, map[string]promtext.Histogram) {
 	var m Measures
-	requests := promtext.Delta(a.Metrics, b.Metrics, "ruralz_http_requests_total", nil)
+	requests := promtext.Delta(a.Metrics, b.Metrics, catalog.HTTPRequestsTotal, nil)
 	cpu := (b.Usage.UserCPU + b.Usage.SysCPU) - (a.Usage.UserCPU + a.Usage.SysCPU)
 	if requests > 0 {
 		m.CPUPerRequest = time.Duration(float64(cpu) / requests)
 	}
-	gc := promtext.Delta(a.Metrics, b.Metrics, "ruralz_runtime_gc_cpu_seconds_total", nil)
+	gc := promtext.Delta(a.Metrics, b.Metrics, catalog.RuntimeGCCPUSecondsTotal, nil)
 	if cpu > 0 {
 		m.GCShare = math.Min(math.Max(gc/cpu.Seconds(), 0), 1)
 	}
@@ -394,12 +395,16 @@ func (s *Session) prepare(ctx context.Context, spec RunSpec) (st *Stage, err err
 	st.ns = ns
 	st.done = append(st.done, func() { _ = st.node.Stop(context.WithoutCancel(ctx)) })
 	if !ns.NoRevision {
-		if rev, rerr := st.node.Revision(ctx); rerr != nil || rev != spec.Revision.Rev {
-			return st, fmt.Errorf("%w: %s %s: the Node serves %q, want %s: %v", ErrRefused, sc.ID, spec.Name, rev, spec.Revision.Rev, rerr)
+		rev, rerr := st.node.Revision(ctx)
+		if rerr != nil {
+			return st, fmt.Errorf("%w: %s %s: the Node serves %q, want %s: %w", ErrRefused, sc.ID, spec.Name, rev, spec.Revision.Rev, rerr)
+		}
+		if rev != spec.Revision.Rev {
+			return st, fmt.Errorf("%w: %s %s: the Node serves %q, want %s", ErrRefused, sc.ID, spec.Name, rev, spec.Revision.Rev)
 		}
 	}
 	if sc.StateStore {
-		ca, rerr := os.ReadFile(st.pki.Path(FileCA)) //nolint:gosec // G304: the run's own CA file
+		ca, rerr := os.ReadFile(st.pki.Path(FileCA))
 		if rerr != nil {
 			return st, rerr
 		}
@@ -492,7 +497,7 @@ func (s *Session) measure(ctx context.Context, st *Stage, spec RunSpec) (*RunOut
 	if len(samples) > 0 {
 		first, last := samples[0], samples[len(samples)-1]
 		if first.Err == nil && last.Err == nil {
-			drops = int64(promtext.Delta(first.Metrics, last.Metrics, "ruralz_telemetry_logs_dropped_total", nil))
+			drops = int64(promtext.Delta(first.Metrics, last.Metrics, catalog.TelemetryLogsDroppedTotal, nil))
 		}
 	}
 	a, b, werr := window(samples, res.MeasureStart, res.MeasureEnd)
@@ -583,9 +588,9 @@ func (s *Session) measure(ctx context.Context, st *Stage, spec RunSpec) (*RunOut
 		CPUProfileFiles: profileFiles,
 	}
 	if b != nil {
-		rec.Resources.LiveHeapBytes = int64(b.Metrics.Sum("ruralz_runtime_heap_bytes", nil))
+		rec.Resources.LiveHeapBytes = int64(b.Metrics.Sum(catalog.RuntimeHeapBytes, nil))
 		if requests > 0 {
-			rec.Resources.AllocsPerOp = promtext.Delta(a.Metrics, b.Metrics, "ruralz_runtime_allocations_total", nil) / float64(requests)
+			rec.Resources.AllocsPerOp = promtext.Delta(a.Metrics, b.Metrics, catalog.RuntimeAllocationsTotal, nil) / float64(requests)
 		}
 		if a.Valkey != nil && b.Valkey != nil {
 			secs := b.Valkey.At.Sub(a.Valkey.At).Seconds()

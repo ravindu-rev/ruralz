@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	telcatalog "github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/benchrecord"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 	"github.com/ravindu-rev/ruralz/test/bench/gen"
@@ -90,7 +91,7 @@ const (
 )
 
 // activationMetric is the activation duration histogram of every stage.
-const activationMetric = "ruralz_config_activation_duration_seconds"
+const activationMetric = telcatalog.ConfigActivationDurationSeconds
 
 // r1Wait bounds the wait for one activation to show at /readyz.
 const r1Wait = 2 * time.Minute
@@ -469,7 +470,7 @@ func place(dir, file string) error {
 		return err
 	}
 	tmp := filepath.Join(dir, ".ruralz.yaml.tmp")
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+	if err := os.WriteFile(tmp, b, 0o600); err != nil { //nolint:gosec // G703: a copy of a rendered Bundle of the run directory
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(dir, "ruralz.yaml"))
@@ -538,8 +539,11 @@ func renderBundle(ctx context.Context, ruralz, src, file string) (harness.Revisi
 		Digest   string `json:"digest"`
 		Revision string `json:"revision"`
 	}
-	if err := json.Unmarshal(out, &doc); err != nil || doc.Digest == "" {
-		return harness.Revision{}, fmt.Errorf("scenarios: ruralz bundle build output %q: %v", out, err)
+	if err := json.Unmarshal(out, &doc); err != nil {
+		return harness.Revision{}, fmt.Errorf("scenarios: ruralz bundle build output %q: %w", out, err)
+	}
+	if doc.Digest == "" {
+		return harness.Revision{}, fmt.Errorf("scenarios: ruralz bundle build output %q: no digest", out)
 	}
 	return harness.Revision{Rendered: file, Digest: doc.Digest, Rev: doc.Revision}, nil
 }

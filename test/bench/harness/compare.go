@@ -118,16 +118,16 @@ func (s *Session) Compare(ctx context.Context, cs CompareSpec) (*CompareResult, 
 
 // Summary is a comparison's computed summary.
 type Summary struct {
-	Runs                     []string
-	HeadValid, BaseValid     int
-	HeadViews, BaseViews     benchrecord.Views
-	External, Internal       ViewComparison
-	Verdict                  string
-	Budgets                  []benchrecord.BudgetResult
-	Reasons                  []string
-	Load                     benchrecord.Load
-	HeadResources            benchrecord.Resources
-	hasBaseline, internalSet bool
+	Runs                 []string
+	HeadValid, BaseValid int
+	HeadViews, BaseViews benchrecord.Views
+	External, Internal   ViewComparison
+	Verdict              string
+	Budgets              []benchrecord.BudgetResult
+	Reasons              []string
+	Load                 benchrecord.Load
+	HeadResources        benchrecord.Resources
+	hasBaseline          bool
 }
 
 // Summarize applies the comparison rules to the pairs. Budgets read the

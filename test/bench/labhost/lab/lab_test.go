@@ -208,7 +208,7 @@ func TestKeyFileRoundTrip(t *testing.T) {
 	if err != nil || len(keys) != 2 || keys[0].ID != kf.Keys[0].Kid {
 		t.Fatalf("signers: %v %+v", err, keys)
 	}
-	idp, err := StartIdP(t.Context(), IdPConfig{Issuer: "https://idp.bench.example", Keys: path})
+	idp, err := StartIDP(t.Context(), IDPConfig{Issuer: "https://idp.bench.example", Keys: path})
 	if err != nil {
 		t.Fatal(err)
 	}
