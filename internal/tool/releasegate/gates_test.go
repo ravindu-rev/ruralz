@@ -35,7 +35,8 @@ func releaseJobs() []workflowJob {
 		ok("pr-full / 8. Integration and conformance (linux/arm64 process)"), ok("pr-full / 9. Regression gates (linux/amd64 alloc/op, size and idle RSS)"),
 		ok("pr-full / pr-full"),
 		ok("main / 10. End-to-end"), ok("main / 10. Quickstart archives"), ok("main / 10. Quickstart linux/amd64"),
-		ok("nightly / 11. Fuzz plan"), ok("nightly / 11. Fuzz shard 0"), ok("nightly / 11. Fuzz shard 1"), ok("nightly / 11. Chaos"),
+		ok("nightly / 11. Fuzz plan"), ok("nightly / 11. Fuzz shard 0"), ok("nightly / 11. Fuzz shard 1"),
+		ok("nightly / 11. Chaos (experiments)"), ok("nightly / 11. Chaos (rows)"), ok("nightly / 11. Chaos (drills)"),
 		ok("nightly / 11. Latency"), ok("nightly / 11. Benchmark records"), ok("nightly / 6. Supply chain rescan"), skipped("nightly / Nightly issues"),
 		ok("t5-systemd / T5 systemd (ubuntu-24.04)"), skipped("t5-systemd / T5 issues"),
 		ok("chaos-scale / Chaos at target scale"), skipped("chaos-scale / Chaos-scale issues"),
@@ -260,10 +261,10 @@ func TestDecide(t *testing.T) {
 	}
 
 	ev := passing()
-	ev.nightly = []issue{{Number: 7, Title: "nightly failure: 11. Chaos"}}
+	ev.nightly = []issue{{Number: 7, Title: "nightly failure: 11. Chaos (drills)"}}
 	ev.crashersOpen = []issue{{Number: 8, Title: "fuzz crasher: p FuzzX"}}
 	ev.missingSeeds = []string{"closed fuzz-crasher issue #3: its regression seed p/testdata/fuzz/FuzzY/1 is not at aaaaaaaaaaaa"}
-	ev.jobs = setJob(ev.jobs, "nightly / 11. Chaos", "completed", "failure")
+	ev.jobs = setJob(ev.jobs, "nightly / 11. Chaos (drills)", "completed", "failure")
 	ev.candidateApplies, ev.candidate = true, []string{"no v0.1.0-rc.N tag names commit"}
 	skips := map[string]skip{
 		gateChaos:      {Gate: gateChaos, By: "jane", Role: "admin", Reason: "known"},
@@ -430,7 +431,7 @@ func TestRunGates(t *testing.T) {
 	// The Chaos job fails: the Chaos gate fails, and so does "All CI
 	// stages green", which reads every re-run job; no skipped file is
 	// written.
-	f.jobs[42] = setJob(releaseJobs(), "nightly / 11. Chaos", "completed", "failure")
+	f.jobs[42] = setJob(releaseJobs(), "nightly / 11. Chaos (experiments)", "completed", "failure")
 	_ = os.Remove(o.skipped)
 	findings, err = runGates(t.Context(), f.client(t), o, now, fakeGit("p/testdata/fuzz/FuzzX/1"), &out)
 	if err != nil || len(findings) != 2 || !strings.Contains(findings[0], `gate "All CI stages green" failed`) || !strings.Contains(findings[1], `gate "Chaos" failed`) {

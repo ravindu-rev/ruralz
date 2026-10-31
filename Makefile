@@ -95,6 +95,9 @@ CHAOS_SCALE ?= reduced
 # The nightly Chaos job's 180 minutes bound the nightly profile; the
 # reduced profile's three Nodes take V-3's 1,000 handovers in more rounds.
 CHAOS_TIMEOUT ?= $(if $(filter reduced,$(CHAOS_SCALE)),240m,170m)
+# The packages make chaos tests; the nightly Chaos jobs each run a part, by
+# package and TEST_FLAGS (-run or -skip), within the 3-hour job limit.
+CHAOS_PACKAGES ?= ./test/chaos/...
 # The Functional job: the benchmark functional variants on the loopback
 # profile, whose fixed ports allow one package at a time (-p 1).
 FUNCTIONAL_TIMEOUT ?= 110m
@@ -350,7 +353,7 @@ fuzz: ## Stage 11 Fuzz job: each Fuzz target for FUZZTIME (15m); FUZZ_SHARD=I ru
 	mkdir -p $(dir $(FUZZ_REPORT))
 	go run ./internal/tool/fuzzplan run -index $(FUZZ_SHARD) -shards $(FUZZ_SHARDS) -fuzztime "$$FUZZTIME" -report $(FUZZ_REPORT)
 
-chaos: ## Stage 11 Chaos job: CE experiments, failure rows and drills (tag e2e, test/chaos) at CHAOS_SCALE=reduced|nightly|target
+chaos: ## Stage 11 Chaos jobs: CE experiments, failure rows and drills (tag e2e, test/chaos) at CHAOS_SCALE=reduced|nightly|target; CHAOS_PACKAGES and TEST_FLAGS pick a part
 ifeq ($(call has_tests,test/chaos),)
 	@echo "chaos: skip: test/chaos has no suite yet"
 else
@@ -358,7 +361,7 @@ else
 	@# saturation record a later package reads, are this run's alone.
 	rm -rf $(DIST)/chaos
 	RURALZ_CHAOS_SCALE=$(CHAOS_SCALE) RURALZ_CHAOS_RECORDS=$(DIST)/chaos RURALZ_BENCH_PROFILE="$$BENCH_PROFILE" \
-		go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) ./test/chaos/...
+		go test -tags e2e -p 1 -timeout $(CHAOS_TIMEOUT) $(TEST_FLAGS) $(CHAOS_PACKAGES)
 endif
 
 # The target profile runs on the hosts of the inventory BENCH_PROFILE names,

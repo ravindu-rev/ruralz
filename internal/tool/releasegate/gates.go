@@ -112,7 +112,7 @@ func splitJob(full string) (caller, name string) {
 func gateJobs(rh1 bool) map[string][]jobSel {
 	unit := jobSel{Caller: "pr-fast", Name: "5. Unit tests"}
 	stage8 := jobSel{Caller: "pr-full", Name: "8. Integration and conformance (", Prefix: true}
-	chaos := []jobSel{{Caller: "nightly", Name: "11. Chaos"}}
+	chaos := []jobSel{{Caller: "nightly", Name: "11. Chaos (", Prefix: true}}
 	bench := []jobSel{{Caller: "pr-full", Name: "9. Regression gates (", Prefix: true}}
 	if rh1 {
 		chaos = append(chaos, jobSel{Caller: "chaos-scale", Name: chaosScaleJob})
@@ -132,8 +132,8 @@ func gateJobs(rh1 bool) map[string][]jobSel {
 		gateConformance: {stage8},
 		// Every 11. Fuzz shard job.
 		gateFuzzing: {{Caller: "nightly", Name: "11. Fuzz shard ", Prefix: true}},
-		// The 11. Chaos job and, from M6, chaos-scale.yml's job, whose
-		// issue job a release run skips.
+		// The three 11. Chaos jobs and, from M6, chaos-scale.yml's job,
+		// whose issue job a release run skips.
 		gateChaos: chaos,
 		// From M6, the release's Latency and soak jobs, whose records the
 		// gate also reads; stage 9's alloc/op, size and idle RSS gates.

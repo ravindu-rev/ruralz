@@ -225,7 +225,23 @@ jobs:
           retention-days: 90
 
   chaos:
-    name: 11. Chaos
+    name: 11. Chaos (${{ matrix.part }})
+    # The suite in three parts, each on its own runner within the 3-hour
+    # limit: the CE experiments, the failure rows and lab gates beside
+    # them, and the drills. Each part measures its own saturation.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: experiments
+            packages: ./test/chaos
+            flags: -run ^TestCE
+          - part: rows
+            packages: ./test/chaos
+            flags: -skip ^TestCE
+          - part: drills
+            packages: ./test/chaos/gameday
+            flags: ""
     # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -253,9 +269,12 @@ jobs:
         # "Process harness").
         env:
           RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+          PACKAGES: ${{ matrix.packages }}
+          FLAGS: ${{ matrix.flags }}
         run: |
           sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
-            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make nightly NIGHTLY_JOB=chaos
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
+            make nightly NIGHTLY_JOB=chaos "CHAOS_PACKAGES=$PACKAGES" "TEST_FLAGS=$FLAGS"
       - name: Hand the records and evidence to the runner user
         # The suite ran as root, so root owns the files.
         if: always()
@@ -272,7 +291,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chaos-records
+          name: chaos-records-${{ matrix.part }}
           path: dist/chaos/
           if-no-files-found: ignore
           retention-days: 90
@@ -280,7 +299,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chaos-evidence
+          name: chaos-evidence-${{ matrix.part }}
           path: ${{ runner.temp }}/chaos-evidence/
           if-no-files-found: ignore
           retention-days: 14

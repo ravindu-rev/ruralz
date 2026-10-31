@@ -40,7 +40,7 @@ A defect found in a higher layer MUST add a regression test at the lowest layer 
 | `nightly` job | Runs on | Work |
 |---|---|---|
 | Fuzz | General runners, sharded | Each target 15 minutes, eight per shard (target) |
-| Chaos | General runners | Every [chaos scenario](#chaos-testing), CE experiment, game day drill and failure catalog row at the `nightly` profile |
+| Chaos | General runners, in three jobs | Every [chaos scenario](#chaos-testing), CE experiment, game day drill and failure catalog row at the `nightly` profile; the CE experiments, the failure rows and lab gates beside them in `test/chaos`, and the drills in `test/chaos/gameday` each run in their own job, `11. Chaos (experiments)`, `(rows)` and `(drills)`, within the 3-hour limit, and each measures its own saturation |
 | Scale | Dedicated general runners | F1 (SM-9) and F2, Planned (M2); SM-10, Planned (M3) |
 | Functional | General runners | The benchmark [functional variants](../architecture/12-performance-budgets-and-benchmarking.md#suite-layers): every M1 scenario and constants run at reduced scale on loopback, asserting only criteria that hold on any hardware |
 | Latency | RH-1, alone | Macro latency gate; component benchmarks; S1 and S2 nightly, other scenarios in the [slot rotation](../architecture/12-performance-budgets-and-benchmarking.md#suite-layers), every slot when `release` passes `rotation-all`; it runs from M6, once the repository variable `RH1_PROVISIONED` is `true`, set after the runner registers, and until then GitHub skips it. A Latency job cancelled while queued, as GitHub does after 24 hours without a runner, counts as a failure titled "RH-1 runner offline" |
@@ -423,7 +423,7 @@ The experiments, drills and rows serve one chaos Bundle, `test/chaos/testdata/bu
 
 ### Result records
 
-Each experiment, drill and row writes one `ruralz.chaos.v1` JSON record per run, named after the run, such as `CE-5/cluster` for one of CE-5's three runs, with the load generator's HdrHistogram V2 interval logs beside it, to the directory `RURALZ_CHAOS_RECORDS` names (`make chaos` passes `dist/chaos`). A record holds `format`, `experiment`, `profile`, `commit`, `nodes`, `phases` (name, start, end), `injections` (kind, target, time), `attribution` (failed requests per Node), `criteria` (name, value, bound, verdict) and `breakdowns`, ungated values such as `cmdstat_evalsha` microseconds per second. Both chaos jobs upload the directory as the `chaos-records` artifact, kept 90 days; in a `release` run, which holds both, `chaos-scale.yml`'s is `chaos-scale-records`.
+Each experiment, drill and row writes one `ruralz.chaos.v1` JSON record per run, named after the run, such as `CE-5/cluster` for one of CE-5's three runs, with the load generator's HdrHistogram V2 interval logs beside it, to the directory `RURALZ_CHAOS_RECORDS` names (`make chaos` passes `dist/chaos`). A record holds `format`, `experiment`, `profile`, `commit`, `nodes`, `phases` (name, start, end), `injections` (kind, target, time), `attribution` (failed requests per Node), `criteria` (name, value, bound, verdict) and `breakdowns`, ungated values such as `cmdstat_evalsha` microseconds per second. Each nightly Chaos job uploads the directory as the `chaos-records-<part>` artifact, such as `chaos-records-drills`, and `chaos-scale.yml` as `chaos-records`, each kept 90 days; in a `release` run, which holds them all, `chaos-scale.yml`'s is `chaos-scale-records`.
 
 ### Drills and failure rows
 
@@ -559,7 +559,7 @@ A release candidate becomes a release only when every gate below passes on its e
 | Golden corpus | Stage 5's untagged configuration conformance suite on linux, darwin and windows and in the floor job, and stage 8's configuration suite |
 | Conformance | Stage 8 on every leg: the configuration and protocol conformance suites |
 | Fuzzing | Every `11. Fuzz shard` job; no open `fuzz-crasher` issue; for each closed `fuzz-crasher` issue, the seed file its body names present at the tag |
-| Chaos | The `11. Chaos` job and, from M6, `chaos-scale.yml`'s chaos job |
+| Chaos | The three `11. Chaos` jobs and, from M6, `chaos-scale.yml`'s chaos job |
 | Benchmarks | Stage 9's alloc/op, size and idle RSS gates and, from M6, every `ruralz.bench.v1` verdict of the release's Latency and soak jobs passing ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
 | Security scanning | Stage 6, the stage 1 no-license-check scan, stage 5's redaction unit tests and the secret leak tests of `main`'s `10. End-to-end` job |
 | Release candidate | The repository's tags and the release runs of the candidate tags |
