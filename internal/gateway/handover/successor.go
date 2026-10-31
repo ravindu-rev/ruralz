@@ -92,6 +92,9 @@ type Successor struct {
 	// cancel ends the follower; nil without one.
 	cancel context.CancelFunc
 	closed bool
+	// watchdog is the watchdog interval the holder's accepted carried; 0
+	// for none.
+	watchdog time.Duration
 }
 
 // NewSuccessor returns a Successor; Run runs its handover.
@@ -143,11 +146,12 @@ func NewSuccessor(cfg SuccessorConfig) (*Successor, error) {
 // the wiring treats as a failed part. Every RetryInterval until the gate
 // ends, GateTimeout after the process's start, it takes the lock if the
 // holder exited, else connects to the holder's socket and sends ready,
-// answering reload with Reload and ready again. Accepted, it lowers its
-// ceilings by the holder's usage, listens and sends listening; once the
-// holder released the lock it takes it. A follower then applies the
-// holder's usage reports until the holder is gone, when the ceilings are
-// restored; Close or the end of ctx stops it.
+// answering reload with Reload and ready again. Accepted, it records the
+// holder's watchdog interval (HolderWatchdog), lowers its ceilings by the
+// holder's usage, listens and sends listening; once the holder released
+// the lock it takes it. A follower then applies the holder's usage reports
+// until the holder is gone, when the ceilings are restored; Close or the
+// end of ctx stops it.
 func (s *Successor) Run(ctx context.Context) (Outcome, error) {
 	if s.ran.Swap(true) {
 		return 0, fmt.Errorf("%w: Run runs once", ErrConfig)
@@ -172,6 +176,21 @@ func (s *Successor) Run(ctx context.Context) (Outcome, error) {
 			return out, err
 		}
 	}
+}
+
+// HolderWatchdog returns the watchdog interval the holder's accepted
+// message carried (watchdogUsec): 0 when it carried none, as from a holder
+// that runs no watchdog, or when the process took the lock without an
+// accepted, its holder having exited first. Once Run returned
+// OutcomeHolder, a process whose own environment enables no watchdog
+// runs its watchdog with it, since systemd gives no WATCHDOG_USEC to the
+// ExecReload= helper that starts a successor
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Handover
+// under systemd").
+func (s *Successor) HolderWatchdog() time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.watchdog
 }
 
 // Close stops the follower, which restores the ceilings, and waits for
@@ -291,6 +310,14 @@ func (s *Successor) gate(ctx context.Context, p *peer, deadline time.Time) (Outc
 				}
 			case TypeAccepted:
 				timer.Stop() // the gate bounds the wait for accepted only
+				watchdog, err := m.watchdog()
+				if err != nil {
+					p.close()
+					return OutcomeRefused, true, s.giveUp(ctx, err)
+				}
+				s.mu.Lock()
+				s.watchdog = watchdog
+				s.mu.Unlock()
 				out, err := s.accepted(ctx, p, m.Usage, deadline)
 				return out, true, err
 			default:

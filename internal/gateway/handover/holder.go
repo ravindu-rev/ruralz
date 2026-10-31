@@ -47,6 +47,14 @@ type HolderConfig struct {
 	Admin Admin
 	// Meter reads the usage that accepted and usage messages report.
 	Meter Meter
+	// Watchdog is the interval the holder's watchdog runs with, 0 for
+	// none: its own, as sd_watchdog_enabled(3) reads its environment, or,
+	// for a process that took the lock as a handover successor without
+	// one, the interval its own holder's accepted carried. The accepted
+	// message carries it as watchdogUsec, so a new process the service
+	// manager gives no interval, as systemd gives none to a child of
+	// ExecReload=, runs its watchdog with it. It is not negative.
+	Watchdog time.Duration
 	// Clock times the gate, the listening bound, the linger and the usage
 	// reports; nil means clock.Real().
 	Clock clock.Clock
@@ -95,6 +103,8 @@ func StartHolder(ctx context.Context, cfg HolderConfig) (*Holder, error) {
 		return nil, fmt.Errorf("%w: Activations is required", ErrConfig)
 	case cfg.Drain == nil:
 		return nil, fmt.Errorf("%w: Drain is required", ErrConfig)
+	case cfg.Watchdog < 0:
+		return nil, fmt.Errorf("%w: negative Watchdog %v", ErrConfig, cfg.Watchdog)
 	}
 	for _, g := range cfg.Sockets {
 		if g == nil {
@@ -435,11 +445,12 @@ func (s *session) gate(ctx context.Context) bool {
 	}
 }
 
-// decide answers one ready message once no activation runs: accepted when
-// its active Revision is the holder's, or the holder has none; reload of
-// the holder's candidate when that is its active Revision; else refused
-// with older_candidate. Before accepted the holder waits until no
-// replaced socket lingers and holds its Drain.
+// decide answers one ready message once no activation runs: accepted,
+// with the holder's usage and watchdog interval, when its active Revision
+// is the holder's, or the holder has none; reload of the holder's
+// candidate when that is its active Revision; else refused with
+// older_candidate. Before accepted the holder waits until no replaced
+// socket lingers and holds its Drain.
 func (s *session) decide(ctx context.Context, r ready, deadline time.Time) decision {
 	h := s.h
 	hctx, stop := h.bounded(ctx, deadline)
@@ -466,7 +477,7 @@ func (s *session) decide(ctx context.Context, r ready, deadline time.Time) decis
 		// Both bounds count from accepted.
 		s.tick = h.clk.NewTimer(UsageInterval)
 		s.listen = h.clk.NewTimer(ListeningTimeout)
-		if err := s.p.send(ctx, acceptedWire{Type: TypeAccepted, Usage: h.usage(ctx)}); err != nil {
+		if err := s.p.send(ctx, acceptedMessage(h.usage(ctx), h.cfg.Watchdog)); err != nil {
 			h.cfg.Drain.Resume()
 			h.cfg.Activations.Release()
 			h.log.WarnContext(ctx, "handover ended: accepted not delivered", "pid", s.pid, catalog.KeyError, err.Error())

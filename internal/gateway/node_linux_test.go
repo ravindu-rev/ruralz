@@ -199,16 +199,44 @@ type notes struct {
 
 // has reports whether some datagram holds the assignment want.
 func (ns *notes) has(want string) bool {
+	return ns.count(want) > 0
+}
+
+// count returns how many datagrams hold the assignment want.
+func (ns *notes) count(want string) int {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
+	n := 0
 	for _, m := range ns.msgs {
 		for _, line := range strings.Split(m, "\n") {
 			if line == want {
-				return true
+				n++
+				break
 			}
 		}
 	}
-	return false
+	return n
+}
+
+// all returns the datagrams in the order they arrived, which is the order
+// they were sent.
+func (ns *notes) all() []string {
+	ns.mu.Lock()
+	defer ns.mu.Unlock()
+	return append([]string(nil), ns.msgs...)
+}
+
+// records returns the attributes of every process log record whose message
+// is msg, in the order they were logged.
+func records(logs, msg string) []map[string]any {
+	var out []map[string]any
+	for line := range strings.SplitSeq(logs, "\n") {
+		var r map[string]any
+		if json.Unmarshal([]byte(line), &r) == nil && r["msg"] == msg {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // notifySocket serves a notification socket and returns its path.
@@ -395,19 +423,13 @@ func TestRunAdminPortBusyExitsRuntime(t *testing.T) {
 	}
 }
 
-func TestRunHandsOverToSuccessor(t *testing.T) {
-	up := upstreamServer(t)
-	f := newFixture(t, up.Listener.Addr().String())
-	ctx := t.Context()
-	adminURL := "http://127.0.0.1:" + strconv.Itoa(f.adminPort)
-	ready := func() bool { code, _, _ := get(ctx, adminURL+admin.PathReadyz, false); return code == http.StatusOK }
-	holder := startNode(t, f.env(nil))
-	holder.eventually("/readyz ready", ready)
-
-	// A second process on the locked data directory is a handover
-	// successor: once it booted the holder's candidate it takes the lock
-	// and the holder drains with exit 0.
-	succ := startNode(t, f.env(nil))
+// handOver moves both process clocks until the holder exits, having handed
+// over to succ, a second process on its locked data directory: once succ
+// booted the holder's candidate it takes the lock and the holder drains
+// with exit 0. The successor exiting first, or no handover within
+// realBound, fails the test.
+func handOver(t *testing.T, holder, succ *testNode) {
+	t.Helper()
 	deadline := time.Now().Add(realBound)
 	for done := false; !done; {
 		select {
@@ -426,9 +448,148 @@ func TestRunHandsOverToSuccessor(t *testing.T) {
 	if holder.code != ExitOK {
 		t.Errorf("the holder's Run() = %d after the handover, want %d\n%s", holder.code, ExitOK, holder.logs.String())
 	}
+}
+
+func TestRunHandsOverToSuccessor(t *testing.T) {
+	up := upstreamServer(t)
+	f := newFixture(t, up.Listener.Addr().String())
+	ctx := t.Context()
+	adminURL := "http://127.0.0.1:" + strconv.Itoa(f.adminPort)
+	ready := func() bool { code, _, _ := get(ctx, adminURL+admin.PathReadyz, false); return code == http.StatusOK }
+	holder := startNode(t, f.env(nil))
+	holder.eventually("/readyz ready", ready)
+
+	// A second process on the locked data directory is a handover
+	// successor: once it booted the holder's candidate it takes the lock
+	// and the holder drains with exit 0.
+	succ := startNode(t, f.env(nil))
+	handOver(t, holder, succ)
 	succ.eventually("the successor ready", ready)
 	if code, _, body := get(ctx, "http://127.0.0.1:"+strconv.Itoa(f.webPort)+"/d", false); code != http.StatusOK || body != "orders:/d" {
 		t.Errorf("GET /d = %d %q on the successor", code, body)
+	}
+	if code := succ.stop(); code != ExitOK {
+		t.Errorf("the successor's Run() = %d, want %d", code, ExitOK)
+	}
+}
+
+// watchdogEnv returns the service manager's variables of a Node: its
+// notification socket and, with usec set, a watchdog interval for the test
+// Nodes' PID, as systemd gives the ExecStart= process.
+func watchdogEnv(socket, usec string) map[string]string {
+	env := map[string]string{"NOTIFY_SOCKET": socket}
+	if usec != "" {
+		env["WATCHDOG_USEC"], env["WATCHDOG_PID"] = usec, strconv.Itoa(testPID)
+	}
+	return env
+}
+
+// startHolderNode starts a lock holder on f with the service manager's
+// variables env and waits until it is ready.
+func startHolderNode(t *testing.T, f fixture, env map[string]string) *testNode {
+	t.Helper()
+	adminURL := "http://127.0.0.1:" + strconv.Itoa(f.adminPort)
+	holder := startNode(t, f.env(env))
+	holder.eventually("/readyz ready", func() bool {
+		code, _, _ := get(t.Context(), adminURL+admin.PathReadyz, false)
+		return code == http.StatusOK
+	})
+	return holder
+}
+
+// checkSuccessorWatchdog checks a successor that took the lock and sent a
+// WATCHDOG=1: its first notification is MAINPID=, READY=1 and STATUS=, so
+// no WATCHDOG=1 precedes the lock; it started one watchdog, with interval
+// from from, and only after it took the lock. The process log's worker
+// writes records in the order they were logged, after the notifications
+// went out.
+func checkSuccessorWatchdog(t *testing.T, succ *testNode, ns *notes, interval, from string) {
+	t.Helper()
+	if msgs := ns.all(); len(msgs) == 0 || !strings.HasPrefix(msgs[0], "MAINPID="+strconv.Itoa(testPID)+"\nREADY=1\nSTATUS=") {
+		t.Errorf("the successor's notifications %q, want MAINPID=, READY=1 and STATUS= first", msgs)
+	}
+	succ.eventually("the successor's watchdog record", func() bool {
+		return len(records(succ.logs.String(), "watchdog enabled")) > 0
+	})
+	logs := succ.logs.String()
+	recs := records(logs, "watchdog enabled")
+	if len(recs) != 1 || recs[0]["interval"] != interval || recs[0]["from"] != from {
+		t.Errorf("the successor's watchdog records %v, want one with interval %s from %s\n%s", recs, interval, from, logs)
+	}
+	took := strings.Index(logs, `"msg":"handover took the lock"`)
+	if started := strings.Index(logs, `"msg":"watchdog enabled"`); took < 0 || started < took {
+		t.Errorf("the successor's watchdog started at log offset %d, the lock taken at %d: want it after the lock\n%s", started, took, logs)
+	}
+}
+
+// TestRunSuccessorRunsTheHolderWatchdog checks the watchdog of a handover
+// successor that the service manager gives no WATCHDOG_USEC, as systemd
+// gives none to a child of the ExecReload= helper: the holder's accepted
+// carries the holder's interval, and the successor, once it took the lock
+// and sent MAINPID=, READY=1 and STATUS=, sends WATCHDOG=1 with it, the
+// first as soon as its parts ran and then every half interval; it sends
+// nothing before.
+func TestRunSuccessorRunsTheHolderWatchdog(t *testing.T) {
+	up := upstreamServer(t)
+	f := newFixture(t, up.Listener.Addr().String())
+	holderSock, holderNotes := notifySocket(t)
+	holder := startHolderNode(t, f, watchdogEnv(holderSock, "4000000"))
+	holder.eventually("the holder's WATCHDOG=1", func() bool { return holderNotes.has("WATCHDOG=1") })
+
+	succSock, succNotes := notifySocket(t)
+	succ := startNode(t, f.env(watchdogEnv(succSock, "")))
+	handOver(t, holder, succ)
+	succ.eventually("the successor's first WATCHDOG=1", func() bool { return succNotes.has("WATCHDOG=1") })
+	checkSuccessorWatchdog(t, succ, succNotes, "4s", watchdogFromHolder)
+	succ.eventually("two more WATCHDOG=1, every 2 s", func() bool { return succNotes.count("WATCHDOG=1") >= 3 })
+	if code := succ.stop(); code != ExitOK {
+		t.Errorf("the successor's Run() = %d, want %d", code, ExitOK)
+	}
+}
+
+// TestRunSuccessorKeepsItsOwnWatchdog checks a handover successor whose
+// environment enables a watchdog: it runs it with its own interval, not
+// the holder's, and also only once it took the lock and sent MAINPID=.
+func TestRunSuccessorKeepsItsOwnWatchdog(t *testing.T) {
+	up := upstreamServer(t)
+	f := newFixture(t, up.Listener.Addr().String())
+	holderSock, _ := notifySocket(t)
+	holder := startHolderNode(t, f, watchdogEnv(holderSock, "4000000"))
+
+	succSock, succNotes := notifySocket(t)
+	succ := startNode(t, f.env(watchdogEnv(succSock, "6000000")))
+	handOver(t, holder, succ)
+	succ.eventually("the successor's first WATCHDOG=1", func() bool { return succNotes.has("WATCHDOG=1") })
+	checkSuccessorWatchdog(t, succ, succNotes, "6s", watchdogFromEnvironment)
+	if code := succ.stop(); code != ExitOK {
+		t.Errorf("the successor's Run() = %d, want %d", code, ExitOK)
+	}
+}
+
+// TestRunSuccessorWithoutAHolderWatchdog checks a holder that runs no
+// watchdog: its accepted carries no interval, as an older holder's does
+// not, and a successor whose environment enables none runs no watchdog.
+func TestRunSuccessorWithoutAHolderWatchdog(t *testing.T) {
+	up := upstreamServer(t)
+	f := newFixture(t, up.Listener.Addr().String())
+	holderSock, _ := notifySocket(t)
+	holder := startHolderNode(t, f, watchdogEnv(holderSock, ""))
+
+	succSock, succNotes := notifySocket(t)
+	succ := startNode(t, f.env(watchdogEnv(succSock, "")))
+	handOver(t, holder, succ)
+	succ.eventually("the successor's MAINPID=", func() bool { return succNotes.has("MAINPID=" + strconv.Itoa(testPID)) })
+	// The successor decides its watchdog before it serves the handover
+	// socket in its turn, and the process log's worker writes records in
+	// order.
+	succ.eventually("the successor's handover socket", func() bool {
+		return len(records(succ.logs.String(), "handover socket serving")) == 1
+	})
+	if recs := records(succ.logs.String(), "watchdog enabled"); len(recs) != 0 {
+		t.Errorf("the successor started a watchdog %v without an interval from its environment or holder", recs)
+	}
+	if n := succNotes.count("WATCHDOG=1"); n != 0 {
+		t.Errorf("the successor's notifications %q, want no WATCHDOG=1", succNotes.all())
 	}
 	if code := succ.stop(); code != ExitOK {
 		t.Errorf("the successor's Run() = %d, want %d", code, ExitOK)
