@@ -82,7 +82,8 @@ type Spec struct {
 	// PumpStep overrides DefaultPumpStep.
 	PumpStep time.Duration
 	// Mock sets each mock Upstream's configuration before it starts
-	// (Name and LogSize are the harness's).
+	// (Name and LogSize are the harness's); a target profile run, whose
+	// mocks run on RH-1U as labhost's, takes none.
 	Mock func(i int, c *mockup.Config)
 	// Node adjusts the Nodes' options after the harness filled them, as
 	// GD-5 keeps OverlayEnvStateStore's reference as authored and gives
@@ -115,13 +116,15 @@ func DefaultKeep() []string {
 // Run is one run of an experiment, drill or row: the topology and its
 // dependencies, the clock pump, the sampler and the record being built.
 type Run struct {
-	T       testing.TB
-	H       *Harness
-	Spec    Spec
-	Nodes   int
-	Top     *topology.Topology
-	Store   *topology.StateStore
-	Cache   *topology.StateStore
+	T     testing.TB
+	H     *Harness
+	Spec  Spec
+	Nodes int
+	Top   *topology.Topology
+	Store *topology.StateStore
+	Cache *topology.StateStore
+	// Mocks are the in-process mock Upstreams; none at the target profile,
+	// whose mocks run on RH-1U, at Params.Backends.
 	Mocks   [3]*mockup.Server
 	HTTP    *topology.Balancer
 	HTTPS   *topology.Balancer
@@ -145,13 +148,18 @@ type Run struct {
 	cursor time.Time
 	loads  []*Load
 	logs   []IntervalLog
+	// session is the load service on the load host at the target
+	// profile, started with the first load.
+	session *loadSession
 }
 
 // Start starts a run for t: the topology over the run's build, the State
 // Stores, three mock Upstreams, the chaos Bundle rendered for the run on
 // the profile's Node count, the Nodes, the balancers, the clock pump and
-// the sampler. It fails t when any of them does not start, and skips it
-// when the profile does not run the experiment.
+// the sampler, each where the harness's Placement puts it at the target
+// profile and on the harness's own host otherwise. It fails t when any of
+// them does not start, and skips it when the profile does not run the
+// experiment.
 func (h *Harness) Start(t testing.TB, s Spec) *Run {
 	t.Helper()
 	if !h.Profile.Runs(s.Name) {
@@ -167,29 +175,46 @@ func (h *Harness) Start(t testing.TB, s Spec) *Run {
 		bin = h.Measurement
 	}
 	r.Binary, r.TestClock = bin.Ruralzd, bin.TestClock
-	r.Top = topology.New(t, topology.Config{Binary: bin.Ruralzd, TestClock: bin.TestClock, Digest: h.Digest})
-	r.Store = r.Top.StartStateStore("main", s.StateStore)
-	if s.CacheStore != nil {
-		r.Cache = r.Top.StartStateStore("cache", *s.CacheStore)
-	}
-	for i := range r.Mocks {
-		// Chaos runs keep no mock request log, as benchmark runs do: its
-		// size would follow the load.
-		c := mockup.Config{}
+	var backends []string
+	if h.place != nil {
 		if s.Mock != nil {
-			s.Mock(i, &c)
+			t.Fatalf("chaos: %s configures its mock Upstreams, which run on the upstream host as labhost's at the target profile", s.Name)
 		}
-		c.Name, c.LogSize = fmt.Sprintf("backend-%d", i+1), -1
-		m, err := r.Top.StartMockUpstream(c)
-		if err != nil {
+		// Started before the topology, the mocks stop after its teardown
+		// stopped the Nodes.
+		var err error
+		if backends, err = h.place.StartMocks(ctx, t, len(r.Mocks)); err != nil {
 			t.Fatal(err)
 		}
-		r.Mocks[i] = m
+	}
+	tc := topology.Config{Binary: bin.Ruralzd, TestClock: bin.TestClock, Digest: h.Digest}
+	if h.place != nil {
+		tc.CPUs = h.place.NodeCPUs()
+	}
+	r.Top = topology.New(t, tc)
+	r.Store = r.Top.StartStateStore("main", h.placeStore(s.StateStore))
+	if s.CacheStore != nil {
+		r.Cache = r.Top.StartStateStore("cache", h.placeStore(*s.CacheStore))
+	}
+	if h.place == nil {
+		for i := range r.Mocks {
+			// Chaos runs keep no mock request log, as benchmark runs do:
+			// its size would follow the load.
+			c := mockup.Config{}
+			if s.Mock != nil {
+				s.Mock(i, &c)
+			}
+			c.Name, c.LogSize = fmt.Sprintf("backend-%d", i+1), -1
+			m, err := r.Top.StartMockUpstream(c)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r.Mocks[i] = m
+			backends = append(backends, m.Addr())
+		}
 	}
 	r.Params = DefaultBundleParams(r.Nodes)
-	for i, m := range r.Mocks {
-		r.Params.Backends[i] = m.Addr()
-	}
+	copy(r.Params.Backends[:], backends)
 	r.Params.Topology = TopologyName(r.Store.Deployment().Topology())
 	switch {
 	case s.CacheStore != nil && (s.CacheStore.RESPProxy || r.Cache.CAPEM() == nil):
@@ -263,10 +288,22 @@ func (r *Run) nodeOptions() (topology.NodeOptions, error) {
 		r.APIKeys[c] = k
 		o.Secrets[ConsumerKeyRef(c)] = []byte(k)
 	}
+	if r.H.place != nil {
+		o.GOMAXPROCS = TargetGOMAXPROCS
+	}
 	if r.Spec.Node != nil {
 		r.Spec.Node(r, &o)
 	}
 	return o, nil
+}
+
+// placeStore returns the options of a State Store on the placement's State
+// Store host at the target profile, else o.
+func (h *Harness) placeStore(o topology.StateStoreOptions) topology.StateStoreOptions {
+	if h.place != nil {
+		o.Host = h.place.StateStoreHost()
+	}
+	return o
 }
 
 // EnvZone is the Node setting naming its failure zone.
@@ -274,13 +311,16 @@ const EnvZone = "RURALZ_ZONE"
 
 // addNodes starts the run's Nodes on o: all at once, or zone by zone
 // with Spec.Zones, every Node then on GOMAXPROCS max(1, CPUs / Nodes), as
-// the harness gives Nodes added together.
+// the harness gives Nodes added together, or at the target profile on
+// TargetGOMAXPROCS.
 func (r *Run) addNodes(ctx context.Context, o topology.NodeOptions) error {
 	if len(r.Spec.Zones) == 0 {
 		_, err := r.Top.AddNodes(ctx, r.Nodes, o)
 		return err
 	}
-	o.GOMAXPROCS = max(1, runtime.NumCPU()/r.Nodes)
+	if o.GOMAXPROCS == 0 {
+		o.GOMAXPROCS = max(1, runtime.NumCPU()/r.Nodes)
+	}
 	r.zones = map[string]string{}
 	for i, count := range ZoneSplit(r.Nodes, len(r.Spec.Zones)) {
 		if count == 0 {
@@ -305,10 +345,14 @@ func (r *Run) Zone(node string) string { return r.zones[node] }
 
 // startBalancer starts the L4 balancer over a listener, redispatching a
 // failed dial to another healthy Node as an operator's balancer does,
-// and waits until every Node is healthy behind it.
+// and waits until every Node is healthy behind it. At the target profile
+// it listens on the gateway host's address, which the load host reaches.
 func (r *Run) startBalancer(listener string) *topology.Balancer {
 	r.T.Helper()
 	c := l4lb.Config{Redispatch: true}
+	if r.H.place != nil {
+		c.Listen = r.H.place.BalancerListen()
+	}
 	if r.Spec.Balancer != nil {
 		r.Spec.Balancer(r, listener, &c)
 	}
@@ -457,14 +501,22 @@ func (r *Run) WalkUntil(maxWalk time.Duration, done func() bool) bool {
 	return true
 }
 
-// StartLoad starts the run's load and records its interval logs.
+// StartLoad starts the run's load and records its interval logs: on the
+// harness's host, or at the target profile on the load host, which keeps
+// every request's record until the run's load has ended (Load.Wait).
 func (r *Run) StartLoad(spec LoadSpec) *Load {
 	r.T.Helper()
-	httpsAddr := ""
-	if r.HTTPS != nil {
-		httpsAddr = r.HTTPS.Addr()
+	var l *Load
+	var err error
+	if r.H.place != nil {
+		l, err = r.startRemoteLoad(spec)
+	} else {
+		httpsAddr := ""
+		if r.HTTPS != nil {
+			httpsAddr = r.HTTPS.Addr()
+		}
+		l, err = startLoad(r.ctx, spec, r.HTTP.Addr(), httpsAddr, r.Top.ClientTLS(), r.APIKeys, r.attribute)
 	}
-	l, err := startLoad(r.ctx, spec, r.HTTP.Addr(), httpsAddr, r.Top.ClientTLS(), r.APIKeys, r.attribute)
 	if err != nil {
 		r.T.Fatal(err)
 	}
@@ -474,9 +526,11 @@ func (r *Run) StartLoad(spec LoadSpec) *Load {
 		r.rec.Breakdowns["offered_rps_"+ss.Name] = ss.Rate
 	}
 	r.mu.Unlock()
+	// A run that ended without its Wait, as a failed one, leaves the load
+	// host's records there.
 	r.T.Cleanup(func() {
 		l.Stop()
-		_ = l.Wait()
+		_ = l.wait(false)
 	})
 	return l
 }

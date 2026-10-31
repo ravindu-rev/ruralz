@@ -12,6 +12,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
+	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
 // StateStoreTimeout is the chaos Bundle's stateStoreTimeout.
@@ -97,7 +98,7 @@ func (p LimitPlan) Streams() []StreamSpec {
 		{Name: "plain", Path: PathPlain, Rate: p.Plain},
 		{Name: "limited", Path: PathLimited, Rate: p.Limited, APIKeys: true, Counted: Decisions()},
 		{Name: "closed", Path: PathLimitedClosed, Rate: p.Closed, APIKeys: true, Counted: append(Decisions(), STSCodes()...)},
-		{Name: "undeclared", Path: PathUndeclared, Rate: p.Undeclared, KeyHeader: KeyHeader, Keys: listKeys(p.UndeclaredKeys), Counted: Decisions()},
+		{Name: "undeclared", Path: PathUndeclared, Rate: p.Undeclared, KeyHeader: KeyHeader, Keys: &lab.KeySpec{Kind: lab.KeysList, Values: p.UndeclaredKeys}, Counted: Decisions()},
 	}
 }
 

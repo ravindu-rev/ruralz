@@ -8,7 +8,10 @@
 // its fault into Nodes under load and asserting its criteria through
 // metrics and responses, with one ruralz.chaos.v1 record per run. The runs
 // are tests under the e2e build tag; the untagged files hold the harness
-// they share with the drills of test/chaos/gameday.
+// they share with the drills of test/chaos/gameday. A run's Nodes and
+// dependencies run on the harness's own host, except at the target
+// profile, whose Placement puts them on the four RH-1 hosts
+// (docs/engineering/03-testing-and-quality-strategy.md "Scale profiles").
 package chaos
 
 import (
@@ -30,6 +33,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/subst"
 	"github.com/ravindu-rev/ruralz/internal/filter/builtin/checks"
 	"github.com/ravindu-rev/ruralz/internal/testkit/binaries"
+	"github.com/ravindu-rev/ruralz/test/bench/harness"
 )
 
 // BuildTimeout bounds building the binaries under test.
@@ -61,6 +65,9 @@ type Harness struct {
 
 	pl     *pipeline.Pipeline
 	binDir string
+	// place places the runs on the RH-1 hosts at the target profile; nil
+	// runs them on the harness's own host.
+	place *Placement
 
 	satMu  sync.Mutex
 	sat    float64
@@ -74,21 +81,25 @@ type Harness struct {
 // NewHarness returns the harness of a test binary: the profile from the
 // environment, ruralzd built into dir as the controllable-clock and the
 // release build (or taken from RURALZ_TEST_BIN_DIR for both), and the
-// configuration pipeline. The target profile needs its RH-1 inventory and
-// stops at ErrTargetPlacement (checkProfile).
+// configuration pipeline. The target profile needs its RH-1 inventory
+// (TargetHosts) and places its runs on those hosts (Placement), labhost
+// built into dir.
 func NewHarness(ctx context.Context, dir string) (*Harness, error) {
 	p, err := ProfileFromEnv()
 	if err != nil {
-		return nil, err
-	}
-	if err := checkProfile(p, os.Getenv); err != nil {
 		return nil, err
 	}
 	root, err := binaries.RepoRoot(".")
 	if err != nil {
 		return nil, err
 	}
-	h := &Harness{Profile: p, Root: root, Records: os.Getenv(EnvRecords), binDir: dir, variants: map[string]binaries.Set{}}
+	place, err := placementFor(p, os.Getenv, func(hosts *harness.Profile) (*Placement, error) {
+		return NewPlacement(ctx, hosts, root, dir)
+	})
+	if err != nil {
+		return nil, err
+	}
+	h := &Harness{Profile: p, Root: root, Records: os.Getenv(EnvRecords), binDir: dir, variants: map[string]binaries.Set{}, place: place}
 	h.Commit = gitCommit(ctx, root)
 	bctx, cancel := context.WithTimeout(ctx, BuildTimeout)
 	defer cancel()
@@ -110,14 +121,34 @@ func NewHarness(ctx context.Context, dir string) (*Harness, error) {
 			return nil, err
 		}
 	}
+	if h.pl, err = newPipeline(); err != nil {
+		return nil, err
+	}
+	return h, nil
+}
+
+// newPipeline returns the configuration pipeline the harness renders the
+// chaos Bundle with, as ruralz bundle render runs it.
+func newPipeline() (*pipeline.Pipeline, error) {
 	celc, err := cel.New()
 	if err != nil {
 		return nil, err
 	}
-	if h.pl, err = pipeline.New(pipeline.Options{Checks: checks.Table(), CEL: celc, Now: clock.Real().Now}); err != nil {
+	return pipeline.New(pipeline.Options{Checks: checks.Table(), CEL: celc, Now: clock.Real().Now})
+}
+
+// placementFor returns where profile p's runs go: nil, the harness's own
+// host, for the reduced and nightly profiles; for the target profile, the
+// placement place makes on the RH-1 inventory getenv names (TargetHosts).
+func placementFor(p Profile, getenv func(string) string, place func(*harness.Profile) (*Placement, error)) (*Placement, error) {
+	if p.Name != Target {
+		return nil, nil
+	}
+	hosts, err := TargetHosts(getenv)
+	if err != nil {
 		return nil, err
 	}
-	return h, nil
+	return place(hosts)
 }
 
 // gitCommit returns the commit of the repository at root, "unknown"
