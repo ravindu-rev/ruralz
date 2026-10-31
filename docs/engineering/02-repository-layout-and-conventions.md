@@ -208,7 +208,7 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 | Context | First parameter of any function that blocks or calls the network or the State Store; never stored in a struct |
 | Goroutines | Each has an owner that cancels and waits for it; every channel, queue and pool is bounded (System overview) |
 | Errors | Wrap with `%w`; client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode`, map to a status through it and leave through `problem.Write` (RFC 9457) |
-| Time | Code that measures or schedules time takes an `internal/clock.Clock`; only `clock.Real` calls `time.Now`; tests use `clocktest.Fake` |
+| Time | Code that measures or schedules time takes an `internal/clock.Clock`; only `clock.Real` calls `time.Now`; tests use `clocktest.Fake`; a timer due at a deadline is armed with `NewTimerAt`, `AfterFuncAt` or `ResetAt`, which read the clock as they arm it, never with a duration computed from `Now`, which an advance of a test's clock in between would push past the deadline |
 | Logging | `log/slog` through `internal/telemetry` only ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) |
 | Telemetry names | Metrics `ruralz_<component>_<name>_<unit>`, counters ending in `_total`; spans `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` (foundation pack section 2) |
 | State | No `init()` or mutable package-level variables, except tests, generated code, sentinel errors, `go:embed` variables and the build metadata the linker sets in `internal/buildinfo`; registries are explicit tables |

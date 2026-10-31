@@ -376,7 +376,7 @@ func (l *Loader) Run(ctx context.Context) error {
 		var fire <-chan time.Time
 		var t clock.Timer
 		if !due.IsZero() {
-			t = l.clk.NewTimer(due.Sub(l.clk.Now()))
+			t = l.clk.NewTimerAt(due)
 			fire = t.C()
 		}
 		select {

@@ -37,7 +37,7 @@ func (h *Holder) Run(ctx context.Context) error {
 			fire <-chan time.Time
 		)
 		if !next.IsZero() {
-			t = h.clock.NewTimer(next.Sub(h.clock.Now()))
+			t = h.clock.NewTimerAt(next)
 			fire = t.C()
 		}
 		select {

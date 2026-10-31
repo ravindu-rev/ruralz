@@ -43,6 +43,16 @@ func (s *skewClock) AfterFunc(d time.Duration, f func()) clock.Timer {
 	return s.base.AfterFunc(d, f)
 }
 
+// NewTimerAt and AfterFuncAt take t on this clock, the base's plus the
+// offset.
+func (s *skewClock) NewTimerAt(t time.Time) clock.Timer {
+	return s.base.NewTimerAt(t.Add(-time.Duration(s.off.Load())))
+}
+
+func (s *skewClock) AfterFuncAt(t time.Time, f func()) clock.Timer {
+	return s.base.AfterFuncAt(t.Add(-time.Duration(s.off.Load())), f)
+}
+
 func (s *skewClock) Sleep(ctx context.Context, d time.Duration) error {
 	return s.base.Sleep(ctx, d)
 }

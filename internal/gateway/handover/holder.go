@@ -301,7 +301,7 @@ func (h *Holder) usage(ctx context.Context) Usage {
 // starts, or at deadline on the Holder's clock; stop releases it.
 func (h *Holder) bounded(parent context.Context, deadline time.Time) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(parent)
-	t := h.clk.AfterFunc(deadline.Sub(h.clk.Now()), cancel)
+	t := h.clk.AfterFuncAt(deadline, cancel)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -400,7 +400,7 @@ func (s *session) end(ctx context.Context) {
 func (s *session) gate(ctx context.Context) bool {
 	h := s.h
 	deadline := s.start.Add(GateTimeout)
-	timer := h.clk.NewTimer(deadline.Sub(h.clk.Now()))
+	timer := h.clk.NewTimerAt(deadline)
 	defer timer.Stop()
 	for {
 		var l line

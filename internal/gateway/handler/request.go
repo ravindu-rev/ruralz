@@ -558,13 +558,12 @@ func (st *state) armDeadline(timeout time.Duration) {
 	if timeout <= 0 {
 		return
 	}
-	wait := st.deadline.Sub(st.h.clk.Now())
 	cancel := st.cancel
-	if wait <= 0 {
+	if !st.h.clk.Now().Before(st.deadline) {
 		cancel(context.DeadlineExceeded)
 		return
 	}
-	st.deadlineTimer = st.h.clk.AfterFunc(wait, func() { cancel(context.DeadlineExceeded) })
+	st.deadlineTimer = st.h.clk.AfterFuncAt(st.deadline, func() { cancel(context.DeadlineExceeded) })
 }
 
 // storeOf returns the snapshot's main State Store, nil without one.

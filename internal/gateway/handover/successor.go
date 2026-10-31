@@ -278,7 +278,7 @@ func (s *Successor) gate(ctx context.Context, p *peer, deadline time.Time) (Outc
 		s.log.DebugContext(ctx, "handover socket unanswered", catalog.KeyError, err.Error())
 		return 0, false, nil
 	}
-	timer := s.clk.NewTimer(deadline.Sub(s.clk.Now()))
+	timer := s.clk.NewTimerAt(deadline)
 	defer timer.Stop()
 	for {
 		select {
@@ -684,7 +684,7 @@ func (s *Successor) draining() bool {
 // starts, or at deadline on the Successor's clock; stop releases it.
 func (s *Successor) bounded(parent context.Context, deadline time.Time) (context.Context, func()) {
 	ctx, cancel := context.WithCancel(parent)
-	t := s.clk.AfterFunc(deadline.Sub(s.clk.Now()), cancel)
+	t := s.clk.AfterFuncAt(deadline, cancel)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

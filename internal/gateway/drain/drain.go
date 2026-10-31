@@ -509,11 +509,10 @@ func (d *Drainer) waitUntil(ctx context.Context, at time.Time) bool {
 		if jumped || ctx.Err() != nil {
 			return false
 		}
-		wait := at.Sub(d.clk.Now())
-		if wait <= 0 {
+		if !d.clk.Now().Before(at) {
 			return true
 		}
-		t := d.clk.NewTimer(wait)
+		t := d.clk.NewTimerAt(at)
 		select {
 		case <-t.C():
 		case <-d.wake:
@@ -527,7 +526,7 @@ func (d *Drainer) waitUntil(ctx context.Context, at time.Time) bool {
 // clock.
 func (d *Drainer) until(parent context.Context, at time.Time) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(parent)
-	t := d.clk.AfterFunc(at.Sub(d.clk.Now()), cancel)
+	t := d.clk.AfterFuncAt(at, cancel)
 	return ctx, func() {
 		t.Stop()
 		cancel()

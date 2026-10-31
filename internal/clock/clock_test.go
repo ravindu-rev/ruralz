@@ -78,6 +78,38 @@ func TestRealAfterFunc(t *testing.T) {
 	}
 }
 
+// The deadline timers of Real fire at once for a past deadline and hold a
+// later one.
+func TestRealDeadlineTimers(t *testing.T) {
+	c := Real()
+	past := c.Now().Add(-time.Second)
+	select {
+	case <-c.NewTimerAt(past).C():
+	case <-time.After(10 * time.Second):
+		t.Fatal("NewTimerAt of a past deadline did not fire")
+	}
+	done := make(chan struct{})
+	c.AfterFuncAt(past, func() { close(done) })
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("AfterFuncAt of a past deadline did not run")
+	}
+	tm := c.NewTimerAt(c.Now().Add(time.Hour))
+	if !tm.ResetAt(past) {
+		t.Error("ResetAt of a pending timer reported inactive")
+	}
+	select {
+	case <-tm.C():
+	case <-time.After(10 * time.Second):
+		t.Fatal("ResetAt to a past deadline did not fire")
+	}
+	later := c.AfterFuncAt(c.Now().Add(time.Hour), func() { t.Error("stopped AfterFuncAt ran") })
+	if !later.Stop() {
+		t.Error("Stop of a pending AfterFuncAt reported inactive")
+	}
+}
+
 func TestRealSleep(t *testing.T) {
 	c := Real()
 	if err := c.Sleep(t.Context(), time.Millisecond); err != nil {
