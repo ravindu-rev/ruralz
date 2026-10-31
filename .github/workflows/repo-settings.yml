@@ -82,6 +82,7 @@ jobs:
 
           title="repository settings drift"
           body="$RUNNER_TEMP/body.md"
+          # shellcheck disable=SC2016 # the backticks are Markdown code, not command substitutions
           {
             printf 'The repository settings check %s found settings that differ from the settings table of docs/engineering/02-repository-layout-and-conventions.md, "Repository settings":\n\n' "$RUN_URL"
             printf '```text\n%s\n```\n\n' "$DRIFT"

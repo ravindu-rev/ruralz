@@ -439,7 +439,7 @@ jobs:
           gh release download "$TAG" --dir "$dir"
           cd "$dir"
           sha256sum --strict -c SHA256SUMS
-          diff <(ls -A "$RUNNER_TEMP/release" | sort) <(ls -A . | sort)
+          diff <(find "$RUNNER_TEMP/release" -mindepth 1 -maxdepth 1 -printf '%f\n' | sort) <(find . -mindepth 1 -maxdepth 1 -printf '%f\n' | sort)
           cmp SHA256SUMS "$RUNNER_TEMP/release/SHA256SUMS"
           cmp SHA256SUMS.sigstore.json "$RUNNER_TEMP/release/SHA256SUMS.sigstore.json"
       - name: Publish
