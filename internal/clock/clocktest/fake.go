@@ -13,12 +13,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Fake is a clock.Clock whose time moves only through Advance and Set.
-// Timers with a positive duration fire synchronously inside Advance, in
+// Fake is a clock.Clock whose time moves only through Advance, Set and
+// Jump. Timers with a positive duration fire synchronously inside them, in
 // deadline order, and their AfterFunc callbacks run on the goroutine that
-// calls Advance. Like clock.Real, a zero or negative duration fires at
-// once: NewTimer's channel is already filled, AfterFunc runs its callback
-// in a new goroutine, and Sleep returns without waiting.
+// calls them. Like clock.Real, a zero or negative duration fires at once:
+// NewTimer's channel is already filled, AfterFunc runs its callback in a
+// new goroutine, and Sleep returns without waiting.
 type Fake struct {
 	mu     sync.Mutex
 	now    time.Time
@@ -89,6 +89,32 @@ func (f *Fake) Set(t time.Time) {
 		f.timers = f.timers[1:]
 		f.changedLocked()
 		f.now = ft.at
+		at := ft.at
+		f.mu.Unlock()
+		ft.fire(false, at)
+	}
+}
+
+// Jump moves time forward by d at once, as after a stall: the clock reads
+// the new time before the timers due by then fire, in deadline order, so a
+// goroutine a timer wakes, or a callback, sees only the end of the jump,
+// where Advance shows each timer's deadline while it fires. A timer armed
+// while they fire is due after the new time and waits.
+func (f *Fake) Jump(d time.Duration) {
+	f.mu.Lock()
+	f.now = f.now.Add(max(d, 0))
+	t := f.now
+	f.mu.Unlock()
+	for {
+		f.mu.Lock()
+		slices.SortStableFunc(f.timers, func(a, b *fakeTimer) int { return a.at.Compare(b.at) })
+		if len(f.timers) == 0 || f.timers[0].at.After(t) {
+			f.mu.Unlock()
+			return
+		}
+		ft := f.timers[0]
+		f.timers = f.timers[1:]
+		f.changedLocked()
 		at := ft.at
 		f.mu.Unlock()
 		ft.fire(false, at)

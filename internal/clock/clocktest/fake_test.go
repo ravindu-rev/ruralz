@@ -6,6 +6,7 @@ package clocktest
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -479,6 +480,50 @@ func TestFireTimeIsDeadlineAtFire(t *testing.T) {
 		}
 	default:
 		t.Fatal("timer did not fire")
+	}
+}
+
+// Jump shows only its end: callbacks of the timers it fires read the new
+// time, where Advance shows each deadline, channels still get their
+// deadlines, and a timer armed while they fire waits for a later move.
+func TestJumpShowsOnlyItsEnd(t *testing.T) {
+	f := New(epoch())
+	var seen []time.Duration
+	f.AfterFunc(100*time.Millisecond, func() {
+		seen = append(seen, f.Since(epoch()))
+		f.AfterFunc(100*time.Millisecond, func() { seen = append(seen, f.Since(epoch())) })
+	})
+	ch := f.NewTimer(200 * time.Millisecond)
+	f.Jump(time.Second)
+	if want := []time.Duration{time.Second}; !slices.Equal(seen, want) {
+		t.Errorf("callbacks saw %v, want %v", seen, want)
+	}
+	select {
+	case at := <-ch.C():
+		if !at.Equal(epoch().Add(200 * time.Millisecond)) {
+			t.Errorf("delivered %v, want the deadline %v", at, epoch().Add(200*time.Millisecond))
+		}
+	default:
+		t.Error("the timer due inside the jump did not fire")
+	}
+	if got := f.Pending(); got != 1 {
+		t.Fatalf("%d timers armed after the jump, want the one armed at its end", got)
+	}
+	f.Jump(100 * time.Millisecond)
+	if want := []time.Duration{time.Second, 1100 * time.Millisecond}; !slices.Equal(seen, want) {
+		t.Errorf("callbacks saw %v, want %v", seen, want)
+	}
+	f.Jump(-time.Hour)
+	if got := f.Since(epoch()); got != 1100*time.Millisecond {
+		t.Errorf("Since after a negative jump = %v, want 1.1s", got)
+	}
+
+	g := New(epoch())
+	var advanced time.Duration
+	g.AfterFunc(100*time.Millisecond, func() { advanced = g.Since(epoch()) })
+	g.Advance(time.Second)
+	if advanced != 100*time.Millisecond {
+		t.Errorf("Advance showed %v to the callback, want its deadline 100ms", advanced)
 	}
 }
 
