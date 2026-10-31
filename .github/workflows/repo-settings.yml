@@ -1,0 +1,99 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# repo-settings: the weekly check of the repository's GitHub settings
+# (docs/engineering/02-repository-layout-and-conventions.md, "Repository
+# settings"). It runs scripts/repo-settings.sh --check with
+# REPO_SETTINGS_TOKEN, a fine-grained, read-only token secret with
+# Administration: read, never with the workflow's own token, and the run
+# writes no setting. The script's "drift:" lines open the settings-drift
+# issue, or comment on the open one; drift (exit 1) and an error (exit 2)
+# fail the run, and an error with drift still reports the drift. It runs
+# every Tuesday at 06:37 UTC and on demand.
+name: repo-settings
+
+on:
+  schedule:
+    - cron: "37 6 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-settings
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Repository settings
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      drift: ${{ steps.check.outputs.drift }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /scripts/repo-settings.sh
+          sparse-checkout-cone-mode: false
+      - name: Compare the live settings with the settings table
+        id: check
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SETTINGS_TOKEN }}
+        run: |
+          if [[ -z "$GH_TOKEN" ]]; then
+            echo "::error title=REPO_SETTINGS_TOKEN missing::Add the repository secret REPO_SETTINGS_TOKEN, a fine-grained, read-only token with Administration: read."
+            exit 2
+          fi
+          report="$RUNNER_TEMP/report.txt"
+          status=0
+          bash scripts/repo-settings.sh --check >"$report" || status=$?
+          cat "$report"
+          if grep -q '^drift: ' "$report"; then
+            {
+              echo 'drift<<REPO_SETTINGS_DRIFT'
+              grep '^drift: ' "$report"
+              echo 'REPO_SETTINGS_DRIFT'
+            } >>"$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+  issue:
+    name: Settings drift issue
+    needs: check
+    # Drift always fails the check job, with or without an error.
+    if: failure() && needs.check.outputs.drift != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Open or update the settings-drift issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          DRIFT: ${{ needs.check.outputs.drift }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create settings-drift --color FBCA04 --description "The repository's GitHub settings differ from the settings table" --force
+
+          title="repository settings drift"
+          body="$RUNNER_TEMP/body.md"
+          {
+            printf 'The repository settings check %s found settings that differ from the settings table of docs/engineering/02-repository-layout-and-conventions.md, "Repository settings":\n\n' "$RUN_URL"
+            printf '```text\n%s\n```\n\n' "$DRIFT"
+            printf 'A repository admin runs `scripts/repo-settings.sh` to apply the table, or a pull request changes the table first.\n'
+          } >"$body"
+
+          # Comment on the open settings-drift issue with this title, or
+          # open one.
+          n=$(gh issue list --label settings-drift --state open --limit 200 --json number,title \
+            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
+          if [[ -n "$n" ]]; then
+            gh issue comment "$n" --body-file "$body"
+          else
+            gh issue create --label settings-drift --title "$title" --body-file "$body"
+          fi

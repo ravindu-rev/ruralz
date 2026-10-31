@@ -381,7 +381,7 @@ A maintainer cuts a release in this order:
 1. **Preconditions.**
    - A milestone's other exit criteria hold before its release's first candidate: `v0.1.0-rc.1` is tagged only once M1 exit criteria 2 to 7 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
    - The `go.mod` `toolchain` line names the newest Go patch ([Release cadence and support windows](#release-cadence-and-support-windows)).
-   - `README.md` and `SECURITY.md`, which every archive ships byte for byte, describe the release. Before `v0.1.0-rc.1`:
+   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `v0.1.0-rc.1`:
      - `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest), a Quickstart section (`examples/quickstart/quickstart.sh`) and a status section;
      - `SECURITY.md`'s supported versions name `0.1` as line N.
 2. **Branches.**

@@ -2,18 +2,23 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 # Dependabot version updates (docs/engineering/01-tech-stack-and-libraries.md,
-# "Update policy" and "CI tooling"). Pull requests target develop, where work
-# lands; security updates always target the default branch and ignore these
-# options. Titles follow the pr-title check: build(deps) for Go modules and
-# for the digest-pinned images of deploy/container/ and test/compose/, whose
-# literal FROM lines the docker updates move, ci(deps) for actions.
-# Dependabot cannot sign off, so commitcheck skips the DCO check for commits
-# it authors (doc 02, "DCO sign-off").
+# "Update policy" and "CI tooling"). Pull requests target main, as every pull
+# request does (docs/engineering/02-repository-layout-and-conventions.md,
+# "Pull request rules"). Dependabot reads this file from the default branch,
+# main, so it takes effect when develop merges into main before
+# v0.1.0-rc.1 (docs/engineering/04-release-versioning-and-compatibility.md,
+# "Release runbook"). Security updates also target main and, since main is
+# the default branch, follow the commit-message options below too. Titles
+# follow the pr-title check: build(deps) for Go modules and for the
+# digest-pinned images of deploy/container/ and test/compose/, whose literal
+# FROM lines the docker updates move, ci(deps) for actions. Dependabot cannot
+# sign off, so commitcheck skips the DCO check for commits it authors (doc
+# 02, "DCO sign-off").
 version: 2
 updates:
   - package-ecosystem: gomod
     directory: /
-    target-branch: develop
+    target-branch: main
     schedule:
       interval: weekly
       day: monday
@@ -38,7 +43,7 @@ updates:
 
   - package-ecosystem: github-actions
     directory: /
-    target-branch: develop
+    target-branch: main
     schedule:
       interval: weekly
       day: monday
@@ -56,7 +61,7 @@ updates:
     directories:
       - /deploy/container
       - /test/compose
-    target-branch: develop
+    target-branch: main
     schedule:
       interval: weekly
       day: monday

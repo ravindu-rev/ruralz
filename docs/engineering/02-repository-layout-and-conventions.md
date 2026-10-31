@@ -91,7 +91,7 @@ github.com/ravindu-rev/ruralz
 ├── console/                     Ruralz Console TypeScript source
 ├── deploy/                      container/, systemd/, grafana/, benchhost/; helm/ chart, crds/ (generated)
 ├── test/                        conformance/, integration/, property/, e2e/, compose/, t5/, chaos/,
-│                                bench/, quickstart/, fixtures/
+│                                bench/, quickstart/, reposettings/, fixtures/
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
 ├── scripts/                     install-tools.sh and CI helper scripts
@@ -507,19 +507,19 @@ Signed-off-by: Jane Doe <jane@example.com>
 
 ### Repository settings
 
-`scripts/repo-settings.sh`, Planned (M1), applies the repository's GitHub settings through the GitHub CLI, idempotently; an admin runs it. With `--check`, it compares the live settings with the table below and exits 1 on any drift and 2 on an error. The weekly `repo-settings.yml` workflow runs `--check` with `REPO_SETTINGS_TOKEN`, a fine-grained, read-only token secret with Administration: read, and opens or updates a `settings-drift` issue on drift.
+`scripts/repo-settings.sh`, Planned (M1), applies the repository's GitHub settings through the GitHub CLI, idempotently; an admin runs it. It reads each area of the table below, finding the rulesets by the names it gives, writes only an area that differs and reads that area back, so a second run writes nothing and a write that does not take effect is an error. With `--check`, it compares the live settings with the table, writes nothing, prints a `drift:` line per setting that differs, and exits 1 on any drift and 2 on an error. A setting the response leaves out, as GitHub does for a token without the permission to read it, is never a match: an error when applying. The weekly `repo-settings.yml` workflow runs `--check` with `REPO_SETTINGS_TOKEN`, a fine-grained, read-only token secret with Administration: read and Actions: read, and opens or updates a `settings-drift` issue on drift. GitHub leaves the merge settings, secret scanning and the rulesets' bypass actors out of its responses to such a token, so `--check` prints a `notice:` line for each of them and checks the rest; an admin's apply reads them all. `test/reposettings` runs the script in both modes through the real GitHub CLI against a fake GitHub REST API.
 
 | Area | Setting |
 |---|---|
 | Merging | Squash merging only, its commit title the pull request title and its message the commit details; merge commits and rebase merging off; head branches deleted after merge |
-| `main` and `release-*` | One ruleset: required status checks `pr-fast`, `pr-full` and `pr-title` from GitHub Actions; branches up to date before merging; squash only; 0 approvals; no bypass actors; deletion and force pushes blocked |
-| `v*` tags | A tag ruleset: only admins create them, and nobody updates or deletes them; release tags are signed annotated tags ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
+| `main` and `release-*` | One ruleset, `main and release-*`: required status checks `pr-fast`, `pr-full` and `pr-title` from GitHub Actions, not required when a branch is created, so `release-X.Y` can be cut from a candidate commit on `main`, where `pr-title` never runs; branches up to date before merging; squash only; 0 approvals and no other review requirement; no bypass actors; deletion and force pushes blocked |
+| `v*` tags | Two tag rulesets, since a ruleset's bypass list covers all its rules: `v* tag creation`, which only admins bypass, so only they create `v*` tags, and `v* tag updates and deletion`, without bypass actors, so nobody updates or deletes them; release tags are signed annotated tags ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
 | Actions | Only actions pinned to a full commit SHA; a read-only default `GITHUB_TOKEN`; Actions cannot create or approve pull requests; fork pull-request workflows of every outside contributor wait for approval, so `rh-1` never runs pull-request code |
 | Security | Private vulnerability reporting, which `SECURITY.md` names; Dependabot alerts and security updates; secret scanning with push protection |
 | Releases | Immutable releases: a published release's assets and tag never change |
-| Environment | `release`: deployments from `v*` tags only, the owner as required reviewer ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
-| Variables | `RH1_PROVISIONED`, set to `true` once the `rh-1` runner is registered ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)) |
-| No API | The public visibility and repository link of the `ghcr.io/ravindu-rev/ruralzd` package, which the script prints as steps for after the first candidate push ([Release runbook](04-release-versioning-and-compatibility.md#release-runbook)) |
+| Environment | `release`: deployments from `v*` tags only; the owner as its one required reviewer, who may approve the runs of the tags they push; no wait timer ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
+| Variables | `RH1_PROVISIONED`, set to `true` once the `rh-1` runner is registered ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)); the script neither reads nor writes it: the owner sets it with the RH-1 runbook in `deploy/benchhost` |
+| No API | The public visibility and repository link of the `ghcr.io/ravindu-rev/ruralzd` package, which the script prints as steps for after the first candidate push and neither reads nor writes ([Release runbook](04-release-versioning-and-compatibility.md#release-runbook)) |
 
 ## CI stages
 

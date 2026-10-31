@@ -1,6 +1,6 @@
 # Ruralz
 
-Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Milestone M1 is in progress: the building blocks exist, but `ruralzd` does not serve traffic yet.
+Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Milestone M1 is in progress, and its release, `0.1.0`, is not out yet ([Status](#status)).
 
 ## What is Ruralz
 
@@ -62,7 +62,7 @@ The four differentiators are (1) **WASM plugin system**, (2) **AI/LLM gateway**,
 
 ## Status
 
-Ruralz is building M1: the building blocks exist, `ruralzd` does not serve traffic yet, and there is no release, binary or image to install. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
+Ruralz is building milestone M1 Core gateway, which release `0.1.0` completes. `0.1.0` is not out yet: until the [releases page](https://github.com/ravindu-rev/ruralz/releases) lists it, there is no archive or image to install, and `ruralzd` and the `ruralz` CLI build from source with `make build`. Its first release candidate, `v0.1.0-rc.1`, is tagged once the other [M1 exit criteria](docs/roadmap/01-roadmap-and-milestones.md#m1-exit-criteria) hold. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
 
 | Milestone | Scope |
 |---|---|
@@ -74,6 +74,54 @@ Ruralz is building M1: the building blocks exist, `ruralzd` does not serve traff
 | M5 Enterprise hardening | SSO/SAML for Ruralz Console, FIPS build, monetization hooks |
 
 The [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) holds each milestone's scope and exit criteria, [Steps](docs/roadmap/02-steps.md) the work left in the current one, and the [Feature Catalog](docs/features/01-feature-catalog.md) maps every capability to its milestone.
+
+## Install
+
+Each release, from `0.1.0` on, publishes these artifacts on the [releases page](https://github.com/ravindu-rev/ruralz/releases), with release notes that list every verification command ([Release artifacts](docs/engineering/04-release-versioning-and-compatibility.md#release-artifacts)):
+
+| Artifact | Name | Platforms |
+|---|---|---|
+| Ruralz Gateway | `ruralzd_<version>_<os>_<arch>.tar.gz`; the linux archives add `deploy/systemd/` | linux/amd64, linux/arm64; darwin/arm64 and darwin/amd64 for development only |
+| CLI | `ruralz_<version>_<os>_<arch>.tar.gz`, `.zip` on Windows | linux/amd64, linux/arm64, darwin/arm64, darwin/amd64, windows/amd64 |
+| Checksums | `SHA256SUMS` over the release's archives, SBOMs, schema files, `release-manifest.json` and notes, signed in `SHA256SUMS.sigstore.json` | All |
+| Container image | `ghcr.io/ravindu-rev/ruralzd`, tagged `X.Y.Z`, `X.Y` and, for a release candidate, `X.Y.Z-rc.N`; no `latest` | linux/amd64, linux/arm64 |
+
+Each archive holds the binary, `LICENSE`, `NOTICE`, this `README.md` and its own `THIRD_PARTY_LICENSES`; `ruralz-control` archives and image are Planned (M2). Every artifact is signed keylessly with Sigstore by the release's `release-build.yml` workflow run at its tag.
+
+To install an archive, download it with `SHA256SUMS` and `SHA256SUMS.sigstore.json`, check the signature of `SHA256SUMS` with cosign 3.1.3 or newer on 3.x, then check the archive against `SHA256SUMS` and unpack it. cosign 2.6.5 or newer on 2.x also works with `--new-bundle-format` added; older versions have a verification bypass, GHSA-fx35-mq7g-6g98 ([source](https://github.com/sigstore/cosign/releases)).
+
+```bash
+version=X.Y.Z  # the release, without its v
+cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json \
+  --certificate-identity "https://github.com/ravindu-rev/ruralz/.github/workflows/release-build.yml@refs/tags/v${version}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+sha256sum --ignore-missing -c SHA256SUMS
+tar -xzf "ruralzd_${version}_linux_amd64.tar.gz"
+```
+
+On macOS, check the files with `shasum -a 256 --ignore-missing -c SHA256SUMS`. A browser download carries a quarantine flag, which stops the unnotarized binary; after the checks, `xattr -d com.apple.quarantine ruralzd` (or `ruralz`) clears it, and a `curl` download never carries it. The release notes add the provenance and SBOM checks with `gh attestation verify`.
+
+Deployments SHOULD pin the image by digest, which the release notes and `release-manifest.json` name. Check its signature, then pull it by that digest:
+
+```bash
+image=ghcr.io/ravindu-rev/ruralzd@sha256:<digest>
+cosign verify "$image" \
+  --certificate-identity "https://github.com/ravindu-rev/ruralz/.github/workflows/release-build.yml@refs/tags/v${version}" \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+docker pull "$image"
+```
+
+The image runs `ruralzd` as user and group 65532 and exposes ports 8080, 8443 and 9901. It needs no more than a read-only root filesystem, no capabilities and no new privileges, with its data directory `/var/lib/ruralz` on a volume, and a stop grace period above the 30 s Drain exit bound (target) ([Packaging and audit](docs/engineering/04-release-versioning-and-compatibility.md#packaging-and-audit)). [Deployment topologies](docs/operations/01-deployment-topologies.md) covers running Nodes, under systemd too.
+
+## Quickstart
+
+The scripted quickstart, [`examples/quickstart/quickstart.sh`](examples/quickstart/quickstart.sh), goes from a release's `ruralzd` archive to a first request proxied by a Node in 10 minutes or less (target), without Go or the CLI. It downloads the host's archive and `SHA256SUMS` from the latest release, or from the release `RURALZ_QUICKSTART_VERSION` names, such as `0.1.0` (without the `v`). It checks the signature of `SHA256SUMS` when cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, is installed, and the archive's checksum always. It then runs one file-mode `ruralzd` with the `memory` State Store in front of a local Upstream, all on loopback:
+
+```bash
+bash examples/quickstart/quickstart.sh
+```
+
+It needs Linux or macOS on amd64 or arm64, bash 3.2 or newer, curl, tar, `sha256sum` or `shasum`, python3 for the Upstream, and ports 8080, 9000 and 9901 free on 127.0.0.1; it also runs on its own, fetched without the repository or piped into bash. It prints `first proxied request after <seconds> s`, then stops both processes; with `RURALZ_QUICKSTART_KEEP=1` it leaves them running for `curl http://127.0.0.1:8080/` until Ctrl-C. `RURALZ_QUICKSTART_ARCHIVE` names a local archive, with its `SHA256SUMS` beside it, instead of a download: `make release-dry-run` builds the archives into `dist/release/`, and `make quickstart` runs the script on the host's archive. [Quickstart](docs/operations/01-deployment-topologies.md#quickstart) describes each step.
 
 ## Documentation map
 
