@@ -48,6 +48,7 @@ func TestDecide(t *testing.T) {
 		{"no parent ratio 0", http.Header{}, 0, false, false},
 		{"no parent ratio 1", http.Header{}, 1, false, true},
 		{"invalid parent ratio 1", header(HeaderTraceparent, "garbage"), 1, false, true},
+		{"version 00 parent with a trailing dash ratio 0", header(HeaderTraceparent, tpSampled+"-"), 0, false, false},
 		{"nil header ratio 1", nil, 1, false, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
