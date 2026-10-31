@@ -95,7 +95,7 @@ jobs:
         run: make release RELEASE_PART=image
       - id: digest
         run: echo "digest=$(go run ./internal/tool/releasekit image -dir dist/image)" >>"$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-dist-${{ inputs.version }}
           path: |
@@ -127,18 +127,18 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: release-dist-${{ inputs.version }}
           path: dist
       - name: The Latency and soak records
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: ${{ inputs.bench-artifacts }}
           merge-multiple: true
           path: ${{ runner.temp }}/bench
       - name: The skipped gates
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ inputs.skipped-artifact }}
           path: ${{ runner.temp }}/skipped
@@ -151,7 +151,7 @@ jobs:
         run: cat dist/release/NOTES.md >>"$GITHUB_STEP_SUMMARY"
       - id: archives
         run: echo "archives=$(jq -c '[.archives[].name]' dist/release/release-manifest.json)" >>"$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: release-${{ inputs.version }}
           path: dist/release/
@@ -173,7 +173,7 @@ jobs:
       id-token: write
       attestations: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.package.outputs.artifact }}
           path: ${{ runner.temp }}/release
@@ -198,7 +198,7 @@ jobs:
       attestations: write
       packages: write
     steps:
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: ${{ needs.package.outputs.artifact }}
           path: ${{ runner.temp }}/release
