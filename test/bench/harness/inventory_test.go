@@ -12,9 +12,9 @@ import (
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/testkit/binaries"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 	"github.com/ravindu-rev/ruralz/test/bench/gen"
 	"github.com/ravindu-rev/ruralz/test/bench/harness"
-	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 	"github.com/ravindu-rev/ruralz/test/bench/scenarios"
 )
 
@@ -188,7 +188,7 @@ func cpus(t *testing.T, s string) []int {
 	if s == "" {
 		return nil
 	}
-	c, ok := lab.ParseCPUList(s)
+	c, ok := proc.ParseCPUList(s)
 	if !ok {
 		t.Fatalf("cpuset %q", s)
 	}

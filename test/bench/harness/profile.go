@@ -16,7 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // Profile names (PBB "Reference hardware" and "Scenarios").
@@ -216,7 +216,7 @@ func (p *Profile) Validate() error {
 		}
 		for _, c := range []string{h.CPUs, h.AuxCPUs} {
 			if c != "" {
-				if _, ok := lab.ParseCPUList(c); !ok {
+				if _, ok := proc.ParseCPUList(c); !ok {
 					errs = append(errs, fmt.Errorf("%s host cpuset %q does not parse", r, c))
 				}
 			}
