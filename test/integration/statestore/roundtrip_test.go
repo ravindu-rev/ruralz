@@ -7,6 +7,7 @@ package statestore
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,21 +28,55 @@ func cacheable() mockup.Behavior {
 	return mockup.Behavior{Body: []byte("cached body\n"), ContentType: "text/plain", Header: http.Header{"Cache-Control": {"max-age=600"}}}
 }
 
-// quotaWindow is the window of the round trip's quotas: windows are fixed
-// and epoch-aligned in UTC (docs/architecture/09-traffic-management-and-resilience.md
-// "Quotas") and a Node keeps a denial no further than its window's end, so
-// an hour's window would end inside a run that started minutes before the
-// hour. One of 100 years, 1970 to 2070, ends inside none.
-const quotaWindow = "876000h"
+// quotaMargin is how much of its window a round trip's quota must have
+// left at the start: more than the run moves the Node clock (93 s) and
+// takes in real time.
+const quotaMargin = 30 * time.Minute
+
+// quotaWindow returns the window of the round trip's quotas for a run that
+// starts at start: the fewest whole hours whose current window has
+// quotaMargin left. Windows are fixed and epoch-aligned in UTC
+// (docs/architecture/09-traffic-management-and-resilience.md "Quotas") and
+// a Node keeps a denial no further than its window's end, so an hour's
+// window would end inside a run that started minutes before the hour.
+func quotaWindow(start time.Time) string {
+	for h := 1; ; h++ {
+		w := time.Duration(h) * time.Hour
+		if w-time.Duration(start.UnixNano()%int64(w)) >= quotaMargin {
+			return strconv.Itoa(h) + "h"
+		}
+	}
+}
+
+// TestQuotaWindowLeavesMargin: the round trip's quotas take the fewest
+// whole hours whose current UTC window has quotaMargin left at the start,
+// so a run that starts minutes before the hour gets a longer window.
+func TestQuotaWindowLeavesMargin(t *testing.T) {
+	for _, c := range []struct{ start, want string }{
+		{"2026-10-31T13:10:00Z", "1h"},
+		{"2026-10-31T13:30:00Z", "1h"},
+		{"2026-10-31T13:55:00Z", "3h"}, // the 1 h and 2 h windows end at 14:00
+		{"2026-10-31T14:40:00Z", "2h"}, // 14:00 to 16:00
+	} {
+		start, err := time.Parse(time.RFC3339, c.start)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := quotaWindow(start); got != c.want {
+			t.Errorf("quotaWindow(%s) = %s, want %s", c.start, got, c.want)
+		}
+	}
+}
 
 // roundTripBundle is the round trip's Bundle: a Route per case on the
-// State Store of kind k, with the Response Cache on the main connection.
-func roundTripBundle(k redisserver.Kind, upstream string) []byte {
+// State Store of kind k, with the Response Cache on the main connection,
+// and quotas of window quota.
+func roundTripBundle(k redisserver.Kind, upstream, quota string) []byte {
 	b := bundle{
 		stateStore: redisStore(topologyName(k), urlRef),
 		upstream:   upstream,
 		docs: []string{
-			consumer(2, quotaWindow),
+			consumer(2, quota),
 			apiKeyPolicy(),
 			// rl-local's bucket holds its 2 tokens per minute: a third
 			// request is a local denial.
@@ -73,7 +108,7 @@ func roundTripBundle(k redisserver.Kind, upstream string) []byte {
 		},
 	}
 	// The Consumer of the refund Route has a quota of its own.
-	b.docs[0] = strings.Replace(b.docs[0], "  quotas:\n", "  quotas:\n    - {name: r, unit: requests, limit: 100, window: "+quotaWindow+"}\n", 1)
+	b.docs[0] = strings.Replace(b.docs[0], "  quotas:\n", "  quotas:\n    - {name: r, unit: requests, limit: 100, window: "+quota+"}\n", 1)
 	return b.render()
 }
 
@@ -111,7 +146,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Run(string(k), func(t *testing.T) {
 			e := newEnv(t, envOptions{kind: k, config: memoryConfig(), upstream: cacheable()})
 			setMaxMemory(e, e.stores["main"])
-			e.start(roundTripBundle(k, e.up.Addr()), mainURLs())
+			e.start(roundTripBundle(k, e.up.Addr(), quotaWindow(time.Now())), mainURLs())
 			m := e.meter("main")
 			// The first memory readings, which the shared connection's
 			// stores wait for, follow the client's first maintenance pass.
@@ -203,7 +238,7 @@ func rateLimitRoundTrips(t *testing.T, e *env, m *meter) {
 }
 
 // quotaRoundTrips runs the quota cases of the round trip: the Consumer's
-// quota q admits 2 requests per quotaWindow.
+// quota q admits 2 requests per window.
 func quotaRoundTrips(t *testing.T, e *env, m *meter) {
 	key := []string{"x-api-key", apiKey}
 	d := m.phase(func() { expect(t, "a quota admission", e.get("/quota", key...), http.StatusOK, "") })
