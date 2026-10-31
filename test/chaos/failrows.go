@@ -196,17 +196,25 @@ func ReadScriptStats(ctx context.Context, s *redisserver.Server) (ScriptStats, e
 	return ScriptStats{Loads: ScriptLoadCalls(cmds), NoScript: ErrorReplies(errs, "NOSCRIPT")}, nil
 }
 
-// FC12Criteria returns FC-12's Detection criterion on CE-5's run: from the
+// FC12Criteria returns FC-12's Detection criteria on CE-5's run, from the
 // server a failover promoted, read before the kill (before) and after the
-// fault (after), every one of nodes Nodes loaded its scripts there, since a
+// fault (after). Every one of nodes Nodes loaded its scripts there, since a
 // Node runs SCRIPT LOAD at every connect, reconnect and failover before its
-// first EVALSHA, so a NOSCRIPT reply only ever precedes a load
-// (docs/architecture/11-scalability-and-distributed-state.md "State Store
-// availability"). CE-5's criteria assert FC-12's Behavior: failureMode for
-// at most 15 s and at most the lag's extra admissions per key.
+// first EVALSHA (docs/architecture/11-scalability-and-distributed-state.md
+// "State Store availability"): at the failover, or before it on a
+// connection it already held to the replica, as a cluster's Nodes may to
+// any server of the slot map, so the server's loads count from its start.
+// A NOSCRIPT reply there after the failover is followed by a load. CE-5's
+// criteria assert FC-12's Behavior: failureMode for at most 15 s and at
+// most the lag's extra admissions per key.
 func FC12Criteria(nodes int, before, after ScriptStats) []Criterion {
+	var unreloaded int64
+	if after.NoScript > before.NoScript && after.Loads == before.Loads {
+		unreloaded = after.NoScript - before.NoScript
+	}
 	return []Criterion{
-		Check(FC12+": SCRIPT LOAD calls on the promoted primary after the failover", Functional, float64(after.Loads-before.Loads), GE, float64(nodes)),
+		Check(FC12+": SCRIPT LOAD calls on the promoted primary since it started", Functional, float64(after.Loads), GE, float64(nodes)),
+		Check(FC12+": NOSCRIPT replies on the promoted primary after the failover that no SCRIPT LOAD followed", Functional, float64(unreloaded), EQ, 0),
 	}
 }
 
