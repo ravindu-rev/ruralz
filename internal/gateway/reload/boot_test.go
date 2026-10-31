@@ -334,6 +334,33 @@ func TestSuccessorWatchesAndWritesOnceItTookTheLock(t *testing.T) {
 	})
 }
 
+// A successor compares its active Revision with what lkg/ names once it
+// took the lock, not at its start: the holder may write lkg/ while the
+// successor boots, and the successor writes its active Revision when lkg/
+// then names another. The source serves the active Revision, so only that
+// write moves lkg/ back.
+func TestSuccessorRereadsLastKnownGoodWhenItTakesTheLock(t *testing.T) {
+	r := newRig(t, withSuccessorBoot(), withSource(load(result("H"))))
+	r.held.Store(false)
+	r.writeLKG("H")
+	r.start()
+	r.booted()
+	if r.active() != rev("H").Digest {
+		t.Fatalf("active %s, want the holder's candidate H", r.active().Short())
+	}
+	// The holder activates and writes Y while the successor boots.
+	r.writeLKG("Y")
+	if err := r.l.Bound().Listen(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.held.Store(true)
+	r.l.TookLock()
+	waitFor(t, "lkg/ to name the successor's active Revision H", func() bool {
+		cand, last, _ := r.store.Pointers()
+		return cand == rev("H").Digest && last == rev("H").Digest
+	})
+}
+
 func TestBoundCloseClosesEverything(t *testing.T) {
 	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)

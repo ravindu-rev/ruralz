@@ -74,13 +74,14 @@ func (l *Loader) Reload(ctx context.Context, d revision.Digest) error {
 // TookLock tells a handover successor's loader that the process took the
 // data-directory lock: it watches the source from now on, which loads it
 // at once and activates it when its digest differs from the active one,
-// and writes the active Revision under lkg/ when lkg/ names another.
-// TookLock returns at once: the activation loop starts the watcher and
-// runs that write as a job, so lkg/ can still name another Revision when
-// TookLock returns.
+// and writes the active Revision under lkg/ when lkg/ names another,
+// read once the lock is held, since the holder may have written lkg/ while
+// this process booted. TookLock returns at once: the activation loop starts
+// the watcher, reads lkg/ and runs that write as jobs, so lkg/ can still
+// name another Revision when TookLock returns.
 func (l *Loader) TookLock() {
 	l.mu.Lock()
-	l.lockTaken = true
+	l.lockTaken, l.pointersStale = true, true
 	l.mu.Unlock()
 	l.wake()
 }

@@ -254,6 +254,11 @@ type Loader struct {
 	// successor took the lock; bootIssues when a rejected source load set
 	// the readiness reasons while no Revision was active.
 	bootDone, lockTaken, bootIssues bool
+	// pointersStale is set when a handover successor took the lock: the
+	// holder may have written lkg/ while the successor booted, so the loop
+	// reads the digests lkg/ names again before it decides the write it
+	// owes.
+	pointersStale bool
 	// watching is set once the source watcher started; waiting while a
 	// retirement waiter runs.
 	watching, waiting bool
@@ -430,6 +435,11 @@ func (l *Loader) plan(ctx context.Context, wg *sync.WaitGroup) time.Time {
 		}
 	}
 	if l.job != nil {
+		return due
+	}
+	if l.pointersStale {
+		l.pointersStale = false
+		l.startJobLocked(ctx, wg, l.initPointers)
 		return due
 	}
 	if len(l.requests) > 0 {

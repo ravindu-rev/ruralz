@@ -114,7 +114,7 @@ func (r *rig) settled() bool {
 		return false
 	case l.stopped || l.closed:
 		return true
-	case l.watchDueLocked(), !l.reloadDue.IsZero() && !now.Before(l.reloadDue), len(l.requests) > 0:
+	case l.watchDueLocked(), !l.reloadDue.IsZero() && !now.Before(l.reloadDue), l.pointersStale, len(l.requests) > 0:
 		return false
 	case l.holds > 0 || !l.bootDone:
 		return true
