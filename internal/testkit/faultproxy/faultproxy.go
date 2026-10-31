@@ -524,6 +524,10 @@ type conn struct {
 	aborted    bool
 	cancelDial context.CancelFunc // ends an upstream dial in progress
 	up, down   *pump
+
+	// kept are the client bytes hold read once the mode had left
+	// Blackhole, forwarded first after the dial; only run touches them.
+	kept []byte
 }
 
 func newConn(p *Proxy, id uint64, client *net.TCPConn) *conn {
@@ -642,6 +646,13 @@ func (c *conn) run(ctx context.Context) {
 	c.up.tap, c.down.tap = tap, tap
 	// The connection may have been switched while dialing.
 	c.poke()
+	if len(c.kept) > 0 {
+		if err := c.up.handle(c.kept); err != nil {
+			c.abortFrom(err)
+			return
+		}
+		c.kept = nil
+	}
 	downDone := make(chan struct{})
 	go func() {
 		defer close(downDone)
@@ -652,7 +663,11 @@ func (c *conn) run(ctx context.Context) {
 }
 
 // hold reads and discards client bytes while the connection's mode is
-// Blackhole and nothing was dialed; it reports whether to dial.
+// Blackhole and nothing was dialed; it reports whether to dial. Like the
+// pumps, it treats bytes by the mode when it has read them: a poke's past
+// deadline readies the blocked read, but bytes that arrive before that
+// read runs are returned instead of the timeout, and once the mode has
+// left Blackhole they are kept for the upstream.
 func (c *conn) hold() bool {
 	pm := c.up
 	for {
@@ -672,7 +687,13 @@ func (c *conn) hold() bool {
 		if !pm.armRead(seen, time.Time{}) {
 			continue
 		}
-		_, err := c.client.Read(pm.buf)
+		n, err := c.client.Read(pm.buf)
+		if n > 0 {
+			switch c.mode().(type) {
+			case Pass, Delay:
+				c.kept = append(c.kept, pm.buf[:n]...)
+			}
+		}
 		if err != nil && !errors.Is(err, os.ErrDeadlineExceeded) {
 			return false
 		}
