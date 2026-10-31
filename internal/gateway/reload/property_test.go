@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"strconv"
+	"sync"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
@@ -89,20 +90,52 @@ func (p *property) record() {
 	}
 }
 
-// settle waits until r runs no job and nothing is due.
+// settle waits until r runs no job and nothing is due (settled), so what
+// lkg/ names is what r wrote and no write of r is still to come.
 func (p *property) settle(r *rig) {
 	p.t.Helper()
-	waitFor(p.t, "the loader to settle", func() bool {
-		r.l.mu.Lock()
-		defer r.l.mu.Unlock()
-		if r.l.job != nil {
-			return false
-		}
-		if c := r.l.next; c != nil && !c.due.After(r.clk.Now()) && r.l.holds == 0 && !r.l.stopped && r.l.bootDone {
-			return false
-		}
+	waitFor(p.t, "the loader to settle", r.settled)
+}
+
+// settled reports whether r's activation loop has nothing to start: no
+// job runs and its plan finds nothing due, in the order plan reads it.
+// That includes the Last-Known-Good write a lock holder owes, as a
+// handover successor does once it took the lock: TookLock returns before
+// the loop writes, so lkg/ read in between is not what the new holder
+// leaves. The lock is read from held, not from the Loader's Lock, which
+// withLockPause blocks.
+func (r *rig) settled() bool {
+	held, now := r.held.Load(), r.clk.Now()
+	l := r.l
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	switch {
+	case l.job != nil:
+		return false
+	case l.stopped || l.closed:
 		return true
-	})
+	case l.watchDueLocked(), !l.reloadDue.IsZero() && !now.Before(l.reloadDue), len(l.requests) > 0:
+		return false
+	case l.holds > 0 || !l.bootDone:
+		return true
+	case l.next != nil && (l.next.digest == l.active.Digest || !now.Before(l.next.due)):
+		return false
+	}
+	return !held || !l.lkgOwedLocked() || now.Before(l.lkgDue)
+}
+
+// withLockPause makes the Loader's lock check, the first step of each
+// plan of its activation loop, wait while pause is locked, so a test sees
+// the loader between a change and the plan that acts on it.
+func withLockPause(pause *sync.RWMutex) rigOption {
+	return func(r *rig) {
+		lock := r.cfg.Lock
+		r.cfg.Lock = func() *nodedir.Lock {
+			pause.RLock()
+			defer pause.RUnlock()
+			return lock()
+		}
+	}
 }
 
 // pointers returns what lkg/ names, zero for an absent or unreadable
@@ -225,7 +258,9 @@ func (p *property) handover(i int, op byte) {
 	if !s.l.Active().IsZero() {
 		p.activated[s.l.Active()] = true
 	}
-	// The holder exits; the successor listens, takes the lock and writes.
+	// The holder exits; the successor listens and takes the lock. Its loop
+	// then writes lkg/ when lkg/ names another Revision, which the step's
+	// settle waits for.
 	p.r.stop()
 	if err := s.l.Bound().Listen(p.t.Context()); err != nil {
 		p.t.Fatal(err)
@@ -251,5 +286,93 @@ func (p *property) check() {
 		} else if *p.frozen != ptrs {
 			p.t.Fatal("lkg/ changed while no process held the lock")
 		}
+	}
+}
+
+// TestSettleWaitsForTheWriteOfASuccessorThatTookTheLock is the
+// FuzzLastKnownGood sequence of a handover right after a handover, made
+// deterministic: a handover successor that booted by the file-mode order,
+// the holder having no candidate, owes lkg/ its active Revision once it
+// took the lock. Until its loop wrote it, the loader is not settled; else
+// the next handover expects the boot of an lkg/ that the new holder then
+// rewrites.
+func TestSettleWaitsForTheWriteOfASuccessorThatTookTheLock(t *testing.T) {
+	p := newProperty(t)
+	// The holder serves A, and lkg/ names no candidate.
+	if err := os.Remove(p.files.Path(lkg.CandidateFile)); err != nil {
+		t.Fatal(err)
+	}
+	var pause sync.RWMutex
+	s := newRigOn(t, p.dir, p.lock, withSuccessorBoot(), withSource(load(result("S"))), withLockPause(&pause))
+	s.held.Store(false)
+	s.start()
+	s.booted()
+	p.settle(s)
+	sd := rev("S").Digest
+	if got := s.l.Active(); got != sd {
+		t.Fatalf("the successor booted %s, want its source S", got.Short())
+	}
+	p.r.stop()
+	if err := s.l.Bound().Listen(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	// The process takes the lock while its loop cannot plan the write.
+	pause.Lock()
+	s.held.Store(true)
+	s.l.TookLock()
+	settled := s.settled()
+	pause.Unlock()
+	if settled {
+		t.Fatal("settled while the successor that took the lock owes lkg/ its active Revision")
+	}
+	p.r = s
+	p.settle(s)
+	if got := p.pointers(); got != [2]revision.Digest{sd, sd} {
+		t.Fatalf("lkg/ names %s and %s once settled, want S for both", got[0].Short(), got[1].Short())
+	}
+	p.record()
+	p.check()
+	// The next step is a handover (15 % 8 == 7) whose successor's source
+	// fails ((15 / 8) % 3 == 1): it boots the new holder's candidate S, as
+	// the model expects.
+	p.step(1, 15)
+	p.check()
+	if got := p.r.l.Active(); got != sd {
+		t.Fatalf("the next successor booted %s, want the candidate S", got.Short())
+	}
+}
+
+// TestSettleWaitsForADueLastKnownGoodRetry checks that a loader whose
+// retry of a failed candidate write is due is not settled until its loop
+// wrote lkg/.
+func TestSettleWaitsForADueLastKnownGoodRetry(t *testing.T) {
+	var pause sync.RWMutex
+	r := newRig(t, withLockPause(&pause))
+	// A directory where candidate.json goes fails the boot's write.
+	path := r.store.Path(lkg.CandidateFile)
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r.start()
+	r.booted()
+	waitFor(t, "the loader to settle", r.settled)
+	if !r.lkgStat.raised("lkg_write_failed") {
+		t.Fatal("the boot's write did not fail")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	// The retry comes due while the loop cannot plan it.
+	pause.Lock()
+	r.clk.Advance(lkg.RetryDelay(1))
+	settled := r.settled()
+	pause.Unlock()
+	if settled {
+		t.Fatal("settled while the retry of a failed Last-Known-Good write is due")
+	}
+	waitFor(t, "the loader to settle", r.settled)
+	a := rev("A").Digest
+	if cand, last, err := r.store.Pointers(); err != nil || cand != a || last != a {
+		t.Fatalf("lkg/ names %s and %s (%v) once settled, want A for both", cand.Short(), last.Short(), err)
 	}
 }
