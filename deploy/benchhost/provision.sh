@@ -120,7 +120,8 @@ for r in "${remote[@]}"; do
 done
 
 run_host gateway "$work/known_hosts" -- --known-hosts @known_hosts
-on gateway cat "$ssh_key.pub" >"$work/harness.pub"
+# The user reads its own key: root would follow a link the user planted.
+on gateway runuser -u "$user" -- cat "$ssh_key.pub" >"$work/harness.pub"
 for r in "${remote[@]}"; do
   extra=()
   if [[ $r == statestore ]]; then extra=(--valkey-image "$valkey_image"); fi

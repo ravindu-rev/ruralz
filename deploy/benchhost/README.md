@@ -43,9 +43,9 @@ bash deploy/benchhost/provision.sh --inventory deploy/benchhost/rh-1.json \
 
 1. Checks the host runs Debian, installs what the role needs (`docker.io` on RH-1S; git, make, curl, openssh-client and openssl on RH-1), removes `unattended-upgrades` and masks the apt timers.
 2. Creates the inventory's `sshUser`, `ruralz-bench`, with lingering and a user manager to which cpu, cpuset, io, memory and pids are delegated, so the harness's `systemd-run --user --scope -p AllowedCPUs=` scopes hold their cpusets; it sets `LimitNOFILE` 1,048,576 for its sessions and manager.
-3. Creates the working directory, the secret root and the TLS directory, the user's.
+3. Creates the working directory and gives it to `ruralz-bench`, who makes the secret root and the TLS directory inside it.
 4. Writes the `bench.example` names into `/etc/hosts`.
-5. On RH-1, creates the harness's ed25519 key pair at `sshKey` and writes `knownHosts` from the other hosts' host keys; elsewhere it authorizes that key for `ruralz-bench`, only from RH-1's lab address.
+5. On RH-1, creates the harness's ed25519 key pair at `sshKey` and writes `knownHosts` from the other hosts' host keys; elsewhere it authorizes that key for `ruralz-bench`, only from RH-1's lab address. It does both as `ruralz-bench`: under a directory the user owns, its home and the working directory, a link the user planted would lead a change made as root elsewhere.
 6. Writes the sysctls of the baseline (`tcp_tw_reuse` on RH-1 and RH-1L only), turns swap off and masks `irqbalance`.
 7. Installs `tune.sh` and `ruralz-bench-tune.service`, and runs it: SMT off, turbo off, the `performance` governor with the minimum frequency at the fixed maximum of 3.0 GHz or more, idle states deeper than C1 disabled, transparent huge pages `madvise`, the lab NIC's rings at their maximum with adaptive coalescing off and `rx-usecs` and `tx-usecs` 0, and its interrupts on the cores of its NUMA node outside the host's cpusets. On `rh-1`, a setting the host cannot apply fails the run.
 8. On RH-1S, pulls the Valkey image `redisserver.ImageValkey9` pins and adds `ruralz-bench` to the `docker` group: the harness runs that image for each run as `ruralz-bench`, on Valkey's cpuset.
@@ -53,7 +53,9 @@ bash deploy/benchhost/provision.sh --inventory deploy/benchhost/rh-1.json \
 
 ## The rh-1 runner
 
-The runner on RH-1 is an ephemeral just-in-time runner: `ruralz-bench-runner.service`, as root, holds a GitHub App's private key, registers one runner labelled `self-hosted` and `rh-1`, runs it as `ruralz-bench` until it has taken one job, and registers the next. It runs on the cores outside `ruralzd`'s cpuset with `LimitNOFILE` 1,048,576.
+The runner on RH-1 is an ephemeral just-in-time runner: `ruralz-bench-runner.service`, as root, holds a GitHub App's private key, registers one runner labelled `self-hosted` and `rh-1`, copies root's `actions/runner` install into a fresh directory under `/var/lib/ruralz-bench-runner`, runs the copy as `ruralz-bench` until it has taken one job, deletes it and registers the next. It runs on the cores outside `ruralzd`'s cpuset with `LimitNOFILE` 1,048,576. The App's JWT, its installation tokens and the runner's configuration never appear on a command line.
+
+Each runner's job-started hook, `runner.sh admit`, runs before any step of the job the runner took and lets it run only when it is a job of `nightly.yml`, `chaos-scale.yml` or `release.yml` of this repository on a protected branch or tag, scheduled, dispatched or pushed. It refuses any other job, a pull request's above all, in the journal (`journalctl -t ruralz-bench-runner`) and stops it by killing the runner; GitHub then fails the job.
 
 1. Create a GitHub App owned by the repository owner, without a webhook, with the repository permission Administration: read and write (Metadata: read comes with it), and install it on this repository only. If the repository moves to an organization, give the App the organization permission Self-hosted runners: read and write instead, and create a runner group limited to this repository.
 2. Generate the App's private key, copy it to RH-1 and delete every other copy: the key never leaves RH-1.
@@ -76,7 +78,7 @@ The runner on RH-1 is an ephemeral just-in-time runner: `ruralz-bench-runner.ser
 3. Run `nightly.yml` on demand from `main`: its Latency job checks every host before each scenario and fails with an "RH-1 host check failed" annotation when a host's frequency, throttle counters or round trip are off.
 4. `chaos-scale.yml` reads the same inventory; its `target` profile stops before its first run until the chaos harness places the State Store, mocks and load on RH-1S, RH-1U and RH-1L, RH-1L returning every request's record once the load ends ([Scale profiles](../../docs/engineering/03-testing-and-quality-strategy.md#scale-profiles)).
 
-Only protected branches and tags run on `rh-1`: each `rh-1` job first refuses any other ref and every pull-request event, so the rulesets `scripts/repo-settings.sh` applies to `main`, `release-*` and `v*` tags must be in place first.
+Only protected branches and tags run on `rh-1`: the runner's hook admits no job of another ref or of a pull-request event, and each `rh-1` job's first step refuses them too, so the rulesets `scripts/repo-settings.sh` applies to `main`, `release-*` and `v*` tags must be in place first.
 
 ## Maintenance window
 

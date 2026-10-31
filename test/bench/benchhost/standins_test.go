@@ -65,7 +65,7 @@ grep -qxF -- "$2" "$STUB_STATE/users" || exit 2
 		"chown":    "",
 		"sysctl":   "",
 		"swapoff":  "",
-		"runuser":  "",
+		"runuser":  runuserStandin,
 		"ssh-keygen": `while (($#)); do if [[ $1 == -f ]]; then f=$2; fi; shift; done
 echo PRIVATE >"$f"
 echo "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHARNESS ruralz-bench@rh-1" >"$f.pub"

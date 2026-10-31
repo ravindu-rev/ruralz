@@ -37,12 +37,13 @@ func hostArgs(t *testing.T, profile, role string, extra ...string) []string {
 }
 
 // hostRig returns a rig of a fresh Debian host with the lab address of
-// role.
+// role, whose bench user owns its home and the working directory.
 func hostRig(t *testing.T, role string, f hostFacts) *rig {
 	t.Helper()
 	r := newRig(t, hostStandins())
 	f.labIP = labIPs()[role]
 	r.fakeHost(f)
+	r.userDirs(r.path("/home/ruralz-bench"), r.path("/var/lib/ruralz-bench"))
 	return r
 }
 
@@ -124,13 +125,16 @@ func TestHostGatewayRH1(t *testing.T) {
 				t.Errorf("%s mode %v, want %v", dirs[i], got, want)
 			}
 		}
-		if !called(calls, "chown", "ruralz-bench:ruralz-bench", r.path(dirs[0]), r.path(dirs[1]), r.path(dirs[2])) {
-			t.Error("the working directory, secret root and TLS directory are not the user's")
+		if !called(calls, "chown", "ruralz-bench:ruralz-bench", r.path(dirs[0])) {
+			t.Error("the working directory is not the user's")
+		}
+		if !called(calls, "runuser", "-u", "ruralz-bench", "--", "mkdir", "-p", r.path(dirs[1]), r.path(dirs[2])) {
+			t.Error("the user did not make the secret root and TLS directory")
 		}
 	})
 	t.Run("ssh", func(t *testing.T) {
-		if !called(calls, "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ruralz-bench@rh-1", "-f", r.path("/home/ruralz-bench/.ssh/id_ed25519")) {
-			t.Error("the harness's key pair was not created")
+		if !called(calls, "runuser", "-u", "ruralz-bench", "--", "ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ruralz-bench@rh-1", "-f", r.path("/home/ruralz-bench/.ssh/id_ed25519")) {
+			t.Error("the user did not create the harness's key pair")
 		}
 		if got := r.read("/home/ruralz-bench/.ssh/known_hosts"); got != known {
 			t.Errorf("known_hosts = %q, want %q", got, known)
@@ -323,11 +327,67 @@ func TestHostRemoteRoles(t *testing.T) {
 	}
 }
 
+// TestHostLeavesUserPathsToTheUser: under a directory the bench user owns,
+// its home and the working directory, host.sh changes nothing as root,
+// where a link the user planted would take root's change elsewhere: the
+// user makes the secret root, the TLS directory, its .ssh directory, the
+// harness's key pair and its known hosts or authorized key, through
+// runuser. The rig's guard fails any command root runs there.
+func TestHostLeavesUserPathsToTheUser(t *testing.T) {
+	user := []string{"runuser", "-u", "ruralz-bench", "--"}
+	as := func(cmd ...string) []string { return append(slices.Clone(user), cmd...) }
+	cases := []struct {
+		role string
+		args []string
+		// keyPair is whether the user makes the harness's key pair; path and
+		// mode name the one file the user writes.
+		keyPair    bool
+		path, mode string
+	}{
+		{"gateway", []string{"--known-hosts", file(t, "load.bench.example ssh-ed25519 AAAAL\n")}, true, "/home/ruralz-bench/.ssh/known_hosts", "0644"},
+		{"load", []string{"--authorized-key", file(t, harnessKey+"\n")}, false, "/home/ruralz-bench/.ssh/authorized_keys", "0600"},
+	}
+	for _, c := range cases {
+		t.Run(c.role, func(t *testing.T) {
+			r := hostRig(t, c.role, hostFacts{})
+			if out, err := r.shell("chmod", "0700", r.path("/home/ruralz-bench/.ssh")); err == nil || !strings.Contains(out, "under a directory the bench user owns") {
+				t.Fatalf("root's chmod under the user's home = %v:\n%s\nwant the guard to fail it", err, out)
+			}
+			r.mustRun("host.sh", nil, hostArgs(t, "rh-1", c.role, c.args...)...)
+			calls := r.calls()
+			secrets, tls, ssh := r.path("/var/lib/ruralz-bench/secrets"), r.path("/var/lib/ruralz-bench/secrets/tls"), r.path("/home/ruralz-bench/.ssh")
+			want := [][]string{as("mkdir", "-p", secrets, tls), as("chmod", "0700", secrets, tls), as("mkdir", "-p", ssh), as("chmod", "0700", ssh)}
+			if key := ssh + "/id_ed25519"; c.keyPair {
+				want = append(want, as("ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "ruralz-bench@rh-1", "-f", key), as("chmod", "0600", key))
+			}
+			for _, w := range want {
+				if !slices.ContainsFunc(calls, func(c []string) bool { return slices.Equal(c, w) }) {
+					t.Errorf("calls lack the user's %q", w[len(user):])
+				}
+			}
+			if !slices.ContainsFunc(calls, func(call []string) bool {
+				return called([][]string{call}, as("bash", "-c")...) && slices.Equal(call[len(call)-2:], []string{r.path(c.path), c.mode})
+			}) {
+				t.Errorf("the user did not write %s with mode %s", c.path, c.mode)
+			}
+		})
+	}
+}
+
 // TestHostRefuses: host.sh fails, naming the cause, on a host that is not
 // Debian, without every role's lab address, for a profile it does not
 // provision, without the pinned Valkey image on the State Store host, with
-// a public key that is not ed25519 or for an unknown role.
+// a public key that is not ed25519, for an unknown role, or with a secret
+// root or TLS directory outside the working directory, which the user
+// makes.
 func TestHostRefuses(t *testing.T) {
+	// inventory returns hostArgs of the rh-1 inventory with its secret root
+	// at secretRoot.
+	inventory := func(t *testing.T, secretRoot string) []string {
+		args := hostArgs(t, "rh-1", "gateway")
+		args[1] = file(t, strings.ReplaceAll(readFile(t, script(t, "rh-1.json")), `"/var/lib/ruralz-bench/secrets"`, `"`+secretRoot+`"`))
+		return args
+	}
 	cases := []struct {
 		name, role, want string
 		facts            hostFacts
@@ -345,6 +405,12 @@ func TestHostRefuses(t *testing.T) {
 			return hostArgs(t, "rh-1", "load", "--authorized-key", file(t, "ssh-rsa AAAAB3Nza key\n"))
 		}},
 		{"unknown role", "gateway", "usage:", hostFacts{}, func(t *testing.T) []string { return hostArgs(t, "rh-1", "harness") }},
+		{"secret root outside", "gateway", "secretRoot and tlsDir must be inside the host's working directory", hostFacts{}, func(t *testing.T) []string {
+			return inventory(t, "/etc/ruralz-bench/secrets")
+		}},
+		{"secret root escaping", "gateway", "secretRoot and tlsDir must be inside the host's working directory", hostFacts{}, func(t *testing.T) []string {
+			return inventory(t, "/var/lib/ruralz-bench/../../../etc/ruralz-bench")
+		}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

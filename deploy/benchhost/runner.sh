@@ -11,15 +11,24 @@
 # the App, takes an installation token, generates the just-in-time
 # configuration of one runner labelled self-hosted and rh-1 (at repository
 # level, or in an organization runner group limited to the repository with
-# --runner-group), and runs that runner as the inventory's dedicated user
-# until it has taken one job, then registers the next. Jobs run as that
-# user, who cannot read the key, with LimitNOFILE 1,048,576 and the user
-# manager's bus, so the harness's systemd-run scopes work.
+# --runner-group), copies root's actions/runner install into a fresh
+# directory and runs that copy as the inventory's dedicated user until it
+# has taken one job, then deletes it and registers the next. Jobs run as
+# that user, who cannot read the key or change root's install, with
+# LimitNOFILE 1,048,576 and the user manager's bus, so the harness's
+# systemd-run scopes work.
+#
+# Each runner's job-started hook, runner.sh admit, lets only the jobs of
+# the rh-1 workflows on a protected branch or tag run, never a pull
+# request's code, and kills the runner before any step of another job. The
+# App's JWT, the installation token and the runner's configuration never
+# appear on a command line, which every local user can read.
 #
 #   runner.sh install --inventory rh-1.json --app-id ID --app-key FILE
 #                     --repo OWNER/NAME --runner-version X.Y.Z
 #                     --runner-sha256 HEX [--runner-group ID]
 #   runner.sh run [--once]
+#   runner.sh admit OWNER/NAME
 #
 # install is idempotent; README.md is the runbook. BENCHHOST_ROOT prefixes
 # every file path (the tests run it on a fake tree).
@@ -32,6 +41,9 @@ api_url=${RUNNER_API_URL:-https://api.github.com}
 conf=/etc/ruralz-bench
 lib=/usr/local/lib/ruralz-bench
 unit=/etc/systemd/system/ruralz-bench-runner.service
+hook=$lib/job-started.sh
+# runs holds each runner's copy of the install, one directory per runner.
+runs=/var/lib/ruralz-bench-runner
 
 log() { printf 'runner.sh: %s\n' "$*" >&2; }
 die() {
@@ -43,6 +55,7 @@ usage() {
 usage: runner.sh install --inventory FILE --app-id ID --app-key FILE --repo OWNER/NAME
                          --runner-version X.Y.Z --runner-sha256 HEX [--runner-group ID]
        runner.sh run [--once]
+       runner.sh admit OWNER/NAME
 EOF
   exit 2
 }
@@ -62,33 +75,37 @@ app_jwt() {
   printf '%s.%s.%s\n' "$header" "$payload" "$sig"
 }
 
-# api METHOD PATH TOKEN [BODY] calls the GitHub REST API.
+# api METHOD PATH TOKEN [BODY] calls the GitHub REST API. The token reaches
+# curl in a header file only root reads, deleted after the call, never on
+# its command line.
 api() {
-  local args=(-fsS --retry 3 -X "$1" -H "Accept: application/vnd.github+json"
-    -H "X-GitHub-Api-Version: 2022-11-28" -H "Authorization: Bearer $3")
+  local hdr rc=0 args=(-fsS --retry 3 -X "$1" -H "Accept: application/vnd.github+json"
+    -H "X-GitHub-Api-Version: 2022-11-28")
   if (($# > 3)); then
     args+=(-H "Content-Type: application/json" --data "$4")
   fi
-  curl "${args[@]}" "$api_url$2"
+  hdr=$(mktemp) || return
+  { printf 'Authorization: Bearer %s\n' "$3" >"$hdr" && curl "${args[@]}" -H "@$hdr" "$api_url$2"; } || rc=$?
+  rm -f "$hdr"
+  return "$rc"
 }
 
-# jit_config prints the encoded just-in-time configuration of one new
-# runner: at repository level in the Default group, or, with
+# jit_config NAME prints the encoded just-in-time configuration of one new
+# runner called NAME: at repository level in the Default group, or, with
 # RUNNER_GROUP_ID, in that organization runner group. Each step returns
 # on failure: a command substitution does not inherit set -e.
 jit_config() {
-  local jwt id token owner=${RUNNER_REPO%%/*} name=${RUNNER_REPO#*/} scope tokens body now
+  local jwt id token owner=${RUNNER_REPO%%/*} name=${RUNNER_REPO#*/} scope tokens body
   jwt=$(app_jwt) || return
-  now=$(date +%s) || return
   if [[ -n ${RUNNER_GROUP_ID:-} ]]; then
     scope=/orgs/$owner
     tokens='{"permissions":{"organization_self_hosted_runners":"write"}}'
-    body=$(jq -cn --arg n "rh-1-$now" --argjson g "$RUNNER_GROUP_ID" \
+    body=$(jq -cn --arg n "$1" --argjson g "$RUNNER_GROUP_ID" \
       '{name: $n, runner_group_id: $g, labels: ["self-hosted", "rh-1"], work_folder: "_work"}') || return
   else
     scope=/repos/$RUNNER_REPO
     tokens=$(jq -cn --arg r "$name" '{repositories: [$r], permissions: {administration: "write"}}') || return
-    body=$(jq -cn --arg n "rh-1-$now" \
+    body=$(jq -cn --arg n "$1" \
       '{name: $n, runner_group_id: 1, labels: ["self-hosted", "rh-1"], work_folder: "_work"}') || return
   fi
   id=$(api GET "$scope/installation" "$jwt" | jq -er .id) || return
@@ -96,21 +113,37 @@ jit_config() {
   api POST "$scope/actions/runners/generate-jitconfig" "$token" "$body" | jq -er .encoded_jit_config
 }
 
-# run registers one runner at a time and runs it as RUNNER_USER until it
-# has taken its job; --once stops after the first runner.
+# run registers one runner at a time and runs it as RUNNER_USER, from a
+# copy of root's install RUNNER_DIR in a fresh directory of runs, until it
+# has taken its job; then it deletes the copy, so nothing a job wrote
+# reaches the next runner. --once stops after the first runner.
 run() {
-  local once=0 uid jit
+  local once=0 uid group name jit dir
   [[ ${1:-} == --once ]] && once=1
   for v in RUNNER_APP_ID RUNNER_APP_KEY RUNNER_REPO RUNNER_USER RUNNER_DIR; do
     [[ -n ${!v:-} ]] || die "$v is not set (EnvironmentFile $conf/runner.env)"
   done
   uid=$(id -u "$RUNNER_USER")
+  group=$(id -gn "$RUNNER_USER")
+  # A copy left by a service that stopped during a job goes first.
+  rm -rf "$R$runs"
+  mkdir -p -m 0755 "$R$runs"
   while :; do
-    if jit=$(jit_config); then
-      log "starting a just-in-time runner for $RUNNER_REPO"
-      runuser -u "$RUNNER_USER" -- env "XDG_RUNTIME_DIR=/run/user/$uid" \
-        "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" \
-        "$RUNNER_DIR/run.sh" --jitconfig "$jit" || log "the runner exited with status $?"
+    name=rh-1-$(date +%s)
+    if jit=$(jit_config "$name"); then
+      dir=$(mktemp -d "$R$runs/$name.XXXXXX")
+      chown "$RUNNER_USER:$group" "$dir"
+      if runuser -u "$RUNNER_USER" -- cp -R "$R$RUNNER_DIR/." "$dir"; then
+        log "starting the just-in-time runner $name for $RUNNER_REPO"
+        # The configuration is in the runner's environment, which only its
+        # user reads; the runner drops it from there once read.
+        ACTIONS_RUNNER_INPUT_JITCONFIG=$jit runuser -u "$RUNNER_USER" -- env "XDG_RUNTIME_DIR=/run/user/$uid" \
+          "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/$uid/bus" "ACTIONS_RUNNER_HOOK_JOB_STARTED=$hook" \
+          "$dir/run.sh" || log "the runner exited with status $?"
+      else
+        log "could not copy $RUNNER_DIR to $dir"
+      fi
+      rm -rf "$dir"
     else
       log "no just-in-time configuration from GitHub"
       ((once)) && return 1
@@ -118,6 +151,61 @@ run() {
     fi
     ((once)) && return 0
   done
+}
+
+# rh1_workflow FILE succeeds for a workflow whose run can put a job on rh-1:
+# nightly.yml (the Latency job), chaos-scale.yml, and release.yml, which
+# runs the soak job and calls the other two.
+rh1_workflow() {
+  case "$1" in
+    nightly.yml | chaos-scale.yml | release.yml) ;;
+    *) return 1 ;;
+  esac
+}
+
+# admit REPO is each runner's job-started hook (ACTIONS_RUNNER_HOOK_JOB_STARTED):
+# the runner's worker runs it as RUNNER_USER once the runner has taken a
+# job, before any of the job's steps, with the job's facts from GitHub in
+# GITHUB_* variables that no workflow can set. Only a job of an
+# rh1_workflow of REPO on a protected branch or tag, scheduled, dispatched
+# or pushed, may run.
+admit() {
+  local repo=${1:-} workflow=${GITHUB_WORKFLOW_REF:-} ref=${GITHUB_REF:-} file
+  file=${workflow#"$repo/.github/workflows/"}
+  file=${file%%@*}
+  if [[ -z $repo || ${GITHUB_REPOSITORY:-} != "$repo" ]]; then
+    refuse "it is a job of ${GITHUB_REPOSITORY:-no repository}, not of ${repo:-a repository}"
+  fi
+  if [[ $workflow != "$repo/.github/workflows/$file@$ref" ]] || ! rh1_workflow "$file"; then
+    refuse "its workflow ${workflow:-(none)} is not an rh-1 workflow at its ref ${ref:-(none)}"
+  fi
+  if [[ ${GITHUB_REF_PROTECTED:-} != true ]]; then
+    refuse "its ref ${ref:-(none)} is not protected"
+  fi
+  case "${GITHUB_EVENT_NAME:-}" in
+    schedule | workflow_dispatch | push) ;;
+    *) refuse "its event ${GITHUB_EVENT_NAME:-(none)} is not schedule, workflow_dispatch or push" ;;
+  esac
+  log "admitted the job ${GITHUB_JOB:-(unnamed)} of $workflow, on $GITHUB_EVENT_NAME"
+}
+
+# refuse REASON logs, in the job's log and the host's journal, why a job
+# may not run on rh-1, and kills the runner that took it: a failed hook
+# would only fail the job, whose if: always() steps still run. The runner
+# is the hook's parent, the worker, and the ancestors above it that run as
+# the same user: the listener and run.sh.
+refuse() {
+  local pids=("$PPID") pid=$PPID ppid puid
+  log "refused this job: $*"
+  logger -t ruralz-bench-runner -p auth.warning -- "refused a job: $*" || true
+  while ppid=$(awk '$1 == "PPid:" { print $2 }' "$R/proc/$pid/status" 2>/dev/null) && ((ppid > 1)) &&
+    puid=$(awk '$1 == "Uid:" { print $2 }' "$R/proc/$ppid/status" 2>/dev/null) && [[ $puid == "$UID" ]]; do
+    pids+=("$ppid")
+    pid=$ppid
+  done
+  # The external kill(1): the tests replace it.
+  env kill -KILL "${pids[@]}" || true
+  exit 1
 }
 
 install_runner() {
@@ -142,10 +230,9 @@ install_runner() {
   [[ $sha =~ ^[0-9a-f]{64}$ ]] || die "--runner-sha256 is the SHA-256 of that release's linux-x64 archive"
   [[ -z $group || $group =~ ^[0-9]+$ ]] || die "--runner-group is a numeric runner group ID"
   [[ $(jq -er .profile "$inventory") == rh-1 ]] || die "the rh-1 runner runs on the rh-1 profile's gateway host"
-  local user cpus group_name online allowed
+  local user cpus online allowed
   user=$(jq -er .sshUser "$inventory")
   cpus=$(jq -er '.hosts.gateway.cpus' "$inventory")
-  group_name=$(id -gn "$user")
 
   # The runner and the harness take the cores outside ruralzd's cpuset.
   online=$(<"$R/sys/devices/system/cpu/online")
@@ -163,12 +250,21 @@ install_runner() {
     rm -f "$archive"
     "$R$dir/bin/installdependencies.sh"
   fi
-  chown -R "$user:$group_name" "$R$dir"
+  # Root's install, whatever owners and modes the archive carries, which
+  # the user reads to make each runner's copy.
+  chown -R root:root "$R$dir"
+  chmod -R go-w,a+rX "$R$dir"
   ln -sfn "$dir" "$R/opt/ruralz-bench/actions-runner"
 
   mkdir -p "$R$conf" "$R$lib"
   install -m 0600 "$app_key" "$R$conf/github-app.pem"
   install -m 0755 "${BASH_SOURCE[0]}" "$R$lib/runner.sh"
+  cat >"$R$hook" <<EOF
+#!/usr/bin/env bash
+# deploy/benchhost runner.sh install: the rh-1 runners' job-started hook.
+exec $lib/runner.sh admit $repo
+EOF
+  chmod 0755 "$R$hook"
   cat >"$R$conf/runner.env" <<EOF
 # deploy/benchhost runner.sh install: the rh-1 runner service's settings.
 RUNNER_APP_ID=$app_id
@@ -229,6 +325,7 @@ main() {
   case "${1:-}" in
     install) shift; install_runner "$@" ;;
     run) shift; run "$@" ;;
+    admit) shift; admit "$@" ;;
     *) usage ;;
   esac
 }

@@ -27,9 +27,9 @@ func hostKeys() map[string]string {
 }
 
 // provisionStandins emulate the hosts behind ssh and scp: id, mktemp, the
-// host keys, the harness's public key and host.sh, whose invocations they
-// record in order, and the copies scp makes, kept under
-// $STUB_STATE/remote/<destination>.
+// host keys, the harness's public key, which only its user reads, and
+// host.sh, whose invocations they record in order, and the copies scp
+// makes, kept under $STUB_STATE/remote/<destination>.
 func provisionStandins() map[string]string {
 	return map[string]string{
 		"ssh": `while [[ ${1:-} == -o ]]; do shift 2; done
@@ -43,10 +43,16 @@ case "$1" in
   mktemp) n=$(cat "$STUB_STATE/tmps" 2>/dev/null || echo 0); echo $((n + 1)) >"$STUB_STATE/tmps"; mkdir -p "$remote/tmp/rz.$n"; echo "/tmp/rz.$n" ;;
   cat) case "$2" in
          /etc/ssh/ssh_host_ed25519_key.pub) echo "ssh-ed25519 $(cat "$STUB_STATE/hostkey-$dest") root@host" ;;
-         *.pub) echo "` + harnessKey + `" ;;
        esac ;;
   bash) echo "$dest $*" >>"$STUB_STATE/hostsh" ;;
-  runuser) echo "$dest $*" >>"$STUB_STATE/verify" ;;
+  runuser)
+    if [[ ${5:-} == cat && ${6:-} == *.pub ]]; then
+      echo "$dest $*" >>"$STUB_STATE/pubkey"
+      echo "` + harnessKey + `"
+    else
+      echo "$dest $*" >>"$STUB_STATE/verify"
+    fi
+    ;;
 esac
 `,
 		"scp": `while [[ $1 == -q || $1 == -o ]]; do [[ $1 == -o ]] && shift; shift; done
@@ -111,13 +117,17 @@ func argAfter(line, flag string) string {
 // TestProvision: provision.sh runs host.sh on the gateway host first,
 // with the other hosts' ed25519 host keys under their inventory ssh names
 // as the harness's known hosts, then on RH-1L, RH-1U and RH-1S with the
-// harness's public key, RH-1S also pulling the Valkey image redisserver
-// pins; every host gets the same scripts and inventory and every role's
-// lab address, a non-root admin runs them through sudo, and the run ends
-// by reaching each other host from RH-1 as the harness does.
+// harness's public key, which its user reads on RH-1, since root would
+// follow a link the user planted, RH-1S also pulling the Valkey image
+// redisserver pins; every host gets the same scripts and inventory and
+// every role's lab address, a non-root admin runs them through sudo, and
+// the run ends by reaching each other host from RH-1 as the harness does.
 func TestProvision(t *testing.T) {
 	r := provisionRig(t)
 	r.mustRun("provision.sh", nil, provisionArgs(t, "rh-1")...)
+	if got, want := r.stateLines("pubkey"), []string{admins()["gateway"] + " runuser -u ruralz-bench -- cat /home/ruralz-bench/.ssh/id_ed25519.pub"}; !slices.Equal(got, want) {
+		t.Errorf("the harness's public key was read with %q, want %q", got, want)
+	}
 
 	runs := r.stateLines("hostsh")
 	if len(runs) != 4 {

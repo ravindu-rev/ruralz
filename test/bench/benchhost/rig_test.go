@@ -11,7 +11,9 @@
 // useradd, ethtool, docker, ssh, curl, runuser and others), each recording
 // its calls, and with the system's coreutils, jq and openssl for the rest.
 // The settings baseline each script applies is asserted from the files it
-// writes and the calls it makes, and a second run must change nothing.
+// writes and the calls it makes, and a second run must change nothing. A
+// guard fails any command run as root that names a path under a directory
+// the bench user owns, where the user could plant a link.
 package benchhost
 
 import (
@@ -36,8 +38,14 @@ func systemTools() []string {
 	return []string{
 		"bash", "env", "cat", "sed", "awk", "grep", "sort", "comm", "paste", "seq", "tr", "head", "cut",
 		"dirname", "basename", "mktemp", "install", "cmp", "mkdir", "chmod", "rm", "cp", "mv", "ln", "ls",
-		"date", "jq", "openssl", "sha256sum", "tar", "gzip", "xargs", "wc", "touch", "printf",
+		"date", "jq", "openssl", "sha256sum", "tar", "gzip", "xargs", "wc", "touch", "printf", "test",
 	}
+}
+
+// guardedTools are the system tools that read, write or own files: the
+// rig wraps each in the guard.
+func guardedTools() []string {
+	return []string{"cat", "cmp", "chmod", "mkdir", "install", "mv", "cp", "ln", "rm", "touch", "tar"}
 }
 
 // optionalTools may be missing; a test that needs one skips.
@@ -63,20 +71,54 @@ func script(t *testing.T, name string) string {
 }
 
 // prelude starts every stand-in: it records the call, one line of
-// tab-separated words, in the calls file.
+// tab-separated words, in the calls file, then guards it.
 const prelude = `#!/usr/bin/env bash
 set -euo pipefail
 { printf '%s' "$(basename "$0")"; printf '\t%s' "$@"; printf '\n'; } >>"$STUB_STATE/calls"
+` + guard
+
+// guard fails a command root runs, with exit status 97, when it names a
+// path under a directory the bench user owns, one per line of
+// $STUB_STATE/user-dirs (a line DIR/* stands for every directory in DIR):
+// the user can plant a link there that root would follow. The runuser
+// stand-in marks the commands it runs, the user's, with STUB_RUNUSER.
+const guard = `if [[ ${0##*/} != runuser && -z ${STUB_RUNUSER:-} && -f $STUB_STATE/user-dirs ]]; then
+  while IFS= read -r d; do
+    for a in "$@"; do
+      if [[ $d == */\* ]]; then
+        [[ $a == "${d%/\*}"/*/* ]] || continue
+      else
+        [[ $a == "$d"/* ]] || continue
+      fi
+      printf '%s: root named %s, under a directory the bench user owns\n' "${0##*/}" "$a" >&2
+      exit 97
+    done
+  done <"$STUB_STATE/user-dirs"
+fi
 `
+
+// runuserStandin runs its command as runuser -u USER -- COMMAND does,
+// marking it the user's for the guard.
+const runuserStandin = `export STUB_RUNUSER=$2
+while (($#)) && [[ $1 != -- ]]; do shift; done
+shift
+exec "$@"
+`
+
+// wrapper returns a guarded system tool: the guard, then the tool at path.
+func wrapper(path string) string {
+	return "#!/usr/bin/env bash\nset -euo pipefail\n" + guard + "exec '" + path + "' \"$@\"\n"
+}
 
 // rig is one script run's fake host: the file tree, the stand-ins'
 // state, and the PATH of stand-ins and system tools.
 type rig struct {
 	t *testing.T
-	// root is BENCHHOST_ROOT; state the stand-ins' state directory.
-	root, state string
-	bash        string
-	env         []string
+	// root is BENCHHOST_ROOT, state the stand-ins' state directory and tmp
+	// the scripts' TMPDIR.
+	root, state, tmp string
+	bash             string
+	env              []string
 }
 
 // newRig builds a rig whose stand-ins are standins (name to the body that
@@ -84,9 +126,9 @@ type rig struct {
 func newRig(t *testing.T, standins map[string]string) *rig {
 	t.Helper()
 	dir := t.TempDir()
-	r := &rig{t: t, root: filepath.Join(dir, "root"), state: filepath.Join(dir, "state")}
-	bin, sys, tmp, home := filepath.Join(dir, "standins"), filepath.Join(dir, "system"), filepath.Join(dir, "tmp"), filepath.Join(dir, "home")
-	for _, d := range []string{r.root, r.state, bin, sys, tmp, home} {
+	r := &rig{t: t, root: filepath.Join(dir, "root"), state: filepath.Join(dir, "state"), tmp: filepath.Join(dir, "tmp")}
+	bin, sys, home := filepath.Join(dir, "standins"), filepath.Join(dir, "system"), filepath.Join(dir, "home")
+	for _, d := range []string{r.root, r.state, bin, sys, r.tmp, home} {
 		if err := os.MkdirAll(d, 0o750); err != nil {
 			t.Fatal(err)
 		}
@@ -100,6 +142,11 @@ func newRig(t *testing.T, standins map[string]string) *rig {
 	for _, name := range systemTools() {
 		p, err := exec.LookPath(name)
 		switch {
+		case err == nil && slices.Contains(guardedTools(), name):
+			//nolint:gosec // G306: a wrapper is executable.
+			if err := os.WriteFile(filepath.Join(sys, name), []byte(wrapper(p)), 0o700); err != nil {
+				t.Fatal(err)
+			}
 		case err == nil:
 			if err := os.Symlink(p, filepath.Join(sys, name)); err != nil {
 				t.Fatal(err)
@@ -114,8 +161,8 @@ func newRig(t *testing.T, standins map[string]string) *rig {
 	}
 	r.bash = bash
 	r.env = []string{
-		"PATH=" + bin + ":" + sys, "HOME=" + home, "TMPDIR=" + tmp, "LC_ALL=C",
-		"BENCHHOST_ROOT=" + r.root, "STUB_STATE=" + r.state,
+		"PATH=" + bin + ":" + sys, "HOME=" + home, "TMPDIR=" + r.tmp, "LC_ALL=C",
+		"BENCHHOST_ROOT=" + r.root, "STUB_STATE=" + r.state, "STUB_SYSTEM=" + sys,
 	}
 	return r
 }
@@ -159,6 +206,13 @@ func (r *rig) writeState(name, content string) {
 	}
 }
 
+// userDirs lists, for the guard, the directories the bench user owns; a
+// path DIR/* stands for every directory in DIR.
+func (r *rig) userDirs(dirs ...string) {
+	r.t.Helper()
+	r.writeState("user-dirs", strings.Join(dirs, "\n")+"\n")
+}
+
 // run runs a deploy/benchhost script with args and extra environment, and
 // returns its combined output.
 func (r *rig) run(name string, env []string, args ...string) (string, error) {
@@ -187,6 +241,18 @@ func (r *rig) source(name, cmd string, env []string) (string, error) {
 		return string(out), fmt.Errorf("%w: %s", err, stderr.String())
 	}
 	return string(out), nil
+}
+
+// shell runs a command on the rig's PATH and environment, as a script
+// would, and returns its combined output.
+func (r *rig) shell(args ...string) (string, error) {
+	r.t.Helper()
+	ctx, cancel := context.WithTimeout(r.t.Context(), scriptTimeout)
+	defer cancel()
+	c := exec.CommandContext(ctx, r.bash, append([]string{"-c", `"$@"`, "bash"}, args...)...) //nolint:gosec // G204: bash runs a test's command
+	c.Env = slices.Clone(r.env)
+	out, err := c.CombinedOutput()
+	return string(out), err
 }
 
 // mustRun runs a script that must succeed.

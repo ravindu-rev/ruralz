@@ -16,7 +16,8 @@
 #      inventory's sshUser): lingering, and cpu, cpuset, io, memory and pids
 #      delegated to its user manager for the harness's systemd-run scopes,
 #      with LimitNOFILE 1,048,576 for its sessions and its manager.
-#   3. The host's working directory, the secret root and the TLS directory.
+#   3. The host's working directory, and inside it the secret root and the
+#      TLS directory.
 #   4. /etc/hosts: the inventory's bench.example names on the lab addresses.
 #   5. ssh: on the gateway host (RH-1) the harness's key pair and the other
 #      hosts' host keys (--known-hosts); elsewhere the harness's public key
@@ -29,6 +30,9 @@
 #      (--valkey-image), unless the inventory names a server executable.
 #   9. Every installed package held, so updates happen only in a recorded
 #      maintenance window.
+# Under a directory the user owns, its home and the working directory, the
+# user can plant a link that root would follow, so every change there runs
+# as the user.
 # BENCHHOST_ROOT prefixes every file path (the tests run it on a fake tree).
 set -euo pipefail
 
@@ -126,6 +130,8 @@ store_server=$(jqi '.services.stateStoreServer // ""')
 home=$(dirname "$(dirname "$ssh_key")")
 [[ $(dirname "$ssh_key") == "$home/.ssh" && $(dirname "$known_hosts") == "$home/.ssh" ]] ||
   die "sshKey and knownHosts must be in one .ssh directory of the user's home"
+[[ $secret_root == "$host_dir"/* && $tls_dir == "$host_dir"/* && /$secret_root/$tls_dir/ != */../* ]] ||
+  die "secretRoot and tlsDir must be inside the host's working directory $host_dir"
 if [[ $role == statestore && -z $store_server ]]; then
   [[ $valkey_image =~ ^valkey/valkey:9\.[^@]+@sha256:[0-9a-f]{64}$ ]] ||
     die "--valkey-image must be the pinned valkey/valkey:9.x@sha256 image, redisserver.ImageValkey9"
@@ -163,6 +169,17 @@ write_file() {
   fi
 }
 
+# as_user runs a command as the dedicated user, from /.
+as_user() { (cd / && runuser -u "$user" -- "$@"); }
+
+# user_file PATH MODE writes stdin to PATH under R as the user when the
+# content differs, and sets MODE.
+user_file() {
+  # shellcheck disable=SC2016 # the user's bash expands it
+  local write='umask 077 && cat >"$1.new" && if cmp -s "$1.new" "$1"; then rm -f "$1.new"; else mv -f "$1.new" "$1"; fi && chmod "$2" "$1"'
+  as_user bash -c "$write" user_file "$R$1" "$2"
+}
+
 # 2. The dedicated user.
 if ! getent passwd "$user" >/dev/null; then
   log "creating the user $user"
@@ -192,11 +209,14 @@ $user soft nofile 1048576
 $user hard nofile 1048576
 EOF
 
-# 3. Directories the harness writes.
-mkdir -p "$R$host_dir" "$R$secret_root" "$R$tls_dir"
-chown "$user:$group" "$R$host_dir" "$R$secret_root" "$R$tls_dir"
+# 3. Directories the harness writes: root makes the working directory, in
+# a directory only root writes, and gives it to the user, who makes the
+# secret root and the TLS directory inside it.
+mkdir -p "$R$host_dir"
+chown "$user:$group" "$R$host_dir"
 chmod 0750 "$R$host_dir"
-chmod 0700 "$R$secret_root" "$R$tls_dir"
+as_user mkdir -p "$R$secret_root" "$R$tls_dir"
+as_user chmod 0700 "$R$secret_root" "$R$tls_dir"
 
 # 4. /etc/hosts: each role's address and each service's host on the lab
 # address of the role that serves it.
@@ -227,25 +247,21 @@ done
 } >"$work/hosts"
 write_file /etc/hosts 0644 <"$work/hosts"
 
-# 5. ssh.
-mkdir -p "$R$home/.ssh"
-chown "$user:$group" "$R$home/.ssh"
-chmod 0700 "$R$home/.ssh"
+# 5. ssh, in the user's home, as the user.
+as_user mkdir -p "$R$home/.ssh"
+as_user chmod 0700 "$R$home/.ssh"
 if [[ $role == gateway ]]; then
-  if [[ ! -f $R$ssh_key ]]; then
+  if ! as_user test -f "$R$ssh_key"; then
     log "creating the harness's key pair $ssh_key"
-    ssh-keygen -q -t ed25519 -N "" -C "$user@rh-1" -f "$R$ssh_key"
+    as_user ssh-keygen -q -t ed25519 -N "" -C "$user@rh-1" -f "$R$ssh_key"
   fi
-  chown "$user:$group" "$R$ssh_key" "$R$ssh_key.pub"
-  chmod 0600 "$R$ssh_key"
+  as_user chmod 0600 "$R$ssh_key"
   if [[ -n $known_hosts_in ]]; then
-    write_file "$known_hosts" 0644 <"$known_hosts_in"
-    chown "$user:$group" "$R$known_hosts"
+    user_file "$known_hosts" 0644 <"$known_hosts_in"
   fi
 elif [[ -n $authorized_key_in ]]; then
   printf 'restrict,from="%s" %s\n' "${lab[gateway]}" "$key" >"$work/authorized_keys"
-  write_file "$home/.ssh/authorized_keys" 0600 <"$work/authorized_keys"
-  chown "$user:$group" "$R$home/.ssh/authorized_keys"
+  user_file "$home/.ssh/authorized_keys" 0600 <"$work/authorized_keys"
 fi
 
 # 6. sysctls, swap and irqbalance.
