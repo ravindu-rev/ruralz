@@ -85,6 +85,7 @@ func TestLastKnownGoodServesWhileTheSourceRetries(t *testing.T) {
 	if r.active() != rev("L").Digest || !r.status.raised("lkg_boot") {
 		t.Fatal("Last-Known-Good is not serving")
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("A")
 	if r.status.raised("lkg_boot") {
@@ -381,6 +382,7 @@ func TestLKGWriteFailureRetries(t *testing.T) {
 		t.Fatalf("records %+v", recs)
 	}
 	// The second failure waits 2 s.
+	r.armed(time.Second)
 	r.clk.Advance(time.Second)
 	waitFor(t, "the first retry", func() bool { return len(r.logs.find("Last-Known-Good write failed")) == 2 })
 	r.idle()
@@ -390,6 +392,7 @@ func TestLKGWriteFailureRetries(t *testing.T) {
 	if err := os.Remove(r.store.Path(lkg.CandidateFile)); err != nil {
 		t.Fatal(err)
 	}
+	r.armed(2 * time.Second)
 	r.clk.Advance(2 * time.Second)
 	waitFor(t, "the write and lkg_write_failed cleared", func() bool {
 		cand, last, _ := r.store.Pointers()

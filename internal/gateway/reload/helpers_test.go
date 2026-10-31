@@ -708,6 +708,20 @@ func (r *rig) idle() {
 	})
 }
 
+// armed waits until the activation loop has armed the timer of its work
+// due after wait, as a retry's: the loop reads the clock, then arms the
+// timer for what is left, so an advance between the two would arm it that
+// much late and the work would never come due.
+func (r *rig) armed(wait time.Duration) {
+	r.t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), bound)
+	defer cancel()
+	at := r.clk.Now().Add(wait)
+	if err := r.clk.BlockUntilDue(ctx, at); err != nil {
+		r.t.Fatalf("no timer armed for %v: %v", at.Sub(epoch()), err)
+	}
+}
+
 // active returns the published snapshot's Revision.
 func (r *rig) active() revision.Digest {
 	if s := r.holder.Active(); s != nil {
