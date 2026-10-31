@@ -245,6 +245,26 @@ func (d *devRun) driveNode(what string, cond func() bool) time.Duration {
 	return moved
 }
 
+// waitServing waits in real time, moving neither clock, until the child
+// logs its first Revision active and a listener serving. Its start is real
+// work, and drive moves the command's clock 50 times faster than real
+// time, so driving meanwhile could run the command's ready timeout out on
+// the test clock before a slow start answered, as on a loaded CI runner.
+func (d *devRun) waitServing() {
+	d.t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		s := d.inv.stderr.String()
+		if strings.Contains(s, `"msg":"revision activated"`) && strings.Contains(s, `"msg":"listener serving"`) {
+			return
+		}
+		if d.exited() || time.Now().After(deadline) {
+			d.t.Fatalf("the child did not start serving\n--- stdout ---\n%s\n--- stderr ---\n%s", d.inv.stdout, d.inv.stderr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 // exited reports whether the command has ended.
 func (d *devRun) exited() bool {
 	select {
@@ -270,6 +290,7 @@ type ready struct {
 // readyBlock waits for the readiness block and parses it.
 func (d *devRun) readyBlock() ready {
 	d.t.Helper()
+	d.waitServing()
 	d.drive("the readiness block", func() bool { return strings.Contains(d.inv.stdout.String(), "ruralz dev tap --admin ") })
 	r := ready{listeners: map[string]string{}}
 	for _, l := range lines(d.inv.stdout.String()) {
@@ -430,6 +451,7 @@ func TestRunJSONEvents(t *testing.T) {
 	dir := t.TempDir()
 	src := writeFile(t, dir, "bundle.yaml", devBundle(up, "one"))
 	d := startDevRun(t, nil, src, "--ephemeral-ports", "--output", "json")
+	d.waitServing()
 	d.drive("the ready event", func() bool { return strings.Contains(d.inv.stdout.String(), `"event":"ready"`) })
 	writeFile(t, dir, "bundle.yaml", devBundle(up, "two"))
 	d.drive("the active event", func() bool { return strings.Contains(d.inv.stdout.String(), `"event":"active"`) })
