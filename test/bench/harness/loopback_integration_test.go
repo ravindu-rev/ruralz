@@ -8,7 +8,6 @@ package harness
 import (
 	"context"
 	"fmt"
-	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,18 +17,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/benchrecord"
 	"github.com/ravindu-rev/ruralz/internal/testkit/binaries"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
-
-// freePort returns a loopback port free at the time of the call.
-func freePort(t *testing.T) int {
-	t.Helper()
-	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	return ln.Addr().(*net.TCPAddr).Port
-}
 
 // writeScenario writes a one-Route Bundle like S1's, with OTLP export to
 // the sink, and the loopback Environment, on the profile's ports.
@@ -124,10 +113,10 @@ func TestLoopbackRun(t *testing.T) {
 	// paths keep it apart from a concurrent run of the scenario Bundles on
 	// the profile's fixed secret root.
 	p.SecretRoot, p.TLSDir = filepath.Join(work, "secrets"), filepath.Join(work, "tls")
-	port := func() string { return "127.0.0.1:" + strconv.Itoa(freePort(t)) }
-	p.Services = Services{Mock: port(), IDP: port(), Sink: port(), StateStore: port(), FaultProxy: port(), EchoPort: freePort(t)}
-	p.AdminPort = freePort(t)
-	sc := writeScenario(t, filepath.Join(work, "scenarios"), p, freePort(t))
+	port := func() string { return "127.0.0.1:" + strconv.Itoa(proc.FreePort(t)) }
+	p.Services = Services{Mock: port(), IDP: port(), Sink: port(), StateStore: port(), FaultProxy: port(), EchoPort: proc.FreePort(t)}
+	p.AdminPort = proc.FreePort(t)
+	sc := writeScenario(t, filepath.Join(work, "scenarios"), p, proc.FreePort(t))
 	st := Settings{Records: filepath.Join(work, "records")}
 	s, err := NewSession(ctx, p, st, root, filepath.Join(work, "session"))
 	if err != nil {

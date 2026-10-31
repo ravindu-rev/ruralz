@@ -23,6 +23,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/listener"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/telemetry"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -87,19 +88,6 @@ func get(t *testing.T, addr string) string {
 	return string(b)
 }
 
-// freePort returns a loopback port no socket holds right now.
-func freePort(t *testing.T) int {
-	t.Helper()
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	_ = ln.Close()
-	return port
-}
-
 // adminCompiled is a compiled snapshot naming the admin port.
 func adminCompiled(port int) Compiled {
 	return &fakeCompiled{snap: &snapshot.Snapshot{Gateway: snapshot.Gateway{AdminPort: port}}, ev: &events{}}
@@ -121,7 +109,7 @@ func newAdminSocket(t *testing.T, steer bool, fail func(error)) (*AdminSocket, *
 
 func TestAdminSocketHolderServesAtOnce(t *testing.T) {
 	a, _ := newAdminSocket(t, true, nil)
-	port := freePort(t)
+	port := proc.FreePort(t)
 	if err := a.Bind(t.Context(), port); err != nil {
 		t.Fatal(err)
 	}
@@ -139,7 +127,7 @@ func TestAdminSocketHolderServesAtOnce(t *testing.T) {
 
 func TestAdminSocketMovesThePort(t *testing.T) {
 	a, _ := newAdminSocket(t, true, nil)
-	oldPort, newPort := freePort(t), freePort(t)
+	oldPort, newPort := proc.FreePort(t), proc.FreePort(t)
 	if err := a.Bind(t.Context(), oldPort); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +165,7 @@ func TestAdminSocketMovesThePort(t *testing.T) {
 
 func TestAdminSocketBusyPortRejectsTheRevision(t *testing.T) {
 	a, _ := newAdminSocket(t, true, nil)
-	if err := a.Bind(t.Context(), freePort(t)); err != nil {
+	if err := a.Bind(t.Context(), proc.FreePort(t)); err != nil {
 		t.Fatal(err)
 	}
 	var lc net.ListenConfig
@@ -197,10 +185,10 @@ func TestAdminSocketBusyPortRejectsTheRevision(t *testing.T) {
 
 func TestAdminSocketAbortClosesTheNewSocket(t *testing.T) {
 	a, _ := newAdminSocket(t, true, nil)
-	if err := a.Bind(t.Context(), freePort(t)); err != nil {
+	if err := a.Bind(t.Context(), proc.FreePort(t)); err != nil {
 		t.Fatal(err)
 	}
-	newPort := freePort(t)
+	newPort := proc.FreePort(t)
 	sw, err := a.Prepare(t.Context(), adminCompiled(newPort))
 	if err != nil {
 		t.Fatal(err)
@@ -221,7 +209,7 @@ func TestAdminSocketServeFailureIsFatal(t *testing.T) {
 	srv.mu.Lock()
 	srv.fault = errors.New("accept: too many open files")
 	srv.mu.Unlock()
-	if err := a.Bind(t.Context(), freePort(t)); err != nil {
+	if err := a.Bind(t.Context(), proc.FreePort(t)); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -237,7 +225,7 @@ func TestAdminSocketServeFailureIsFatal(t *testing.T) {
 func TestAdminSocketStopAccepting(t *testing.T) {
 	failed := make(chan error, 1)
 	a, _ := newAdminSocket(t, true, func(err error) { failed <- err })
-	if err := a.Bind(t.Context(), freePort(t)); err != nil {
+	if err := a.Bind(t.Context(), proc.FreePort(t)); err != nil {
 		t.Fatal(err)
 	}
 	addr := a.Addr().String()
@@ -246,7 +234,7 @@ func TestAdminSocketStopAccepting(t *testing.T) {
 		t.Fatalf("answer %q after StopAccepting", got)
 	}
 	// Later activations bind nothing.
-	if sw, err := a.Prepare(t.Context(), adminCompiled(freePort(t))); err != nil {
+	if sw, err := a.Prepare(t.Context(), adminCompiled(proc.FreePort(t))); err != nil {
 		t.Fatal(err)
 	} else if _, ok := sw.(nopSwitch); !ok {
 		t.Fatalf("Prepare after StopAccepting = %T", sw)

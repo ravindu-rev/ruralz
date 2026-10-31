@@ -24,26 +24,12 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/gateway/admin"
 	"github.com/ravindu-rev/ruralz/internal/gateway/setting"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // realBound bounds each wait of these tests in real time: the Node runs on
 // a fake process clock the tests move, while its sockets are real.
 const realBound = 30 * time.Second
-
-// freePort returns a TCP port free on 127.0.0.1 when it returns.
-func freePort(t *testing.T) int {
-	t.Helper()
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := ln.Addr().(*net.TCPAddr).Port
-	if err := ln.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return port
-}
 
 // fixture is the directory of a test Node: its one-file Bundle, data
 // directory and admin token file, and the ports its Bundle names.
@@ -59,7 +45,7 @@ func newFixture(t *testing.T, upstream string) fixture {
 	dir := t.TempDir()
 	f := fixture{
 		bundle: filepath.Join(dir, "ruralz.yaml"), data: filepath.Join(dir, "data"), token: filepath.Join(dir, "admin.token"),
-		adminPort: freePort(t), webPort: freePort(t), upstream: upstream,
+		adminPort: proc.FreePort(t), webPort: proc.FreePort(t), upstream: upstream,
 	}
 	writeFile(t, f.token, testToken+"\n")
 	f.write(t, "/")

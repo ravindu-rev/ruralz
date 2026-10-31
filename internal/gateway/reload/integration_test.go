@@ -39,6 +39,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/manager"
 	"github.com/ravindu-rev/ruralz/internal/statestore/memory"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/aggregate"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // An end-to-end run of the real parts in process: the configuration
@@ -204,7 +205,7 @@ func TestEndToEnd(t *testing.T) {
 	if err := os.Mkdir(bundle, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	port := freePort(t)
+	port := proc.FreePort(t)
 	write := func(content string) {
 		t.Helper()
 		if err := os.WriteFile(filepath.Join(bundle, "ruralz.yaml"), []byte(content), 0o600); err != nil {
