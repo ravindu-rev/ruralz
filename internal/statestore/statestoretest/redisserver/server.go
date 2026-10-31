@@ -53,7 +53,7 @@ func start(tb testing.TB, h host, k Kind, o Options) (*Deployment, string, error
 	}
 	var d *Deployment
 	if k.Flavor() == FlavorProcess {
-		d, err = startProcess(&launcher{tb: tb, path: path, env: childEnv(), ports: freePort}, k, o)
+		d, err = startProcess(&launcher{tb: tb, path: path, env: childEnv(), ports: heldPort(tb)}, k, o)
 	} else {
 		d, err = startContainer(tb, k)
 	}

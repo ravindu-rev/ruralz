@@ -155,18 +155,12 @@ func childEnv() []string {
 	return []string{}
 }
 
-// freePort returns a loopback port that was free a moment ago.
-func freePort(ctx context.Context) (int, error) {
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", loopback+":0")
-	if err != nil {
-		return 0, fmt.Errorf("redisserver: free port: %w", err)
-	}
-	defer func() { _ = ln.Close() }()
-	a, ok := ln.Addr().(*net.TCPAddr)
-	if !ok {
-		return 0, fmt.Errorf("redisserver: free port: address %v", ln.Addr())
-	}
-	return a.Port, nil
+// heldPort returns the ports of the servers this machine runs for tb's
+// test: loopback ports held until the test ends (proc.HoldPort), so a
+// server restarted on its port finds it free, and no connection takes a
+// port between its pick and the server's bind.
+func heldPort(tb testing.TB) func(context.Context) (int, error) {
+	return func(ctx context.Context) (int, error) { return proc.HoldPort(ctx, tb) }
 }
 
 // writeTLS writes a fresh CA and a certificate for localhost, 127.0.0.1,

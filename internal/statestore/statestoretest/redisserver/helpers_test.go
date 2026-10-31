@@ -673,3 +673,17 @@ func (f *fakeSentinel) replicas(addr string) ([]string, error) {
 	}
 	return out, nil
 }
+
+// freePort returns a loopback port that was free a moment ago.
+func freePort(ctx context.Context) (int, error) {
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", loopback+":0")
+	if err != nil {
+		return 0, fmt.Errorf("redisserver: free port: %w", err)
+	}
+	defer func() { _ = ln.Close() }()
+	a, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("redisserver: free port: address %v", ln.Addr())
+	}
+	return a.Port, nil
+}
