@@ -75,7 +75,8 @@ jobs:
   baseline:
     name: 12. Benchmark baseline
     needs: tag
-    if: needs.tag.outputs.previous != ''
+    # Only the Latency job reads the baseline, from M6.
+    if: needs.tag.outputs.previous != '' && vars.RH1_PROVISIONED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
@@ -158,7 +159,7 @@ jobs:
     with:
       all: true
       rotation-all: true
-      baseline-artifact: ${{ needs.tag.outputs.previous != '' && 'bench-baseline' || '' }}
+      baseline-artifact: ${{ needs.baseline.result == 'success' && 'bench-baseline' || '' }}
       baseline-version: ${{ needs.tag.outputs.previous-version }}
     permissions:
       contents: write
@@ -193,9 +194,10 @@ jobs:
     needs: [tag, nightly]
     # After the Latency job, whatever its outcome, so the gates read both
     # jobs' records; the rh-1 concurrency group never runs two rh-1 jobs
-    # at once.
-    if: always() && needs.tag.result == 'success'
-    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # at once. From M6, once RH1_PROVISIONED is true; until then GitHub
+    # skips it.
+    if: always() && needs.tag.result == 'success' && vars.RH1_PROVISIONED == 'true'
+    runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}
     concurrency:
       group: rh-1
       cancel-in-progress: false
@@ -213,11 +215,6 @@ jobs:
             echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
             exit 1
           fi
-      - name: RH-1 check
-        if: vars.RH1_PROVISIONED != 'true'
-        run: |
-          echo "::error title=RH-1 not provisioned::The release soak runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered."
-          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
@@ -332,6 +329,8 @@ jobs:
           RELEASE_RUN: ${{ github.run_id }}
           BENCH_RECORDS: ${{ runner.temp }}/bench
           SKIPPED_GATES: ${{ runner.temp }}/skipped/skipped-gates.json
+          # From M6, the rh-1 jobs and their records count in the gates.
+          RH1_PROVISIONED: ${{ vars.RH1_PROVISIONED }}
         run: |
           mkdir -p "$RUNNER_TEMP/skipped"
           make release-gates

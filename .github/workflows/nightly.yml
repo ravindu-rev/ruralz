@@ -314,7 +314,11 @@ jobs:
 
   latency:
     name: 11. Latency
-    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # From M6, once the repository variable RH1_PROVISIONED is true; until
+    # then GitHub skips the job (docs/architecture/12-performance-budgets-and-benchmarking.md,
+    # "Reference hardware").
+    if: vars.RH1_PROVISIONED == 'true'
+    runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}
     # One rh-1 job at a time: the Latency job, the release soak job and
     # chaos-scale.yml share the rh-1 group, which never cancels a running
     # job.
@@ -336,11 +340,6 @@ jobs:
             echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
             exit 1
           fi
-      - name: RH-1 check
-        if: vars.RH1_PROVISIONED != 'true'
-        run: |
-          echo "::error title=RH-1 not provisioned::The Latency job runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered; until then M1 exit criteria 2 and 3 stay open."
-          exit 1
       - name: Maintainer acceptance
         if: inputs.accept-scenario != '' || inputs.accept-commit != ''
         env:

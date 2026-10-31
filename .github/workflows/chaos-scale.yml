@@ -45,7 +45,10 @@ permissions:
 jobs:
   chaos:
     name: Chaos at target scale
-    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # From M6, once the repository variable RH1_PROVISIONED is true; until
+    # then GitHub skips the job.
+    if: vars.RH1_PROVISIONED == 'true'
+    runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}
     # One rh-1 job at a time; a running one is never cancelled.
     concurrency:
       group: rh-1
@@ -65,11 +68,6 @@ jobs:
             echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
             exit 1
           fi
-      - name: RH-1 check
-        if: vars.RH1_PROVISIONED != 'true'
-        run: |
-          echo "::error title=RH-1 not provisioned::chaos-scale runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered (deploy/benchhost/README.md)."
-          exit 1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
