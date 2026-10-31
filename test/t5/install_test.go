@@ -43,9 +43,9 @@ const (
 	sysctlPath   = "/etc/sysctl.d/" + sysctlFile
 	etcDir       = "/etc/ruralzd"
 	envPath      = etcDir + "/ruralzd.env"
-	// dropInDir holds the suite's drop-in; the unit ships none.
-	dropInDir  = "/etc/systemd/system/" + unitName + ".d"
-	dropInPath = dropInDir + "/t5-watchdog-off.conf"
+	// dropInDir is the unit's drop-in directory: the unit ships none, and
+	// one present would change the unit under test.
+	dropInDir = "/etc/systemd/system/" + unitName + ".d"
 	// migrateReq is the sysctl 99-ruralzd.conf sets.
 	migrateReq = "/proc/sys/net/ipv4/tcp_migrate_req"
 )
@@ -349,7 +349,7 @@ func (in *installation) uninstall() {
 	_, err := systemctl(ctx, "stop", unitName)
 	report(err)
 	_, _ = systemctl(ctx, "reset-failed", unitName)
-	for _, p := range []string{dropInDir, unitPath, binPath, helperPath, sysusersPath, sysctlPath, etcDir, in.bundleDir, in.tokenPath, dataDir} {
+	for _, p := range []string{unitPath, binPath, helperPath, sysusersPath, sysctlPath, etcDir, in.bundleDir, in.tokenPath, dataDir} {
 		report(os.RemoveAll(p))
 	}
 	_, err = systemctl(ctx, "daemon-reload")
@@ -391,24 +391,6 @@ func (in *installation) setBundle(t *testing.T, valid bool) {
 func (in *installation) setBinary(t *testing.T, data []byte) {
 	t.Helper()
 	if err := installFile(binPath, data, 0o755); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// setWatchdogOff adds, with off, or removes the suite's drop-in setting
-// WatchdogSec=0, then reloads the unit files.
-func (in *installation) setWatchdogOff(ctx context.Context, t *testing.T, off bool) {
-	t.Helper()
-	var err error
-	if off {
-		err = installFile(dropInPath, []byte("# The live T5 suite: no watchdog while a handover successor has no\n# watchdog interval (OQ-zero-downtime-upgrades-and-hot-reload-12).\n[Service]\nWatchdogSec=0\n"), 0o644)
-	} else {
-		err = os.RemoveAll(dropInDir)
-	}
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := systemctl(ctx, "daemon-reload"); err != nil {
 		t.Fatal(err)
 	}
 }
