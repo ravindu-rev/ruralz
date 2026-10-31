@@ -10,5 +10,5 @@
 # signal. The suite builds it from test/compose; the context admits only
 # collector.yaml (collector.Dockerfile.dockerignore). It is never published.
 
-FROM otel/opentelemetry-collector:0.161.0@sha256:b6d2b9a85b1029d05b5ad913150c1f014eed4ae99be81a1813ca5ade4a191913
+FROM otel/opentelemetry-collector:0.163.2-386@sha256:6af85116b470638e039d957f130990f0de7aaa46e51863e8c133e83590758992
 COPY --chmod=0644 collector.yaml /etc/otelcol/config.yaml
