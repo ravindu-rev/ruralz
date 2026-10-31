@@ -311,7 +311,7 @@ Stage 12 builds, signs and publishes every artifact of a tag on the pinned toolc
 | Provenance | SLSA Build Level 3 attestation per archive and image | All | Planned (M1) |
 | JSON Schema, OpenAPI | `ruralz-v1alpha1-authoring.schema.json` and `ruralz-v1alpha1-rendered.schema.json`, byte copies of `api/schema/`; `/api/v1/` OpenAPI | All | Planned (M1); OpenAPI Planned (M2) |
 | Release notes | Features, fixes, deprecations, upgrade notes, schema, ABI and Control Stream additions, budget results, verification steps, skipped gates and who skipped them | All | Planned (M1) |
-| Benchmark records | `ruralz_<version>_bench.tar.gz`: the `ruralz.bench.v1` records, raw histograms and CPU profiles of the release's Latency and soak jobs, also committed to the `bench-records` branch ([Publication](../architecture/12-performance-budgets-and-benchmarking.md#publication)) | RH-1 | Planned (M1) |
+| Benchmark records | `ruralz_<version>_bench.tar.gz`: the `ruralz.bench.v1` records, raw histograms and CPU profiles of the release's Latency and soak jobs, also committed to the `bench-records` branch; the jobs run from M6, so the archive is empty before it ([Publication](../architecture/12-performance-budgets-and-benchmarking.md#publication)) | RH-1 | Planned (M1) |
 
 - Signing is keyless Sigstore, bound to the release workflow's OIDC identity and logged in Rekor v2, generally available since 2025-10-10 ([source](https://blog.sigstore.dev/rekor-v2-ga/)). Verification instructions using cosign MUST require 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98) ([source](https://github.com/sigstore/cosign/releases)).
 - SBOMs use CycloneDX 1.7, standardized as ECMA-424 2nd edition ([source](https://cyclonedx.org/news/cyclonedx-v1.7-released/)) ([source](https://ecma-international.org/publications-and-standards/standards/ecma-424/)); SPDX 3.0.1 ([source](https://spdx.github.io/spdx-spec/latest/)) may join later.
@@ -349,8 +349,8 @@ Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd
 `release.yml`, Planned (M1), runs on every `v*` tag. Its first job checks through the GitHub API that the tag is `vX.Y.Z` or `vX.Y.Z-rc.N` and an annotated tag whose signature GitHub verified against a maintainer's registered SSH or GPG signing key; any other tag stops the run. Only the publish job runs in the GitHub Environment `release`, which admits `v*` tags only and requires the owner's approval, so one approval follows every check; the build, attest and image jobs hold only their OIDC permissions ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)). The workflow signs with cosign, generates SBOMs with Syft ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)) and attests provenance with GitHub artifact attestations.
 
 1. **Re-run.** `pr-fast`, `pr-full`, `main` (with secret leak assertions), `nightly`, `t5-systemd.yml` and `chaos-scale.yml` run on the tagged commit, path filters off.
-   - `nightly` runs with its `rotation-all` input, so its one Latency job on `rh-1` runs S1, S2, the component benchmarks and every M1 slot against the previous release's signed linux/amd64 archive, with absolute budgets only for `0.1.0`.
-   - A separate soak job (`make soak`) on `rh-1` follows through the `rh-1` concurrency group.
+   - `nightly` runs with its `rotation-all` input; from M6, its one Latency job on `rh-1` runs S1, S2, the component benchmarks and every slot against the previous release's signed linux/amd64 archive, or against absolute budgets alone without a previous release.
+   - From M6, a separate soak job (`make soak`) on `rh-1` follows through the `rh-1` concurrency group. Until M6 sets `RH1_PROVISIONED` to `true`, GitHub skips the Latency job, the soak and `chaos-scale.yml`'s chaos job ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)).
    - Both upload their `ruralz.bench.v1` records ([Suite layers](../architecture/12-performance-budgets-and-benchmarking.md#suite-layers)), which `nightly`'s records job and the release's soak records job commit to the `bench-records` branch.
    - A job before the re-run downloads the previous release's linux/amd64 `ruralzd` archive and verifies it against that release's signed `SHA256SUMS`; `nightly`'s Latency job receives the binary and version as its comparison baseline.
 2. **Gates.**
@@ -379,7 +379,7 @@ Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd
 A maintainer cuts a release in this order:
 
 1. **Preconditions.**
-   - A milestone's other exit criteria hold before its release's first candidate: `v0.1.0-rc.1` is tagged only once M1 exit criteria 2 to 7 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
+   - A milestone's other exit criteria hold before its release's first candidate: `v0.1.0-rc.1` is tagged only once M1 exit criteria 2 to 5 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
    - The `go.mod` `toolchain` line names the newest Go patch ([Release cadence and support windows](#release-cadence-and-support-windows)).
    - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `v0.1.0-rc.1`:
      - `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest), a Quickstart section (`examples/quickstart/quickstart.sh`) and a status section;

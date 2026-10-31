@@ -178,9 +178,9 @@ SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT v
 |---|---|---|---|---|
 | SM-1 | Features behind a license key or edition | Code search and release audit on every tag | 0 features (target) | Planned (M0), permanent |
 | SM-2 | Feature Catalog rows with a milestone or a reasoned `Not planned` | Count in the [Feature Catalog](../features/01-feature-catalog.md) | 100% of rows (target) | Planned (M1) |
-| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M5) |
-| SM-4 | Gateway-added latency p99, reference scenario | Benchmark suite on reference hardware | 1 ms or less (target) | Planned (M1) |
-| SM-5 | Gateway-added latency p50, reference scenario | Benchmark suite on reference hardware | 150 µs or less (target) | Planned (M1) |
+| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M6) |
+| SM-4 | Gateway-added latency p99, reference scenario | Benchmark suite on reference hardware | 1 ms or less (target) | Planned (M6) |
+| SM-5 | Gateway-added latency p50, reference scenario | Benchmark suite on reference hardware | 150 µs or less (target) | Planned (M6) |
 | SM-6 | WASM Plugin Phase call overhead, pooled instance, deadline interruption enabled, p99 | Per-Phase microbenchmark in CI | 50 µs or less (target) | Planned (M2) |
 | SM-7 | Time from download to first proxied request | Scripted quickstart in CI on a clean machine | 10 minutes or less (target) | Planned (M1) |
 | SM-8 | OpenAPI 3.x documents imported by `ruralz bundle import openapi` that validate and render without manual edits | Public OpenAPI corpus in the monorepo, run in CI | 90% or more (target) | Planned (M2) |

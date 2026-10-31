@@ -1,6 +1,6 @@
 # Benchmark hosts runbook
 
-This directory sets up the hosts of the benchmark harness, `test/bench/harness`, and of `chaos-scale.yml`, as [Reference hardware](../../docs/architecture/12-performance-budgets-and-benchmarking.md#reference-hardware) defines them:
+This directory sets up the hosts of the benchmark harness, `test/bench/harness`, and of `chaos-scale.yml`, as [Reference hardware](../../docs/architecture/12-performance-budgets-and-benchmarking.md#reference-hardware) defines them. The hosts are rented and this runbook run in milestone M6, Reference hardware benchmarks ([Roadmap](../../docs/roadmap/01-roadmap-and-milestones.md#m6-reference-hardware-benchmarks)); until then GitHub skips every `rh-1` job:
 
 | File | Contents |
 |---|---|
