@@ -49,11 +49,22 @@ const holderRecord = `{"format":"ruralz.holder.v1","pid":%d,"startTime":4242,"no
 func helperCopy(t *testing.T) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), helperFile)
-	//nolint:gosec // G306: the helper is an executable script.
-	if err := os.WriteFile(p, shipped(t, repoRoot(t), helperFile), 0o755); err != nil {
+	writeExecutable(t, p, shipped(t, repoRoot(t), helperFile))
+	return p
+}
+
+// writeExecutable writes an executable script with mode 0755 while it
+// holds syscall.ForkLock: a child that a parallel test forks while the
+// file is open for writing keeps it open until its own exec, and an exec
+// of the file in that time fails with "text file busy".
+func writeExecutable(t *testing.T, name string, data []byte) {
+	t.Helper()
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	//nolint:gosec // G306: the file is an executable script.
+	if err := os.WriteFile(name, data, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return p
 }
 
 // helperCheck is one run of the helper with this test binary as BINARY:
@@ -291,10 +302,7 @@ func TestHelperCountsSleeps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			shim := t.TempDir()
-			//nolint:gosec // G306: the shim is an executable script.
-			if err := os.WriteFile(filepath.Join(shim, "sleep"), []byte(sleepShim), 0o755); err != nil {
-				t.Fatal(err)
-			}
+			writeExecutable(t, filepath.Join(shim, "sleep"), []byte(sleepShim))
 			sleeps := filepath.Join(shim, "sleeps.log")
 			h := newHelperCheck(t, modeIgnoreTerm, "RURALZ_T5_SLEEP_LOG="+sleeps)
 			h.env[0] = "PATH=" + shim + string(os.PathListSeparator) + os.Getenv("PATH")

@@ -143,9 +143,7 @@ func newCase(t *testing.T, s setup) *qcase {
 			}
 			link(t, p, filepath.Join(standins, name))
 		default:
-			if err := os.WriteFile(filepath.Join(standins, name), []byte(body), 0o700); err != nil { //nolint:gosec // G306: the stand-in is executable.
-				t.Fatal(err)
-			}
+			writeExecutable(t, filepath.Join(standins, name), []byte(body))
 		}
 	}
 	for _, name := range systemTools() {
@@ -185,6 +183,19 @@ func (c *qcase) writeFile(name string, data []byte) {
 	c.t.Helper()
 	if err := os.WriteFile(name, data, 0o600); err != nil {
 		c.t.Fatal(err)
+	}
+}
+
+// writeExecutable writes an executable with mode 0700 while it holds
+// syscall.ForkLock: a child that a parallel test forks while the file is
+// open for writing keeps it open until its own exec, and an exec of the
+// file in that time fails with "text file busy".
+func writeExecutable(t *testing.T, name string, data []byte) {
+	t.Helper()
+	syscall.ForkLock.RLock()
+	defer syscall.ForkLock.RUnlock()
+	if err := os.WriteFile(name, data, 0o700); err != nil { //nolint:gosec // G306: the file is executable.
+		t.Fatal(err)
 	}
 }
 
@@ -715,9 +726,7 @@ func TestFirstProxiedRequest(t *testing.T) {
 				if err := os.MkdirAll(filepath.Dir(alone), 0o750); err != nil {
 					t.Fatal(err)
 				}
-				if err := os.WriteFile(alone, []byte(readFile(t, c.script())), 0o700); err != nil { //nolint:gosec // G306: the script copy is executable.
-					t.Fatal(err)
-				}
+				writeExecutable(t, alone, []byte(readFile(t, c.script())))
 				r = c.run(alone, env...)
 			default:
 				// A ruralz.yaml in the working directory is not the Bundle.
