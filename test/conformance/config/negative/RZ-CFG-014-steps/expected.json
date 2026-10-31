@@ -1,0 +1,46 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 32,
+    "column": 51,
+    "resource": {
+      "kind": "Route",
+      "name": "summary"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "order"
+      },
+      "pathExpression"
+    ],
+    "message": "CEL Route.spec.composition.steps[].pathExpression: step \"items\" is not an earlier step of this composition",
+    "hint": "steps holds the steps that ran before this one, in list order"
+  },
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 49,
+    "column": 46,
+    "resource": {
+      "kind": "Route",
+      "name": "parallel"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "order"
+      },
+      "pathExpression"
+    ],
+    "message": "CEL Route.spec.composition.steps[].pathExpression: steps is available only in sequential compositions",
+    "hint": "this composition is \"aggregate\""
+  }
+]

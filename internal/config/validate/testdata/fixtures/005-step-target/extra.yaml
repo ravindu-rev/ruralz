@@ -1,0 +1,28 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: step-targets
+spec:
+  match:
+    path: {prefix: /step-targets}
+  composition:
+    mode: aggregate
+    steps:
+      - name: empty-segment
+        upstream: orders
+        path: /a
+        target: data..id
+      - name: bad-escape
+        upstream: orders
+        path: /b
+        target: 'data\q'
+      - name: bare-star
+        upstream: orders
+        path: /c
+        target: items*
+      - name: star-and-escapes
+        upstream: orders
+        path: /d
+        target: 'items.*.a\.b'
+        collection: true
+        group: d

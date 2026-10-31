@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: jwt
+spec:
+  match:
+    path: {prefix: /jwt}
+  policies:
+    - name: jwt-chaos                   # cached keys until they expire, then RZ-AUTH-006
+  upstreams:
+    - name: chaos-backend

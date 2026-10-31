@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: authz-open
+spec:
+  type: authz.cel
+  failureMode: open
+  config:
+    rule: 'auth.claims.scope == "orders:read"'

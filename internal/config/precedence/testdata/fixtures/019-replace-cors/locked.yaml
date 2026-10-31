@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: cors-locked
+spec:
+  type: cors
+  overridable: false
+  config:
+    allowOrigins: ["https://shop.example"]

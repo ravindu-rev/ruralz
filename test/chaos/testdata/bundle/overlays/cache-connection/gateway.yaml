@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  stateStore:
+    cache:                              # CE-6: the Response Cache on a connection of its own
+      topology: standalone
+      url: {secretRef: {provider: file, name: /etc/ruralz/state/cache-url}}
+      tls:
+        caCertificate: {secretRef: {provider: file, name: /etc/ruralz/state/cache-ca.crt}}

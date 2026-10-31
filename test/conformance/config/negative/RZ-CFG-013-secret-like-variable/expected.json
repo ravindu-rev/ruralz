@@ -1,0 +1,21 @@
+[
+  {
+    "code": "RZ-CFG-013",
+    "severity": "warning",
+    "file": "ruralz.yaml",
+    "line": 26,
+    "column": 20,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "path",
+      "prefix"
+    ],
+    "message": "variable \"API_TOKEN\" looks like a secret",
+    "hint": "use a secretRef with provider: env instead of substitution"
+  }
+]

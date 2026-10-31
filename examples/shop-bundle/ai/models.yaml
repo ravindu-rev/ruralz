@@ -1,0 +1,18 @@
+apiVersion: ruralz/v1alpha1
+kind: AIModel
+metadata:
+  name: support-chat                    # virtual model name sent by clients
+spec:
+  strategy: fallback                    # Provider Fallback in list order
+  candidates:
+    - name: primary
+      provider: anthropic-prod
+      model: claude-sonnet-4-5
+    - name: secondary
+      provider: openai-prod
+      model: gpt-4.1-mini
+      when: "ai.estimatedInputTokens < 100000"
+  limits: {maxInputTokens: 32000, maxOutputTokens: 2048}
+  cache:
+    prompt: {mode: passthrough}         # keep provider cache_control blocks
+    semantic: {similarityThreshold: 0.92, ttl: 1h}   # harmless until a Route attaches ai.semantic-cache

@@ -1,0 +1,6 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: check
+spec:
+  type: authz.cel

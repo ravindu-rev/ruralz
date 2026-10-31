@@ -1,0 +1,34 @@
+[
+  {
+    "code": "RZ-CFG-025",
+    "severity": "warning",
+    "file": "ruralz.yaml",
+    "line": 20,
+    "column": 13,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "apiVersion"
+    ],
+    "message": "apiVersion ruralz/v0test is deprecated and is removed in 0.9.0",
+    "hint": "use ruralz/v1alpha1"
+  },
+  {
+    "code": "RZ-CFG-025",
+    "severity": "warning",
+    "file": "ruralz.yaml",
+    "line": 29,
+    "column": 12,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "timeout"
+    ],
+    "message": "field spec.timeout is deprecated and is removed in 0.9.0"
+  }
+]

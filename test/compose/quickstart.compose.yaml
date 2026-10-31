@@ -1,0 +1,64 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# The quickstart project of the Compose suite
+# (docs/engineering/03-testing-and-quality-strategy.md "Compose suite"):
+# the image under test serves the quickstart Bundle, unchanged. The mock
+# Upstream service owns the network namespace that the ruralzd container
+# joins, so the Bundle's Endpoint 127.0.0.1:9000 answers, and publishes
+# the Node's ports on loopback. The suite sets every variable and runs
+# one project per test (docker compose --project-name).
+#
+#   RURALZ_COMPOSE_IMAGE       the ruralzd image under test
+#   RURALZ_COMPOSE_MOCK_IMAGE  the suite's mock image
+#   RURALZ_COMPOSE_RUN         the test's directory: bundle/ (the quickstart
+#                              Bundle), admin/ (tls/ and token) and mock/
+#                              (routes.json, the mock Upstream's answers)
+
+services:
+  upstream:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    command: [serve, -upstream, "127.0.0.1:9000", -upstream-routes, /etc/mock/routes.json, -control, "0.0.0.0:9100"]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      net.ipv4.tcp_migrate_req: "1"
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/mock
+        target: /etc/mock
+        read_only: true
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::9901"
+      - "127.0.0.1::9100"
+
+  ruralzd:
+    image: ${RURALZ_COMPOSE_IMAGE:?the ruralzd image under test}
+    network_mode: service:upstream
+    depends_on: [upstream]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 40s
+    environment:
+      RURALZ_CONFIG: /etc/ruralz-bundle
+      RURALZ_FETCH_ALLOW: "127.0.0.1"
+      RURALZ_ADMIN_TLS_DIR: /run/ruralz-admin/tls
+      RURALZ_ADMIN_TOKEN_FILE: /run/ruralz-admin/token
+    volumes:
+      - data:/var/lib/ruralz
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/bundle
+        target: /etc/ruralz-bundle
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/admin
+        target: /run/ruralz-admin
+        read_only: true
+
+volumes:
+  data: {}

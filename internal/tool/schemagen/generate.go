@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -25,7 +26,9 @@ type schema = map[string]any
 type view int
 
 const (
-	// authoring lets substitutable non-string scalars also be a ${VAR} string.
+	// authoring lets substitutable non-string scalars, and strings
+	// constrained by an enum or a pattern, also be a ${VAR} expression
+	// .
 	authoring view = iota
 	// rendered is strict and validates after substitution.
 	rendered
@@ -46,7 +49,15 @@ const (
 	draft2020    = "https://json-schema.org/draft/2020-12/schema"
 	defsPrefix   = "#/$defs/"
 	substDefName = "Substitution"
+	// securityImpact is the impact class every secret field carries.
+	securityImpact = "security"
 )
+
+// impactClasses are the x-ruralz-impact classes (docs/architecture/
+// 02-configuration-model.md, Schema keywords that drive tooling).
+func impactClasses() []string {
+	return []string{"routing", "security", "traffic", "plugin", "ai", "metadata"}
+}
 
 // input is everything the generator reads.
 type input struct {
@@ -68,19 +79,26 @@ type generator struct {
 
 // wellKnown holds types with a fixed schema or a special role.
 type wellKnown struct {
-	duration, byteSize, intOrString, rawMessage, secretValue, secretRef, policyType reflect.Type
+	duration, byteSize, intOrString, rawMessage, jsonSchemaDoc, secretValue, secretRef, policyType reflect.Type
 }
 
 func newWellKnown() wellKnown {
 	return wellKnown{
-		duration:    reflect.TypeFor[v1alpha1.Duration](),
-		byteSize:    reflect.TypeFor[v1alpha1.ByteSize](),
-		intOrString: reflect.TypeFor[v1alpha1.IntOrString](),
-		rawMessage:  reflect.TypeFor[json.RawMessage](),
-		secretValue: reflect.TypeFor[v1alpha1.SecretValue](),
-		secretRef:   reflect.TypeFor[v1alpha1.SecretRef](),
-		policyType:  reflect.TypeFor[v1alpha1.PolicyType](),
+		duration:      reflect.TypeFor[v1alpha1.Duration](),
+		byteSize:      reflect.TypeFor[v1alpha1.ByteSize](),
+		intOrString:   reflect.TypeFor[v1alpha1.IntOrString](),
+		rawMessage:    reflect.TypeFor[json.RawMessage](),
+		jsonSchemaDoc: reflect.TypeFor[v1alpha1.JSONSchemaDocument](),
+		secretValue:   reflect.TypeFor[v1alpha1.SecretValue](),
+		secretRef:     reflect.TypeFor[v1alpha1.SecretRef](),
+		policyType:    reflect.TypeFor[v1alpha1.PolicyType](),
 	}
+}
+
+// opaque reports whether values of t are JSON documents schemagen does not
+// describe field by field: a raw message or an inline JSON Schema.
+func (k wellKnown) opaque(t reflect.Type) bool {
+	return t == k.rawMessage || t == k.jsonSchemaDoc
 }
 
 // generate returns the schema view as JSON bytes.
@@ -174,7 +192,7 @@ func (g *generator) resource(t reflect.Type) (string, error) {
 	if !ok {
 		return "", fmt.Errorf("resource type %s has no Metadata field", name)
 	}
-	metaRef, err := g.typeSchema(meta.Type, fieldCtx{envelope: true})
+	metaRef, err := g.typeSchema(meta.Type, fieldCtx{noSubst: true})
 	if err != nil {
 		return "", err
 	}
@@ -267,11 +285,12 @@ func ref(name string) schema {
 	return schema{"$ref": defsPrefix + name}
 }
 
-// fieldCtx carries what a field's markers say about its value.
+// fieldCtx carries what a field's markers and its enclosing definition say
+// about its value.
 type fieldCtx struct {
-	// envelope, ref, secret and cel fields never accept substitution.
-	envelope bool
-	noSubst  bool
+	// noSubst is set for envelope, ref, secret and cel fields and inside a
+	// secret value: they never accept substitution (RZ-CFG-011).
+	noSubst bool
 }
 
 // typeSchema returns the schema for a value of type t, registering named
@@ -302,6 +321,12 @@ func (g *generator) typeSchema(t reflect.Type, ctx fieldCtx) (schema, error) {
 		return ref("IntOrString"), nil
 	case g.known.rawMessage:
 		return schema{"type": "object"}, nil
+	case g.known.jsonSchemaDoc:
+		g.defs["JSONSchemaDocument"] = schema{
+			"description": "An inline JSON Schema document (draft 2020-12): an object or a boolean. Its keywords are checked when its Policy is validated.",
+			"type":        []any{"object", "boolean"},
+		}
+		return ref("JSONSchemaDocument"), nil
 	default:
 	}
 
@@ -408,6 +433,9 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 	g.building[name] = true
 	defer delete(g.building, name)
 	envelope := name == "ObjectMeta"
+	// Substitution is forbidden in the envelope and in the whole subtree of
+	// a secret field (RZ-CFG-011), so neither definition offers it.
+	base := fieldCtx{noSubst: envelope || t == g.known.secretValue || t == g.known.secretRef}
 
 	info := g.in.source[name]
 	if info == nil {
@@ -428,7 +456,7 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 			return nil, fmt.Errorf("%s.%s: %w", name, f.Name, err)
 		}
 		fd := info.fields[f.Name]
-		prop, isRequired, err := g.fieldSchema(t, f, fd, envelope)
+		prop, isRequired, err := g.fieldSchema(t, f, fd, base)
 		if err != nil {
 			return nil, fmt.Errorf("%s.%s: %w", name, f.Name, err)
 		}
@@ -452,6 +480,9 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 	for _, m := range info.doc.markers {
 		switch m.name {
 		case "policyType":
+		case "planned":
+			// No schema keyword: a row of the served-feature table
+			// (plannedTable), which checks the marker.
 		case "open":
 			open = true
 		case "minProperties":
@@ -468,6 +499,12 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 				}
 			}
 			allOf = append(allOf, fieldCombination(m.name, fields))
+		case "requiredIf":
+			rule, err := g.requiredIf(t, m.value, props)
+			if err != nil {
+				return nil, fmt.Errorf("type %s: %w", name, err)
+			}
+			allOf = append(allOf, rule)
 		default:
 			return nil, fmt.Errorf("type %s: marker %s is not allowed on a struct", name, m.name)
 		}
@@ -480,6 +517,55 @@ func (g *generator) structDef(t reflect.Type) (schema, error) {
 	}
 	g.defs[name] = s
 	return ref(name), nil
+}
+
+// requiredIf encodes requiredIf=<field>,<member>=<value> on struct t: field
+// is required when member is present and equals value, as an if/then rule
+// in the form the schema index reads for dispatch (a member const and its
+// required). The const is the string value, or for a bool member the
+// boolean true or false, so a step's collection: true can require group.
+// A value outside the enum of member's type, or a bool value other than
+// true and false, is an error, so the rule cannot silently never apply.
+func (g *generator) requiredIf(t reflect.Type, value string, props schema) (schema, error) {
+	field, cond, ok := strings.Cut(value, ",")
+	member, want, hasValue := strings.Cut(cond, "=")
+	if !ok || !hasValue || field == "" || member == "" || want == "" || field == member {
+		return nil, fmt.Errorf("requiredIf %q: want <field>,<member>=<value> naming two fields", value)
+	}
+	for _, f := range []string{field, member} {
+		if _, ok := props[f]; !ok {
+			return nil, fmt.Errorf("requiredIf names unknown field %q", f)
+		}
+	}
+	var constant any = want
+	for i := range t.NumField() {
+		f := t.Field(i)
+		if jsonName, _, err := jsonTag(f); err != nil || jsonName != member {
+			continue
+		}
+		mt := f.Type
+		if mt.Kind() == reflect.Pointer {
+			mt = mt.Elem()
+		}
+		if mt.Kind() == reflect.Bool {
+			switch want {
+			case "true":
+				constant = true
+			case "false":
+				constant = false
+			default:
+				return nil, fmt.Errorf("requiredIf %q: %q is not true or false", value, want)
+			}
+			continue
+		}
+		if enum := g.in.source[mt.Name()].enumOrNil(); len(enum) > 0 && !slices.Contains(enum, want) {
+			return nil, fmt.Errorf("requiredIf %q: %q is not a %s value", value, want, mt.Name())
+		}
+	}
+	return schema{
+		"if":   schema{"properties": schema{member: schema{"const": constant}}, "required": []any{member}},
+		"then": schema{"required": []any{field}},
+	}, nil
 }
 
 // fieldCombination encodes exactlyOneOf, atMostOneOf and atLeastOneOf.
@@ -519,21 +605,22 @@ func jsonTag(f reflect.StructField) (name string, omitempty bool, err error) {
 	return name, slices.Contains(strings.Split(opts, ","), "omitempty"), nil
 }
 
-// fieldSchema returns the property schema of one struct field.
-func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d docInfo, envelope bool) (schema, bool, error) {
-	ctx := fieldCtx{envelope: envelope, noSubst: envelope}
+// fieldSchema returns the property schema of one struct field. base carries
+// what the enclosing definition says about substitution.
+func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d docInfo, base fieldCtx) (schema, bool, error) {
+	ctx := base
 	_, isRequired := d.get("required")
 	annotations := schema{}
 	if d.description != "" {
 		annotations["description"] = d.description
 	}
-	isSlice := f.Type.Kind() == reflect.Slice && f.Type != g.known.rawMessage
-	base := f.Type
-	if base.Kind() == reflect.Pointer {
-		base = base.Elem()
+	isSlice := f.Type.Kind() == reflect.Slice && !g.known.opaque(f.Type)
+	elem := f.Type
+	if elem.Kind() == reflect.Pointer {
+		elem = elem.Elem()
 	}
 	// The secretRef inside SecretValue is the secret value's own shape.
-	isSecret := parent != g.known.secretValue && (base == g.known.secretValue || base == g.known.secretRef)
+	isSecret := parent != g.known.secretValue && (elem == g.known.secretValue || elem == g.known.secretRef)
 	_, secretMarked := d.get("secret")
 	if isSecret != secretMarked {
 		return nil, false, errors.New("+ruralz:secret must mark exactly the SecretValue and SecretRef fields")
@@ -541,9 +628,15 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 	if !isRequired && f.Type.Kind() != reflect.Pointer && isPresenceSensitive(f.Type) {
 		return nil, false, errors.New("an optional bool or number must be a pointer")
 	}
-	if _, hasDefault := d.get("default"); hasDefault && f.Type.Kind() != reflect.Pointer {
-		return nil, false, errors.New("a field with a default must be a pointer")
+	if _, hasDefault := d.get("default"); hasDefault {
+		if f.Type.Kind() != reflect.Pointer {
+			return nil, false, errors.New("a field with a default must be a pointer")
+		}
+		if isRequired {
+			return nil, false, errors.New("a required field takes no default")
+		}
 	}
+	var impact []string
 	for _, m := range d.markers {
 		switch m.name {
 		case "required":
@@ -558,8 +651,8 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 			ctx.noSubst = true
 		case "cel":
 			vars, result, ok := strings.Cut(m.value, ":")
-			if !ok || vars == "" || !slices.Contains([]string{"bool", "string", "dyn"}, result) {
-				return nil, false, fmt.Errorf("+ruralz:cel=%s: want <variables>:<bool|string|dyn>", m.value)
+			if !ok || vars == "" || !slices.Contains([]string{"bool", "string", "int", "dyn"}, result) {
+				return nil, false, fmt.Errorf("+ruralz:cel=%s: want <variables>:<bool|string|int|dyn>", m.value)
 			}
 			annotations["x-ruralz-cel"] = schema{"variables": toAny(strings.Split(vars, ",")), "result": result}
 			ctx.noSubst = true
@@ -573,14 +666,15 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 			}
 			annotations["x-ruralz-list"] = l
 		case "impact":
-			var classes []any
-			for _, c := range strings.Split(m.value, ",") {
-				if !slices.Contains([]string{"routing", "security", "traffic", "plugin", "ai", "metadata"}, c) {
-					return nil, false, fmt.Errorf("unknown impact class %q", c)
-				}
-				classes = append(classes, c)
+			if impact != nil {
+				return nil, false, errors.New("+ruralz:impact given twice; list the classes in one marker")
 			}
-			annotations["x-ruralz-impact"] = classes
+			classes, err := impactKeyword(m.value)
+			if err != nil {
+				return nil, false, err
+			}
+			impact = classes
+			annotations["x-ruralz-impact"] = toAny(classes)
 		case "since":
 			n, err := strconv.Atoi(m.value)
 			if err != nil || n < 1 {
@@ -589,12 +683,29 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 			annotations["x-ruralz-since"] = n
 		case "validation":
 			annotations["x-ruralz-validations"] = append(asList(annotations["x-ruralz-validations"]), schema{"rule": m.value})
+		case "minProperties":
+			// On a field only for a map, the field's own value; a struct
+			// takes it as a type marker (structDef).
+			if elem.Kind() != reflect.Map {
+				return nil, false, errors.New("+ruralz:minProperties on a field is only for maps")
+			}
+			if n, err := strconv.Atoi(m.value); err != nil || n < 0 {
+				return nil, false, fmt.Errorf("+ruralz:minProperties=%s: want a non-negative integer", m.value)
+			}
 		case "default":
+		case "planned":
+			// No schema keyword: a row of the served-feature table
+			// (plannedTable), which checks the marker.
 		default:
 			if !isValueMarker(m.name) {
 				return nil, false, fmt.Errorf("marker %s is not allowed on a field", m.name)
 			}
 		}
+	}
+	// A new or changed secret reference is a security change in diffs
+	// (docs/architecture/08-security-and-identity.md, Secrets rule 7).
+	if secretMarked && !slices.Contains(impact, securityImpact) {
+		return nil, false, errors.New("a +ruralz:secret field needs +ruralz:impact with security")
 	}
 	if isSlice {
 		if _, ok := d.get("list"); !ok {
@@ -610,10 +721,17 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 	if err := applyValueMarkers(value, d, "field"); err != nil {
 		return nil, false, err
 	}
+	if m, ok := d.get("minProperties"); ok {
+		n, _ := strconv.Atoi(m.value) // checked with the markers above
+		value["minProperties"] = n
+	}
 	if m, ok := d.get("default"); ok {
 		dv, err := g.defaultValue(f.Type, m.value)
 		if err != nil {
 			return nil, false, fmt.Errorf("+ruralz:default: %w", err)
+		}
+		if err := g.checkDefault(value, dv); err != nil {
+			return nil, false, fmt.Errorf("+ruralz:default=%s: %w", m.value, err)
 		}
 		annotations["default"] = dv
 	}
@@ -629,10 +747,27 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 	return annotations, isRequired, nil
 }
 
-// substitutable adds the ${VAR} alternative in the authoring view to a
-// constrained non-string scalar that permits substitution.
+// impactKeyword parses "<class>[,<class>...]": known classes, ascending and
+// without repeats, as diffs print them.
+func impactKeyword(v string) ([]string, error) {
+	classes := strings.Split(v, ",")
+	for i, c := range classes {
+		if !slices.Contains(impactClasses(), c) {
+			return nil, fmt.Errorf("unknown impact class %q", c)
+		}
+		if i > 0 && c <= classes[i-1] {
+			return nil, fmt.Errorf("+ruralz:impact=%s: list the classes once each, in ascending order", v)
+		}
+	}
+	return classes, nil
+}
+
+// substitutable adds the ${VAR} alternative in the authoring view to a value
+// that permits substitution and whose constraints a ${VAR} expression would
+// otherwise fail: a non-string scalar, or a string constrained by an enum or
+// a pattern.
 func (g *generator) substitutable(value schema, ctx fieldCtx) schema {
-	if g.view != authoring || ctx.noSubst || !g.isNonStringScalar(value) {
+	if g.view != authoring || ctx.noSubst || (!g.isNonStringScalar(value) && !g.isConstrainedString(value)) {
 		return value
 	}
 	return schema{"anyOf": []any{value, ref(substDefName)}}
@@ -655,6 +790,92 @@ func (g *generator) isNonStringScalar(s schema) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// isConstrainedString reports whether s, or the definition it references,
+// is a string restricted by an enum or a pattern.
+func (g *generator) isConstrainedString(s schema) bool {
+	if r, ok := s["$ref"].(string); ok {
+		def, ok := g.defs[strings.TrimPrefix(r, defsPrefix)]
+		if !ok {
+			return false
+		}
+		s = def
+	}
+	if s["type"] != "string" {
+		return false
+	}
+	_, hasEnum := s["enum"]
+	_, hasPattern := s["pattern"]
+	return hasEnum || hasPattern
+}
+
+// checkDefault verifies a default value against the value keywords of its
+// field, so the generated schema never carries a default it would reject.
+func (g *generator) checkDefault(value schema, dv any) error {
+	constraints := value
+	if r, ok := value["$ref"].(string); ok {
+		if def, ok := g.defs[strings.TrimPrefix(r, defsPrefix)]; ok {
+			constraints = shallowCopy(def)
+			for k, v := range value {
+				constraints[k] = v
+			}
+		}
+	}
+	switch v := dv.(type) {
+	case int64:
+		return checkRange(constraints, float64(v))
+	case float64:
+		return checkRange(constraints, v)
+	case string:
+		return checkString(constraints, v)
+	default:
+		return nil
+	}
+}
+
+// checkRange applies minimum and maximum.
+func checkRange(s schema, n float64) error {
+	if lo, ok := asNumber(s["minimum"]); ok && n < lo {
+		return fmt.Errorf("below the minimum %v", s["minimum"])
+	}
+	if hi, ok := asNumber(s["maximum"]); ok && n > hi {
+		return fmt.Errorf("above the maximum %v", s["maximum"])
+	}
+	return nil
+}
+
+// checkString applies pattern, minLength and maxLength.
+func checkString(s schema, v string) error {
+	if p, ok := s["pattern"].(string); ok {
+		re, err := regexp.Compile(p)
+		if err != nil {
+			return fmt.Errorf("pattern %q: %w", p, err)
+		}
+		if !re.MatchString(v) {
+			return fmt.Errorf("does not match the pattern %q", p)
+		}
+	}
+	n := len([]rune(v))
+	if lo, ok := s["minLength"].(int); ok && n < lo {
+		return fmt.Errorf("shorter than minLength %d", lo)
+	}
+	if hi, ok := s["maxLength"].(int); ok && n > hi {
+		return fmt.Errorf("longer than maxLength %d", hi)
+	}
+	return nil
+}
+
+// asNumber converts a minimum or maximum keyword value.
+func asNumber(v any) (float64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return float64(n), true
+	case float64:
+		return n, true
+	default:
+		return 0, false
 	}
 }
 

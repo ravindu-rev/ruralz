@@ -1,0 +1,27 @@
+[
+  {
+    "code": "RZ-CFG-008",
+    "severity": "error",
+    "file": "overlays/prod/b.yaml",
+    "line": 4,
+    "column": 9,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "metadata",
+      "name"
+    ],
+    "message": "Upstream/orders is declared twice in the overlay; results never depend on file order",
+    "related": [
+      {
+        "file": "overlays/prod/a.yaml",
+        "line": 4,
+        "column": 9,
+        "message": "first declared in"
+      }
+    ],
+    "environment": "prod"
+  }
+]

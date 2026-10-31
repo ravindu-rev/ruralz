@@ -1,0 +1,22 @@
+apiVersion: ruralz/v1alpha1
+kind: Cluster
+metadata:
+  name: staging-eu-west
+spec:
+  environment: staging
+  region: eu-west-1
+  rollout:
+    strategy: all-at-once
+    autoRollback: true
+---
+apiVersion: ruralz/v1alpha1
+kind: Cluster
+metadata:
+  name: prod-eu-west
+spec:
+  environment: prod
+  region: eu-west-1
+  rollout:
+    strategy: canary
+    canary: {percent: 10, bake: 15m}
+    autoRollback: true

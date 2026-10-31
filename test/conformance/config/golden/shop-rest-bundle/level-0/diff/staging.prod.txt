@@ -1,0 +1,7 @@
+ruralz bundle diff: rev-b868f8c8e2da -> rev-74380821cf6d (environment: staging -> prod)
+
+~ Upstream/orders                               upstreams/services.yaml      [traffic]
+    ~ spec.circuitBreaker.consecutiveFailures: 5 -> 10
+    ~ spec.retries.attempts: 2 -> 3
+
+1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: traffic

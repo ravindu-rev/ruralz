@@ -1,0 +1,11 @@
+Usage: ruralz bundle <verb> [ARGS] [FLAGS]
+
+Validate, render, diff and build Bundles.
+
+Verbs:
+  build     Build a Revision, print its digest
+  diff      Compare FROM with TO
+  render    Render one Environment's one-file Bundle
+  validate  Offline validation, source-mapped diagnostics
+
+Run 'ruralz bundle <verb> --help' for details.

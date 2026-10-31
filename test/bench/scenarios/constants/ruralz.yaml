@@ -1,0 +1,154 @@
+# The constants runs' Bundle
+# (docs/architecture/12-performance-budgets-and-benchmarking.md "Constants
+# the suite verifies"): S1's Gateway, Upstream and Route, plus a Route per
+# constant a run floods. A request to a path no Route matches gets the
+# pre-routing RZ-RT-001 of the pre-routing writes run; the http listener
+# also speaks h2c by prior knowledge, which the frame-limit and HTTP/2
+# window flood runs use.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 0.01              # (target), set explicitly; accessLog.when unset: every request is logged
+  stateStore:
+    driver: memory
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:
+    maxConnections: 65536
+    maxPendingRequests: 1024
+  timeout: 2s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+# The body flood: validation.json-schema gates every request body, so the
+# flood's bodies reserve the Node's buffer budget (limits.maxBufferedBytes,
+# 512 MiB (target)) as their bytes arrive until a reservation fails with
+# 503 RZ-RT-004. The frame-limit run holds its streams open on this Route
+# with request bodies it never ends.
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: flood
+spec:
+  match:
+    path: {exact: /flood}
+    methods: [POST]
+  policies:
+    - name: flood-body
+  upstreams:
+    - name: mock
+  timeout: 60s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: flood-body
+spec:
+  type: validation.json-schema
+  config:
+    schema: {type: object}
+---
+# The cache key flood: every path is its own Response Cache entry, and the
+# flood reads each twice within 1 s, so the Node's hot-entry layer (64 MiB
+# (target)) fills and evicts by LRU.
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: cache-flood
+spec:
+  match:
+    path: {template: "/cache/{id}"}
+    methods: [GET]
+  policies:
+    - name: cache-flood
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: cache-flood
+spec:
+  type: cache
+  config: {}
+---
+# The Quota denial cache run: each request authenticates as Consumer bench
+# with its API key and reserves one unit of its one-request quota under its
+# own x-bench-key, so 100,000 keys are 100,000 denied Quota keys after
+# their first request, beyond the denial cache's 65,536 entries (target).
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: quota-flood
+spec:
+  match:
+    path: {exact: /quota}
+    methods: [GET]
+  policies:
+    - name: quota-key
+    - name: quota-tiny
+  upstreams:
+    - name: mock
+  timeout: 5s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quota-key
+spec:
+  type: auth.api-key
+  config: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quota-tiny
+spec:
+  type: quota
+  config:
+    consumerQuota: tiny
+    key: 'request.headers["x-bench-key"]'
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: bench
+spec:
+  credentials:
+    apiKeys:
+      - name: bench
+        hash: "sha256:6ff1148784d9ca505072e96b417733423a34853bc4c5106da71790801ae0780c"   # scenarios.ConstantsAPIKey, a benchmark value
+  quotas:
+    - name: tiny
+      unit: requests
+      limit: 1
+      window: 3600s

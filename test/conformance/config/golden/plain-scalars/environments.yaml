@@ -1,0 +1,8 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: prod
+spec:
+  variables:
+    BUILD: "0777"
+    REQUESTS: "0777"

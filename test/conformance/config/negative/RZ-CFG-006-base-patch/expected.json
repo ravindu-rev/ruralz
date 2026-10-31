@@ -1,0 +1,22 @@
+[
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 29,
+    "column": 7,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "upstreams",
+      {
+        "name": "orders"
+      },
+      "$patch"
+    ],
+    "message": "$patch is valid only in overlays"
+  }
+]

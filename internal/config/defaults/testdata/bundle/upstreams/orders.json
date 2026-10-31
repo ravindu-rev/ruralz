@@ -1,0 +1,14 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Upstream",
+  "metadata": {"name": "orders"},
+  "spec": {
+    "protocol": "http",
+    "endpoints": [{"address": "orders-2.internal:8080"}, {"address": "orders-1.internal:8080", "weight": 2}],
+    "timeout": "3000ms",
+    "retries": {},
+    "circuitBreaker": {},
+    "healthCheck": {"active": {}, "passive": {}},
+    "policies": [{"name": "orders-token"}]
+  }
+}

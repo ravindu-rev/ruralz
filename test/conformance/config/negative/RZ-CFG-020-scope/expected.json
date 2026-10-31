@@ -1,0 +1,21 @@
+[
+  {
+    "code": "RZ-CFG-020",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 20,
+    "column": 7,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "policies",
+      {
+        "name": "jwt-default"
+      }
+    ],
+    "message": "Policy type \"auth.jwt\" is not allowed at Upstream scope (allowed: Gateway, Route)"
+  }
+]

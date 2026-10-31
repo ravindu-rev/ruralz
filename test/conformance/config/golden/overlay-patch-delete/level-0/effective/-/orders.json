@@ -1,0 +1,32 @@
+[
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "cors-default",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Gateway",
+    "reason": "slot cors, inherited"
+  },
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "headers-security",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-security",
+    "from": "Gateway",
+    "reason": "own slot"
+  },
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "cors-default",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Gateway",
+    "reason": "slot cors, inherited"
+  }
+]

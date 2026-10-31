@@ -1,0 +1,22 @@
+{
+  "profile": "loopback",
+  "hosts": {
+    "gateway": {"address": "127.0.0.1", "dir": "/tmp/ruralz-bench/hosts/gateway"},
+    "load": {"address": "127.0.0.1", "dir": "/tmp/ruralz-bench/hosts/load"},
+    "upstream": {"address": "127.0.0.1", "dir": "/tmp/ruralz-bench/hosts/upstream"},
+    "statestore": {"address": "127.0.0.1", "dir": "/tmp/ruralz-bench/hosts/statestore"}
+  },
+  "secretRoot": "/tmp/ruralz-bench/secrets",
+  "tlsDir": "/tmp/ruralz-bench/secrets/tls",
+  "scope": false,
+  "gomaxprocs": 0,
+  "checks": false,
+  "services": {
+    "mock": "127.0.0.1:18080",
+    "idp": "127.0.0.1:18443",
+    "sink": "127.0.0.1:14317",
+    "stateStore": "127.0.0.1:16379",
+    "faultProxy": "127.0.0.1:16380",
+    "echoPort": 17000
+  }
+}

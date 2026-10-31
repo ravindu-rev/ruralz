@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+  policies:
+    - name: plugin-response

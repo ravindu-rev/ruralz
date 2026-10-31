@@ -1,0 +1,3 @@
+ruralz bundle diff: rev-29cbe1b822d9 -> rev-29cbe1b822d9 (environment: staging)
+
+0 resources changed: 0 added, 0 removed, 0 modified; 0 Route chains changed; impact: none

@@ -1,0 +1,28 @@
+[
+  {
+    "code": "RZ-CFG-034",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 19,
+    "column": 1,
+    "resource": {
+      "kind": "AIModel",
+      "name": "chat"
+    },
+    "path": [
+      "spec",
+      "limits",
+      "maxOutputTokens"
+    ],
+    "message": "AIModel \"chat\" sets no limits.maxOutputTokens, but a Route with an ai.token-budget Policy reaches it",
+    "hint": "set limits.maxOutputTokens: a Token Budget reserves it as the output cap when a client sends none",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 64,
+        "column": 1,
+        "message": "reached from Route \"chat\" in"
+      }
+    ]
+  }
+]

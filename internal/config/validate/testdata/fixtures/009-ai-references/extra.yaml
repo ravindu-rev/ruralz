@@ -1,0 +1,30 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: llm
+spec:
+  protocol: ai
+  ai:
+    surface: openai
+    models:
+      - name: support-chta
+---
+apiVersion: ruralz/v1alpha1
+kind: AIModel
+metadata:
+  name: support-chat
+spec:
+  strategy: fallback
+  candidates:
+    - name: primary
+      provider: anthropic-prd
+      model: claude-sonnet-4-5
+---
+apiVersion: ruralz/v1alpha1
+kind: AIProvider
+metadata:
+  name: anthropic-prod
+spec:
+  dialect: anthropic
+  credentials:
+    apiKey: {secretRef: {provider: env, name: RURALZ_SECRET_ANTHROPIC}}

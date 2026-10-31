@@ -1,0 +1,168 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package health
+
+import (
+	"time"
+
+	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
+)
+
+// Defaults and fixed values (target values unless noted).
+const (
+	// DefaultConsecutiveErrors is healthCheck.passive.consecutiveErrors.
+	DefaultConsecutiveErrors = 5
+	// DefaultEjectionTime is healthCheck.passive.ejectionTime.
+	DefaultEjectionTime = 30 * time.Second
+	// MaxEjectionMultiplier caps the ejection count that multiplies
+	// ejectionTime.
+	MaxEjectionMultiplier = 10
+	// MaxEjectionPercent is the share of Endpoints that may be passively
+	// ejected at once, rounded down.
+	MaxEjectionPercent = 50
+
+	// DefaultProbePath is healthCheck.active.path (proposed).
+	DefaultProbePath = "/"
+	// DefaultProbeInterval is healthCheck.active.interval (proposed).
+	DefaultProbeInterval = 10 * time.Second
+	// DefaultProbeTimeout is healthCheck.active.timeout (proposed).
+	DefaultProbeTimeout = 2 * time.Second
+	// DefaultHealthyThreshold is healthCheck.active.healthyThreshold
+	// (proposed).
+	DefaultHealthyThreshold = 2
+	// DefaultUnhealthyThreshold is healthCheck.active.unhealthyThreshold
+	// (proposed).
+	DefaultUnhealthyThreshold = 3
+	// ProbeJitterPercent spreads probes of one Endpoint over interval
+	// ±10%.
+	ProbeJitterPercent = 10
+	// MaxProbeSlots caps the probes in flight per Node.
+	MaxProbeSlots = 256
+	// ProbesSkippedPercent is the skipped share over ProbesSkippedWindow
+	// above which probes_skipped is raised.
+	ProbesSkippedPercent = 10
+	// ProbesSkippedWindow is the rolling window of that share.
+	ProbesSkippedWindow = time.Minute
+
+	// DefaultStallTimeout is healthCheck.stallTimeout: an attempt without
+	// response headers this long after it started is stalled, and an
+	// Endpoint holding a stalled attempt that has delivered no response
+	// headers for as long is suspect.
+	DefaultStallTimeout = time.Second
+	// StalledSharePercent is the share of maxConnections held by stalled
+	// attempts from which every Endpoint holding one is avoided.
+	StalledSharePercent = 50
+	// DefaultMaxConnections is circuitBreaker.maxConnections.
+	DefaultMaxConnections = 1024
+
+	// PingAfter is HTTP2Config.SendPingTimeout for Upstream connections:
+	// a connection silent this long is pinged. It is fixed, not a field.
+	PingAfter = time.Second
+	// DefaultPingTimeout is healthCheck.pingTimeout, the
+	// HTTP2Config.PingTimeout of Upstream connections: a ping unanswered
+	// this long closes the connection and resets its streams.
+	DefaultPingTimeout = 5 * time.Second
+
+	// FailureWindow is the span of the recent-failure count least-request
+	// adds to an Endpoint's load.
+	FailureWindow = time.Second
+)
+
+// PassivePolicy is the passive part of healthCheck in one snapshot:
+// healthCheck.passive, and healthCheck.stallTimeout for stall and suspect
+// detection. Zero fields take their defaults.
+type PassivePolicy struct {
+	// ConsecutiveErrors is the run of attempts matching failureWhen that
+	// ejects an Endpoint.
+	ConsecutiveErrors int
+	// EjectionTime is multiplied by the Endpoint's ejection count.
+	EjectionTime time.Duration
+	// StallTimeout is how long an attempt may go without response headers
+	// before it is stalled, and how long an Endpoint holding a stalled
+	// attempt may deliver none before it is suspect.
+	StallTimeout time.Duration
+}
+
+// WithDefaults returns p with zero or negative fields set to their
+// defaults.
+func (p PassivePolicy) WithDefaults() PassivePolicy {
+	if p.ConsecutiveErrors <= 0 {
+		p.ConsecutiveErrors = DefaultConsecutiveErrors
+	}
+	if p.EjectionTime <= 0 {
+		p.EjectionTime = DefaultEjectionTime
+	}
+	if p.StallTimeout <= 0 {
+		p.StallTimeout = DefaultStallTimeout
+	}
+	return p
+}
+
+// ActivePolicy is healthCheck.active of one snapshot; its presence turns
+// probing on. Zero fields take their defaults.
+type ActivePolicy struct {
+	// Path is the probe request path.
+	Path string
+	// Interval is the time between probes of one Endpoint.
+	Interval time.Duration
+	// Timeout bounds one probe.
+	Timeout time.Duration
+	// HealthyThreshold consecutive successes mark an Endpoint healthy.
+	HealthyThreshold int
+	// UnhealthyThreshold consecutive failures mark it unhealthy.
+	UnhealthyThreshold int
+}
+
+// WithDefaults returns p with empty or non-positive fields set to their
+// defaults.
+func (p ActivePolicy) WithDefaults() ActivePolicy {
+	if p.Path == "" {
+		p.Path = DefaultProbePath
+	}
+	if p.Interval <= 0 {
+		p.Interval = DefaultProbeInterval
+	}
+	if p.Timeout <= 0 {
+		p.Timeout = DefaultProbeTimeout
+	}
+	if p.HealthyThreshold <= 0 {
+		p.HealthyThreshold = DefaultHealthyThreshold
+	}
+	if p.UnhealthyThreshold <= 0 {
+		p.UnhealthyThreshold = DefaultUnhealthyThreshold
+	}
+	return p
+}
+
+// Cause is what ended an attempt, as far as the ejection cap cares.
+type Cause uint8
+
+// Causes. The Upstream layer maps its error kinds onto them.
+const (
+	// CauseNone: response headers arrived.
+	CauseNone Cause = iota
+	// CauseConnect: a dial error or dial timeout, or a reset caused by an
+	// HTTP/2 ping close; it bypasses the ejection cap.
+	CauseConnect
+	// CauseTimeout: the attempt, leg or Route deadline expired; on a
+	// suspect Endpoint it ejects at once, bypassing the cap.
+	CauseTimeout
+	// CauseOther: any other error (reset, TLS).
+	CauseOther
+)
+
+// Outcome is the result of one attempt for passive ejection.
+type Outcome struct {
+	// Failed reports that the attempt matched failureWhen (a failureWhen
+	// runtime error counts as a failure).
+	Failed bool
+	// Cause classifies an attempt that got no response.
+	Cause Cause
+	// Passive is the thresholds of the attempt's own snapshot (in-flight
+	// attempts keep their snapshot's settings); the zero value means the
+	// Tracker's current policy.
+	Passive PassivePolicy
+	// Stripe is the request's counter stripe.
+	Stripe emit.Stripe
+}

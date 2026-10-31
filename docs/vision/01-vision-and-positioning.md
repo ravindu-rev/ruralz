@@ -1,24 +1,12 @@
----
-title: Vision and Positioning
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-adrs: [ADR-0002, ADR-0005, ADR-0008, ADR-0011, ADR-0014, ADR-0016, ADR-0017]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Vision and Positioning
 
 ## Summary
 
-This document explains why Ruralz exists, who it serves and how it is positioned: an open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). It fixes the four differentiators and the principles `P1` to `P10`, which every document inherits, and records the license, business model, non-goals and success metrics. Evaluators should read it to judge fit; it commits to milestone order, and dates live in the [Roadmap](../roadmap/01-roadmap-and-milestones.md). Architects should read it before the [System Overview](../architecture/01-system-overview.md), because design documents MUST NOT contradict `P1` to `P10`. Nothing here is implemented: every capability carries a `Planned (Mx)` tag.
+This document explains why Ruralz exists, who it serves and how it is positioned: an open-source API gateway where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). It fixes the four differentiators and the principles `P1` to `P10`, which every document inherits, and records the license, business model, non-goals and success metrics. Evaluators should read it to judge fit; it commits to milestone order, and dates live in the [Roadmap](../roadmap/01-roadmap-and-milestones.md). Architects should read it before the [System Overview](../architecture/01-system-overview.md), because design documents MUST NOT contradict `P1` to `P10`.
 
 ## Scope and non-goals
 
-In scope: the sections below, as of 2026-09-25, with the license per [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md). Terms follow the frozen [foundation pack](../_meta/foundation-pack.md).
+In scope: the sections below, with the license per [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md). Terms follow the [foundation pack](../_meta/foundation-pack.md).
 
 Out of scope: architecture ([System Overview](../architecture/01-system-overview.md)); the capability-by-capability list (the [Feature Catalog](../features/01-feature-catalog.md)); dates ([Roadmap and milestones](../roadmap/01-roadmap-and-milestones.md)); authoritative performance numbers ([Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
 
@@ -81,8 +69,8 @@ Everything is free. The groups below show the breadth; the [Feature Catalog](../
 |---|---|---|
 | Authentication | Core `Policy` types `auth.jwt`, `auth.api-key`, `auth.basic` and `auth.mtls`, with multiple identity providers per Route | Planned (M1) |
 | Rate Limits and Quotas | `ratelimit` and `quota`: local token bucket plus GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | Planned (M1) |
-| IP filtering and GeoIP | Built-in `authz.ip`, Planned (M1), and `authz.geoip`, Planned (M2) ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | Planned (M1) to Planned (M2) |
-| Authorization engines | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)) | Planned (M1) to Planned (M2) |
+| IP filtering and GeoIP | Built-in `authz.ip`, Planned (M1), and `authz.geoip`, Planned (M2); a release that does not serve `authz.geoip` rejects it with RZ-CFG-040 ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | Planned (M1) to Planned (M2) |
+| Authorization engines | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | Planned (M1) to Planned (M2) |
 | Bundle and Plugin tooling | CLI commands ([pack section 9](../_meta/foundation-pack.md#9-cli-command-registry)): `ruralz node dump`, Planned (M1); `ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2); serving OpenAPI documents per OQ-vision-and-positioning-11 | Planned (M1) to Planned (M2) |
 | Control plane | Ruralz Control, Ruralz Console, RBAC, audit log, Drift, canary Rollouts | Planned (M2) |
 | AI/LLM gateway | `AIProvider`, `AIModel`, Provider Fallback, Token Budget (`ai.token-budget`), Semantic Cache, cost attribution | Planned (M3) |
@@ -95,7 +83,7 @@ Everything is free. The groups below show the breadth; the [Feature Catalog](../
 
 Ruralz is developed in the open in one monorepo under Apache-2.0, with DCO sign-off and no CLA. Revington owns the copyright and the Ruralz trademark and earns revenue only from Ruralz Cloud and commercial support, neither of which delivers a feature the public build lacks ([Open source and business model](#open-source-and-business-model)). A feature arrives for everyone at its milestone, or it is `Not planned` with a reason in the Feature Catalog.
 
-*Figure 1: Ruralz capability areas by delivery milestone and scope; points are plans, nothing is shipped.*
+*Figure 1: Ruralz capability areas by planned delivery milestone and scope.*
 
 ```mermaid
 quadrantChart
@@ -120,7 +108,6 @@ The x position is 0.05 + 0.18 × the milestone number. Scope is maintainer judgm
 
 ### Where Ruralz does not lead
 
-- **Nothing ships yet.** Every capability is a plan until its milestone exits and the Feature Catalog marks it implemented.
 - **Gateway API conformance is deferred.** Ruralz ships a Helm chart and CRDs mirroring its kinds, Planned (M2), and defers Kubernetes Gateway API conformance (non-goal 7, OQ-vision-and-positioning-4).
 - **Go tail latency.** Garbage-collector pauses may hurt a Go data plane's p99 (hypothesis); P10 requires published benchmarks against the [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md).
 - **The Plugin ecosystem starts at zero.** PDKs and example Plugins arrive in `M2`, and the ecosystem grows only with contributors.
@@ -165,7 +152,7 @@ A permissive license with no edition split lets anyone run, embed and extend Rur
 
 - **Patent grant.** Apache-2.0 Section 3 grants each contributor's patent license ([source](https://www.apache.org/licenses/LICENSE-2.0)).
 - **DCO, no CLA.** A DCO certifies that each commit is contributed under the project license ([source](https://developercertificate.org/)), so Revington gets no rights beyond Apache-2.0 and every released version stays Apache-2.0. Future versions stay Apache-2.0 because of P1 and [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md), not a legal barrier; OQ-vision-and-positioning-9 is the structural safeguard.
-- **Trademark protects the name.** Apache-2.0 grants no trademark rights ([source](https://www.apache.org/licenses/LICENSE-2.0)); a policy modeled on ASF nominative use ([source](https://www.apache.org/foundation/marks/)) governs "Ruralz" (OQ-vision-and-positioning-2).
+- **Trademark protects the name.** Apache-2.0 grants no trademark rights ([source](https://www.apache.org/licenses/LICENSE-2.0)); the [trademark policy](../../TRADEMARKS.md), modeled on ASF nominative use ([source](https://www.apache.org/foundation/marks/)), governs "Ruralz". Truthful references, unmodified copies and true "based on Ruralz" or "compatible with Ruralz" statements need no permission; a modified build or another product takes its own name, and Revington certifies no compatibility.
 - **State Store licensing stays separate.** Ruralz reaches Redis or Valkey over the network; Valkey is BSD-3-Clause ([source](https://www.linuxfoundation.org/press/linux-foundation-launches-open-source-valkey-community)).
 
 ## Product non-goals
@@ -174,7 +161,7 @@ Within `M0` to `M5`, Ruralz deliberately does not attempt the following:
 
 1. **No service mesh.** Ruralz is a north-south and AI gateway: no sidecar, no east-west mesh.
 2. **No full API management suite.** A developer portal, API catalog and billing engine are Not planned because they are separate products; monetization hooks (Planned (M5)) and `ruralz bundle export openapi` (Planned (M2)) let portals integrate.
-3. **No Go `plugin` or shared-object loading, and no Lua.** Custom logic is a WASM Plugin or inline CEL ([ADR-0011](../adr/0011-expressions-and-authorization-engines.md)), avoiding toolchain coupling between custom code and the Ruralz Gateway build.
+3. **No Go `plugin` or shared-object loading, and no Lua.** Custom logic is a WASM Plugin or inline CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)), avoiding toolchain coupling between custom code and the Ruralz Gateway build.
 4. **No LLM application platform.** Ruralz governs AI traffic; it hosts no models, retrieval pipelines or evaluations.
 5. **No durable event storage.** Kafka, NATS and MQTT Routes (Planned (M4)) mediate and govern traffic; they do not replace a broker.
 6. **No curated WAF rule sets.** Ruralz bundles no OWASP rule set; WAF engines integrate as Plugins.
@@ -209,7 +196,7 @@ SM-10's 2% estimate error is an assumption (hypothesis): Anthropic publishes no 
 
 ## Managed cloud
 
-**Ruralz Cloud** is Revington's planned managed offering and one of its two revenue lines. It has not launched and has no milestone in `M0` to `M5` (timing: OQ-vision-and-positioning-3). Only this section describes it; the hybrid topology in [Deployment topologies](../operations/01-deployment-topologies.md) covers the operational layout.
+**Ruralz Cloud** is Revington's planned managed offering and one of its two revenue lines. It has no milestone in `M0` to `M5` (timing: OQ-vision-and-positioning-3). Only this section describes it; the hybrid topology in [Deployment topologies](../operations/01-deployment-topologies.md) covers the operational layout.
 
 ### What it will be
 
@@ -224,14 +211,13 @@ Revington would operate `ruralz-control`, its Control Store and Ruralz Console, 
 
 ### Open points
 
-The pricing unit is OQ-vision-and-positioning-1. Revington may be a Cyber Resilience Act manufacturer for Ruralz Cloud ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)), pending legal review (OQ-vision-and-positioning-6).
+The pricing unit is OQ-vision-and-positioning-1. Whether Revington is a Cyber Resilience Act manufacturer for Ruralz Cloud ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)) is OQ-vision-and-positioning-6.
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-vision-and-positioning-1 | Which pricing unit does Ruralz Cloud use? | Per Node-hour; per Cluster; per million requests; tiers by Region count | Revington product | No |
-| OQ-vision-and-positioning-2 | How strict is the trademark policy for modified builds and "compatible with Ruralz" claims? | ASF-style nominative use; ban for modified builds; certification | Revington legal | No |
 | OQ-vision-and-positioning-3 | When does Ruralz Cloud launch? | After M2; after M3; after M4 | Revington product | No |
 | OQ-vision-and-positioning-4 | Should Kubernetes Gateway API conformance be scheduled ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md))? | Keep deferred beyond M5; Planned (M4); Planned (M5) | deployment-topologies | No |
 | OQ-vision-and-positioning-6 | What is Revington's CRA role? | Manufacturer for Ruralz Cloud only; steward for the project; both | Revington legal | No |

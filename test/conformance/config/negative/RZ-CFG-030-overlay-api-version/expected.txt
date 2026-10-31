@@ -1,0 +1,1 @@
+overlays/prod/upstreams.yaml:1:13 error RZ-CFG-030 Upstream/orders apiVersion: overlay apiVersion "ruralz/v0test" differs from the base resource's "ruralz/v1alpha1" (patch a resource with the apiVersion of its base document) (base resource declared in ruralz.yaml:11:13) [environment=prod]

@@ -1,0 +1,7 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  stateStore:
+    tls: null                           # FC-19: reached by a DNS name, behind the counting RESP proxy

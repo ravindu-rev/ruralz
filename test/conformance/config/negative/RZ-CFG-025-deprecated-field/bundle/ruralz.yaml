@@ -1,0 +1,29 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v0test
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  upstreams:
+    - name: orders
+  timeout: 2s

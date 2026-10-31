@@ -9,17 +9,23 @@ type GatewaySpec struct {
 	// +ruralz:required
 	// +ruralz:minItems=1
 	// +ruralz:list=map,key=name
+	// +ruralz:impact=routing
 	Listeners []Listener `json:"listeners"`
 	// TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).
 	// +ruralz:list=set
+	// +ruralz:impact=security
 	TrustedProxies []string `json:"trustedProxies,omitempty"`
 	// Admin configures the admin listener.
+	// +ruralz:impact=security
 	Admin *Admin `json:"admin,omitempty"`
 	// Telemetry configures OTLP export, trace sampling and the access log.
+	// +ruralz:impact=metadata
 	Telemetry *Telemetry `json:"telemetry,omitempty"`
 	// Limits are Node-wide limits.
+	// +ruralz:impact=traffic
 	Limits *Limits `json:"limits,omitempty"`
 	// StateStore is the State Store connection. Without it a Node reads RURALZ_STATE_STORE_URL, else uses memory.
+	// +ruralz:impact=traffic
 	StateStore *StateStore `json:"stateStore,omitempty"`
 	// Policies attaches Gateway-scoped Policies in authored order.
 	// +ruralz:list=orderedMap,key=name
@@ -51,14 +57,17 @@ type Listener struct {
 	// +ruralz:maximum=65535
 	Port int32 `json:"port"`
 	// HTTP3 adds HTTP/3 on UDP on the same port; https only. Planned (M3); off in FIPS builds.
+	// +ruralz:planned=M3
 	HTTP3 *bool `json:"http3,omitempty"`
 	// ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).
 	// +ruralz:default=false
+	// +ruralz:impact=security
 	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
 	// Hostnames limits the listener to these host names.
 	// +ruralz:list=set
 	Hostnames []string `json:"hostnames,omitempty"`
 	// TLS configures TLS termination; required for https.
+	// +ruralz:impact=security
 	TLS *ListenerTLS `json:"tls,omitempty"`
 }
 
@@ -91,10 +100,12 @@ type Certificate struct {
 	// Certificate is the PEM certificate chain.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	Certificate SecretValue `json:"certificate"`
 	// PrivateKey is the PEM private key.
 	// +ruralz:required
 	// +ruralz:secret
+	// +ruralz:impact=security
 	PrivateKey SecretValue `json:"privateKey"`
 }
 
@@ -113,6 +124,7 @@ type Telemetry struct {
 	// OTLP configures OTLP export.
 	OTLP *OTLP `json:"otlp,omitempty"`
 	// TraceSampling is the head sampling ratio, 0 to 1.
+	// +ruralz:default=0.01
 	// +ruralz:minimum=0
 	// +ruralz:maximum=1
 	TraceSampling *float64 `json:"traceSampling,omitempty"`
@@ -120,10 +132,36 @@ type Telemetry struct {
 	AccessLog *AccessLog `json:"accessLog,omitempty"`
 }
 
-// OTLP configures OTLP export.
+// OTLP configures OTLP export over gRPC.
 type OTLP struct {
-	// Endpoint is the OTLP collector URL.
+	// Endpoint is the OTLP/gRPC collector URL: http or https, a host and an optional port (default 4317), without path, user information, query or fragment. Unset, the Node exports nothing over OTLP.
+	// +ruralz:pattern=^https?://[^/?#@\s]+/?$
 	Endpoint string `json:"endpoint,omitempty"`
+	// TLS configures the client side of an https endpoint: server name, trust anchors and a client certificate. Without it an https endpoint is verified against the system roots.
+	// +ruralz:impact=security
+	TLS *OTLPTLS `json:"tls,omitempty"`
+}
+
+// OTLPTLS configures the client side of the TLS connection to the OTLP
+// collector, with the Upstream tls fields sni, caCertificate,
+// clientCertificate and clientKey: TLS 1.2 or newer, the server certificate
+// always verified. Set clientCertificate and clientKey together, or
+// neither.
+type OTLPTLS struct {
+	// SNI is the server name sent in the TLS handshake and verified in the server certificate.
+	SNI string `json:"sni,omitempty"`
+	// CACertificate is a PEM bundle that verifies the server instead of the system roots.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	CACertificate *SecretValue `json:"caCertificate,omitempty"`
+	// ClientCertificate is the PEM client certificate chain for mTLS.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
+	// ClientKey is the PEM client private key for mTLS.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientKey *SecretValue `json:"clientKey,omitempty"`
 }
 
 // AccessLog configures the access log.
@@ -136,8 +174,10 @@ type AccessLog struct {
 // Limits are Node-wide limits. Limits count bytes after content decoding.
 type Limits struct {
 	// MaxRequestBodyBytes caps a request body; above it the request gets 413 RZ-RT-003.
+	// +ruralz:default=10Mi
 	MaxRequestBodyBytes *ByteSize `json:"maxRequestBodyBytes,omitempty"`
 	// MaxRequestHeaderBytes caps a request header block; above it the request gets 431 RZ-RT-002.
+	// +ruralz:default=64Ki
 	MaxRequestHeaderBytes *ByteSize `json:"maxRequestHeaderBytes,omitempty"`
 	// MaxResponseBodyBytes caps one buffered response, and a Route's step bodies together.
 	// +ruralz:default=10Mi
@@ -174,9 +214,13 @@ const (
 	StateStoreTopologyStandalone StateStoreTopology = "standalone"
 	// StateStoreTopologyCluster is a Redis Cluster seed list.
 	StateStoreTopologyCluster StateStoreTopology = "cluster"
+	// StateStoreTopologySentinel is a Redis Sentinel seed list and the master_set whose primary the sentinels name.
+	StateStoreTopologySentinel StateStoreTopology = "sentinel"
 )
 
-// StateStore is the State Store connection.
+// StateStore is the State Store connection. driver redis without url is
+// RZ-CFG-005.
+// +ruralz:requiredIf=url,driver=redis
 type StateStore struct {
 	// Driver is memory or redis.
 	// +ruralz:default=memory
@@ -184,9 +228,77 @@ type StateStore struct {
 	// Topology applies to redis only. Planned (M1).
 	// +ruralz:default=standalone
 	Topology *StateStoreTopology `json:"topology,omitempty"`
-	// URL is the rueidis connection URL; it may carry credentials.
+	// URL is the rueidis connection URL; it may carry credentials. Required with driver redis.
 	// +ruralz:secret
+	// +ruralz:impact=security
 	URL *SecretValue `json:"url,omitempty"`
-	// Timeout is the per-operation default for Policies.
+	// TLS configures the client side of this connection's TLS: trust anchors and a client certificate. Without it a rediss:// server is verified against the system roots; beside a cleartext url a Node refuses it (RZ-CFG-042).
+	// +ruralz:impact=security
+	TLS *StateStoreTLS `json:"tls,omitempty"`
+	// Timeout is the default of every Policy spec.stateStoreTimeout; 0 means no State Store call is attempted (RZ-STS-004).
+	// +ruralz:default=50ms
 	Timeout *Duration `json:"timeout,omitempty"`
+	// Zones maps the server hosts of this connection to failure zones, which the Node compares with its RURALZ_ZONE to label each State Store call's duration same, cross or unknown. Driver redis only. A host the connection never dials has no effect, and a server whose host has no entry is unknown.
+	// +ruralz:list=map,key=host
+	Zones []StateStoreZone `json:"zones,omitempty"`
+	// Cache is a second connection that serves only the Response Cache. Without it the cache shares this connection under the State Store memory protection rules, and a Node warns at startup when it shares it with limit Policies.
+	Cache *StateStoreCache `json:"cache,omitempty"`
+}
+
+// StateStoreTLS configures the client side of one State Store connection's
+// TLS (stateStore.tls, stateStore.cache.tls): its rediss:// or valkeys://
+// servers, cluster nodes and sentinels. The server is always verified for
+// the host the Node dials. Set clientCertificate and clientKey together,
+// or neither.
+type StateStoreTLS struct {
+	// CACertificate is a PEM bundle that verifies every State Store server instead of the system roots.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	CACertificate *SecretValue `json:"caCertificate,omitempty"`
+	// ClientCertificate is the PEM client certificate chain the Node presents to State Store servers.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientCertificate *SecretValue `json:"clientCertificate,omitempty"`
+	// ClientKey is the PEM private key of clientCertificate.
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ClientKey *SecretValue `json:"clientKey,omitempty"`
+}
+
+// StateStoreCache is the State Store connection of the Response Cache
+// (OQ-scalability-and-distributed-state-3 (a)): a redis deployment separate
+// from the main State Store, so cache entries never evict Rate Limit, Quota
+// or Token Budget keys. Cache Policies still default their
+// stateStoreTimeout to the main connection's timeout.
+type StateStoreCache struct {
+	// Topology is the redis deployment shape.
+	// +ruralz:default=standalone
+	Topology *StateStoreTopology `json:"topology,omitempty"`
+	// URL is the rueidis connection URL of the cache deployment; it may carry credentials.
+	// +ruralz:required
+	// +ruralz:secret
+	// +ruralz:impact=security
+	URL SecretValue `json:"url"`
+	// TLS configures the client side of the cache connection's TLS, as stateStore.tls does the main connection's; the cache connection never uses stateStore.tls. Beside a cleartext url a Node refuses it (RZ-CFG-042).
+	// +ruralz:impact=security
+	TLS *StateStoreTLS `json:"tls,omitempty"`
+	// Zones maps the server hosts of the cache connection to failure zones, as stateStore.zones does the main connection's; the cache connection never uses stateStore.zones.
+	// +ruralz:list=map,key=host
+	Zones []StateStoreZone `json:"zones,omitempty"`
+}
+
+// StateStoreZone maps one server host of a State Store connection
+// (stateStore.zones, stateStore.cache.zones) to its failure zone. Hosts
+// compare case-insensitively and IP literals in canonical form, so one
+// host is named once per connection.
+type StateStoreZone struct {
+	// Host is a hostname or an IP literal, written as the URL names it or the topology announces it: the standalone endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name.
+	// +ruralz:required
+	Host string `json:"host"`
+	// Zone is the server's failure zone, in the form of RURALZ_ZONE: 1 to 63 characters from [a-z0-9-].
+	// +ruralz:required
+	// +ruralz:pattern=^[a-z0-9-]+$
+	// +ruralz:minLength=1
+	// +ruralz:maxLength=63
+	Zone string `json:"zone"`
 }

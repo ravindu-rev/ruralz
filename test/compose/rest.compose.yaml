@@ -1,0 +1,149 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# The REST example Bundle project of the Compose suite
+# (docs/engineering/03-testing-and-quality-strategy.md "Compose suite"):
+# the image under test serves examples/shop-rest-bundle as the CLI on the
+# runner rendered it with the suite's compose Environment, beside a Valkey 9
+# State Store, the mock Upstream (orders and inventory), the mock IdP and an
+# OpenTelemetry Collector with a file exporter. The Bundle's own names
+# resolve to Compose services through network aliases: auth.shop.example
+# (JWKS and token endpoint) to the mock IdP, orders.shop.internal and
+# inventory.shop.internal to the mock Upstream, otel-collector to the
+# Collector. A test CA is mounted over the image's CA bundle.
+#
+#   RURALZ_COMPOSE_IMAGE            the ruralzd image under test
+#   RURALZ_COMPOSE_MOCK_IMAGE       the suite's mock image
+#   RURALZ_COMPOSE_VALKEY_IMAGE     the Valkey 9 image pinned in
+#                                   internal/statestore/statestoretest/redisserver
+#   RURALZ_COMPOSE_COLLECTOR_IMAGE  the suite's Collector image
+#                                   (collector.Dockerfile)
+#   RURALZ_COMPOSE_VALKEY_PASSWORD  the State Store's password: a Node
+#                                   refuses a URL without credentials for
+#                                   a host other than a loopback literal
+#                                   (RZ-CFG-042)
+#   RURALZ_COMPOSE_UID, _GID        the runner's user and group, which the
+#                                   Collector writes its files as
+#   RURALZ_COMPOSE_RUN              the test's directory: bundle/ (the
+#                                   rendered Bundle), secrets/ (the secret
+#                                   root), admin/, ca/, mock/, idp/ and
+#                                   collector/ (tls/ and out/)
+
+services:
+  valkey:
+    image: ${RURALZ_COMPOSE_VALKEY_IMAGE:?the Valkey 9 image}
+    command: [valkey-server, --protected-mode, "no", --save, "", --appendonly, "no", --requirepass, "${RURALZ_COMPOSE_VALKEY_PASSWORD:?the State Store password}"]
+
+  upstream:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    command: [serve, -upstream, "0.0.0.0:8080", -upstream-name, shop, -upstream-routes, /etc/mock/routes.json, -control, "0.0.0.0:9100"]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      default:
+        aliases: [orders.shop.internal, inventory.shop.internal]
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/mock
+        target: /etc/mock
+        read_only: true
+    ports:
+      - "127.0.0.1::9100"
+
+  idp:
+    image: ${RURALZ_COMPOSE_MOCK_IMAGE:?the suite's mock image}
+    command:
+      - serve
+      - -idp
+      - "0.0.0.0:443"
+      - -idp-cert
+      - /etc/idp/tls.crt
+      - -idp-key
+      - /etc/idp/tls.key
+      - -idp-issuer
+      - https://auth.shop.example
+      - -idp-signing-key
+      - /etc/idp/signing.pem
+      - -idp-alg
+      - ES256
+      - -idp-kid
+      - compose
+      - -idp-client
+      - gateway-edge
+      - -idp-client-secret-file
+      - /etc/idp/client-secret
+      - -control
+      - "0.0.0.0:9100"
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    sysctls:
+      # The mock IdP serves https://auth.shop.example on port 443 without
+      # a capability.
+      net.ipv4.ip_unprivileged_port_start: "0"
+    networks:
+      default:
+        aliases: [auth.shop.example]
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/idp
+        target: /etc/idp
+        read_only: true
+    ports:
+      - "127.0.0.1::9100"
+
+  otel-collector:
+    image: ${RURALZ_COMPOSE_COLLECTOR_IMAGE:?the suite's Collector image}
+    user: "${RURALZ_COMPOSE_UID:?the runner's user}:${RURALZ_COMPOSE_GID:?the runner's group}"
+    volumes:
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/collector/tls
+        target: /etc/otelcol-tls
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/collector/out
+        target: /var/lib/otelcol-out
+
+  ruralzd:
+    image: ${RURALZ_COMPOSE_IMAGE:?the ruralzd image under test}
+    depends_on: [valkey, upstream, idp, otel-collector]
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 40s
+    environment:
+      RURALZ_CONFIG: /etc/ruralz-bundle
+      RURALZ_STATE_STORE_URL: "redis://:${RURALZ_COMPOSE_VALKEY_PASSWORD:?the State Store password}@valkey:6379"
+      RURALZ_ADMIN_TLS_DIR: /run/ruralz-admin/tls
+      RURALZ_ADMIN_TOKEN_FILE: /run/ruralz-admin/token
+    volumes:
+      - data:/var/lib/ruralz
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/bundle
+        target: /etc/ruralz-bundle
+        read_only: true
+      # The secret root: tls/ (the https listener), oauth/client-secret and
+      # consumers/partner-acme-primary.
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/secrets
+        target: /etc/ruralz
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/admin
+        target: /run/ruralz-admin
+        read_only: true
+      - type: bind
+        source: ${RURALZ_COMPOSE_RUN:?the test directory}/ca/ca-certificates.crt
+        target: /etc/ssl/certs/ca-certificates.crt
+        read_only: true
+    ports:
+      - "127.0.0.1::8080"
+      - "127.0.0.1::8443"
+      - "127.0.0.1::9901"
+
+volumes:
+  data: {}

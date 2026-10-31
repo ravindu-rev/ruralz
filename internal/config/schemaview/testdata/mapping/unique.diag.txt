@@ -1,0 +1,3 @@
+routes/unique.json:7:33 error RZ-CFG-005 Route/catalog spec.match.hosts[item=shop.example]: duplicate element "shop.example" in a set (first element at routes/unique.json:7:17)
+routes/unique.json:8:34 error RZ-CFG-005 Route/catalog spec.match.methods[item=GET]: duplicate element "GET" in a set (first element at routes/unique.json:8:19)
+routes/unique.json:11:62 error RZ-CFG-005 Route/catalog spec.policies[name=jwt]: duplicate entry: name "jwt" is already used by an earlier entry (first entry at routes/unique.json:11:27)

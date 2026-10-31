@@ -1,0 +1,4 @@
+code: RZ-CFG-037
+stage: H
+binaries: [ruralz, ruralzd]
+source: base

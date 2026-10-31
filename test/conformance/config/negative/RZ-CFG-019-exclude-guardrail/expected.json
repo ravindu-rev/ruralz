@@ -1,0 +1,29 @@
+[
+  {
+    "code": "RZ-CFG-019",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 30,
+    "column": 7,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "excludePolicies",
+      {
+        "name": "ratelimit-global"
+      }
+    ],
+    "message": "cannot exclude a Policy with overridable: false",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 40,
+        "column": 3,
+        "message": "declared in"
+      }
+    ]
+  }
+]

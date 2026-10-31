@@ -1,0 +1,61 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: many
+spec:
+  match:
+    path: {prefix: /many}
+  composition:
+    mode: sequential
+    steps:
+      - name: s01
+        upstream: orders
+        path: /p1
+      - name: s02
+        upstream: orders
+        path: /p2
+      - name: s03
+        upstream: orders
+        path: /p3
+      - name: s04
+        upstream: orders
+        path: /p4
+      - name: s05
+        upstream: orders
+        path: /p5
+      - name: s06
+        upstream: orders
+        path: /p6
+      - name: s07
+        upstream: orders
+        path: /p7
+      - name: s08
+        upstream: orders
+        path: /p8
+      - name: s09
+        upstream: orders
+        path: /p9
+      - name: s10
+        upstream: orders
+        path: /p10
+      - name: s11
+        upstream: orders
+        path: /p11
+      - name: s12
+        upstream: orders
+        path: /p12
+      - name: s13
+        upstream: orders
+        path: /p13
+      - name: s14
+        upstream: orders
+        path: /p14
+      - name: s15
+        upstream: orders
+        path: /p15
+      - name: s16
+        upstream: orders
+        path: /p16
+      - name: s17
+        upstream: orders
+        path: /p17

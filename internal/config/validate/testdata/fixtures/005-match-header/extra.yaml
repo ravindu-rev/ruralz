@@ -1,0 +1,29 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: header-name
+spec:
+  match:
+    headers: [{name: "x tenant", exact: acme}]
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: header-regex
+spec:
+  match:
+    headers: [{name: x-tenant, regex: "ac(me"}]
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: header-empty
+spec:
+  match:
+    headers: [{name: x-tenant, exact: ""}]
+  upstreams:
+    - name: orders

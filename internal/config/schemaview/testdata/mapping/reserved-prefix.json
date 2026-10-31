@@ -1,0 +1,13 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {
+    "name": "catalog",
+    "labels": {"team": "commerce", "ruralz.io/tier": "gold"},
+    "annotations": {"ruralz.io/conversion-data": "{}", "ruralz.io/owner": "commerce"}
+  },
+  "spec": {
+    "match": {"path": {"prefix": "/catalog"}},
+    "upstreams": [{"name": "catalog"}]
+  }
+}

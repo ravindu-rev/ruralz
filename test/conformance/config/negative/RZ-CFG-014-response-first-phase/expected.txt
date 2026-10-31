@@ -1,0 +1,1 @@
+ruralz.yaml:38:9 error RZ-CFG-014 Policy/limit-errors spec.when: CEL Policy.spec.when: undeclared reference to 'response' (Policy.spec.when has request, source, route, consumer, auth, now) (attached at ruralz.yaml:28:7)

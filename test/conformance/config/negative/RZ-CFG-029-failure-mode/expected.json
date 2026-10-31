@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-029",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 38,
+    "column": 16,
+    "resource": {
+      "kind": "Policy",
+      "name": "jwt-open"
+    },
+    "path": [
+      "spec",
+      "failureMode"
+    ],
+    "message": "failureMode open is not allowed for Policy type \"auth.jwt\" (closed only)"
+  }
+]

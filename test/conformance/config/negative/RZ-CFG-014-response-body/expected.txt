@@ -1,0 +1,1 @@
+ruralz.yaml:42:43 error RZ-CFG-014 Policy/echo-status spec.config.response.set[name=x-order-status].valueExpression: CEL headers config.response.set[].valueExpression: response.body is not available here (the response body is read only by transform.response) (attached at ruralz.yaml:28:7)

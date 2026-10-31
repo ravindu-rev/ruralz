@@ -1,0 +1,216 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package proc
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"runtime"
+	"slices"
+	"strings"
+	"syscall"
+
+	"golang.org/x/sys/unix"
+)
+
+// RunInNetNS runs o.TestName in a new network namespace, and a new mount
+// namespace with o.ResolvConf; see InNetNS. When the kernel refuses to
+// create the namespaces the error wraps ErrNamespace.
+//
+// The child gets SIGKILL (Pdeathsig) when the test process dies. The
+// kernel ties Pdeathsig to the OS thread that forked the child, and the Go
+// runtime ends a thread when a goroutine locked to it exits without
+// unlocking, so RunInNetNS keeps the calling goroutine locked to its
+// thread until the child has exited (see Start).
+func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
+	if os.Getenv(EnvInNetNS) == "1" {
+		return -1, errors.New("proc: InNetNS called inside an InNetNS child")
+	}
+	if o.TestName == "" {
+		return -1, errors.New("proc: InNetNS needs a test name")
+	}
+	enc, err := encodeSysctls(o.Sysctls)
+	if err != nil {
+		return -1, err
+	}
+	if o.ResolvConf != "" {
+		if err := checkResolvConf(o.ResolvConf); err != nil {
+			return -1, err
+		}
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return -1, fmt.Errorf("proc: %w", err)
+	}
+	// Verbose output carries the result line that tells a pass from a
+	// skip. -test.v=true comes before o.Args so it is parsed even when
+	// o.Args holds "--" or a positional argument (flag parsing stops
+	// there), and a -test.v entry in o.Args is dropped so it cannot turn
+	// verbose output off again.
+	args := []string{"-test.run=" + RunPattern(o.TestName), "-test.count=1", "-test.v=true"}
+	for _, a := range o.Args {
+		if !isVerboseFlag(a) {
+			args = append(args, a)
+		}
+	}
+	cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // G204: re-executing this test binary
+	// EnvNetNSResolvConf and EnvNetNSUser are always set, empty without a
+	// ResolvConf or User, so the child never takes them from the
+	// environment it inherits.
+	user := ""
+	if o.User {
+		user = "1"
+	}
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc, EnvNetNSResolvConf+"="+o.ResolvConf, EnvNetNSUser+"="+user)
+	cmd.Env = append(cmd.Env, o.Env...)
+	tail := newRing(64 << 10)
+	res := newTestResult(o.TestName)
+	writers := []io.Writer{tail, res}
+	if o.Output != nil {
+		writers = append(writers, o.Output)
+	}
+	// One writer for both streams: exec then calls Write from one
+	// goroutine at a time.
+	out := io.MultiWriter(writers...)
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Cloneflags: syscall.CLONE_NEWNET, Pdeathsig: syscall.SIGKILL}
+	if o.User {
+		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWUSER
+		cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}}
+		cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
+	}
+	if o.ResolvConf != "" {
+		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
+	}
+	cmd.WaitDelay = WaitDelay
+	runtime.LockOSThread()
+	if err := cmd.Start(); err != nil {
+		runtime.UnlockOSThread()
+		if namespaceErr(err) {
+			return -1, fmt.Errorf("%w for %s: %w", ErrNamespace, o.TestName, err)
+		}
+		return -1, fmt.Errorf("proc: run %s in a new network namespace: %w", o.TestName, err)
+	}
+	err = cmd.Wait()
+	runtime.UnlockOSThread()
+	res.finish()
+	return res.outcome(err, tail.bytes())
+}
+
+// namespaceErr reports whether a failed start is the kernel refusing the
+// child's namespaces (clone(2)): EPERM without the privilege, EINVAL
+// without the namespace kind, ENOSPC or EUSERS past the namespace limits.
+func namespaceErr(err error) bool {
+	for _, e := range []error{syscall.EPERM, syscall.EINVAL, syscall.ENOSPC, syscall.EUSERS} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// bindResolvConf makes every mount of the child's own mount namespace
+// private, so nothing it mounts propagates to the namespace it came from,
+// then bind-mounts src over ResolvConfPath.
+func bindResolvConf(src string) error {
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("proc: make the mounts private: %w", err)
+	}
+	if err := unix.Mount(src, ResolvConfPath, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("proc: bind-mount %s over %s: %w", src, ResolvConfPath, err)
+	}
+	return nil
+}
+
+// isVerboseFlag reports whether the command-line argument a sets -test.v
+// (-test.v, --test.v, -test.v=false and so on).
+func isVerboseFlag(a string) bool {
+	name, ok := strings.CutPrefix(a, "-")
+	if !ok {
+		return false
+	}
+	name = strings.TrimPrefix(name, "-")
+	name, _, _ = strings.Cut(name, "=")
+	return name == "test.v"
+}
+
+// SetupNetNS brings the loopback interface up (SIOCSIFFLAGS) and writes
+// the sysctls, in name order. It is meant for a fresh namespace.
+func SetupNetNS(sysctls map[string]string) error {
+	if err := loopbackUp(); err != nil {
+		return err
+	}
+	names := make([]string, 0, len(sysctls))
+	for n := range sysctls {
+		names = append(names, n)
+	}
+	slices.Sort(names)
+	for _, n := range names {
+		if err := WriteSysctl(n, sysctls[n]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// WriteSysctl writes one sysctl, for example
+// WriteSysctl("net.ipv4.tcp_migrate_req", "1"). Network sysctls apply to
+// the caller's network namespace.
+func WriteSysctl(name, value string) error {
+	path, err := sysctlPath(name)
+	if err != nil {
+		return err
+	}
+	f, err := os.OpenFile(path, os.O_WRONLY, 0) //nolint:gosec // G304: a validated /proc/sys path
+	if err != nil {
+		return fmt.Errorf("proc: sysctl %s: %w", name, err)
+	}
+	if _, err := f.WriteString(value); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("proc: sysctl %s=%q: %w", name, value, err)
+	}
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("proc: sysctl %s: %w", name, err)
+	}
+	return nil
+}
+
+// ReadSysctl reads one sysctl without its trailing newline.
+func ReadSysctl(name string) (string, error) {
+	path, err := sysctlPath(name)
+	if err != nil {
+		return "", err
+	}
+	b, err := os.ReadFile(path) //nolint:gosec // G304: a validated /proc/sys path
+	if err != nil {
+		return "", fmt.Errorf("proc: sysctl %s: %w", name, err)
+	}
+	return string(bytes.TrimRight(b, "\n")), nil
+}
+
+// loopbackUp sets IFF_UP on "lo".
+func loopbackUp() error {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return fmt.Errorf("proc: loopback: socket: %w", err)
+	}
+	defer func() { _ = unix.Close(fd) }()
+	ifr, err := unix.NewIfreq("lo")
+	if err != nil {
+		return fmt.Errorf("proc: loopback: %w", err)
+	}
+	if err := unix.IoctlIfreq(fd, unix.SIOCGIFFLAGS, ifr); err != nil {
+		return fmt.Errorf("proc: loopback: SIOCGIFFLAGS: %w", err)
+	}
+	ifr.SetUint16(ifr.Uint16() | unix.IFF_UP)
+	if err := unix.IoctlIfreq(fd, unix.SIOCSIFFLAGS, ifr); err != nil {
+		return fmt.Errorf("proc: loopback: SIOCSIFFLAGS: %w", err)
+	}
+	return nil
+}

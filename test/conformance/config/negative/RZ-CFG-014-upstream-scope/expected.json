@@ -1,0 +1,30 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 42,
+    "column": 26,
+    "resource": {
+      "kind": "Policy",
+      "name": "stamp"
+    },
+    "path": [
+      "spec",
+      "config",
+      "set",
+      0,
+      "valueExpression"
+    ],
+    "message": "CEL transform.request config.set[].valueExpression: undeclared reference to 'upstream'",
+    "hint": "transform.request config.set[].valueExpression has request, source, route, consumer, auth, now",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 28,
+        "column": 7,
+        "message": "attached at"
+      }
+    ]
+  }
+]

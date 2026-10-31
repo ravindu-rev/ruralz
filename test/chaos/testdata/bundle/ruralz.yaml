@@ -1,0 +1,31 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+  labels:
+    team: platform
+spec:
+  listeners:
+    - name: http                        # HTTP/1.1 and h2c
+      protocol: http
+      port: 8080
+    - name: https                       # HTTP/2 and HTTP/1.1 over TLS
+      protocol: https
+      port: 8443
+      tls:
+        minVersion: "1.3"
+        certificates:
+          - name: chaos
+            # Files under RURALZ_SECRET_ROOT on each Node; never inline.
+            certificate: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.crt}}
+            privateKey: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.key}}
+  admin:
+    port: 9901
+  stateStore:
+    driver: redis
+    topology: ${STATE_STORE_TOPOLOGY}   # the run's redisserver kind
+    # Runtime value: each Node reads the URL through its own fault proxies.
+    url: {secretRef: {provider: file, name: /etc/ruralz/state/url}}
+    tls:
+      caCertificate: {secretRef: {provider: file, name: /etc/ruralz/state/ca.crt}}
+    timeout: 50ms

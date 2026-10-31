@@ -1,0 +1,8 @@
+{
+  "level": 0,
+  "digests": {
+    "-": "sha256:cab75228ea667c350e7959354fdb776d0e098f0c37ef339b3559ac3d5de8b7f4",
+    "merge": "sha256:f25169c2dddca1709d50f8e66d598173b35aea5bead602400e928adcc574eabe",
+    "replace": "sha256:5cf15af16bed907a866ca1bf8d68085156c94eb817fac4dc5039624995cce190"
+  }
+}

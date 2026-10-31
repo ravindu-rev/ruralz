@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  stateStore:
+    cache:                              # CE-16: a cache connection behind the counting RESP proxy
+      topology: standalone
+      url: {secretRef: {provider: file, name: /etc/ruralz/state/cache-url}}

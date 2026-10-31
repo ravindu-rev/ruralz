@@ -1,0 +1,4 @@
+extra.yaml:9:14 error RZ-CFG-005 Upstream/dns-service spec.discovery.service: dns discovery needs a service DNS name: the byte ' ' is not a letter, digit, '-' or '_'
+extra.yaml:19:5 error RZ-CFG-005 Upstream/dns-no-port spec.discovery.port: dns discovery needs a port number or name
+extra.yaml:31:11 error RZ-CFG-005 Upstream/dns-port-zero spec.discovery.port: discovery.port 0: the port is not from 1 to 65535
+extra.yaml:42:11 error RZ-CFG-005 Upstream/dns-port-name spec.discovery.port: discovery.port "8080": a port name needs a letter

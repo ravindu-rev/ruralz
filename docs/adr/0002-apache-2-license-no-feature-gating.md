@@ -2,14 +2,6 @@
 id: ADR-0002
 title: "License: Apache-2.0 for all components, no feature gating, DCO and Revington trademark policy"
 status: accepted
-date: 2026-09-23
-deciders: [ruralz-core]
-related:
-  - docs/vision/01-vision-and-positioning.md
-  - docs/_meta/foundation-pack.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/engineering/03-testing-and-quality-strategy.md
-  - docs/_meta/research/licensing-landscape.md
 ---
 
 # ADR-0002: License: Apache-2.0 for all components, no feature gating, DCO and Revington trademark policy
@@ -47,11 +39,11 @@ Chosen option: "Apache-2.0 for every component, no feature gating, DCO sign-off 
 | No feature gating | No license keys, license files, entitlement checks, Node-count limits or "enterprise" build; no binary refuses to start, turns read-only or degrades over a license state; every Filter, Host Function and API works self-hosted and air-gapped with no Revington-operated service | Planned (M0) |
 | Build flavors | The FIPS build (`GOFIPS140`) has the default build's license and features; only the FIPS cryptography exclusions recorded in [FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build) differ, today HTTP/3, hybrid post-quantum key exchange and non-approved JWA algorithms (OQ-tech-stack-and-libraries-9) | Planned (M5) |
 | Contributions | DCO 1.1 `Signed-off-by:` on every commit, per [DCO sign-off](../engineering/02-repository-layout-and-conventions.md#dco-sign-off); no CLA | Planned (M0) |
-| Trademark | "Ruralz" is Revington's trademark under a published policy modeled on ASF nominative use ([source](https://www.apache.org/foundation/marks/)); strictness is OQ-vision-and-positioning-2 | Planned (M0) |
+| Trademark | "Ruralz" is Revington's trademark under the published [trademark policy](../../TRADEMARKS.md), modeled on ASF nominative use ([source](https://www.apache.org/foundation/marks/)): truthful references, unmodified copies and true "based on Ruralz", "powered by Ruralz" or "compatible with Ruralz" statements need no permission; a modified build or another product takes its own name; Revington certifies no compatibility | Planned (M0) |
 | Dependencies | Linked Go packages, the Ruralz Console production dependency tree and each PDK's shipped dependencies stay on the G2 allowlist or its named per-ecosystem addendum; MPL-2.0 only by named exception ([License rules](../engineering/01-tech-stack-and-libraries.md#license-rules)) | Planned (M0) |
 | Revenue | Only Ruralz Cloud ([Managed cloud](../vision/01-vision-and-positioning.md#managed-cloud)) and commercial support; support delivers no private features; Ruralz Cloud offers nothing a self-hosted Ruralz Control lacks and uses no cloud-only hook | Policy Planned (M0); Ruralz Cloud has no milestone (OQ-vision-and-positioning-3) |
 
-Scope: a DCO cannot stop Revington, like any redistributor, from shipping later Derivative Works under other terms; published releases stay Apache-2.0 ([Licensing landscape](../_meta/research/licensing-landscape.md), DCO versus CLA), and P1 and this ADR keep future releases Apache-2.0; stewardship is OQ-vision-and-positioning-9.
+Scope: a DCO cannot stop Revington, like any redistributor, from shipping later Derivative Works under other terms; published releases stay Apache-2.0, and P1 and this ADR keep future releases Apache-2.0; stewardship is OQ-vision-and-positioning-9.
 
 *Figure 1: CI gates and one Apache-2.0 feature set for every operator.*
 
@@ -101,11 +93,11 @@ flowchart LR
 
 - **License gate (G2)**, Planned (M0): `pr-fast` fails on any linked package, per `go list -deps -test=false`, outside the allowlist or named MPL-2.0 exceptions ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#security-scanning)).
 - **Non-Go license gate**, Planned (M2): the Console build and each PDK's CI fail on any dependency shipped in the artifact (not build-only tooling such as proc-macros) whose SPDX expression does not resolve to the G2 allowlist or its named per-ecosystem addendum (for example Unicode-3.0); copyleft and source-available licenses never qualify.
-- **No-license-check scan**, Planned (M0): `pr-fast` fails on any denylisted identifier, string or hostname (such as `licenseKey`, `entitlement`, `revington.co`) in `cmd/`, `internal/`, `pkg/`, `sdk/` or `console/` absent from a reviewed allowlist file.
+- **No-license-check scan**, Planned (M0): `pr-fast` fails on any denylisted identifier, string or hostname (such as `licenseKey`, `entitlement`, `revington.co`) in `cmd/`, `internal/`, `pkg/`, `sdk/` or `console/` absent from an allowlist file.
 - **Air-gapped start**, Planned (M1): the [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests) end-to-end suite starts each `ruralzd` and `ruralz-control` release image with egress denied except to in-network fixtures (Upstream, State Store, mock `AIProvider`) and no license file, and asserts that every feature path in that release serves; FIPS images join at Planned (M5), less their recorded exclusions.
 - **DCO check**, Planned (M0): CI stage 1 blocks a pull request while any commit lacks a `Signed-off-by:` matching its author, bots included.
 - **Release audit**, Planned (M1): per tag, code search confirms SM-1; every archive, image and published PDK package (FIPS artifacts from M5) carries `LICENSE`, `NOTICE` (upstream attributions, the EDL-1.0 election) and a third-party license file generated from that artifact's own dependencies, stating where MPL-2.0 source is available.
-- **Review checklist items**: scan allowlist edits need maintainer review; a pull request that changes the terms in `LICENSE`, or adds an edition, a build flavor with any difference beyond a FIPS cryptography exclusion recorded in [FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build), an entitlement check, a Node-count limit, a Revington-operated service dependency or a cloud-only hook, MUST come with an ADR superseding this one.
+- **Amendment trigger**: a pull request that changes the terms in `LICENSE`, or adds an edition, a build flavor with any difference beyond a FIPS cryptography exclusion recorded in [FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build), an entitlement check, a Node-count limit, a Revington-operated service dependency or a cloud-only hook, MUST amend this ADR.
 
 ## Pros and cons of the options
 

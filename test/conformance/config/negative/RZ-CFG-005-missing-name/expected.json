@@ -1,0 +1,14 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 14,
+    "column": 3,
+    "path": [
+      "metadata",
+      "name"
+    ],
+    "message": "metadata.name is required: it identifies the resource"
+  }
+]

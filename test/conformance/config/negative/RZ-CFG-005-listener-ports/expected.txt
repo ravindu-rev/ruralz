@@ -1,0 +1,1 @@
+ruralz.yaml:12:13 error RZ-CFG-005 Gateway/edge spec.listeners[name=internal].port: listener "internal" uses port 8080, already used by listener "http" (give each listener its own port) (first used in ruralz.yaml:9:13)

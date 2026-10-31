@@ -1,0 +1,1 @@
+extra.yaml:6:3 error RZ-CFG-005 Upstream/empty spec.endpoints: an Upstream needs endpoints unless it sets discovery or has protocol ai

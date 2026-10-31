@@ -1,0 +1,59 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/combinations.json",
+    "line": 6,
+    "column": 23,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "path"
+    ],
+    "message": "exactly one of exact, prefix, template, regex is allowed, found exact and prefix"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/combinations.json",
+    "line": 10,
+    "column": 9,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "stock"
+      }
+    ],
+    "message": "exactly one of path, pathExpression is allowed, found path and pathExpression"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/combinations.json",
+    "line": 11,
+    "column": 9,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "composition",
+      "steps",
+      {
+        "name": "price"
+      }
+    ],
+    "message": "exactly one of path, pathExpression is required"
+  }
+]

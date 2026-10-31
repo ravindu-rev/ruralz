@@ -150,6 +150,7 @@ func TestKeywords(t *testing.T) {
 	}{
 		{[]string{"$defs", "RouteSpec", "properties", "policies", "x-ruralz-list"}, `{"key":"name","type":"orderedMap"}`},
 		{[]string{"$defs", "RouteMatch", "properties", "when", "x-ruralz-cel"}, `{"result":"bool","variables":["request","source","now"]}`},
+		{[]string{"$defs", "RateLimitConfig", "properties", "cost", "x-ruralz-cel"}, `{"result":"int","variables":["request","source","route","consumer","auth","now"]}`},
 		{[]string{"$defs", "PolicyRef", "properties", "name", "x-ruralz-ref"}, `"Policy"`},
 		{[]string{"$defs", "Certificate", "properties", "privateKey", "x-ruralz-secret"}, `true`},
 		{[]string{"$defs", "PluginSpec", "properties", "capabilities", "x-ruralz-impact"}, `["plugin","security"]`},
@@ -159,6 +160,12 @@ func TestKeywords(t *testing.T) {
 		{[]string{"$defs", "RateLimitConfig", "properties", "limits", "minItems"}, `1`},
 		{[]string{"$defs", "PathMatch", "allOf"}, `[{"oneOf":[{"required":["exact"]},{"required":["prefix"]},{"required":["template"]},{"required":["regex"]}]}]`},
 		{[]string{"$defs", "UpstreamSpec", "allOf"}, `[{"not":{"required":["endpoints","discovery"]}}]`},
+		{[]string{"$defs", "JWTBinding", "properties", "subject", "minLength"}, `1`},
+		{[]string{"$defs", "JWTBinding", "properties", "claims", "minProperties"}, `1`},
+		// requiredIf rules: hashKey with ring-hash, plugin with type plugin.
+		{[]string{"$defs", "LoadBalancing", "allOf"}, `[{"if":{"properties":{"algorithm":{"const":"ring-hash"}},"required":["algorithm"]},"then":{"required":["hashKey"]}}]`},
+		// A step's maxBodyBytes is at least 1 byte, as an integer or a quantity.
+		{[]string{"$defs", "CompositionStep", "properties", "maxBodyBytes", "minimum"}, `1`},
 	}
 	for _, c := range cases {
 		got, err := json.Marshal(dig(t, s, c.path...))
@@ -173,13 +180,63 @@ func TestKeywords(t *testing.T) {
 	if dig(t, s, "$defs", "AuthMTLSConfig", "additionalProperties") != false {
 		t.Error("auth.mtls config must be closed")
 	}
-	if _, ok := dig(t, s, "$defs", "RateLimitConfig").(map[string]any)["additionalProperties"]; ok {
-		t.Error("ratelimit config must be open until its feature fields are registered")
+	if dig(t, s, "$defs", "RateLimitConfig", "additionalProperties") != false {
+		t.Error("ratelimit config must be closed: every field is registered")
 	}
-	// Every Policy type selects a config.
-	dispatch := dig(t, s, "$defs", "PolicySpec", "allOf").([]any)
-	if len(dispatch) != 23 {
-		t.Errorf("PolicySpec dispatches %d types, want 23", len(dispatch))
+	if _, ok := dig(t, s, "$defs", "AuthJWTConfig").(map[string]any)["additionalProperties"]; ok {
+		t.Error("auth.jwt config must be open until its feature fields are registered")
+	}
+	// Every Policy type selects a config, and type plugin requires
+	// plugin: one requiredIf rule beside the 23 config dispatches.
+	n, requiredIf := 0, 0
+	for _, rule := range dig(t, s, "$defs", "PolicySpec", "allOf").([]any) {
+		if _, ok := dig(t, rule, "then").(map[string]any)["properties"]; ok {
+			n++
+			continue
+		}
+		got, err := json.Marshal(rule)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if want := `{"if":{"properties":{"type":{"const":"plugin"}},"required":["type"]},"then":{"required":["plugin"]}}`; string(got) != want {
+			t.Errorf("PolicySpec rule %s, want %s", got, want)
+		}
+		requiredIf++
+	}
+	if n != 23 || requiredIf != 1 {
+		t.Errorf("PolicySpec dispatches %d types and has %d requiredIf rules, want 23 and 1", n, requiredIf)
+	}
+}
+
+func TestFieldMinProperties(t *testing.T) {
+	// +ruralz:minProperties on a map field emits minProperties on the
+	// field's object schema, in both views.
+	info, err := parseSources([]string{"fixture_test.go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, v := range []view{authoring, rendered} {
+		out, err := generate(input{source: info, resources: []reflect.Type{reflect.TypeFor[MapMinProperties]()}}, v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := decode(t, out)
+		for field, want := range map[string]string{
+			"claims":  `{"additionalProperties":{"type":"string"},"description":"Claims needs an entry.","minProperties":1,"type":"object"}`,
+			"weights": `2`,
+		} {
+			p := dig(t, s, "$defs", "MapMinPropertiesSpec", "properties", field)
+			if field == "weights" {
+				p = p.(map[string]any)["minProperties"]
+			}
+			got, err := json.Marshal(p)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != want {
+				t.Errorf("view %v: %s = %s, want %s", v, field, got, want)
+			}
+		}
 	}
 }
 
@@ -255,6 +312,19 @@ func TestRuleViolations(t *testing.T) {
 		{reflect.TypeFor[NoOmitempty](), "optional field needs omitempty"},
 		{reflect.TypeFor[ValueDefault](), "a field with a default must be a pointer"},
 		{reflect.TypeFor[BadEnumDefault](), "is not a Mode value"},
+		// Rules added for M1 (SEC "Secrets" rule 7; defaults valid by
+		// construction).
+		{reflect.TypeFor[SecretNoImpact](), "needs +ruralz:impact with security"},
+		{reflect.TypeFor[RequiredDefault](), "a required field takes no default"},
+		{reflect.TypeFor[RangeDefault](), "above the maximum"},
+		{reflect.TypeFor[PatternDefault](), "does not match the pattern"},
+		{reflect.TypeFor[LengthDefault](), "longer than maxLength"},
+		{reflect.TypeFor[ImpactOrder](), "ascending order"},
+		{reflect.TypeFor[ImpactUnknown](), "unknown impact class"},
+		{reflect.TypeFor[ImpactTwice](), "given twice"},
+		// minProperties on a field is for maps only.
+		{reflect.TypeFor[StringMinProperties](), "minProperties on a field is only for maps"},
+		{reflect.TypeFor[NegMinProperties](), "want a non-negative integer"},
 	}
 	for _, c := range cases {
 		_, err := generate(input{source: info, resources: []reflect.Type{c.typ}}, rendered)

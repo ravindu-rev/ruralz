@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-009",
+    "severity": "error",
+    "file": "environments.yaml",
+    "line": 6,
+    "column": 12,
+    "resource": {
+      "kind": "Environment",
+      "name": "prod"
+    },
+    "path": [
+      "spec",
+      "overlay"
+    ],
+    "message": "overlay directory \"overlays/production/\" does not exist",
+    "environment": "prod"
+  }
+]

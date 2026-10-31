@@ -1,0 +1,26 @@
+{
+  "spec": {
+    "telemetry": {
+      "accessLog": {
+        "when": "response.status >= 400 && duration > duration(\"1s\")"
+      },
+      "traceSampling": 0.05
+    },
+    "listeners": [
+      {
+        "port": 8080,
+        "protocol": "http",
+        "name": "http"
+      }
+    ]
+  },
+  "metadata": {
+    "labels": {
+      "région": "eu-west",
+      "team": "platform"
+    },
+    "name": "edge"
+  },
+  "kind": "Gateway",
+  "apiVersion": "ruralz/v1alpha1"
+}

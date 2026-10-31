@@ -1,0 +1,12 @@
+[
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "quickstart-header",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "quickstart-header",
+    "from": "Route",
+    "reason": "own slot"
+  }
+]

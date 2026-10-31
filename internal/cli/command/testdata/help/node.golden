@@ -1,0 +1,9 @@
+Usage: ruralz node <verb> [ARGS] [FLAGS]
+
+Operate the local Node.
+
+Verbs:
+  drain  Drain the local ruralzd
+  dump   Save /config/dump, secrets omitted
+
+Run 'ruralz node <verb> --help' for details.

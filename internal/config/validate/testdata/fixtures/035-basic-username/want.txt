@@ -1,0 +1,1 @@
+extra.yaml:18:19 error RZ-CFG-035 Consumer/gamma spec.credentials.basic[username=batch].username: basic username "batch" is already declared by Consumer "beta" (declared in extra.yaml:8:19)

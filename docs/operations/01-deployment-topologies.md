@@ -1,26 +1,8 @@
----
-title: Deployment Topologies
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/engineering/04-release-versioning-and-compatibility.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-adrs: [ADR-0006, ADR-0007, ADR-0015, ADR-0016, ADR-0017]
-milestone_tags_used: [M1, M2, M3, M4, M5]
----
-
 # Deployment Topologies
 
 ## Summary
 
-This document fixes where Ruralz runs: ten topologies with ports, bootstrap, starting sizes and three reference architectures, and ADR-0016's Kubernetes stance: a Helm chart and mirrored CRDs, Planned (M2), Gateway API conformance deferred. Nothing is implemented yet.
+This document fixes where Ruralz runs: ten topologies with ports, bootstrap, starting sizes and three reference architectures, and ADR-0016's Kubernetes stance: a Helm chart and mirrored CRDs, Planned (M2), Gateway API conformance deferred.
 
 ## Scope and non-goals
 
@@ -30,13 +12,13 @@ Non-goals: kinds and fields ([Configuration model](../architecture/02-configurat
 
 ## Topology catalog
 
-A Node runs in one mode, chosen at boot, never merging sources ([System overview](../architecture/01-system-overview.md#deployment-modes)). File mode watches a rendered Bundle directory, Planned (M1), or pulls a signed OCI Revision by digest, Planned (M2), without Ruralz Control (P2); Control mode enrolls and receives Rollouts over the Control Stream it dials on 8091, Planned (M2) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
+A Node runs in one mode, chosen at boot, never merging sources ([System overview](../architecture/01-system-overview.md#deployment-modes)). File mode watches a source Bundle directory or a rendered one-file Bundle ([Rendered Bundle](../architecture/02-configuration-model.md#rendered-bundle)), Planned (M1), or pulls a signed OCI Revision by digest, Planned (M2), without Ruralz Control (P2); Control mode enrolls and receives Rollouts over the Control Stream it dials on 8091, Planned (M2) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
 
 Ruralz Gateway is stateless (P4): a Node persists only identity, Last-Known-Good and caches under `${RURALZ_DATA_DIR}` (pack 8.11), which a reschedulable Node MUST keep on persistent storage (OQ-scalability-and-distributed-state-7).
 
 | Topology | When to use | Components | Failure domain | Configuration delivery | Scaling | Planned |
 |---|---|---|---|---|---|---|
-| T1 Development single binary | Authoring, Plugin work, CI | `ruralz dev run`; `memory` State Store | The workstation | CLI render, Hot Reload | One Node | Planned (M1) |
+| T1 Development single binary | Authoring, Plugin work, CI | `ruralz dev run`, bound to loopback; `memory` State Store, which `--memory-state-store` forces on a Bundle that names another | The workstation | CLI render, Hot Reload | One Node | Planned (M1) |
 | T2 File mode | One team; no canary or audit | Nodes, L4 load balancer, `redis` State Store, CI, OCI registry | All Nodes reading one source | Rendered directory, or signed Revision by digest | Nodes to Cell ceilings, then Cells; declared per-Node ceilings bound fail-open | Planned (M1) directory; Planned (M2) OCI pull |
 | T3 Cluster with Ruralz Control | Several authors, audit, canaries | Nodes, three `ruralz-control` replicas, State Store, Git | One Cluster per Rollout, stopped at canary | Rollout with ACK/NACK | Nodes by token; replicas by streams | Planned (M2) |
 | T4 Kubernetes (Helm, HPA, CRDs) | Kubernetes operators | Helm chart, CRDs, StatefulSets | As T2 or T3, across zones | As T2 or T3; CRDs via Ruralz Control | HorizontalPodAutoscaler | Planned (M2) |
@@ -79,7 +61,7 @@ flowchart TD
 
 ### T1 and T2: development and file mode
 
-`ruralz dev run` renders the source Bundle by atomic rename into a private directory for a local `ruralzd`, which Hot Reloads and keeps its active Revision on a failed render ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)). macOS `ruralzd` is development-only; Windows has none.
+`ruralz dev run` runs a local `ruralzd` on a private rendered copy of the source Bundle ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)); macOS `ruralzd` is development-only, and Windows has none.
 
 File-mode `ruralzd` applies no overlay, so every watched directory SHOULD hold the same `ruralz bundle render --env <env>` output, trusting the filesystem. OCI Revisions are Sigstore-signed by `ruralz bundle push --oci`, verified by each Node, `enforce` by default ([ADR-0017](../adr/0017-artifact-signing.md), pack 8.14; reference variable: OQ-system-overview-19). Nodes MUST poll with jitter and backoff (OQ-deployment-topologies-16); as a registry serves N / interval polls plus one pull per Node per digest (hypothesis), a local mirror SHOULD serve above 100 Nodes per Region or site (hypothesis).
 
@@ -120,6 +102,69 @@ flowchart LR
     n1 --> ss
     n2 --> ss
 ```
+
+#### Quickstart
+
+The scripted quickstart, `examples/quickstart/quickstart.sh`, Planned (M1), measures SM-7: the time from download to the first proxied request, 10 minutes or less (target) on a clean machine ([Vision](../vision/01-vision-and-positioning.md#success-metrics)), M1 exit criterion 4. It runs T1's single Node without the CLI: one file-mode `ruralzd` from the release archive, the `memory` State Store and a local Upstream. Since it tests a shipped archive, it runs in real time and waits on conditions, never on fixed sleeps ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)). It needs bash 3.2 or newer, the bash of macOS, curl, tar, `sha256sum` or `shasum`, and python3 for the Upstream, so it runs on Linux and macOS, the platforms with a `ruralzd` archive; cosign is optional (step 2).
+
+Stage 10 runs `make quickstart` in one clean job per `ruralzd` archive: linux/amd64 (`ubuntu-latest`), linux/arm64 (`ubuntu-24.04-arm`), darwin/arm64 (`macos-latest`) and darwin/amd64 (`macos-15-intel`). Each job holds only that archive and its `SHA256SUMS`, from a `make release-dry-run` of the commit, plus a sparse checkout of `examples/quickstart/` and the `Makefile`, and removes `go` from `PATH`, so the script provably needs no Go; the macOS jobs run it with the system bash and make. After each publish, candidates included, `release.yml` runs the download path (`RURALZ_QUICKSTART_ARCHIVE` empty, `RURALZ_QUICKSTART_VERSION` set to the release) on the same four platforms, and a failure opens or updates a `nightly-failure` issue ([Release pipeline](../engineering/04-release-versioning-and-compatibility.md#release-pipeline)).
+
+| Step | What the script does |
+|---|---|
+| 1. Preflight | Checks that bash runs it, that curl, tar, `sha256sum` or `shasum` and python3 exist and that `python3` runs (the macOS stub that asks for the Command Line Tools does not), that the host is linux or darwin on amd64 or arm64, that ports 8080, 9000 and 9901 are free on 127.0.0.1, and that its inputs are valid: `RURALZ_QUICKSTART_KEEP` empty, `0` or `1`, `RURALZ_QUICKSTART_VERSION` a version, and `RURALZ_QUICKSTART_ARCHIVE` a file named `ruralzd_<version>_<os>_<arch>.tar.gz` for the host. A failure prints every problem found, such as the missing tool, the platform or the busy port, and exits 2 |
+| 2. Archive | Takes the archive `RURALZ_QUICKSTART_ARCHIVE` names and the `SHA256SUMS` beside it. When that variable is empty, it downloads `ruralzd_<version>_<os>_<arch>.tar.gz` for the host, `SHA256SUMS` and `SHA256SUMS.sigstore.json` from the GitHub release of `RURALZ_QUICKSTART_VERSION`, a version without its `v` such as `0.1.0` or `0.1.0-rc.1`, or, when that is empty too, from the repository's latest release, which is never a pre-release, over HTTPS only and within step 7's 600 s. When cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, is on `PATH` and `SHA256SUMS.sigstore.json` is present, it first verifies `SHA256SUMS` against the certificate identity of `release-build.yml` at `refs/tags/v<version>`, cosign 2.x with `--new-bundle-format` ([Packaging and audit](../engineering/04-release-versioning-and-compatibility.md#packaging-and-audit)); otherwise, as for stage 10's unsigned dry-run archives or an older cosign, it prints that only checksums are checked. It then checks the archive against its one `SHA256SUMS` line and unpacks `ruralzd` into a temporary directory; a failed download, signature or checksum check exits 1 |
+| 3. Upstream | Starts `python3 -m http.server` on 127.0.0.1:9000, serving a temporary directory whose `index.html` holds one known line |
+| 4. Node | Starts `ruralzd` with `RURALZ_CONFIG` set to the script's own directory, `examples/quickstart/`, when `ruralz.yaml` is beside the script, else to a temporary directory where it writes the quickstart Bundle it embeds, so a script fetched alone or piped (`curl … \| bash`) also works. It also sets a temporary `RURALZ_DATA_DIR`, `RURALZ_FETCH_ALLOW=127.0.0.1`, because a Node otherwise refuses loopback Endpoints ([Security and identity](../architecture/08-security-and-identity.md#secrets), rule 6), and `RURALZ_BIND_LOOPBACK=true`, so 8080 and 9901 listen on loopback only ([Process settings](../_meta/foundation-pack.md#2-canonical-names)). `RURALZ_LOG_LEVEL` passes through and every other `RURALZ_*` variable is removed, so a State Store URL, admin credential or secret root in the caller's environment cannot change the Node |
+| 5. Readiness | Polls `http://127.0.0.1:9901/readyz` every 0.5 s (target) until it answers 200 |
+| 6. Success | Sends `GET http://127.0.0.1:8080/` until the answer is 200 with the known line as its body and `x-quickstart: ruralz`, which only the Route's `headers` Policy adds, so the response passed the Filter Chain. It then prints `first proxied request after <seconds> s`, counted from its own start, which `make quickstart` holds against `QUICKSTART_MAX_SECONDS` (600 s, SM-7's 10 minutes), stops both processes and exits 0. It stops `ruralzd` as `ruralz dev run` does ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)): a second SIGTERM once `/readyz` reports the Drain, which jumps it to its deadline, and SIGKILL past the 30 s exit bound (target). With `RURALZ_QUICKSTART_KEEP=1`, which CI and `make quickstart` never set, it instead leaves the Node and the Upstream running, prints a `curl http://127.0.0.1:8080/` command and how to stop them, and on SIGINT (Ctrl-C) or SIGTERM stops both and exits 0; a process that exits meanwhile ends the run as in step 7. SIGHUP, SIGINT or SIGTERM before the first proxied request stops both and exits 128 plus the signal number |
+| 7. Failure | When a process exits early or 600 s pass (target), prints the last `/readyz` answer and the `ruralzd` log, and the Upstream's log when the Upstream exited, stops both processes and exits 1 |
+
+`examples/quickstart/ruralz.yaml`, the quickstart Bundle, which uses only M1 features and no `stateStore`, so the Node runs `memory` with its startup warning:
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: quickstart
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: hello
+spec:
+  protocol: http
+  endpoints:
+    - address: "127.0.0.1:9000"         # python3 -m http.server, started by quickstart.sh
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quickstart-header
+spec:
+  type: headers
+  config:
+    response:
+      set: [{name: x-quickstart, value: ruralz}]   # only the Filter Chain adds it
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hello
+spec:
+  match:
+    path: {prefix: /}
+  policies:
+    - name: quickstart-header
+  upstreams:
+    - name: hello
+```
+
+A Go test keeps `examples/quickstart/ruralz.yaml` identical to this block, renders it with the other example Bundles, and checks what the script relies on: the one Endpoint 127.0.0.1:9000 and `quickstart-header` on every response of Route `hello` ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#generator-rules)). `test/quickstart` runs the script, beside that file, alone and piped, against stand-in curl, python3, cosign, uname, sleep and date and a stub `ruralzd`, with no network and a simulated clock: it checks every step's exits, messages and process settings, and that the copy of the Bundle the script writes when it runs alone equals that file.
 
 ### T3: Cluster of Nodes managed by Ruralz Control
 
@@ -183,7 +228,7 @@ Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed), the Helm cha
 | Probes | `/readyz` and `/healthz` on 9901, or 9902 for `ruralz-control` |
 | HorizontalPodAutoscaler | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) at their thresholds (target): CPU as a Resource metric, the rest as adapter Pods metrics, connections at 10,000 (target). `behavior.scaleDown` removes at most one zone's share per stabilized period (target); half-threshold scale-in is OQ-deployment-topologies-14. `minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas` ([Sizing defaults](#sizing-defaults)). As the Node count lags ([Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up)), Control-mode Clusters SHOULD declare per-Node ceilings c, below |
 | PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |
-| Termination | `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush) |
+| Termination | `terminationGracePeriodSeconds` per the [Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults) |
 | RBAC | Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace (OQ-deployment-topologies-1). `ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. Bootstrap Job, in its namespace: `get` on the bootstrap Secret, `create` on token Secrets and the marker. None reads Secrets cluster-wide |
 
 Declared ceilings bind healthy admission too (pack 8.8): pick c per limit between the bounds below, at least one token per window, and declare `requests` / `maxReplicas` only where that under-admission is acceptable, else narrow the HPA range to `minReplicas` / `maxReplicas` ≥ 0.5. A declared cap on the derived ceiling: OQ-deployment-topologies-22.
@@ -198,12 +243,9 @@ Zone loss, 2 of 6 pods    4 survivors at x% CPU; HPA ratio 4x / (6 × 53%) > 1.1
 
 Once a second version is served, Planned (M3), non-storage-version CRD reads fail while every `ruralz-control` replica is down ([Migration tooling](../engineering/04-release-versioning-and-compatibility.md#migration-tooling)).
 
-Decisions:
+The chart deploys both Ruralz Control and Nodes, with separate image tags and two upgrades, Ruralz Control first ([Upgrade order](../engineering/04-release-versioning-and-compatibility.md#upgrade-order)), each `OnDelete` replacement awaiting readiness and Raft catch-up. `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2. CRD kinds keep the Bundle kind names and join category `ruralz`, with short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`.
 
-- **OQ-release-versioning-and-compatibility-11:** option (b): separate image tags, two upgrades, Ruralz Control first ([Upgrade order](../engineering/04-release-versioning-and-compatibility.md#upgrade-order)), each `OnDelete` replacement awaiting readiness and Raft catch-up.
-- **OQ-configuration-model-2:** option (a): `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2.
-- **OQ-system-overview-8:** options (a) and (b) per Environment, whose Clusters share one Revision: one primary source from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration), a Git path or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` stays an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). Until OQ-deployment-topologies-19 decides, a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes.
-- **OQ-configuration-model-3:** option (a): kind names unchanged; CRDs join category `ruralz`, short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`.
+Each Environment, whose Clusters share one Revision, has one primary source from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration): a Git path, or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` is an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). Until OQ-deployment-topologies-19 decides, a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes.
 
 *Figure 4: T4 in Control mode.*
 
@@ -262,7 +304,16 @@ flowchart TB
 
 ### T5 and T6: VMs with systemd and edge sites
 
-**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). `systemctl stop` starts a Drain, so `TimeoutStopSec` MUST exceed the exit bound, 30 s (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Upgrades hand over through `SO_REUSEPORT` ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md), [systemd unit](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover)).
+**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). Linux `ruralzd` archives ship `deploy/systemd/`, Planned (M1):
+
+| File | Contents |
+|---|---|
+| `ruralzd.service` | `Type=notify`, `NotifyAccess=all`, user and group `ruralz`; data directory `/var/lib/ruralz` (`StateDirectory=`, mode 0700); settings from `/etc/ruralzd/ruralzd.env`; the admin token is the file `/etc/ruralzd/admin-token`, mode 0640 with group `ruralz`, outside `RURALZ_SECRET_ROOT`, never a systemd credential, which systemd hides from `ExecReload` processes and so from a handover successor; `ExecReload` runs the helper on `/usr/local/bin/ruralzd`; `TimeoutStartSec=90`, which reloads share, above the helper's wait; `TimeoutStopSec=40`; `KillMode=control-group`; `Restart=on-failure`, so a crash or SIGKILL boots Last-Known-Good; `WatchdogSec=30s` (target), which `ruralzd` answers with `WATCHDOG=1` ([Handover under systemd](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd)); `LimitNOFILE=65536`, above the connection ceilings ([Bounded resources](../architecture/03-data-plane.md#bounded-resources)); hardening: no new privileges, only `CAP_NET_BIND_SERVICE`, `ProtectSystem=strict` with writes only to the data directory, and the kernel, device and namespace protections; systemd 247 or newer |
+| `ruralzd-handover` | `ruralzd-handover BINARY [TIMEOUT_SECONDS]`: starts `BINARY` in the unit's cgroup with the unit's environment; exits 0 once `holder.json` names it (it reads only `pid`), 1 if it exits first, and after 75 s (target) stops it with SIGTERM, then SIGKILL 10 s later, and exits 1; a usage error exits 2. It checks every 0.2 s and counts those sleeps, so a clock step never shortens the wait |
+| `ruralzd.sysusers` | The sysusers.d entry for `/etc/sysusers.d/ruralzd.conf`: `systemd-sysusers` creates the system user and group `ruralz`, with an automatic system ID, home `/var/lib/ruralz` and no login shell |
+| `ruralzd.env`, `99-ruralzd.conf` | Example `EnvironmentFile` for `/etc/ruralzd/ruralzd.env`, mode 0600: `RURALZ_CONFIG` and the optional M1 settings; sysctl `net.ipv4.tcp_migrate_req = 1` for `/etc/sysctl.d/` |
+
+The binary and the helper install as `/usr/local/bin/ruralzd` and `/usr/local/bin/ruralzd-handover`, `systemd-sysusers` creates the user from the sysusers.d entry, and the admin token file then takes the group `ruralz`. `systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). The T5 verification installs a linux archive exactly this way and checks what this table promises ([Handover under systemd](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd)).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 
@@ -281,7 +332,7 @@ Per canary Cluster   canary.bake + 3 batches × max(30 s, 3 × 15 s heartbeats) 
 
 ### T9: multi-region with Cells
 
-Each Region's Nodes resolve their own `stateStore.url` through `secretRef`, so Regions share one Revision and no request crosses Regions to a State Store (pack 8.13). Raft voters SHOULD share the home Region; remote Nodes dial it until read-only relays without signing keys serve them, Planned (M4), their 8092 feed awaiting OQ-control-plane-and-gitops-15's pack 8.4 amendment ([Relay feed](../architecture/04-control-plane-and-gitops.md#relay-feed)); losing a Region's relays is OQ-deployment-topologies-17.
+Each Region's Nodes resolve their own `stateStore.url` through `secretRef`, so Regions share one Revision and no request crosses Regions to a State Store (pack 8.13). Raft voters SHOULD share the home Region; remote Nodes dial it until read-only relays without signing keys serve them, Planned (M4), their 8092 feed pending OQ-control-plane-and-gitops-15 ([Relay feed](../architecture/04-control-plane-and-gitops.md#relay-feed)); losing a Region's relays is OQ-deployment-topologies-17.
 
 Losing the home Region stops Enrollment and Rollouts everywhere, so active-active Regions SHOULD each hold R / (R − 1) times their peak share (target) ([Home Region loss](../architecture/11-scalability-and-distributed-state.md#topologies)) in every Cell resource, within Cell ceilings: Nodes, State Store calls under 50% of shard capacity (hypothesis), client limits above 10 × N_serving (target). A shared Revision allows up to R × each limit (target) unless Consumers are Region-pinned or quotas divided.
 
@@ -419,7 +470,7 @@ This order brings up T3, T4, T5 and T10; later Nodes repeat steps 6 to 8.
 1. **State Store.** Primary and replica with failover across zones, `noeviction` where limit keys live ([State Store availability](../architecture/11-scalability-and-distributed-state.md#state-store-availability)).
 2. **First replica.** `ruralz control serve` on an empty Control Store creates or loads the CAs and leads, with Git source and Plugin trust policy from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration); after install, no replica of any ordinal does.
 3. **First administrators.** Steps 4 and 6 need an `admin` and a `security-admin`; creating the first uses the [bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential): the chart's Secret in T4, else the `${RURALZ_DATA_DIR}/bootstrap-credential` file step 2 writes.
-4. **More replicas.** An `admin` gets a one-time join token from `POST /api/v1/replicas` or Ruralz Console; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>` stores a peer certificate, then `serve` starts a voter once caught up (OQ-cli-and-api-surface-14). `join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token.
+4. **More replicas.** An `admin` gets a one-time join token from `POST /api/v1/replicas` or Ruralz Console; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>` stores a peer certificate, then `serve` starts a voter once caught up. `join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token.
 5. **Environments and Clusters.** Commit `control/environments.yaml` and `control/clusters.yaml`; one Revision per Environment is signed.
 6. **Enrollment token.** A `security-admin` runs `ruralz node token --cluster prod-eu-west`: one-time, valid 1 hour (target), pinning the 8091 server CA and trust root.
 7. **Node start.** Started with `RURALZ_CONFIG=ruralz-control://HOST:8091` and `RURALZ_ENROLLMENT_TOKEN_FILE` naming the step 6 token ([Node process configuration](../architecture/04-control-plane-and-gitops.md#node-process-configuration)), the Node generates a key pair and calls `Enroll` on 8091.
@@ -582,7 +633,7 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-9 | In T10, who holds the offline trust-root key and Plugin trust policy? | (a) The customer (proposed; OQ-control-plane-and-gitops-8); (b) the managed party | security-and-identity | No |
 | OQ-deployment-topologies-10 | How does a managed Ruralz Control reach a forge or registry refusing inbound connections? | (a) Customer CI pushes Bundles and runs the Plugin check; (b) reachable mirrors; (c) both | deployment-topologies | No |
 | OQ-deployment-topologies-12 | How do chart ordinals 1 and 2 get join tokens? | (a) A bootstrap Job with the bootstrap credential (proposed); (b) a manual step | deployment-topologies | Yes, for the Planned (M2) chart |
-| OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook, absent from pack 8.4? | (a) A new port by pack amendment (proposed); (b) a path on 8090 | deployment-topologies | Yes, before `ruralz.io/v1beta1`, Planned (M3) |
+| OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook, absent from pack 8.4? | (a) A new port in pack 8.4 (proposed); (b) a path on 8090 | deployment-topologies | Yes, before `ruralz.io/v1beta1`, Planned (M3) |
 | OQ-deployment-topologies-14 | How does the chart scale in only below half of every threshold? | (a) Scale-down policies only (current); (b) an external autoscaler | deployment-topologies | No |
 | OQ-deployment-topologies-15 | How are `Enroll` rates and lockouts keyed when Nodes share an egress address? | (a) Source plus the token's Cluster (proposed); (b) per token; (c) an allowed-CIDR exemption | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
 | OQ-deployment-topologies-16 | Which setting holds a file-mode Node's jittered OCI poll interval? | (a) A process setting beside OQ-system-overview-19 (proposed); (b) a Gateway field | configuration-model | No |
@@ -591,6 +642,4 @@ Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A l
 | OQ-deployment-topologies-19 | Should a namespace-primary Environment show as Drift, and can object sets promote? | (a) A normal source whose object sets promote (proposed); (b) Drift, no promotion | control-plane-and-gitops | Yes, for the Planned (M2) CRD source |
 | OQ-deployment-topologies-20 | After volume or zone loss, does the chart automate replacing a `ruralz-control` replica via `DELETE /api/v1/replicas/{serverId}`, and how are stranded Node pods released ([HA and DR](04-high-availability-and-disaster-recovery.md))? | (a) A chart Job holding a standing credential removes the voter, mints a join token; runbooks force-delete Node pods (proposed); (b) manual steps; (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | high-availability-and-disaster-recovery | Yes, for the Planned (M2) chart |
 | OQ-deployment-topologies-21 | Can small Nodes get a lower connection ceiling? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5 | data-plane | No |
-| OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed; OQ-traffic-management-and-resilience-1, -19); (b) replace (current) | traffic-management-and-resilience | No |
-
-Closed: OQ-deployment-topologies-6 with options (a) and (b) ([Leadership transfer](../architecture/04-control-plane-and-gitops.md#leadership-transfer)) and -11 with option (b) when `bootstrap.adminCredentialFile` is set, else (a) ([Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential)), decided by Control plane; -7 (a), a shipped systemd unit and helper, answered by [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover); -8 (a), measured sizes replacing interim values, answered by [Capacity planning](03-capacity-planning.md).
+| OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed); (b) replace (current) | traffic-management-and-resilience | No |

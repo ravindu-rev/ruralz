@@ -1,0 +1,1 @@
+ruralz.yaml:27:11 error RZ-CFG-014 Route/orders spec.match.when: CEL Route.spec.match.when: undeclared reference to 'consumer' (Route.spec.match.when has request, source, now)

@@ -1,0 +1,47 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+  labels:
+    team: platform
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+    - name: https
+      protocol: https
+      port: 8443
+      http3: true                       # HTTP/3 on UDP 8443
+      hostnames: ["api.shop.example"]
+      tls:
+        minVersion: "1.3"
+        certificates:
+          - name: api-shop
+            # Mounted from a Kubernetes Secret volume; never inline.
+            certificate: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.crt}}
+            privateKey: {secretRef: {provider: file, name: /etc/ruralz/tls/tls.key}}
+  admin:
+    port: 9901
+  telemetry:
+    otlp:
+      # Render-time value from Environment variables; the default keeps local runs working.
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:-https://otel-collector:4317}
+    traceSampling: 0.05
+    accessLog:
+      when: 'response.status >= 400 || duration > duration("1s")'   # CEL
+  limits:
+    maxRequestBodyBytes: 10Mi
+    maxRequestHeaderBytes: 64Ki
+  stateStore:
+    driver: redis
+    # Runtime value: each Node reads its own regional URL, so every Region shares one Revision.
+    url: {secretRef: {provider: env, name: RURALZ_STATE_STORE_URL}}
+    timeout: 50ms
+  # Gateway-scoped Policies reach every Route.
+  policies:
+    - name: cors-default
+    - name: jwt-default
+    - name: ratelimit-global            # overridable: false
+    - name: headers-security            # overridable: false
+    - name: geo-block-default

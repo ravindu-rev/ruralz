@@ -1,0 +1,17 @@
+{
+  "spec": {
+    "timeout": "2s",
+    "endpoints": [
+      {
+        "weight": 2,
+        "address": "orders.shop.svc:8080"
+      }
+    ],
+    "protocol": "http"
+  },
+  "metadata": {
+    "name": "orders"
+  },
+  "kind": "Upstream",
+  "apiVersion": "ruralz/v1alpha1"
+}

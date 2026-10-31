@@ -1,0 +1,7 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# Build context of collector.Dockerfile, which BuildKit reads in place of
+# a .dockerignore in test/compose: only the Collector's configuration.
+*
+!collector.yaml

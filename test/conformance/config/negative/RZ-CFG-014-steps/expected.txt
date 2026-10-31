@@ -1,0 +1,2 @@
+ruralz.yaml:32:51 error RZ-CFG-014 Route/summary spec.composition.steps[name=order].pathExpression: CEL Route.spec.composition.steps[].pathExpression: step "items" is not an earlier step of this composition (steps holds the steps that ran before this one, in list order)
+ruralz.yaml:49:46 error RZ-CFG-014 Route/parallel spec.composition.steps[name=order].pathExpression: CEL Route.spec.composition.steps[].pathExpression: steps is available only in sequential compositions (this composition is "aggregate")

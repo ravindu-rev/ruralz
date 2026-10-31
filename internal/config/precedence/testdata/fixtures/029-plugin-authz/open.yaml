@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: plugin-open
+spec:
+  type: plugin
+  plugin: responder
+  filterClass: authz
+  failureMode: open
+  config:
+    deny: true

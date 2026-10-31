@@ -1,0 +1,1 @@
+ruralz.yaml:27:3 error RZ-CFG-001: syntax error: a line inside a flow collection must be indented more than the block collection that holds it

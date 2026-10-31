@@ -1,0 +1,5 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Route",
+  "metadata": {}
+}

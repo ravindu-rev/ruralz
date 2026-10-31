@@ -1,0 +1,18 @@
+Usage: ruralz bundle validate [DIR] [FLAGS]
+
+Offline validation, source-mapped diagnostics.
+
+Runs every offline stage of the configuration pipeline and prints each
+diagnostic as one line, or with --output json as one JSON array. With
+--environments and no --env it runs once per Environment of the file, in file
+order. Exits 1 when a diagnostic is an error, 0 otherwise.
+
+Arguments:
+  DIR  Bundle directory, one-file Bundle, or - for standard input (default .)
+
+Flags:
+  --env NAME           Render with this Environment's overlay and variables, read from --environments
+  --environments FILE  Local Environment resources
+  --help               Print this help
+  --online             Also check each Plugin artifact (fetching artifacts is Planned (M2))
+  --output text|json   Output format (text or json, default text)

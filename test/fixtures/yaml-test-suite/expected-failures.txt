@@ -1,0 +1,94 @@
+# YAML Test Suite cases the restricted profile is expected to fail. The
+# runner is TestYAMLTestSuite in internal/config/profile (integration tag);
+# the data is test/fixtures/yaml-test-suite/data, vendored by
+# scripts/update-test-suites.sh yaml.
+#
+# Every other case must pass: an "error" case must be rejected, any other
+# case must parse without diagnostics to its test.event documents and its
+# in.json. A listed case that passes, or a listed ID that is not a case,
+# fails the run, so this list only shrinks.
+#
+# Format: one "<ID> <reason>" per line; # starts a comment. Reasons:
+#   profile:anchor         anchors, aliases or merge keys (RZ-CFG-003)
+#   profile:tag            a tag other than the YAML 1.2 core tags, or %TAG (RZ-CFG-004)
+#   profile:directive      a %YAML version other than 1.2 (RZ-CFG-001)
+#   profile:complex-key    a mapping key that is not a scalar (RZ-CFG-001)
+#   profile:duplicate-key  a key given twice in one mapping (RZ-CFG-002)
+
+# Anchors, aliases and merge keys.
+26DV profile:anchor
+2SXE profile:anchor
+3GZX profile:anchor
+3R3P profile:anchor
+6BFJ profile:anchor
+6KGN profile:anchor
+6M2F profile:anchor
+7BMT profile:anchor
+7BUB profile:anchor
+8XYN profile:anchor
+9KAX profile:anchor
+BU8L profile:anchor
+CN3R profile:anchor
+E76Z profile:anchor
+F2C7 profile:anchor
+FTA2 profile:anchor
+HMQ5 profile:anchor
+JS2J profile:anchor
+KSS4 profile:anchor
+LE5A profile:anchor
+PW8X profile:anchor
+SKE5 profile:anchor
+U3XV profile:anchor
+V55R profile:anchor
+W5VH profile:anchor
+X38W profile:anchor
+Y2GN profile:anchor
+ZH7C profile:anchor
+ZWK4 profile:anchor
+
+# Tags and %TAG directives.
+2XXW profile:tag
+52DL profile:tag
+565N profile:tag
+5TYM profile:tag
+6CK3 profile:tag
+6WLZ profile:tag
+7FWL profile:tag
+8MK2 profile:tag
+9WXW profile:tag
+C4HZ profile:tag
+CC74 profile:tag
+CUP7 profile:tag
+J7PZ profile:tag
+M5C3 profile:tag
+P76L profile:tag
+S4JQ profile:tag
+U3C3 profile:tag
+UGM3 profile:tag
+UKK6/02 profile:tag
+Z67P profile:tag
+Z9M4 profile:tag
+
+# %YAML versions other than 1.2.
+BEC7 profile:directive
+MUS6/02 profile:directive
+MUS6/03 profile:directive
+MUS6/04 profile:directive
+
+# Non-scalar mapping keys.
+4FJ6 profile:complex-key
+6PBE profile:complex-key
+KK5P profile:complex-key
+LX3P profile:complex-key
+M2N8/00 profile:complex-key
+M2N8/01 profile:complex-key
+M5DY profile:complex-key
+Q9WF profile:complex-key
+RZP5 profile:complex-key
+SBG9 profile:complex-key
+V9D5 profile:complex-key
+XW4D profile:complex-key
+9MMW profile:complex-key
+
+# Keys given twice in one mapping: two empty keys.
+2JQS profile:duplicate-key

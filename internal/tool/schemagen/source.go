@@ -46,6 +46,9 @@ type typeInfo struct {
 	fields map[string]docInfo
 	// enum lists the string constants of the type in source order.
 	enum []string
+	// consts maps each value of enum to the doc of its constant, whose
+	// only marker can be +ruralz:planned.
+	consts map[string]docInfo
 }
 
 // sourceInfo maps type names to what the source says about them.
@@ -141,6 +144,19 @@ func addConsts(info sourceInfo, gd *ast.GenDecl) error {
 		if !ok {
 			continue
 		}
+		group := vs.Doc
+		if group == nil && len(gd.Specs) == 1 {
+			group = gd.Doc
+		}
+		d, err := parseDoc(group)
+		if err != nil {
+			return fmt.Errorf("constant %s: %w", vs.Names[0].Name, err)
+		}
+		for _, m := range d.markers {
+			if m.name != "planned" {
+				return fmt.Errorf("constant %s: marker %s is not allowed on a constant", vs.Names[0].Name, m.name)
+			}
+		}
 		for _, v := range vs.Values {
 			lit, ok := v.(*ast.BasicLit)
 			if !ok || lit.Kind != token.STRING {
@@ -152,6 +168,10 @@ func addConsts(info sourceInfo, gd *ast.GenDecl) error {
 			}
 			t := info.typ(id.Name)
 			t.enum = append(t.enum, s)
+			if t.consts == nil {
+				t.consts = map[string]docInfo{}
+			}
+			t.consts[s] = d
 		}
 	}
 	return nil
@@ -164,7 +184,7 @@ func knownMarker(name string) (takesValue, ok bool) {
 		return false, true
 	case "ref", "cel", "list", "impact", "since", "validation", "default", "policyType",
 		"minItems", "minimum", "maximum", "pattern", "minLength", "maxLength", "minProperties",
-		"exactlyOneOf", "atMostOneOf", "atLeastOneOf":
+		"exactlyOneOf", "atMostOneOf", "atLeastOneOf", "requiredIf", "planned":
 		return true, true
 	default:
 		return false, false

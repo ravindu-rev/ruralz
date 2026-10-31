@@ -1,0 +1,9 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Consumer",
+  "metadata": {"name": "partner-acme", "annotations": {"owner": "sales", "ruralz.io/conversion-data": "{}"}},
+  "spec": {"tier": "partner", "tags": ["b2b", "acme"],
+    "credentials": {"basic": [{"username": "acme", "hash": "pbkdf2-sha256:AAAAAAAAAAAAAAAAAAAAAA:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"}],
+      "apiKeys": [{"name": "primary", "secretRef": {"provider": "env", "name": "RURALZ_SECRET_ACME"}}]},
+    "quotas": [{"name": "monthly", "unit": "requests", "limit": 100000, "window": "720h"}]}
+}

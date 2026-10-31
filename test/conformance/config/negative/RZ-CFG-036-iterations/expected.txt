@@ -1,0 +1,1 @@
+ruralz.yaml:20:21 error RZ-CFG-036 Consumer/beta spec.credentials.basic[username=batch].iterations: iterations 100000 is outside 600000 to 1000000

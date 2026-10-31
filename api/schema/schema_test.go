@@ -48,3 +48,28 @@ func TestAccessorsReturnCopies(t *testing.T) {
 		t.Fatal("RenderedV1alpha1 exposes the embedded bytes")
 	}
 }
+
+// TestM1Definitions checks the embedded views carry the definitions M1 adds
+// (the Response Cache connection, OQ-scalability-and-distributed-state-3
+// (a); the zone map entry of both State Store connections; the inline JSON
+// Schema of validation.json-schema; the client TLS blocks of Upstreams and
+// of the OTLP collector) and that only the authoring view defines the
+// ${VAR} alternative.
+func TestM1Definitions(t *testing.T) {
+	for path, data := range map[string][]byte{"authoring": AuthoringV1alpha1(), "rendered": RenderedV1alpha1()} {
+		var doc struct {
+			Defs map[string]json.RawMessage `json:"$defs"`
+		}
+		if err := json.Unmarshal(data, &doc); err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		for _, name := range []string{"StateStoreCache", "StateStoreZone", "JSONSchemaDocument", "UpstreamTLS", "OTLPTLS"} {
+			if _, ok := doc.Defs[name]; !ok {
+				t.Errorf("%s: no definition %s", path, name)
+			}
+		}
+		if _, ok := doc.Defs["Substitution"]; ok != (path == "authoring") {
+			t.Errorf("%s: Substitution defined = %v", path, ok)
+		}
+	}
+}

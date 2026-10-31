@@ -1,0 +1,20 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "AIProvider",
+  "metadata": {
+    "name": "openai-prod"
+  },
+  "spec": {
+    "dialect": "openai",
+    "credentials": {
+      "apiKey": {
+        "secretRef": {
+          "provider": "kubernetes",
+          "name": "llm-keys",
+          "key": "openai"
+        }
+      }
+    },
+    "region": "us"
+  }
+}

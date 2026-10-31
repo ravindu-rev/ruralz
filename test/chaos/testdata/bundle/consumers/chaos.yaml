@@ -1,0 +1,50 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: chaos-1
+spec:
+  credentials:
+    apiKeys:
+      - name: primary                   # a canary the harness issues; the Node keeps only its hash
+        secretRef: {provider: file, name: /etc/ruralz/consumers/chaos-1}
+  quotas:
+    - name: chaos-requests
+      unit: requests
+      limit: 1000000000                 # no run reaches it
+      window: 24h
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: chaos-2
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        secretRef: {provider: file, name: /etc/ruralz/consumers/chaos-2}
+  quotas:
+    - {name: chaos-requests, unit: requests, limit: 1000000000, window: 24h}
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: chaos-3
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        secretRef: {provider: file, name: /etc/ruralz/consumers/chaos-3}
+  quotas:
+    - {name: chaos-requests, unit: requests, limit: 1000000000, window: 24h}
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: chaos-4
+spec:
+  credentials:
+    apiKeys:
+      - name: primary
+        secretRef: {provider: file, name: /etc/ruralz/consumers/chaos-4}
+  quotas:
+    - {name: chaos-requests, unit: requests, limit: 1000000000, window: 24h}

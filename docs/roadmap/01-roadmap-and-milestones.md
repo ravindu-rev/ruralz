@@ -1,38 +1,12 @@
----
-title: Roadmap and Milestones
-status: reviewed
-owner: ruralz-core
-last_updated: 2026-09-25
-depends_on:
-  - docs/_meta/foundation-pack.md
-  - docs/_meta/style-guide.md
-  - docs/vision/01-vision-and-positioning.md
-  - docs/features/01-feature-catalog.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/03-data-plane.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/architecture/07-multi-protocol.md
-  - docs/architecture/08-security-and-identity.md
-  - docs/architecture/09-traffic-management-and-resilience.md
-  - docs/architecture/10-observability.md
-  - docs/architecture/11-scalability-and-distributed-state.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-adrs: [ADR-0002, ADR-0003, ADR-0004, ADR-0005, ADR-0006, ADR-0007, ADR-0008, ADR-0013, ADR-0014, ADR-0016, ADR-0017]
-milestone_tags_used: [M0, M1, M2, M3, M4, M5]
----
-
 # Roadmap and Milestones
 
 ## Summary
 
-This document orders milestones `M0` to `M5` without dates, giving each its scope and measurable exit criteria. Nothing is implemented. Readers: evaluators and contributors.
+This document orders milestones `M1` to `M5` without dates, giving each its scope and measurable exit criteria; [Steps](02-steps.md) lists the work left in the current milestone. Readers: evaluators and contributors.
 
 ## Scope and non-goals
 
-In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones and every item tagged `Planned (Mx)`.
+In scope: the [foundation pack](../_meta/foundation-pack.md) section 2 milestones not yet exited, `M1` to `M5`, and every item tagged `Planned (M1)` to `Planned (M5)`.
 
 Non-goals: designs; moving a tag (only its owning document does); the capability-by-capability list ([Feature Catalog](../features/01-feature-catalog.md), which wins on conflict); performance values ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)); release numbering ([Release](../engineering/04-release-versioning-and-compatibility.md)); calendar dates (OQ-roadmap-and-milestones-2).
 
@@ -50,30 +24,6 @@ Codes by owner:
 | Objective O8 | [Observability](../architecture/10-observability.md#observability-principles) |
 | Gate G1 to G3 | [Tech stack](../engineering/01-tech-stack-and-libraries.md#selection-criteria) |
 
-## M0 Foundations
-
-Pack name: **M0** Foundations. M0 builds the repository, gates and contracts later milestones need. Serves: Contributor.
-
-### M0 scope
-
-| Area | Planned (M0) items |
-|---|---|
-| License and governance | Apache-2.0 license and ownership; contributions under DCO, no CLA; dependencies and licenses; revenue rules; no feature gating: all features without a license key; trademark policy; `SECURITY.md`, where a reporter uses the private channel ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) |
-| Build | Go 1.26 floor, release toolchain, floor job and guard file; `CGO_ENABLED=0`; build flags; production platforms |
-| CI stages 1 to 6 in `pr-fast` | 1. commit hygiene: DCO check, repocheck, no-license-check scan (SM-1); 2. format and lint: golangci-lint linters (`sloglint`), `golang.org/x/net/http2` forbidigo rule, depguard import rules: `github.com/tetratelabs/wazero` only in `internal/pluginhost`; the `github.com/google/cel-go` alias and any Lua runtime banned; 3. generated code drift; 4. cross-build (gate G1); 5. unit tests; 6. supply chain: `go mod verify`, `govulncheck` on every pull request, advisory floor, license gate G2 (what the gate reads; MPL-2.0 named exceptions, [ADR-0006](../adr/0006-control-store-raft-boltdb.md)), crypto denylist gate G3. Dependency admission (catalog row, rate limiting, no fasthttp); security scanning; all CI stages green |
-| Repository | `internal/`, `pkg/`, `api/` schema; test tooling; OQ-repository-layout-and-conventions-1 and -7 |
-| Contracts | `ruralz/v1alpha1` envelope; JSON Schema (draft 2020-12) authoring and rendered views with a generation check ([ADR-0003](../adr/0003-configuration-format.md)), published; OpenAPI for `/api/v1/` follows in M2 |
-
-### M0 exit criteria
-
-Exit criteria:
-
-1. `pr-fast` stages 1 to 6 run on their triggers, block merge and complete within 10 minutes (target).
-2. The three binaries cross-build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64; the license gate, crypto denylist and `govulncheck` pass on `main`.
-3. The no-license-check scan finds 0 gated features (target), per SM-1.
-4. Both schema views are generated from one source and published; the drift check fails on any difference.
-5. OQ-repository-layout-and-conventions-1 and -7, the two Open questions blocking M0, are closed.
-
 ## M1 Core gateway
 
 Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Policies, Hot Reload and release `0.1.0`. Serves: API team lead evaluating a gateway, Security engineer.
@@ -84,25 +34,27 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 |---|---|
 | Ruralz Gateway | `ruralzd` Nodes; client listeners: HTTP/1.1 and h2c on 8080 TCP, HTTP/2 over TLS on 8443 TCP, HTTP/2 settings, deadlines, other servers (admin); REST, and plain HTTP for any other content (Multi-protocol "Anything else"); Router match and header handling; Filter Chain executor; Upstream layer; error format; load shedding; admin 9901 (TB-9): `/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`, `/debug/snapshots`, `/debug/upstreams`, `/config/dump`, `/tap` |
 | Configuration | `Gateway`, `Route`, `Upstream`, `Policy`, `Consumer`, and `Environment` for CLI renders; YAML 1.2 parser, JSON Schema validator; Bundle merge; restricted profile; env substitution, overlay merge; CLI verbs without `--env` when no Environment exists; `secretRef` `env` and `file`; canonicalization, Revision digest; golden corpus; Go test that meta-validates both schema files and `examples/`; JSON subset fixtures; loader conformance suite; hostile-input and upstream test suites; body buffering |
-| CEL | Expressions: CEL module, compile and cost estimator in all CEL places: `Route.spec.match.when`, `Policy.spec.when`, `Route.spec.composition.steps[].pathExpression`, `Route.spec.composition.steps[].when`, `Upstream.spec.retries.retryOn`, `Upstream.spec.circuitBreaker.failureWhen`, `Upstream.spec.loadBalancing.hashKey`, `Gateway.spec.telemetry.accessLog.when`, `authz.cel` `config.rule`, `ratelimit`, `quota` and `cache` `config.key`, `headers` `valueExpression` |
+| CEL | Expressions: CEL module, compile and cost estimator in all CEL places: `Route.spec.match.when`, `Policy.spec.when`, `Route.spec.composition.steps[].pathExpression`, `Route.spec.composition.steps[].when`, `Upstream.spec.retries.retryOn`, `Upstream.spec.circuitBreaker.failureWhen`, `Upstream.spec.loadBalancing.hashKey`, `Gateway.spec.telemetry.accessLog.when`, `authz.cel` `config.rule`, `ratelimit`, `quota` and `cache` `config.key`, `ratelimit` and `quota` `config.cost`, `ratelimit` `config.limits[].when`, `headers` `valueExpression`, `transform.request` and `transform.response` `config.body` and `config.set[].valueExpression` |
 | CLI | `ruralz bundle` verbs `validate`, `render` (`--api-version` conversion MUST yield the same Revision), `diff` from directory, file or admin URL, `build`; `ruralz dev` verbs `run`, `tap`; `ruralz node` verbs `drain`, `dump`; `ruralz version`, `ruralz completion`; `--env` and `--environments FILE` (local `Environment` files); CLI framework; declarative config and GitOps CLI |
 | Lifecycle | File mode: topology T2 watching a rendered directory; Hot Reload, Last-Known-Good, Zero-Downtime Upgrade and Drain; topologies T1 development single binary, T5 VM with systemd in file mode |
 | Security | `auth.jwt` (JWT, OpenID Connect, OAuth2; JOSE library), `auth.api-key` (removal in file mode), `auth.basic`, `auth.mtls`, `authz.cel` (Security Policies Engine, first part), `authz.ip`, `auth.upstream-oauth2` (client credentials), `cors`; TLS to IdP JWKS endpoint (TB-10), Upstreams, State Store, OTLP (TB-3, TB-4, TB-12; `AIProvider` from M3); digest checks on every Revision and Plugin artifact; redaction unit tests; secret leak tests |
 | Traffic and state | `ratelimit` with local token bucket and GCRA ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)), distributed rate limiting with State Store-backed counters, `quota` in `requests`; API governance (`quota`, `overridable: false` Gateway Policies); `cache` (Response Cache), retries, circuit breaker, health checks, catch-all fallback, header and query string routing, wildcard routes, service discovery (`dns`, static `endpoints`) for `http` Upstreams, weighted splits, composition; `memory` and `redis` drivers (tested on Valkey 9.0.1 or newer, Dragonfly), single-Region Cells; `headers`, `transform.request`, `transform.response`, `validation.json-schema` |
 | Observability | OpenTelemetry telemetry: traces, export, conventions, resource; traceparent injection with its sampling decision; metrics exposition (`/metrics`) including `ruralz_listener_tls_handshake_duration_seconds`; logs; catalog gates; cardinality test; ULID `node.id`; `ruralz_node_degraded_info` with M1 reasons such as `lkg_boot` and `state_store_breaker_open` |
 | Quality | Property tests; protocol conformance suite in `pr-full` (HTTP/1.1, HTTP/2); integration tests; round-trip test; fuzzing; Docker Compose end-to-end test in file mode (quickstart, `--effective --route`, `ruralz bundle diff` against Node `/config/dump`, Zero-Downtime Upgrade); air-gapped start; chaos experiments CE-1 to CE-6, CE-12, CE-15, CE-16; CI stages 8. integration and conformance, 9. regression gates, 10. end-to-end, 11. nightly, 12. release |
-| Budgets | PB-1 to PB-4, PB-6 to PB-9, PB-10, PB-11, PB-14, PB-15, PB-16; scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1; microbenchmarks; soak; alloc/op, size and idle RSS gates; macro p99 and macro latency; absolute budgets and criteria; component and CEL benchmarks; binary and CI size check; nightly and release runs publish records (P10) |
+| Budgets | PB-1 to PB-4, PB-6 to PB-11, PB-14 to PB-16; scenarios S1 plain proxying, S2 reference, S3, S5, S5x, O1, O2, C1, C2, R1, G1; microbenchmarks; soak; alloc/op, size and idle RSS gates; macro p99 and macro latency; absolute budgets and criteria; component and CEL benchmarks; binary and CI size check; nightly and release runs publish records (P10) |
 | Release | Release `0.1.0`: binaries, container images, checksums, SBOM, signatures, provenance, notes, release audit per tag; `cmd/ruralzd`, `cmd/ruralz`, `test/`, `examples/` |
 
 ### M1 exit criteria
 
-1. Release `0.1.0` ships `ruralzd` and `ruralz` for every production platform, with 100% of artifacts signed (target), per SM-12.
-2. On RH-1 in S2 at half saturation, gateway-added latency is 1 ms or less at p99 and 150 µs or less at p50 (target), per SM-4 and SM-5.
-3. S1 reaches 50,000 rps or more on 4 vCPU (target), per PB-4; a Hot Reload of 5,000 Routes takes 500 ms or less (target), per PB-7.
+1. Release `0.1.0` ships `ruralzd` and `ruralz` for every production platform, with 100% of artifacts signed (target), per SM-12. It waits for criteria 2 and 3: no maintainer skips its Benchmarks release gate.
+2. On RH-1 in S2 at half saturation, gateway-added latency is 1 ms or less at p99 and 150 µs or less at p50 (target), per SM-4 and SM-5, in the release-run records of the `0.1.0` commit.
+3. S1 reaches 50,000 rps or more on 4 vCPU (target), per PB-4; a Hot Reload of 5,000 Routes takes 500 ms or less (target), per PB-7; both in the release-run records of the `0.1.0` commit.
 4. The scripted quickstart reaches a first proxied request in 10 minutes or less (target), per SM-7.
 5. The golden corpus is byte-exact; conformance passes 100% of cases for shipped features (target); no fuzz crasher is open; every M1 command in pack section 9 has an end-to-end test; CE-1 to CE-6, CE-12, CE-15, CE-16 and GD-1 to GD-5 pass.
 6. The Feature Catalog gives 100% of rows a milestone or a reasoned `Not planned` (target), per SM-2, and 100% of rows tagged Planned (M1) are implemented (target), per SM-3.
-7. Every Open question blocking an M1 feature is closed: the 32 whose Blocking column names M1 (2026-09-25), plus OQ-configuration-model-8 and OQ-security-and-identity-2, -3, -6, -15 and -18 (`auth.basic`, `auth.mtls`, `source.ip`, `authz.ip`), among them OQ-security-and-identity-21, -22, -24, OQ-repository-layout-and-conventions-6 and OQ-release-versioning-and-compatibility-3; OQ-traffic-management-and-resilience-5 and OQ-scalability-and-distributed-state-3 close only their M1 parts (breaker `minimumLegs`; Response Cache).
+7. Every Open question blocking an M1 feature is closed: every row whose Blocking column names M1.
+
+Release `0.1.0` completes the exit: its first candidate, `v0.1.0-rc.1`, is tagged only once criteria 2 to 7 hold and `t5-systemd.yml` has passed ([Release runbook](../engineering/04-release-versioning-and-compatibility.md#release-runbook)).
 
 ## M2 WASM and Control with GitOps
 
@@ -116,7 +68,7 @@ Pack name: **M2** WASM + Control/GitOps. M2 delivers differentiators (1) and (3)
 | Control Stream | Control mode, Nodes enrolled with Ruralz Control ([ADR-0007](../adr/0007-control-stream-protocol.md)): service, delivery, ACK/NACK, flow control, reconnect, heartbeat, trust, evolution; `Enroll`; `Stream` with renewal; peer layer; forge webhook; TCP 8090 (TB-6), 8091 (TB-5), 8092 (TB-11); `ruralz-control` admin 9902: `/healthz`, `/readyz`, `/metrics`, `/debug/pprof/`; protobuf runtime and code generation; `buf lint`, `buf breaking` |
 | Ruralz Console | Control plane with web console at `/console`, built from `console/` in CI stage 7: local accounts, TOTP, roles |
 | WASM Plugins | `Plugin` kind and `plugin` Policy; WASM runtime wazero; Plugin ABI v1 and PDK conventions ([ADR-0005](../adr/0005-plugin-abi-v1.md)); Capabilities, Host Functions, limits; Plugin ABI conformance suite; Rust and Go (TinyGo) PDKs in `sdk/`; `api/proto/ruralz/plugin/v1/`, derived output (OQ-repository-layout-and-conventions-2); `rzplg:` State Store keys |
-| CLI | `ruralz bundle` verbs `push`, `import openapi`, `export openapi`, `export postman`, `export dot`, `audit`; `ruralz test run`; `ruralz rollout` verbs `start`, `status`, `pause`, `resume`, `rollback`, `approve`, `reject`; `ruralz node` verbs `list`, `token`, `revoke`; `ruralz control` verbs `serve`, `join`, `backup`, `restore`; `ruralz plugin` verbs `init`, `build`, `test`, `push`, `inspect`; `--env` without `--environments FILE` fetches from Ruralz Control; `rev-<12 hex>` and `sha256:<64 hex>` Revision sources; OQ-cli-and-api-surface-7, -14 |
+| CLI | `ruralz bundle` verbs `push`, `import openapi`, `export openapi`, `export postman`, `export dot`, `audit`; `ruralz test run`; `ruralz rollout` verbs `start`, `status`, `pause`, `resume`, `rollback`, `approve`, `reject`; `ruralz node` verbs `list`, `token`, `revoke`; `ruralz control` verbs `serve`, `join`, `backup`, `restore`; `ruralz plugin` verbs `init`, `build`, `test`, `push`, `inspect`; `--env` without `--environments FILE` fetches from Ruralz Control; `rev-<12 hex>` and `sha256:<64 hex>` Revision sources; OQ-cli-and-api-surface-7 |
 | Signing and file mode | Topology T2 with OCI pull by `oci://REPOSITORY@sha256:<64 hex>`; signed Plugin artifact; signed Revision in Control mode ([ADR-0017](../adr/0017-artifact-signing.md)); OCI registry integration tests and interoperability job |
 | Security | `authz.opa`, `authz.cedar` (authorization engines, engine configuration, engine memory; no Lua), `authz.geoip` refusing clients by country (MaxMind-format reader), `auth.upstream-sigv4`, `secretRef` `kubernetes` and `vault`, JWT signing, GCP authentication; signed revocation list and bloom filter: JWT by jti, subject's older tokens, IdP key, API key hash or `auth.basic` username, client certificate by issuer and serial; also revoked: API key in Control mode, Enrollment identity, operator session or token, Plugin publisher |
 | Traffic | Built-in client redirects (OQ-traffic-management-and-resilience-13); `Route` mirroring (OQ-traffic-management-and-resilience-12); `kubernetes` discovery |
@@ -132,7 +84,7 @@ Pack name: **M2** WASM + Control/GitOps. M2 delivers differentiators (1) and (3)
 3. `ruralz bundle import openapi` imports 90% or more of the SM-8 OpenAPI corpus without manual edits (target).
 4. Chaos tests pass 100% of the System overview failure rows whose features are Planned (M2) or earlier (target): Ruralz Control replicas killed, Raft quorum lost; Node restarted during that outage; Revision with a bad digest or signature; State Store slower than `stateStoreTimeout`, then stopped; Upstream Endpoints reset or slowed; Plugin traps, loops or reaches `limits.maxPluginMemoryBytes`. CE-7 to CE-10, GD-6 to GD-11, GD-13, GD-15 and GD-16 pass. A Zero-Downtime Upgrade from the previous release fails no requests on TCP listeners (target).
 5. OpenSSF Scorecard is 8.0 or higher (hypothesis), per SM-12; no Plugin sandbox escape stays unpatched past 30 days (target), per SM-13.
-6. Every Open question blocking an M2 feature is closed: the 55 whose Blocking column names M2 (2026-09-25), plus OQ-tech-stack-and-libraries-24 (`authz.geoip`), OQ-security-and-identity-10 (`vault`) and -28 (`auth.upstream-sigv4`), OQ-traffic-management-and-resilience-12 (mirroring), among them OQ-control-plane-and-gitops-1, -13, -25, OQ-security-and-identity-4 (revocation list), OQ-traffic-management-and-resilience-13 (redirects) and OQ-observability-19.
+6. Every Open question blocking an M2 feature is closed: every row whose Blocking column names M2, plus OQ-tech-stack-and-libraries-24 (`authz.geoip`), OQ-security-and-identity-10 (`vault`) and -28 (`auth.upstream-sigv4`), OQ-traffic-management-and-resilience-12 (mirroring), among them OQ-control-plane-and-gitops-25, OQ-security-and-identity-4 (revocation list), OQ-traffic-management-and-resilience-13 (redirects) and OQ-observability-19.
 7. 100% of Feature Catalog rows tagged Planned (M2) are implemented (target), per SM-3.
 
 ## M3 AI gateway, gRPC, GraphQL, WebSocket and SSE
@@ -158,7 +110,7 @@ Currency budgets are unscheduled until OQ-ai-llm-gateway-7 is decided; M3 offers
 3. Gateway-added time to first token is 1 ms or less at p99 (target), per PB-12; S6 carries 1,000 streams at 100 chunks per second on 1.2 vCPU or less (target).
 4. S7 reaches 30,000 rps or more (target); protocol conformance passes 100% of cases (target) for gRPC, GraphQL, WebSocket, SSE and HTTP/3.
 5. Chaos tests pass the LLM provider throttling failure row, with CE-13, CE-14, GD-12 and AI provider mock 429 case.
-6. The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, OQ-system-overview-5 with OQ-multi-protocol-3, OQ-scalability-and-distributed-state-3 (Semantic Cache part), OQ-testing-and-quality-strategy-6 and -7, OQ-capacity-planning-1, and OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment).
+6. The Open questions blocking M3 features are closed: 12 in AI/LLM gateway, 10 in Multi-protocol, OQ-tech-stack-and-libraries-21, OQ-system-overview-5 with OQ-multi-protocol-3, OQ-testing-and-quality-strategy-6 and -7, OQ-capacity-planning-1, and OQ-deployment-topologies-13 (conversion webhook port, pack 8.4 amendment).
 7. 100% of Feature Catalog rows tagged Planned (M3) are implemented (target), per SM-3.
 
 Measured and published at exit, not gating: SM-14 (hypothesis).
@@ -176,14 +128,14 @@ Pack name: **M4** Event protocols + multi-region + bench suite. M4 completes dif
 | Other | Optional `postgres` Control Store; proxy-wasm adapter on the same host ([ADR-0005](../adr/0005-plugin-abi-v1.md)); C# PDK in `sdk/`; `surface: openai` Responses API; `surface: native` Bedrock `POST /model/{modelId}/invoke` and `/invoke-with-response-stream`, Claude-family bodies only (OQ-ai-llm-gateway-3); request hedging (Traffic management) |
 | Bench suite | Reproducible runs on RH-1 compared with the Performance Budgets and the previous release; S8; `default.pgo` |
 
-Reviewed here, not planned: OQ-scalability-and-distributed-state-1 (GCRA leases; current: per request); Gateway API conformance, deferred beyond M5 by Deployment topologies (OQ-vision-and-positioning-4).
+Not planned: OQ-scalability-and-distributed-state-1 (GCRA leases; current: per request); Gateway API conformance, deferred beyond M5 by Deployment topologies (OQ-vision-and-positioning-4).
 
 ### M4 exit criteria
 
 1. S8 runs nightly for Kafka, NATS and MQTT with published records; messaging integration tests pass 100% of cases (target).
 2. The bench suite publishes reproducible S1, S2 and S5 results on RH-1 for every release, each within its [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md) value (target), with regressions against the previous release flagged.
 3. CE-11, CE-17 and GD-14 pass, and losing one Cell's State Store degrades only that Cell.
-4. OQ-wasm-plugin-system-8 and -17, OQ-multi-protocol-7, -8, -9, -10 and -18, OQ-control-plane-and-gitops-22, OQ-deployment-topologies-17 (Region relay loss), OQ-system-overview-16 (regional Ruralz Control), OQ-traffic-management-and-resilience-5 (M4 part: hedging) and OQ-performance-budgets-and-benchmarking-7 are closed.
+4. OQ-wasm-plugin-system-8 and -17, OQ-multi-protocol-7, -8, -9, -10 and -18, OQ-control-plane-and-gitops-22, OQ-deployment-topologies-17 (Region relay loss), OQ-system-overview-16 (regional Ruralz Control) and OQ-traffic-management-and-resilience-5 (M4 part: hedging) are closed.
 5. 100% of Feature Catalog rows tagged Planned (M4) are implemented (target), per SM-3.
 
 Measured and published at exit, not gating: SM-15 (hypothesis).
@@ -213,24 +165,23 @@ Not planned today: produce-only Kafka proxying (M5 is option (b) of OQ-multi-pro
 
 Milestones exit in order; spikes and PDKs MAY start early. A slipping item blocks its milestone's exit unless its owning document moves it.
 
-*Figure 1: relative milestone sequencing M0 to M5 with parallel tracks; axis ticks count relative effort units, not calendar dates.*
+*Figure 1: relative milestone sequencing M1 to M5 with parallel tracks; axis ticks count relative effort units, not calendar dates.*
 
 ```mermaid
 gantt
-    title Relative sequencing of M0 to M5
+    title Relative sequencing of M1 to M5
     dateFormat X
     axisFormat %j
     todayMarker off
     section Milestones
-    M0 Foundations                                  :m0, 0, 2d
-    M1 Core gateway                                 :m1, after m0, 8d
+    M1 Core gateway                                 :m1, 0, 8d
     M2 WASM + Control/GitOps                        :m2, after m1, 8d
     M3 AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3    :m3, after m2, 9d
     M4 Event protocols + multi-region + bench suite :m4, after m3, 6d
     M5 Enterprise hardening                         :m5, after m4, 5d
     section Parallel tracks
-    Plugin ABI and wazero spikes                    :t1, after m0, 4d
-    RH-1 hardware and load tools                    :t2, after m0, 3d
+    Plugin ABI and wazero spikes                    :t1, 0, 4d
+    RH-1 hardware and load tools                    :t2, 0, 3d
     gRPC and GraphQL spikes only (R-1)              :t3, after m1, 4d
     FIPS G3 evidence                                :t4, after m1, 10d
     Bench suite baseline records                    :t5, after m2, 6d
@@ -242,10 +193,9 @@ gantt
 | ID | Risk | Likelihood | Impact | Mitigation |
 |---|---|---|---|---|
 | R-1 | M3 bundles AI, four protocols and HTTP/3, and slips whole | High | High | gRPC and GraphQL spikes during M2; per-track exit (OQ-roadmap-and-milestones-3) |
-| R-2 | gRPC waits for M3, so earlier evaluations needing it exclude Ruralz | High | Medium | gRPC and GraphQL spikes during M2 (R-1); per-track exit (OQ-roadmap-and-milestones-3) |
+| R-2 | gRPC waits for M3, so earlier evaluations needing it exclude Ruralz | High | Medium | As R-1 |
 | R-3 | Go garbage collection breaks 1 ms p99 (target) | Medium | High | M1 macro gate on RH-1, `GOMEMLIMIT` guidance, `default.pgo` in M4 |
-| R-4 | RH-1 is unfunded, so no M1 macro gate runs | Medium | High | Decide OQ-performance-budgets-and-benchmarking-2 before M1 |
-| R-5 | Pack amendments to sections 8.7, 8.8, 8.10 and 8.11 stall | High | Medium | One amendment round before M1 (OQ-scalability-and-distributed-state-11, OQ-security-and-identity-9) |
+| R-4 | RH-1 is unfunded, so no M1 macro gate runs | Medium | High | Rented bare metal ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)) |
 | R-6 | wazero has no fuel metering ([source](https://github.com/wazero/wazero/issues/422)); deadline interruption (`WithCloseOnContextDone`) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), threatening SM-6 and PB-5 | Medium | High | Deadlines and Host Function call budgets (WASM plugin system's answer to OQ-tech-stack-and-libraries-8); S4 loop-heavy variant gates M2; revisit per [ADR-0004](../adr/0004-wasm-runtime-wazero.md) |
 | R-7 | Non-OpenAI token estimates miss SM-10 | Medium | Medium | Provider-reported usage stays authoritative; calibration (OQ-ai-llm-gateway-2) |
 | R-8 | Thin maintenance: paho.golang last tagged 2025-09-06 ([source](https://github.com/eclipse-paho/paho.golang)), mochi-mqtt 2025-03-01 ([source](https://github.com/mochi-mqtt/server)); cedar-go has no default-branch commit since 2026-06-01 ([source](https://github.com/cedar-policy/cedar-go)) | Medium | Medium | Internal interfaces; replace or fork if still stale |
@@ -257,7 +207,6 @@ Contributors sign off under the DCO.
 
 | Milestone | Where outside contributors can help |
 |---|---|
-| M0 | CI stages, repocheck rules, license gate, tooling research |
 | M1 | Built-in Filters, golden and conformance cases, fuzz targets, Grafana dashboards |
 | M2 | PDKs, example Plugins, SM-8 OpenAPI corpus, Ruralz Console pages, Helm chart |
 | M3 | Dialect adapters, guardrail Plugins, TypeScript PDK, protocol conformance cases |
@@ -268,6 +217,5 @@ Contributors sign off under the DCO.
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-roadmap-and-milestones-2 | Should milestones carry dates, which the vision Summary places here? | (a) Relative order only (current), amending the vision; (b) target quarters once M0 exits; (c) dates per release only | ruralz-core | No |
+| OQ-roadmap-and-milestones-2 | Should milestones carry dates, which the vision Summary places here? | (a) Relative order only (current), amending the vision; (b) target quarters; (c) dates per release only | ruralz-core | No |
 | OQ-roadmap-and-milestones-3 | Should M3 exit per track (AI, gRPC and GraphQL, WebSocket and SSE, HTTP/3)? | (a) One exit (current); (b) per-track exits, amending pack section 2; (c) HTTP/3 to M4 | ruralz-core | No |
-| OQ-roadmap-and-milestones-4 | How do documents show capabilities whose code has landed, now that M0 code exists while the README, the style guide and every `Planned (Mx)` tag say nothing is implemented? | (a) Keep every tag until its milestone exits and its release ships, then change them in one pass (proposed); (b) An `Implemented (Mx)` tag, amending the style guide and pack section 2 under section 14; (c) Track status only in the Feature Catalog | ruralz-core | No |

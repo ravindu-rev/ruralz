@@ -93,7 +93,7 @@ func (r *repo) goFiles() []string {
 	return out
 }
 
-func run(root, allowlist string) ([]finding, error) {
+func run(root, allowlist string, cv catalogView) ([]finding, error) {
 	r, err := loadRepo(root)
 	if err != nil {
 		return nil, err
@@ -107,6 +107,8 @@ func run(root, allowlist string) ([]finding, error) {
 		checkGo,
 		checkLicenseHeaders,
 		func(r *repo) ([]finding, error) { return checkNoLicense(r, allow) },
+		func(*repo) ([]finding, error) { return checkCatalog(cv), nil },
+		func(r *repo) ([]finding, error) { return checkObservabilityDoc(r, cv) },
 	} {
 		f, err := check(r)
 		if err != nil {
@@ -133,6 +135,7 @@ func checkGo(r *repo) ([]finding, error) {
 			continue
 		}
 		out = append(out, checkImports(fset, rel, f)...)
+		out = append(out, checkTelemetryNames(fset, rel, f)...)
 		if !strings.HasPrefix(rel, "internal/errcode/") {
 			out = append(out, checkCodes(fset, rel, f)...)
 		}

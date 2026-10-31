@@ -1,0 +1,42 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: dns-service
+spec:
+  protocol: http
+  discovery:
+    type: dns
+    service: "billing shop"
+    port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: dns-no-port
+spec:
+  protocol: http
+  discovery:
+    type: dns
+    service: billing.shop.svc
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: dns-port-zero
+spec:
+  protocol: http
+  discovery:
+    type: dns
+    service: billing.shop.svc
+    port: 0
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: dns-port-name
+spec:
+  protocol: http
+  discovery:
+    type: dns
+    service: billing.shop.svc
+    port: "8080"

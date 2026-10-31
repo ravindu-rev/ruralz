@@ -1,0 +1,18 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: staging
+spec:
+  variables:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector.observability:4317"
+---
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: prod
+spec:
+  promotion:
+    from: staging                       # a commit must complete a staging Rollout first
+    requireApproval: true
+  variables:
+    OTEL_EXPORTER_OTLP_ENDPOINT: "https://otel-collector.observability:4317"

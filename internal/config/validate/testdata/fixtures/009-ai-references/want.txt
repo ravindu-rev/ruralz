@@ -1,0 +1,2 @@
+extra.yaml:10:15 error RZ-CFG-009 Upstream/llm spec.ai.models[name=support-chta].name: AIModel "support-chta" not found (did you mean "support-chat"?)
+extra.yaml:20:17 error RZ-CFG-009 AIModel/support-chat spec.candidates[name=primary].provider: AIProvider "anthropic-prd" not found (did you mean "anthropic-prod"?)

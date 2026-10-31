@@ -1,0 +1,19 @@
+[
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "routes/closed-config.json",
+    "line": 7,
+    "column": 16,
+    "resource": {
+      "kind": "Policy",
+      "name": "basic"
+    },
+    "path": [
+      "spec",
+      "config",
+      "realm"
+    ],
+    "message": "unknown field \"realm\""
+  }
+]

@@ -1,0 +1,17 @@
+[
+  {
+    "code": "RZ-CFG-016",
+    "severity": "error",
+    "file": "gateway.yaml",
+    "line": 2,
+    "column": 7,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "kind"
+    ],
+    "message": "a Gateway is declared only in ruralz.yaml, the Bundle root"
+  }
+]

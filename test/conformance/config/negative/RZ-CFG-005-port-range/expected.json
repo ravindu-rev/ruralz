@@ -1,0 +1,22 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 9,
+    "column": 13,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "http"
+      },
+      "port"
+    ],
+    "message": "must be at most 65535"
+  }
+]

@@ -1,0 +1,75 @@
+# The span and access-log queue run of the constants table: S2 at both
+# trace caps (docs/architecture/12-performance-budgets-and-benchmarking.md
+# "Constants the suite verifies"). traceSampling 1 samples every request
+# without a traceparent until the root cap binds, and half of the load
+# carries a sampled traceparent, so the parent cap binds too; the span
+# queue holds 8,192 spans and the access-log queue 8,192 records and 4 MiB
+# (target), and anything beyond drops with reason queue_full.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  admin:
+    port: 9901
+  telemetry:
+    otlp: {endpoint: "https://otel-sink.bench.example:4317"}   # TLS client settings: telemetry.otlp.tls
+    traceSampling: 1                 # every root request until the root cap binds; every request is logged
+  stateStore:
+    driver: memory                   # GCRA in process, no round trip: SM-4's "no State Store Policy";
+                                     # this GCRA counts as gateway-added CPU
+  policies:
+    - name: jwt-bench
+    - name: ratelimit-bench
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  protocol: http
+  endpoints:
+    - address: "upstream-mock.bench.example:8080"
+  loadBalancing: {algorithm: round-robin}
+  circuitBreaker:                    # defaults cap one Endpoint at 512 attempts (hypothesis)
+    maxConnections: 65536            # above S1's 50,000 attempts/s; one Endpoint's 50%: 32,768 (target)
+    maxPendingRequests: 1024         # S6's provider Upstream sets the same values (target)
+  timeout: 2s                        # (target)
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bench-1k
+spec:
+  match:
+    path: {exact: /bench/1k}
+    methods: [GET]
+  upstreams:
+    - name: mock
+  timeout: 5s                        # (target)
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  type: auth.jwt                     # generator rotates 10,000 tokens (target) from two keys; no verified-token cache
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://idp.bench.example/.well-known/jwks.json
+        audiences: [bench]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: ratelimit-bench
+spec:
+  type: ratelimit
+  config:
+    key: 'request.headers["x-bench-key"]'   # the generator cycles 100,000 values uniformly (target)
+    limits: [{requests: 20000, window: 1s}] # under 25,000/s per key (target); never denies at the offered rate

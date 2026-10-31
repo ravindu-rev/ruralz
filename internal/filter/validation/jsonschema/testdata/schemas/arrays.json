@@ -1,0 +1,10 @@
+{
+  "type": "array",
+  "prefixItems": [{"type": "string"}, {"type": "integer"}],
+  "items": {"type": ["number", "boolean", "null"]},
+  "contains": {"const": true},
+  "minContains": 1,
+  "maxContains": 3,
+  "uniqueItems": true,
+  "unevaluatedItems": false
+}

@@ -1,0 +1,1 @@
+ruralz.yaml:16:3 error RZ-CFG-005 Upstream/orders spec.endpoints: an Upstream needs endpoints unless it sets discovery or has protocol ai

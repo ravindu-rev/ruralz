@@ -1,0 +1,31 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-oauth-same-origin
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: HTTPS://Auth.Shop.Example:443/oauth2/other-token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-oauth-member
+spec:
+  type: auth.upstream-oauth2
+  config:
+    tokenUrl: https://billing-auth.shop.example/token
+    clientId: gateway-edge
+    clientSecret: {secretRef: {provider: file, name: /etc/ruralz/creds.json, key: billing}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: beta
+spec:
+  credentials:
+    apiKeys:
+      - name: retrievable
+        secretRef: {provider: file, name: /etc/ruralz/creds.json, key: beta-key}

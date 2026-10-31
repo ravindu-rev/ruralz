@@ -1,0 +1,49 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  policies:
+    - name: cache
+    - name: validate
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: cache
+spec:
+  type: cache
+  config:
+    ttl: 60s
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: validate
+spec:
+  type: validation.json-schema
+  config:
+    schema: {type: object}

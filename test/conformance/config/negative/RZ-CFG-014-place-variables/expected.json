@@ -1,0 +1,20 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 27,
+    "column": 11,
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "match",
+      "when"
+    ],
+    "message": "CEL Route.spec.match.when: undeclared reference to 'consumer'",
+    "hint": "Route.spec.match.when has request, source, now"
+  }
+]

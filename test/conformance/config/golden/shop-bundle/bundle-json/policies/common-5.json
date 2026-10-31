@@ -1,0 +1,13 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {
+    "name": "authz-orders"
+  },
+  "spec": {
+    "type": "authz.cel",
+    "config": {
+      "rule": "auth.claims.scope.split(\" \").exists(s, s == \"orders:read\")"
+    }
+  }
+}

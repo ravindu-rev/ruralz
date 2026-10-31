@@ -2,17 +2,6 @@
 id: ADR-0017
 title: "Artifact signing: Revisions and Plugins signed, verified by Nodes by default"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/08-security-and-identity.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/architecture/04-control-plane-and-gitops.md
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/vision/01-vision-and-positioning.md
 ---
 
 # ADR-0017: Artifact signing: Revisions and Plugins signed, verified by Nodes by default
@@ -21,7 +10,7 @@ related:
 
 Nodes activate Revisions and Plugin artifacts arriving over the Control Stream in Control mode, or by OCI pull or a watched Bundle directory in file mode ([System overview](../architecture/01-system-overview.md#deployment-modes)). Threat T6 of [Security and identity](../architecture/08-security-and-identity.md#threat-model-and-trust-boundaries) covers tampering, replay and retagging across TB-5 (Node to Ruralz Control) and TB-8 (Node to OCI registry).
 
-A digest proves which bytes arrived, not who chose them: a file-mode Node learns its Revision digest from a repository reference (OQ-system-overview-19), and a Bundle author can pin any Plugin digest. The freeze answered OQ-system-overview-3 with this ADR. Nothing is implemented; signing and verification are Planned (M2).
+A digest proves which bytes arrived, not who chose them: a file-mode Node learns its Revision digest from a repository reference (OQ-system-overview-19), and a Bundle author can pin any Plugin digest. Nothing is implemented; signing and verification are Planned (M2).
 
 ## Decision drivers
 
@@ -57,12 +46,12 @@ Chosen option: "Layered signing, verified offline by default", because it alone 
 Rules that follow:
 
 - **Failure.** A signature missing from a reachable registry, invalid, or matching no trusted identity is RZ-CFG-033 ([Configuration model](../architecture/02-configuration-model.md#error-codes)), a deterministic NACK (pack 8.3); a failed or timed-out registry or referrer fetch is a transient NACK, retried then quarantined ([WASM plugin system](../architecture/05-wasm-plugin-system.md#failure-semantics-and-the-rz-plg-registry)). The Node keeps its active Revision; verification is step 1 of [Compile before swap](../architecture/01-system-overview.md#compile-before-swap), off the request path.
-- **Trust policies.** Control mode: root-signed anchor sets carry the online keys and the Plugin trust policy, via Enrollment and `TrustUpdate`; Ruralz Control's process configuration (OQ-control-plane-and-gitops-1, option (a) proposed) only feeds the offline root signing. File mode: the Node's process configuration (OQ-security-and-identity-8), also read by `ruralz bundle build` and `ruralz bundle validate --online` (flags: [CLI and API surface](../reference/01-cli-and-api-surface.md)), which without one fail with RZ-CFG-033 naming the missing input. Trust policies never live in a Bundle. Under `enforce` an empty trust policy rejects everything; keyless entries name exact issuer and subject pairs, and patterns are opt-in ([Signed Revisions and Plugin artifacts](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts)).
-- **Offline verification.** Nodes never fetch trust roots over TUF. The Sigstore trusted root (Fulcio, log and timestamp keys) sits in the anchor-set Plugin trust policy in Control mode, refreshed by `TrustUpdate` (to confirm: OQ-control-plane-and-gitops-1), and in process configuration in file mode. A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp; the Node checks the certificate against that time, and the log and timestamp keys against its local trusted root; a missing or unverifiable proof or timestamp is RZ-CFG-033. Key-based signatures verify against the configured key. cosign signs through Rekor v2 since v3.1.1 ([source](https://github.com/sigstore/cosign/releases)), a tile-backed log with yearly shards ([source](https://blog.sigstore.dev/rekor-v2-ga/)).
+- **Trust policies.** Control mode: root-signed anchor sets carry the online keys and the Plugin trust policy, via Enrollment and `TrustUpdate`; Ruralz Control's process configuration only feeds the offline root signing. File mode: the Node's process configuration, also read by `ruralz bundle build` and `ruralz bundle validate --online` (flags: [CLI and API surface](../reference/01-cli-and-api-surface.md)), which without one fail with RZ-CFG-033 naming the missing input. Trust policies never live in a Bundle. Under `enforce` an empty trust policy rejects everything; keyless entries name exact issuer and subject pairs, and patterns are opt-in ([Signed Revisions and Plugin artifacts](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts)).
+- **Offline verification.** Nodes never fetch trust roots over TUF. The Sigstore trusted root (Fulcio, log and timestamp keys) sits in the anchor-set Plugin trust policy in Control mode, refreshed by `TrustUpdate`, and in process configuration in file mode. A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp; the Node checks the certificate against that time, and the log and timestamp keys against its local trusted root; a missing or unverifiable proof or timestamp is RZ-CFG-033. Key-based signatures verify against the configured key. cosign signs through Rekor v2 since v3.1.1 ([source](https://github.com/sigstore/cosign/releases)), a tile-backed log with yearly shards ([source](https://blog.sigstore.dev/rekor-v2-ga/)).
 - **Bounds.** Verifiers list only Sigstore bundle referrers and try at most 16 of at most 1 MiB each within 10 s (target), inside the 64 MiB and 30 s fetch limits (target) that [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) sets for the online Plugin check, which this ADR extends to Nodes and the CLI. No valid signature within the count and size limits is RZ-CFG-033; a timeout is transient. Results are cached by artifact digest and trust policy version.
 - **What a signature binds.** Control mode signs Revisions (digest, Environment, key ID, time), assignments (Cluster, Environment, digest, `rolloutId`, `storeEpoch`, `assignmentSeq`) and promotions (Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`), stopping cross-Cluster, stale, deposed-leader and Last-Known-Good replay. OCI Revisions bind digest and signature only until OQ-security-and-identity-26 closes; each Environment SHOULD use its own signing identity, so trust policies reject other Environments' Revisions.
 - **Algorithms and libraries.** ECDSA P-256 and SHA-256 through Go `crypto/ecdsa` for Ruralz Control; `sigstore/sigstore-go` v1.3.x; `oras.land/oras-go/v2` v2.6.2 or newer, above GO-2026-5879 ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)).
-- **Key compromise.** After emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince` and stays not ready until the Control Stream delivers, an exception to pack 8.2 step (3) and P9 (OQ-control-plane-and-gitops-24, option (a)).
+- **Key compromise.** After emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince` and stays not ready until the Control Stream delivers, an exception to pack 8.2 step (3) and P9.
 - **Scope.** Release artifact signing (images, SBOM) belongs to [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).
 
 *Figure 1: signers and Node verification points.*
@@ -113,7 +102,7 @@ flowchart LR
 - **Chaos test**, Planned (M2): a bad Revision digest or signature is rejected before any swap ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
 - **Interoperability job**, Planned (M2), with the OCI registry integration tests: cosign 3.1.3 or newer referrers, keyless bundles included, verify with sigstore-go with egress denied (hypothesis until it passes).
 - **FIPS CI job**, Planned (M5): the G3 check confirms `crypto/ecdsa` signing and decides sigstore-go under OQ-tech-stack-and-libraries-9.
-- **Review checklist item**: a pull request that skips the verifier, reads a trust policy from a Bundle, or makes the Control-mode check configurable MUST amend this ADR.
+- **Amendment trigger**: a pull request that skips the verifier, reads a trust policy from a Bundle, or makes the Control-mode check configurable MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -145,6 +134,6 @@ flowchart LR
 ## More information
 
 - Owning document: [Security and identity](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts); mechanisms in [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#revision-signing-and-verification) and [WASM plugin system](../architecture/05-wasm-plugin-system.md#signing-and-verification).
-- Research: [Tooling and licenses](../_meta/research/tooling-and-licenses.md) section 2 records sigstore-go v1.3.0 ([source](https://github.com/sigstore/sigstore-go/releases/tag/v1.3.0)) and oras-go v2.6.2 ([source](https://github.com/oras-project/oras-go/releases/tag/v2.6.2)) as Apache-2.0.
+- Licenses: sigstore-go v1.3.0 ([source](https://github.com/sigstore/sigstore-go/releases/tag/v1.3.0)) and oras-go v2.6.2 ([source](https://github.com/oras-project/oras-go/releases/tag/v2.6.2)) are Apache-2.0.
 - Related decisions: [ADR-0007](0007-control-stream-protocol.md) (NACKs), [ADR-0005](0005-plugin-abi-v1.md), [ADR-0001](0001-implementation-language-go.md) (FIPS build).
-- Open questions refining, not reversing, it: OQ-security-and-identity-8 and -26, OQ-control-plane-and-gitops-1, -8 and -24, OQ-system-overview-19, OQ-wasm-plugin-system-6 and -14, OQ-release-versioning-and-compatibility-3.
+- Open questions refining, not reversing, it: OQ-security-and-identity-26, OQ-control-plane-and-gitops-8, OQ-system-overview-19, OQ-wasm-plugin-system-6 and -14.

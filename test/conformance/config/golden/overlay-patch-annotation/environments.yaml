@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: replace
+spec: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Environment
+metadata:
+  name: delete
+spec: {}

@@ -1,0 +1,31 @@
+[
+  {
+    "code": "RZ-CFG-009",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 13,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "policies",
+      {
+        "name": "orders"
+      },
+      "name"
+    ],
+    "message": "Policy \"orders\" not found",
+    "hint": "\"orders\" is an Upstream, not a Policy",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 12,
+        "column": 1,
+        "message": "declared in"
+      }
+    ]
+  }
+]

@@ -1,0 +1,230 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# image-checks: the Compose suite and the air-gapped image start
+# (docs/engineering/03-testing-and-quality-strategy.md "Compose suite" and
+# "Test pyramid"; make image-checks), on a linux/amd64 leg (ubuntu-latest)
+# and a linux/arm64 leg (ubuntu-24.04-arm), with the runner's Docker.
+#   - Daily, on every push to main that changes deploy/container/ or
+#     test/compose/, and on demand without an image: it tests the image
+#     built from the commit's make release-dry-run, with the ruralz CLI the
+#     dry run built.
+#   - On demand with an image (<ref>@sha256:<digest>): that image, with the
+#     CLI built from the commit.
+#   - Called by release.yml with the release image's digest and the name of
+#     the calling run's artifact that holds the release directory: that
+#     image, with the CLI from the release's linux ruralz archive of the
+#     leg's architecture. The caller grants contents: read, packages: read
+#     (the image is pulled from ghcr.io by digest), actions: read and
+#     issues: write.
+# The upgrade starts from the previous release's image by digest, the
+# newest published vX.Y.Z below the version under test (the newest of all
+# outside a release run), or from the image under test while no release
+# exists. A failed scheduled or push run opens or updates a nightly-failure
+# issue, which blocks the next release.
+name: image-checks
+
+on:
+  schedule:
+    - cron: "43 5 * * *"
+  push:
+    branches: [main]
+    paths:
+      - "deploy/container/**"
+      - "test/compose/**"
+  workflow_dispatch:
+    inputs:
+      image:
+        description: Image to test, <ref>@sha256:<digest>; empty tests the image built from the commit
+        type: string
+        default: ""
+  workflow_call:
+    inputs:
+      image:
+        description: The release image, <ref>@sha256:<digest>
+        type: string
+        required: true
+      release-artifact:
+        description: Artifact of the calling run that holds the release directory with its linux ruralz archives
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: image-checks-${{ github.ref }}-${{ inputs.image || 'commit' }}
+  cancel-in-progress: false
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  image-checks:
+    name: Image checks (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            arch: amd64
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: read
+    env:
+      IMAGE: ${{ inputs.image }}
+      RELEASE_ARTIFACT: ${{ inputs.release-artifact }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Tags and history give the dry run its version and timestamps.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Check the inputs
+        run: |
+          # The image is a free-form input: allow only a reference pinned by
+          # digest, so it cannot reach the shell or docker as anything else.
+          if [[ -n "$IMAGE" && ! "$IMAGE" =~ ^[a-z0-9][a-z0-9._/:-]*@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error title=Invalid image::image must be <ref>@sha256:<64 hex>"
+            exit 2
+          fi
+          if [[ -n "$RELEASE_ARTIFACT" && ! "$RELEASE_ARTIFACT" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error title=Invalid release-artifact::release-artifact must be an artifact name"
+            exit 2
+          fi
+      - name: Sign in to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTOR: ${{ github.actor }}
+        run: printf '%s' "$GH_TOKEN" | docker login ghcr.io --username "$ACTOR" --password-stdin
+      - name: The previous release's image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          # The version under test: a release or candidate tag's X.Y.Z, else
+          # none, and then the newest release counts.
+          base=""
+          if [[ "$REF_TYPE" == tag && "$REF_NAME" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)(-rc\.[0-9]+)?$ ]]; then
+            base=${BASH_REMATCH[1]}
+          fi
+          # An assignment, so a failed listing fails the step instead of
+          # reading as no release.
+          tags=$(gh release list --repo "$REPO" --exclude-drafts --exclude-pre-releases --limit 1000 --json tagName --jq '.[].tagName')
+          prev=$(
+            while read -r tag; do
+              v=${tag#v}
+              [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+              if [[ -n "$base" && ( "$v" == "$base" || "$(printf '%s\n%s\n' "$v" "$base" | sort -V | head -n 1)" != "$v" ) ]]; then
+                continue # not below the version under test
+              fi
+              echo "$v"
+            done <<<"$tags" | sort -V | tail -n 1
+          )
+          if [[ -z "$prev" ]]; then
+            echo "no previous release: the upgrade starts from the image under test"
+            exit 0
+          fi
+          digest=$(docker buildx imagetools inspect "ghcr.io/ravindu-rev/ruralzd:$prev" --format '{{.Manifest.Digest}}')
+          if [[ ! "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error title=Previous release image::cannot resolve ghcr.io/ravindu-rev/ruralzd:$prev to a digest"
+            exit 1
+          fi
+          echo "the upgrade starts from release $prev, ghcr.io/ravindu-rev/ruralzd@$digest"
+          echo "PREVIOUS_IMAGE=ghcr.io/ravindu-rev/ruralzd@$digest" >>"$GITHUB_ENV"
+      - name: The image and CLI built from the commit
+        if: env.IMAGE == ''
+        run: make release-dry-run
+      - name: The release's CLI
+        if: env.RELEASE_ARTIFACT != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ inputs.release-artifact }}
+          path: ${{ runner.temp }}/release
+      - name: Unpack the release's linux ruralz archive
+        if: env.RELEASE_ARTIFACT != ''
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          mapfile -t archives < <(find "$RUNNER_TEMP/release" -type f -name "ruralz_*_linux_${ARCH}.tar.gz")
+          if [[ ${#archives[@]} -ne 1 ]]; then
+            echo "::error title=Release CLI::want one ruralz linux/$ARCH archive in the release artifact, found ${#archives[@]}: ${archives[*]}"
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/cli"
+          tar -xzf "${archives[0]}" -C "$RUNNER_TEMP/cli" ruralz
+          echo "RURALZ_TEST_BIN_DIR=$RUNNER_TEMP/cli" >>"$GITHUB_ENV"
+      - name: Compose suite and air-gapped image start
+        env:
+          # A failed test leaves each project's containers, logs and
+          # Collector files here.
+          RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/evidence
+        run: make image-checks
+      - if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-checks-evidence-${{ matrix.arch }}
+          path: ${{ runner.temp }}/evidence/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  issues:
+    name: Image checks issues
+    needs: image-checks
+    # Scheduled and push runs of this workflow only: under release.yml
+    # (workflow_call) the github context, and so github.workflow, is the
+    # caller's, and the release run reports its own failures; an on-demand
+    # run is watched by whoever started it.
+    if: failure() && github.workflow == 'image-checks' && (github.event_name == 'schedule' || github.event_name == 'push')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+      issues: write
+    steps:
+      - name: Open or update issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          SHA: ${{ github.sha }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
+
+          # upsert <title> <body file>: comment on the open nightly-failure
+          # issue with this exact title, or open one.
+          upsert() {
+            local n
+            n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
+              --jq ".[] | select(.title == \"$1\") | .number" | head -n 1)
+            if [[ -n "$n" ]]; then
+              gh issue comment "$n" --body-file "$2"
+            else
+              gh issue create --label nightly-failure --title "$1" --body-file "$2"
+            fi
+          }
+
+          body="$RUNNER_TEMP/body.md"
+          gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
+            while read -r job; do
+              if [[ ! "$job" =~ ^Image\ checks\ \( ]]; then
+                continue
+              fi
+              printf 'The image-checks job "%s" failed in the %s run %s (commit %s). An image-checks failure blocks the next release.\n' \
+                "$job" "$EVENT" "$RUN_URL" "$SHA" >"$body"
+              upsert "nightly failure: $job" "$body"
+            done

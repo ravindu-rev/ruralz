@@ -1,0 +1,19 @@
+# New identities: added, each a whole resource that validates alone.
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: inventory
+spec:
+  protocol: http
+  endpoints:
+    - address: "inventory.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: stock
+spec:
+  match:
+    path: {prefix: /stock}
+  upstreams:
+    - name: inventory

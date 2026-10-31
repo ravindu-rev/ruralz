@@ -1,0 +1,107 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-96767fd91734",
+    "digest": "sha256:96767fd91734ba4010d3752bfa73a6f91ebf4b075cae0f413a23a44aa292281a"
+  },
+  "to": {
+    "revision": "rev-754eabd767ca",
+    "bundle": "./overlay-replaced-values",
+    "digest": "sha256:754eabd767cacd6a9ed0e7c2cb210eae4ca8617c73379565141628d4d328a0e3"
+  },
+  "environment": "prod",
+  "resources": [
+    {
+      "kind": "Route",
+      "name": "orders",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing",
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "timeout"
+          ],
+          "from": "5s",
+          "to": "2s"
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "match",
+            "methods",
+            {
+              "item": "HEAD"
+            }
+          ],
+          "from": "HEAD"
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "match",
+            "methods",
+            {
+              "item": "POST"
+            }
+          ],
+          "from": "POST"
+        }
+      ]
+    },
+    {
+      "kind": "Policy",
+      "name": "limit",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "config",
+            "limits"
+          ],
+          "from": [
+            {
+              "requests": 100,
+              "window": "1s"
+            },
+            {
+              "requests": 1000,
+              "window": "1m0s"
+            }
+          ],
+          "to": [
+            {
+              "requests": 50,
+              "window": "1s"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 2,
+    "added": 0,
+    "removed": 0,
+    "modified": 2,
+    "routeChainsChanged": 0,
+    "impact": [
+      "routing",
+      "traffic"
+    ]
+  }
+}

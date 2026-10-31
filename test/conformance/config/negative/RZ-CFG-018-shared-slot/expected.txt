@@ -1,0 +1,1 @@
+ruralz.yaml:12:7 error RZ-CFG-018 Gateway/edge spec.policies[name=cors-portal]: Policies "cors-shop" and "cors-portal" share slot "cors" at Gateway scope (first entry at ruralz.yaml:11:7)

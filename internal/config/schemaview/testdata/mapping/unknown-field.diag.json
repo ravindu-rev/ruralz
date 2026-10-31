@@ -1,0 +1,50 @@
+[
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "routes/unknown-field.json",
+    "line": 6,
+    "column": 5,
+    "resource": {
+      "kind": "Upstream",
+      "name": "inventory"
+    },
+    "path": [
+      "metadata",
+      "namespace"
+    ],
+    "message": "unknown field \"namespace\": Bundles have no namespace"
+  },
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "routes/unknown-field.json",
+    "line": 8,
+    "column": 3,
+    "resource": {
+      "kind": "Upstream",
+      "name": "inventory"
+    },
+    "path": [
+      "status"
+    ],
+    "message": "unknown field \"status\": only Ruralz Control writes status"
+  },
+  {
+    "code": "RZ-CFG-006",
+    "severity": "error",
+    "file": "routes/unknown-field.json",
+    "line": 12,
+    "column": 5,
+    "resource": {
+      "kind": "Upstream",
+      "name": "inventory"
+    },
+    "path": [
+      "spec",
+      "timout"
+    ],
+    "message": "unknown field \"timout\"",
+    "hint": "did you mean \"timeout\"?"
+  }
+]

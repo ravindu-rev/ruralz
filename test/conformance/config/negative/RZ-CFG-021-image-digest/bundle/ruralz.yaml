@@ -1,0 +1,19 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: geo-block
+spec:
+  image: ghcr.io/acme/ruralz-plugins/geo-block:1.4.0
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  capabilities: [request.headers.read]

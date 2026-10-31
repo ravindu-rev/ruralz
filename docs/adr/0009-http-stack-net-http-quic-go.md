@@ -2,14 +2,6 @@
 id: ADR-0009
 title: "HTTP stack: net/http and quic-go, no fasthttp"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/03-data-plane.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/07-multi-protocol.md
 ---
 
 # ADR-0009: HTTP stack: net/http and quic-go, no fasthttp
@@ -45,11 +37,11 @@ Chosen option: "net/http plus quic-go", because the ingress libraries, connect-g
 | Client listeners | One `http.Server` per listener; `Server.Protocols` enables HTTP/1.1 and HTTP/2 (ALPN `h2`) on `https`, and HTTP/1.1 plus `UnencryptedHTTP2` on `http` (h2c by prior knowledge; no `Upgrade: h2c`) ([source](https://go.dev/doc/go1.24)) | Planned (M1) |
 | HTTP/2 settings | Only `HTTP2Config`; on client listeners `MaxConcurrentStreams`, `MaxReceiveBufferPerConnection`, `MaxReceiveBufferPerStream` and `MaxReadFrameSize`, set once at start. At Hot Reload, a changed listener gets a new socket and server | Planned (M1) |
 | Deadlines | Body reads and response writes use `http.ResponseController` deadlines ([source](https://pkg.go.dev/net/http#ResponseController)); server `ReadTimeout` and `WriteTimeout` stay unset on client listeners | Planned (M1) |
-| HTTP/3 | quic-go `http3` v0.63.x, pinned, behind an internal interface, on UDP at the `https` port when `http3: true`. QUIC connections count against the Node connection ceiling. quic-go reads each stream's headers before the handler runs, so HTTP/3 per-connection memory is the incoming-stream cap times the header limit plus receive windows, with a separate Bounded resources row and HTTP/3 connection ceiling so the Node worst-case sum holds (hypothesis). Per-stream header reads get a `ReadHeaderTimeout` deadline. The quic-go settings and deadline support await research. 0-RTT stays off ([Security and identity](../architecture/08-security-and-identity.md)) | Planned (M3) |
-| FIPS builds | FIPS release builds set the tag `ruralz_fips`, which the HTTP/3 package excludes (`//go:build !ruralz_fips`). A FIPS `ruralzd` never binds UDP 8443 and refuses, never ignores, a Revision with `http3: true` (foundation pack section 8.1). The proposed form, a deterministic NACK or a file-mode load failure with an RZ-CFG code, goes to OQ-tech-stack-and-libraries-9 with the mixed-Cluster cost [ADR-0001](0001-implementation-language-go.md) names | Planned (M5) |
+| HTTP/3 | quic-go `http3` v0.63.x, pinned, behind an internal interface, on UDP at the `https` port when `http3: true`. QUIC connections count against the Node connection ceiling. quic-go reads each stream's headers before the handler runs, so HTTP/3 per-connection memory is the incoming-stream cap times the header limit plus receive windows, with a separate Bounded resources row and HTTP/3 connection ceiling so the Node worst-case sum holds (hypothesis). Per-stream header reads get a `ReadHeaderTimeout` deadline. The quic-go settings and deadline support are OQ-data-plane-14. 0-RTT stays off ([Security and identity](../architecture/08-security-and-identity.md)) | Planned (M3) |
+| FIPS builds | FIPS release builds set the tag `ruralz_fips`, which the HTTP/3 package excludes (`//go:build !ruralz_fips`). A FIPS `ruralzd` never binds UDP 8443 and refuses, never ignores, a Revision with `http3: true` (foundation pack section 8.1). The form is OQ-tech-stack-and-libraries-9, proposed as a deterministic NACK or a file-mode load failure with an RZ-CFG code, with the mixed-Cluster cost [ADR-0001](0001-implementation-language-go.md) names | Planned (M5) |
 | Upstream layer | Own loop on `http.Transport`, not `httputil.ReverseProxy`; HTTP/1.1 in cleartext, HTTP/2 by ALPN over TLS. `HTTP2Config.StrictMaxConcurrentRequests` is false ([source](https://go.dev/doc/go1.26)), so a server's stream limit opens another connection; each attempt first takes a `circuitBreaker.maxConnections` slot, whose waiters count toward `maxPendingRequests` ([Circuit breakers](../architecture/09-traffic-management-and-resilience.md#circuit-breakers)), so nothing queues unseen in `http.Transport` | Planned (M1) |
 | Other servers | `net/http` on 9901 and on `ruralz-control` ports 8090, 8091 and 9902; the 8091 server unsets server timeouts and detects dead peers with `HTTP2Config` pings | Planned (M1) for 9901; Planned (M2) for Ruralz Control |
-| `golang.org/x/net/http2` | Non-deprecated low-level APIs only, such as `Framer` ([source](https://github.com/golang/net/blob/v0.59.0/http2/frame.go)); none in use at the snapshot | Planned (M0) lint rule |
+| `golang.org/x/net/http2` | Non-deprecated low-level APIs only, such as `Framer` ([source](https://github.com/golang/net/blob/v0.59.0/http2/frame.go)); none in use | Planned (M0) lint rule |
 | fasthttp | Never linked | Not planned: it is not `net/http` |
 
 *Figure 1: the stack per listener and upstream leg; dashed edges are Planned (M3); gRPC and WebSocket stay on TCP.*
@@ -89,16 +81,16 @@ flowchart LR
 - Bad, because quic-go is pre-1.0, breaks `http3` APIs on minor releases, and reaches the unexported `crypto/tls.aeadAESGCMTLS13` through `go:linkname` pending golang/go#79219 ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)), so a Go release can break its build.
 - Bad, because FIPS builds lack HTTP/3, a feature difference that foundation pack section 1 and P1 otherwise forbid, allowed only by pack section 8.4 until OQ-tech-stack-and-libraries-9 closes ([ADR-0001](0001-implementation-language-go.md)).
 - Bad, because `http.Transport` and grpc-go both reach Upstreams over HTTP/2 ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)), so client limits are set twice.
-- Bad, because in-flight QUIC connections on UDP 8443 are lost, while TCP connections Drain, at a Zero-Downtime Upgrade ([ADR-0015](0015-zero-downtime-upgrades-so-reuseport.md), OQ-system-overview-18) and when a Hot Reload replaces an `http3` socket (amendment below).
+- Bad, because in-flight QUIC connections on UDP 8443 are lost, while TCP connections Drain, at a Zero-Downtime Upgrade ([ADR-0015](0015-zero-downtime-upgrades-so-reuseport.md), OQ-system-overview-18) and when a Hot Reload replaces an `http3` socket (OQ-data-plane-16).
 - Bad, because no `Upstream` field selects h2c or HTTP/3, so `http` Upstreams stop at HTTP/1.1 and HTTP/2 over TLS until OQ-multi-protocol-12 decides.
 
 ### Confirmation
 
 - **forbidigo rule**, Planned (M0): golangci-lint bans the deprecated `x/net/http2` `Server` and `Transport` in Ruralz code ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#golangci-lint-linter-set)).
-- **Dependency admission**, Planned (M0): fasthttp, marked "Never" under [Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen), has no catalog row, so [Admission](../engineering/01-tech-stack-and-libraries.md#admission) rejects it; quic-go minor bumps need a named reviewer ([Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy)).
-- **Protocol conformance suite** in `pr-full`, in floor and release jobs: HTTP/1.1 and HTTP/2 cases, Planned (M1), and HTTP/3 cases, Planned (M3), that assert the QUIC stream cap and per-connection memory against the HTTP/3 Bounded resources row; frame-level suites wait on OQ-testing-and-quality-strategy-6 ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
+- **Dependency admission**, Planned (M0): fasthttp, marked "Never" under [Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen), has no catalog row, so [Admission](../engineering/01-tech-stack-and-libraries.md#admission) rejects it; quic-go minor bumps follow the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
+- **Protocol conformance suite** in `pr-full`, in stage 8 with a Go 1.26 floor leg, and in release jobs: HTTP/1.1 and HTTP/2 cases, with Ruralz-written HTTP/2 frame cases on the `x/net/http2` `Framer`, Planned (M1), and HTTP/3 cases, Planned (M3), that assert the QUIC stream cap and per-connection memory against the HTTP/3 Bounded resources row; external frame-level suites wait on OQ-testing-and-quality-strategy-6 ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
 - **FIPS job**, Planned (M5): `go list -deps -tags ruralz_fips ./cmd/ruralzd` fails if quic-go appears ([ADR-0001](0001-implementation-language-go.md)), and FIPS tests assert that a FIPS `ruralzd` never binds UDP 8443 and rejects a Revision with `http3: true` with the code OQ-tech-stack-and-libraries-9 settles.
-- **Review checklist item**: a pull request that adds an HTTP server or client library, or sets an HTTP/2 option outside `HTTP2Config`, MUST amend this ADR.
+- **Amendment trigger**: a pull request that adds an HTTP server or client library, or sets an HTTP/2 option outside `HTTP2Config`, MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -132,7 +124,3 @@ flowchart LR
 - Owning document: [Data plane](../architecture/03-data-plane.md#listeners-and-protocols), with [Bounded resources](../architecture/03-data-plane.md#bounded-resources) and [Upstream layer](../architecture/03-data-plane.md#upstream-layer); catalog rows: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog) and [foundation pack section 7](../_meta/foundation-pack.md#7-technology-decisions-fixed-details-in-docsengineering01-tech-stack-and-librariesmd-and-adrs).
 - Related decisions: [ADR-0001](0001-implementation-language-go.md) (builds, FIPS), [ADR-0007](0007-control-stream-protocol.md) (Control Stream) and [ADR-0015](0015-zero-downtime-upgrades-so-reuseport.md) (upgrades).
 - Revisit when the standard library ships a public HTTP/3 API.
-- Proposed owning-document amendments:
-  - Data plane SHOULD add HTTP/3 Bounded resources rows (per-connection memory, connection ceiling, per-stream header-read deadline), an Open question on the quic-go limits and `http.ResponseController` deadline support, `StrictMaxConcurrentRequests` false in Upstream layer, the Hot Reload QUIC loss with an Open question, and an Open question on HTTP/3 discovery (`Alt-Svc`), which the M3 HTTP/3 row depends on.
-  - The Configuration model SHOULD register the RZ-CFG code for `http3: true` on a FIPS Node, under OQ-tech-stack-and-libraries-9.
-  - Repository layout and conventions SHOULD admit `ruralz_fips` as the one feature build tag (the pack section 8.4 exception), extend forbidigo to `ConfigureServer`, `ConfigureTransport`, `ClientConn` and `h2c`, also deprecated ([source](https://github.com/golang/go/issues/78064)), and add depguard rules confining quic-go to the HTTP/3 package (criterion S7) and denying fasthttp.

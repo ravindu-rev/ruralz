@@ -1,0 +1,2 @@
+ruralz.yaml:21:17 error RZ-CFG-005 Gateway/edge spec.telemetry.otlp.endpoint: telemetry.otlp.endpoint has an empty port
+ruralz.yaml:23:9 error RZ-CFG-005 Gateway/edge spec.telemetry.otlp.tls.clientKey: clientCertificate is set without clientKey: a client certificate needs its key, and the key its certificate

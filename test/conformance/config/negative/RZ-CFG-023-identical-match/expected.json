@@ -1,0 +1,27 @@
+[
+  {
+    "code": "RZ-CFG-023",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 38,
+    "column": 5,
+    "resource": {
+      "kind": "Route",
+      "name": "orders-copy"
+    },
+    "path": [
+      "spec",
+      "match"
+    ],
+    "message": "match criteria are identical to those of Route \"orders\" on listener \"http\"",
+    "hint": "give one of the Routes a distinguishing criterion or other listeners",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 26,
+        "column": 5,
+        "message": "first declared in"
+      }
+    ]
+  }
+]

@@ -1,0 +1,39 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  limits:
+    maxResponseBodyBytes: 1Mi
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: big
+spec:
+  match:
+    path: {prefix: /big}
+  composition:
+    mode: aggregate
+    steps:
+      - name: a
+        upstream: orders
+        path: /a
+        maxBodyBytes: 600Ki
+      - name: b
+        upstream: orders
+        path: /b
+        maxBodyBytes: 600Ki

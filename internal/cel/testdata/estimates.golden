@@ -1,0 +1,12 @@
+Gateway.spec.telemetry.accessLog.when	response.status >= 400 || duration > duration("1s")	cost 3..6	tracked false	capped false
+Upstream.spec.retries.retryOn	error != null ? error.kind in ["connect", "reset"] : response.status == 503	cost 5..16	tracked false	capped false
+Route.spec.composition.steps[].pathExpression	"/orders/" + request.pathParams.orderId	cost 4..30	tracked true	capped false
+Route.spec.composition.steps[].pathExpression	"/stock?order=" + request.pathParams.orderId	cost 5..30	tracked true	capped false
+AIModel.spec.candidates[].when	ai.estimatedInputTokens < 100000	cost 3..3	tracked false	capped false
+authz.cel config.rule	auth.claims.scope.split(" ").exists(s, s == "orders:read")	cost 15..2097	tracked true	capped false
+ratelimit config.key	source.ip	cost 2..2	tracked false	capped false
+ratelimit config.key	consumer == null ? source.ip : consumer.name	cost 4..4	tracked false	capped false
+ai.semantic-cache config.key	consumer.name	cost 2..2	tracked false	capped false
+headers config.request.set[].valueExpression	consumer == null ? "anonymous" : consumer.name	cost 2..4	tracked false	capped false
+AIModel.spec.candidates[].when	ai.estimatedInputTokens < 50000	cost 3..3	tracked false	capped false
+quota config.key	consumer.name	cost 2..2	tracked false	capped false

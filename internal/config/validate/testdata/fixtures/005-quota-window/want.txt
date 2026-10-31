@@ -1,0 +1,2 @@
+consumers.yaml:24:15 error RZ-CFG-005 Consumer/acme spec.quotas[name=sub-second].window: quota "sub-second" window 500ms is not at least 1s in whole seconds (use a whole number of seconds, or calendar: month)
+consumers.yaml:28:15 error RZ-CFG-005 Consumer/acme spec.quotas[name=fractional].window: quota "fractional" window 1.5s is not at least 1s in whole seconds (use a whole number of seconds, or calendar: month)

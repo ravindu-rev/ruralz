@@ -1,0 +1,37 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: step-paths
+spec:
+  match:
+    path: {prefix: /step-paths}
+  composition:
+    mode: sequential
+    steps:
+      - name: dot
+        upstream: orders
+        path: /a/../b
+      - name: encoded-dot
+        upstream: orders
+        path: /a/%2E%2e
+      - name: no-slash
+        upstream: orders
+        path: orders
+      - name: empty
+        upstream: orders
+        path: ""
+      - name: nul
+        upstream: orders
+        path: /a%00
+      - name: backslash
+        upstream: orders
+        path: "/a\\b"
+      - name: bad-escape
+        upstream: orders
+        path: /a%zz
+      - name: query-control
+        upstream: orders
+        path: "/a?x=\u0001"
+      - name: query-escapes
+        upstream: orders
+        path: /a/.../%2Fb?x=%00&y

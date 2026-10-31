@@ -1,0 +1,40 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path: {prefix: /orders}
+  policies:
+    - name: limit-tenant
+  upstreams:
+    - name: orders
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: limit-tenant
+spec:
+  type: ratelimit
+  config:
+    key: string(request.body.tenant)
+    limits: [{requests: 10, window: 1s}]

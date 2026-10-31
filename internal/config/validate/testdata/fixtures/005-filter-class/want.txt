@@ -1,0 +1,1 @@
+extra.yaml:7:16 error RZ-CFG-005 Policy/cors spec.filterClass: filterClass "authz" is not allowed for Policy type "cors": its registry class is "cors", and only a plugin Policy chooses its class

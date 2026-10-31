@@ -1,0 +1,28 @@
+apiVersion: ruralz/v1alpha1
+kind: AIProvider
+metadata:
+  name: anthropic-prod
+spec:
+  dialect: anthropic
+  baseUrl: https://api.anthropic.com
+  credentials:
+    apiKey: {secretRef: {provider: kubernetes, name: llm-keys, key: anthropic}}
+  region: us
+  pricing:                              # illustrative values, not vendor quotes
+    currency: USD
+    version: "2026-09-01"
+    models:
+      - model: claude-sonnet-4-5
+        inputPerMillionTokens: "3.00"
+        outputPerMillionTokens: "15.00"
+        cachedInputPerMillionTokens: "0.30"
+---
+apiVersion: ruralz/v1alpha1
+kind: AIProvider
+metadata:
+  name: openai-prod
+spec:
+  dialect: openai
+  credentials:
+    apiKey: {secretRef: {provider: kubernetes, name: llm-keys, key: openai}}
+  region: us

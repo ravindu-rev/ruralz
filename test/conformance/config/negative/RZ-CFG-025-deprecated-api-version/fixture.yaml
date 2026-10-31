@@ -1,0 +1,4 @@
+code: RZ-CFG-025
+stage: G
+binaries: [ruralz-in-process, ruralzd-in-process]
+source: base

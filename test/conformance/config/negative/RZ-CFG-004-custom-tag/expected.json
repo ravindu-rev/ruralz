@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-004",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 6,
+    "column": 14,
+    "message": "tag !include is not allowed; only the YAML 1.2 core tags are"
+  }
+]

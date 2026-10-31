@@ -1,0 +1,15 @@
+GET orders-summary [server]
+  ruralz.route.match [internal]
+  ruralz.filter.cors-partner [internal] onRequestHeaders
+  ruralz.filter.jwt-default [internal] onRequestHeaders
+  ruralz.filter.geo-block-default [internal] onRequestHeaders
+  ruralz.filter.authz-orders [internal] onRequestHeaders
+  ruralz.filter.ratelimit-global [internal] onRequestHeaders
+  ruralz.filter.ratelimit-orders [internal] onRequestHeaders
+  ruralz.upstream.orders [client] attempt 1
+    ruralz.filter.upstream-oauth [internal] onUpstreamRequest
+    ruralz.filter.headers-internal [internal] onUpstreamRequest
+  ruralz.upstream.inventory [client] attempt 1
+    ruralz.filter.headers-internal [internal] onUpstreamRequest
+  ruralz.filter.headers-security [internal] onResponse
+  ruralz.filter.cors-partner [internal] onResponse

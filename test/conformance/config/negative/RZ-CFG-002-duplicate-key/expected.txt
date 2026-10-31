@@ -1,0 +1,1 @@
+ruralz.yaml:10:7 error RZ-CFG-002: duplicate key "port" (first defined at ruralz.yaml:9:7)

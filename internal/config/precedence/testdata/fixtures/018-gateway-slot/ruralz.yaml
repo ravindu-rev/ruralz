@@ -1,0 +1,12 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+  policies:
+    - name: limit-a
+    - name: limit-b

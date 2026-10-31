@@ -1,0 +1,2 @@
+routes/at-most-one.json:5:11 error RZ-CFG-005 Upstream/inventory spec: at most one of endpoints, discovery is allowed, found endpoints and discovery
+routes/at-most-one.json:8:79 error RZ-CFG-005 Upstream/inventory spec.discovery.port: must be an integer or a string, not a boolean (quote the value to make it a string)

@@ -1,0 +1,9 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# ruralzd.sysusers: the sysusers.d(5) entry of ruralzd.service, installed as
+# /etc/sysusers.d/ruralzd.conf; `systemd-sysusers` (run at boot, or by hand
+# once after installing) creates the system user and group ruralz that the
+# unit runs as, with the data directory as home and no login shell
+# (docs/operations/01-deployment-topologies.md, "T5 and T6").
+u ruralz - "Ruralz Gateway" /var/lib/ruralz

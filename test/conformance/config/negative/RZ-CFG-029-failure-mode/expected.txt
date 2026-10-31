@@ -1,0 +1,1 @@
+ruralz.yaml:38:16 error RZ-CFG-029 Policy/jwt-open spec.failureMode: failureMode open is not allowed for Policy type "auth.jwt" (closed only)

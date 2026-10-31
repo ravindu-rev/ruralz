@@ -11,39 +11,81 @@ import (
 	"strings"
 )
 
-// licenseFileName reports whether a file name carries a module's license.
-func licenseFileName(name string) bool {
+// Kinds of legal texts a module ships.
+const (
+	// kindLicense is a license text: LICENSE, COPYING, UNLICENSE or the
+	// British spelling of LICENSE.
+	kindLicense = "license"
+	// kindPatents is a patent grant (PATENTS), reproduced with the license
+	// but never classified.
+	kindPatents = "patents"
+	// kindNotice is an attribution notice (NOTICE), reproduced in the
+	// artifact's NOTICE as Apache-2.0 section 4(d) requires.
+	kindNotice = "notice"
+)
+
+// legalText is one license, patent grant or notice of a module.
+type legalText struct {
+	// Rel is the slash-separated path relative to the module root, such
+	// as "LICENSE" or "third_party/x/LICENSE".
+	Rel string
+	// Kind is kindLicense, kindPatents or kindNotice.
+	Kind string
+	// Text is the file content with LF line endings and a final newline.
+	Text string
+}
+
+// legalKind classifies a file name, or returns "" for any other file.
+func legalKind(name string) string {
 	upper := strings.ToUpper(name)
 	for _, prefix := range []string{"LICENSE", "LICENCE", "COPYING", "UNLICENSE"} { //nolint:misspell // LICENCE is a real file name spelling.
 		if strings.HasPrefix(upper, prefix) {
-			return true
+			return kindLicense
 		}
 	}
-	return false
+	switch {
+	case strings.HasPrefix(upper, "PATENTS"):
+		return kindPatents
+	case strings.HasPrefix(upper, "NOTICE"):
+		return kindNotice
+	}
+	return ""
 }
 
-// moduleLicenses classifies every license file at the root of a module.
-func moduleLicenses(dir string) ([]string, error) {
+// dirReader returns the legal texts directly in dir, sorted by name, with
+// Rel set to the file name; tests replace it.
+type dirReader func(dir string) ([]legalText, error)
+
+// readLegal reads the license, patent and notice files of one directory.
+func readLegal(dir string) ([]legalText, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
-	var out []string
+	var out []legalText
 	for _, e := range entries {
-		if e.IsDir() || !licenseFileName(e.Name()) {
+		kind := legalKind(e.Name())
+		if kind == "" || !e.Type().IsRegular() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // Reads license files inside the Go module cache.
+		data, err := os.ReadFile(filepath.Join(dir, e.Name())) //nolint:gosec // Reads legal texts inside the Go module cache or GOROOT.
 		if err != nil {
 			return nil, err
 		}
-		id := classify(string(data))
-		if !slices.Contains(out, id) {
-			out = append(out, id)
-		}
+		out = append(out, legalText{Rel: e.Name(), Kind: kind, Text: normalizeText(string(data))})
 	}
-	slices.Sort(out)
+	slices.SortFunc(out, func(a, b legalText) int { return strings.Compare(a.Rel, b.Rel) })
 	return out, nil
+}
+
+// normalizeText drops a byte order mark, turns CRLF into LF, trims
+// trailing blank lines and ends the text with one newline, so a notice is
+// byte-identical whichever OS checked the module out.
+func normalizeText(s string) string {
+	s = strings.TrimPrefix(s, string(rune(0xfeff)))
+	s = strings.ReplaceAll(s, "\r\n", "\n")
+	s = strings.TrimRight(s, " \t\n")
+	return s + "\n"
 }
 
 // classify names the license of a license text by distinctive phrases, or

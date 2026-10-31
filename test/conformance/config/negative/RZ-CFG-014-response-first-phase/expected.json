@@ -1,0 +1,27 @@
+[
+  {
+    "code": "RZ-CFG-014",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 38,
+    "column": 9,
+    "resource": {
+      "kind": "Policy",
+      "name": "limit-errors"
+    },
+    "path": [
+      "spec",
+      "when"
+    ],
+    "message": "CEL Policy.spec.when: undeclared reference to 'response'",
+    "hint": "Policy.spec.when has request, source, route, consumer, auth, now",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 28,
+        "column": 7,
+        "message": "attached at"
+      }
+    ]
+  }
+]

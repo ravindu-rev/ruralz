@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-016",
+    "severity": "error",
+    "file": "overlays/prod/gateway.yaml",
+    "line": 2,
+    "column": 7,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge-prod"
+    },
+    "path": [
+      "kind"
+    ],
+    "message": "an overlay cannot add a Gateway: ruralz.yaml declares the Bundle's only Gateway",
+    "environment": "prod"
+  }
+]

@@ -1,0 +1,39 @@
+# S3 on the loopback profile: every lab service on 127.0.0.1 at the fixed ports of
+# test/bench/harness LoopbackServices, under the secret root
+# /tmp/ruralz-bench/secrets.
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: bench
+spec:
+  listeners:
+    - name: https
+      tls:
+        certificates:
+          - name: bench
+            certificate: {secretRef: {provider: file, name: /tmp/ruralz-bench/secrets/listener.crt}}
+            privateKey: {secretRef: {provider: file, name: /tmp/ruralz-bench/secrets/listener.key}}
+  telemetry:
+    otlp:
+      endpoint: "https://127.0.0.1:14317"
+      tls:
+        caCertificate: {secretRef: {provider: file, name: /tmp/ruralz-bench/secrets/tls/ca.pem}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mock
+spec:
+  endpoints:
+    - {address: "upstream-mock.bench.example:8080", $patch: delete}
+    - address: "127.0.0.1:18080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: jwt-bench
+spec:
+  config:
+    issuers:
+      - issuer: https://idp.bench.example
+        jwksUrl: https://127.0.0.1:18443/.well-known/jwks.json

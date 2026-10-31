@@ -1,0 +1,53 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: no-digest
+spec:
+  image: ghcr.io/acme/geo-block:1.4.0
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: not-sha256
+spec:
+  image: ghcr.io/acme/geo-block@sha512:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: upper-hex
+spec:
+  image: ghcr.io/acme/geo-block:1.4.0@sha256:FC37C2971BB6E82AA12A871AED718818AFCF45AB42BD093F0CF52F4AD8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: short-hex
+spec:
+  image: ghcr.io/acme/geo-block@sha256:fc37c2971bb6
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: pinned
+spec:
+  image: ghcr.io/acme/geo-block:1.4.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: pinned-no-tag
+spec:
+  image: ghcr.io/acme/geo-block@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]

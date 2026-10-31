@@ -1,0 +1,9 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  retries:
+    attempts: 3                         # scalar replaced; other retry fields kept
+  circuitBreaker:
+    consecutiveFailures: 10

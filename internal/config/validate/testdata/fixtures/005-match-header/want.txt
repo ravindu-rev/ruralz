@@ -1,0 +1,3 @@
+extra.yaml:7:15 error RZ-CFG-005 Route/header-name spec.match.headers[name="x tenant"]: header name "x tenant" is not an RFC 9110 token
+extra.yaml:17:39 error RZ-CFG-005 Route/header-regex spec.match.headers[name=x-tenant].regex: invalid RE2 expression: missing closing ): "ac(me"
+extra.yaml:27:15 error RZ-CFG-005 Route/header-empty spec.match.headers[name=x-tenant]: header "x-tenant" criterion sets 0 of exact, regex and present; want exactly one

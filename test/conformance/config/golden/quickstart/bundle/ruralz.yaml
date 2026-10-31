@@ -1,0 +1,40 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: quickstart
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: hello
+spec:
+  protocol: http
+  endpoints:
+    - address: "127.0.0.1:9000"         # python3 -m http.server, started by quickstart.sh
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: quickstart-header
+spec:
+  type: headers
+  config:
+    response:
+      set: [{name: x-quickstart, value: ruralz}]   # only the Filter Chain adds it
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hello
+spec:
+  match:
+    path: {prefix: /}
+  policies:
+    - name: quickstart-header
+  upstreams:
+    - name: hello

@@ -1,0 +1,6 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Policy",
+  "metadata": {"name": "ratelimit-global"},
+  "spec": {"type": "ratelimit", "overridable": false, "config": {"key": "source.ip", "limits": [{"requests": 1000, "window": "60s"}, {"requests": 50, "window": "1s", "burst": 10}]}}
+}

@@ -1,0 +1,1 @@
+ruralz.yaml:14:3 error RZ-CFG-005 metadata.name: metadata.name is required: it identifies the resource

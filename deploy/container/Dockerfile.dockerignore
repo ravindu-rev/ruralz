@@ -1,0 +1,14 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# Build context of deploy/container/Dockerfile, which BuildKit reads in
+# place of a root .dockerignore: only LICENSE, the linux ruralzd binaries
+# and their notices.
+*
+!LICENSE
+!dist/linux_amd64/ruralzd
+!dist/linux_arm64/ruralzd
+!dist/notices/ruralzd_linux_amd64/NOTICE
+!dist/notices/ruralzd_linux_amd64/THIRD_PARTY_LICENSES
+!dist/notices/ruralzd_linux_arm64/NOTICE
+!dist/notices/ruralzd_linux_arm64/THIRD_PARTY_LICENSES

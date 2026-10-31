@@ -1,0 +1,12 @@
+# A JSONSchemaDocument value is replaced whole: the base properties and
+# required list do not survive.
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: order-shape
+spec:
+  config:
+    schema:
+      type: object
+      properties:
+        total: {type: number}

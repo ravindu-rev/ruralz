@@ -1,0 +1,10 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 11,
+    "column": 1,
+    "message": "a resource must be a mapping"
+  }
+]

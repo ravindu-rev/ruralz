@@ -1,0 +1,29 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/required.json",
+    "line": 1,
+    "column": 1,
+    "resource": {
+      "kind": "Route",
+      "name": ""
+    },
+    "message": "missing required field spec"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "routes/required.json",
+    "line": 4,
+    "column": 15,
+    "resource": {
+      "kind": "Route",
+      "name": ""
+    },
+    "path": [
+      "metadata"
+    ],
+    "message": "missing required field name"
+  }
+]

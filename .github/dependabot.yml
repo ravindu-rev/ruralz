@@ -1,0 +1,72 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# Dependabot version updates (docs/engineering/01-tech-stack-and-libraries.md,
+# "Update policy" and "CI tooling"). Pull requests target main, as every pull
+# request does (docs/engineering/02-repository-layout-and-conventions.md,
+# "Pull request rules"). Dependabot reads this file from the default branch,
+# main, so it takes effect when develop merges into main before
+# v0.1.0-rc.1 (docs/engineering/04-release-versioning-and-compatibility.md,
+# "Release runbook"). Security updates also target main and, since main is
+# the default branch, follow the commit-message options below too. Titles
+# follow the pr-title check: build(deps) for Go modules and for the
+# digest-pinned images of deploy/container/ and test/compose/, whose literal
+# FROM lines the docker updates move, ci(deps) for actions. Dependabot cannot
+# sign off, so commitcheck skips the DCO check for commits it authors (doc
+# 02, "DCO sign-off").
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+      include: scope
+    groups:
+      # The OpenTelemetry modules release together and must move together.
+      opentelemetry:
+        patterns:
+          - go.opentelemetry.io/*
+      testcontainers:
+        patterns:
+          - github.com/testcontainers/*
+      # Minor bumps stay ungrouped: a pre-1.0 minor bump can break its API
+      # and may need its catalog row updated.
+      patch:
+        update-types:
+          - patch
+
+  - package-ecosystem: github-actions
+    directory: /
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: ci
+      include: scope
+    groups:
+      actions:
+        patterns:
+          - "*"
+
+  - package-ecosystem: docker
+    directories:
+      - /deploy/container
+      - /test/compose
+    target-branch: main
+    schedule:
+      interval: weekly
+      day: monday
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: build
+      include: scope

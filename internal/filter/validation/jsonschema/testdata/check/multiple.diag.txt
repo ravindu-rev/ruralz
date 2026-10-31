@@ -1,0 +1,4 @@
+policies/body.yaml:4:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.$schema: $schema must be https://json-schema.org/draft/2020-12/schema
+policies/body.yaml:5:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.items.$ref: reference "file:///etc/passwd" resolves outside the schema document
+policies/body.yaml:6:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.properties.n.minimum: number is out of range: at most 128 characters and a decimal exponent within ±1000
+policies/body.yaml:6:3 error RZ-CFG-005 Policy/body-schema spec.config.schema.properties.zip.pattern: pattern is not a valid RE2 regular expression: error parsing regexp: invalid or unsupported Perl syntax: `(?!`

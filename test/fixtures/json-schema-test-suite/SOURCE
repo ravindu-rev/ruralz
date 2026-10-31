@@ -1,0 +1,8 @@
+name: JSON-Schema-Test-Suite
+url: https://github.com/json-schema-org/JSON-Schema-Test-Suite
+ref: main
+commit: 5b0ee1613e45fcc2bddac00e07c19cd49b00d8a8
+sha256: 5477d894cb15fc844862d0baf5d0dfbd26b5a5f112087350a6802289b089c3b1
+sha256-of: git archive --format=tar 5b0ee1613e45fcc2bddac00e07c19cd49b00d8a8
+license: MIT (LICENSE of the same commit)
+updated-by: scripts/update-test-suites.sh

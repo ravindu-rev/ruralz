@@ -1,0 +1,17 @@
+Usage: ruralz bundle render [DIR] [FLAGS]
+
+Render one Environment's one-file Bundle.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --api-version VERSION    Convert the sources to VERSION
+  --effective              Print the resolved Filter Chains of --route
+  --env NAME               Environment to render with (needs --environments)
+  --environments FILE      Local Environment resources
+  --help                   Print this help
+  --output yaml|json|text  Output format (yaml or json, default yaml; with --effective or --api-version: text or json, default text)
+  --output-dir DIR         Directory of the converted sources
+  --output-file PATH       Write the data to PATH instead of stdout
+  --route NAME             Route of --effective

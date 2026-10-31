@@ -1,0 +1,15 @@
+{
+  "apiVersion": "ruralz/v1alpha1",
+  "kind": "Upstream",
+  "metadata": {
+    "name": "orders"
+  },
+  "spec": {
+    "retries": {
+      "attempts": 3
+    },
+    "circuitBreaker": {
+      "consecutiveFailures": 10
+    }
+  }
+}

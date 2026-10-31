@@ -1,0 +1,618 @@
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+package logsink
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"slices"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
+)
+
+func TestNewRequiresStdout(t *testing.T) {
+	if _, err := New(Options{}); !errors.Is(err, ErrNoStdout) {
+		t.Fatalf("New without Stdout: %v", err)
+	}
+	s, _ := newSink(t, Options{Level: slog.LevelWarn})
+	if s.Level() != slog.LevelWarn {
+		t.Fatalf("Level = %v", s.Level())
+	}
+}
+
+// The queue is bounded in records; a full queue drops without blocking and
+// counts queue_full; every record counts as produced.
+func TestQueueRecordBound(t *testing.T) {
+	s, out := newSink(t, Options{QueueRecords: 4})
+	log := s.Logger("c")
+	ctx := t.Context()
+	for i := range 10 {
+		log.InfoContext(ctx, "m", slog.Int("i", i))
+	}
+	if got := s.Stats(); got != (Stats{Produced: 10, QueueFull: 6}) {
+		t.Fatalf("stats = %+v", got)
+	}
+	drain(s)
+	if n := len(out.lines(t)); n != 4 {
+		t.Fatalf("wrote %d lines, want 4", n)
+	}
+	if s.bytes.Load() != 0 {
+		t.Fatalf("byte budget not released: %d", s.bytes.Load())
+	}
+}
+
+// The queue is bounded in bytes; a record that does not fit the
+// remaining budget drops with queue_full.
+func TestQueueByteBound(t *testing.T) {
+	s, out := newSink(t, Options{QueueBytes: 3 * 1024})
+	log := s.Logger("c")
+	ctx := t.Context()
+	big := strings.Repeat("x", 1000)
+	for range 5 {
+		log.InfoContext(ctx, "m", slog.String("v", big))
+	}
+	st := s.Stats()
+	if st.Produced != 5 || st.QueueFull == 0 || st.QueueFull == 5 {
+		t.Fatalf("stats = %+v, want some dropped by bytes", st)
+	}
+	drain(s)
+	if n := uint64(len(out.lines(t))); n != st.Produced-st.QueueFull {
+		t.Fatalf("wrote %d lines, stats %+v", n, st)
+	}
+}
+
+// The worker writes one batch when the queue drains and a batch
+// whenever it reaches the batch size.
+func TestBatching(t *testing.T) {
+	s, out := newSink(t, Options{BatchBytes: 1024})
+	log := s.Logger("c")
+	ctx := t.Context()
+	log.InfoContext(ctx, "one")
+	log.InfoContext(ctx, "two")
+	drain(s)
+	if out.Writes() != 1 {
+		t.Fatalf("writes = %d, want one batch", out.Writes())
+	}
+	for range 40 {
+		log.InfoContext(ctx, "m", slog.String("pad", strings.Repeat("p", 100)))
+	}
+	drain(s)
+	if w := out.Writes(); w < 4 {
+		t.Fatalf("writes = %d, want batches of about 1 KiB", w)
+	}
+	if n := len(out.lines(t)); n != 42 {
+		t.Fatalf("lines = %d", n)
+	}
+}
+
+// A failed stdout write counts export_error once for each
+// line it lost; the lines written before the failure are not counted.
+func TestWriteErrorCountsLostLines(t *testing.T) {
+	fw := &failWriter{}
+	s, _ := newSink(t, Options{Stdout: fw})
+	log := s.Logger("c")
+	ctx := t.Context()
+	for range 3 {
+		log.InfoContext(ctx, "m")
+	}
+	// Let the first line and a half through.
+	var probe syncBuffer
+	ps, _ := newSink(t, Options{Stdout: &probe})
+	ps.Logger("c").InfoContext(ctx, "m")
+	drain(ps)
+	lineLen := len(probe.String())
+	fw.n = lineLen + lineLen/2
+	drain(s)
+	if st := s.Stats(); st.ExportError != 2 || st.QueueFull != 0 {
+		t.Fatalf("stats = %+v, want 2 export errors", st)
+	}
+}
+
+// ADR-0018 "Blocked stdout test": a stdout nobody reads never blocks the
+// logging goroutine; records beyond the queue drop with queue_full; the
+// OTLP bridge still takes every record while stdout is blocked; after the
+// pipe unblocks the worker writes what it held and Run returns on cancel.
+func TestBlockedStdout(t *testing.T) {
+	bw := newBlockingWriter()
+	s, _ := newSink(t, Options{Stdout: bw, QueueRecords: 64})
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+
+	log := s.Logger("c")
+	log.InfoContext(ctx, "first")
+	<-bw.entered // the worker is now blocked in Write
+
+	start := time.Now()
+	const n = 10_000
+	for i := range n {
+		log.InfoContext(ctx, "m", slog.Int("i", i))
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("logging %d records took %v with stdout blocked", n, d)
+	}
+	st := s.Stats()
+	if st.Produced != n+1 || st.QueueFull < n-64 {
+		t.Fatalf("stats = %+v, want at least %d queue_full drops", st, n-64)
+	}
+	if got := b.records(); got != n+1 {
+		t.Fatalf("bridge got %d records while stdout was blocked, want all %d", got, n+1)
+	}
+
+	close(bw.release)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Run did not return after stdout unblocked")
+	}
+	lines := bw.out.lines(t)
+	if uint64(len(lines)) != st.Produced-st.QueueFull {
+		t.Fatalf("wrote %d lines, want %d", len(lines), st.Produced-st.QueueFull)
+	}
+	for _, l := range lines {
+		object(t, l)
+	}
+	s.Close()
+	log.InfoContext(t.Context(), "after close")
+	if got := s.Stats().QueueFull; got != st.QueueFull+1 {
+		t.Fatalf("record after Close not counted: %d", got)
+	}
+}
+
+// Run drains what is queued when canceled; a second Run is refused;
+// Close counts records still queued.
+func TestRunLifecycle(t *testing.T) {
+	s, out := newSink(t, Options{})
+	log := s.Logger("c")
+	for range 3 {
+		log.InfoContext(t.Context(), "queued")
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := s.Run(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if n := len(out.lines(t)); n != 3 {
+		t.Fatalf("final drain wrote %d lines", n)
+	}
+
+	s.running.Store(true)
+	if err := s.Run(t.Context()); !errors.Is(err, ErrRunning) {
+		t.Fatalf("second Run: %v", err)
+	}
+	s.running.Store(false)
+
+	log.InfoContext(t.Context(), "left behind")
+	log.InfoContext(t.Context(), "left behind")
+	s.Close()
+	s.Close()
+	if st := s.Stats(); st.QueueFull != 2 || st.Produced != 5 {
+		t.Fatalf("stats = %+v", st)
+	}
+	if s.bytes.Load() != 0 {
+		t.Fatalf("byte budget not released: %d", s.bytes.Load())
+	}
+}
+
+// Run serves records as they arrive.
+func TestRunWritesAsRecordsArrive(t *testing.T) {
+	s, out := newSink(t, Options{})
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- s.Run(ctx) }()
+	s.Logger("c").InfoContext(ctx, "live")
+	deadline := time.Now().Add(5 * time.Second)
+	for out.Writes() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if n := len(out.lines(t)); n != 1 {
+		t.Fatalf("lines = %d", n)
+	}
+}
+
+// fakeStream is an access Stream of fixed lines.
+type fakeStream struct {
+	mu      sync.Mutex
+	lines   []string
+	wake    chan struct{}
+	handed  int
+	flushed []int
+}
+
+func newFakeStream() *fakeStream { return &fakeStream{wake: make(chan struct{}, 1)} }
+
+func (f *fakeStream) push(l string) {
+	f.mu.Lock()
+	f.lines = append(f.lines, l)
+	f.mu.Unlock()
+	select {
+	case f.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (f *fakeStream) Wake() <-chan struct{} { return f.wake }
+
+func (f *fakeStream) Pending() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.lines)
+}
+
+func (f *fakeStream) Next(dst []byte) ([]byte, bool) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.lines) == 0 {
+		return dst, false
+	}
+	l := f.lines[0]
+	f.lines = f.lines[1:]
+	f.handed++
+	return append(append(dst, l...), '\n'), true
+}
+
+func (f *fakeStream) Flushed(lost int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.flushed = append(f.flushed, lost)
+}
+
+// ADR-0018 row Logs: one worker owns stdout for both streams; lines never
+// interleave and a lost write is attributed to the stream that lost it.
+func TestAccessStream(t *testing.T) {
+	st := newFakeStream()
+	s, out := newSink(t, Options{Access: st})
+	log := s.Logger("c")
+	ctx := t.Context()
+	log.InfoContext(ctx, "p1")
+	st.push(`{"msg":"access","n":1}`)
+	st.push(`{"msg":"access","n":2}`)
+	log.InfoContext(ctx, "p2")
+	drain(s)
+	lines := out.lines(t)
+	if len(lines) != 4 {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, l := range lines {
+		object(t, l)
+	}
+	if !slices.Equal(st.flushed, []int{0}) {
+		t.Fatalf("Flushed calls = %v", st.flushed)
+	}
+
+	// A failing write loses the batch: two process and one access line.
+	fw := &failWriter{}
+	st2 := newFakeStream()
+	s2, _ := newSink(t, Options{Stdout: fw, Access: st2})
+	s2.Logger("c").InfoContext(ctx, "p")
+	st2.push(`{"msg":"access"}`)
+	s2.Logger("c").InfoContext(ctx, "p")
+	drain(s2)
+	if got := s2.Stats().ExportError; got != 2 {
+		t.Fatalf("process export errors = %d", got)
+	}
+	if !slices.Equal(st2.flushed, []int{1}) {
+		t.Fatalf("Flushed = %v, want [1]", st2.flushed)
+	}
+
+	// The worker wakes for access lines alone and drains them on cancel.
+	st3 := newFakeStream()
+	s3, out3 := newSink(t, Options{Access: st3})
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s3.Run(runCtx) }()
+	st3.push(`{"n":1}`)
+	deadline := time.Now().Add(5 * time.Second)
+	for out3.Writes() == 0 && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	st3.push(`{"n":2}`)
+	s3.final()
+	if n := len(out3.lines(t)); n != 2 {
+		t.Fatalf("lines = %d", n)
+	}
+}
+
+// recordingBridge collects exported records.
+type recordingBridge struct {
+	mu  sync.Mutex
+	got []Exported
+}
+
+func (b *recordingBridge) Export(r *Exported) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	c := *r
+	c.Record = r.Record.Clone()
+	b.got = append(b.got, c)
+}
+
+// records returns the number of records exported so far.
+func (b *recordingBridge) records() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return len(b.got)
+}
+
+func recordAttrs(r slog.Record) map[string]string {
+	m := map[string]string{}
+	var walk func(prefix string, a slog.Attr)
+	walk = func(prefix string, a slog.Attr) {
+		if a.Value.Kind() == slog.KindGroup {
+			for _, c := range a.Value.Group() {
+				walk(prefix+a.Key+".", c)
+			}
+			return
+		}
+		m[prefix+a.Key] = a.Value.String()
+	}
+	r.Attrs(func(a slog.Attr) bool {
+		walk("", a)
+		return true
+	})
+	return m
+}
+
+// A slot filled with a group value (from the record or from WithAttrs)
+// has its credential-named members redacted and passed to ReplaceAttr
+// under the slot key on stdout and on the bridge.
+func TestBridgeSlotGroupRedacted(t *testing.T) {
+	var mu sync.Mutex
+	calls := map[[2]string]int{}
+	s, out := newSink(t, Options{ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+		mu.Lock()
+		defer mu.Unlock()
+		calls[[2]string{strings.Join(groups, "."), a.Key}]++
+		return a
+	}})
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	slog.New(s.Handler("")).Info("m", slog.Group(catalog.KeyError, slog.String("authorization", "Bearer LEAK1")))
+	// x_api_key names the x-api-key credential header: redaction ignores
+	// the '-' and '_' spelling.
+	slog.New(s.Handler("").WithAttrs([]slog.Attr{slog.Group(catalog.KeyCode, slog.String("x_api_key", "LEAK2"))})).Info("m2")
+	drain(s)
+	lines := out.lines(t)
+	if len(lines) != 2 {
+		t.Fatalf("lines = %q", lines)
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "LEAK1") || strings.Contains(l, "LEAK2") || !strings.Contains(l, "[REDACTED]") {
+			t.Errorf("line = %s", l)
+		}
+	}
+	if len(b.got) != 2 {
+		t.Fatalf("bridge got %d records", len(b.got))
+	}
+	if got := recordAttrs(b.got[0].Record)["error.authorization"]; got != "[REDACTED]" {
+		t.Errorf("bridge error.authorization = %q", got)
+	}
+	if got := recordAttrs(b.got[1].Record)["code.x_api_key"]; got != "[REDACTED]" {
+		t.Errorf("bridge code.x_api_key = %q", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	for _, k := range [][2]string{{catalog.KeyError, "authorization"}, {catalog.KeyCode, "x_api_key"}} {
+		if calls[k] != 2 {
+			t.Errorf("ReplaceAttr%v called %d times, want 2 (stdout and bridge); calls = %v", k, calls[k], calls)
+		}
+	}
+}
+
+// Each record goes once to the OTLP bridge when it is queued, before any
+// stdout write, with framing members as attributes, groups applied, trace
+// IDs separate and node_id left to the resource.
+func TestBridge(t *testing.T) {
+	s, out := newSink(t, Options{NodeID: "node", TraceContext: traceFromContext})
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	s.SetRevision("rev-0123456789ab")
+	ctx := withTrace(t.Context(), testIDs())
+	h := s.Handler("gateway").WithAttrs([]slog.Attr{slog.String("policy", "p")}).WithGroup("g")
+	slog.New(h).WarnContext(ctx, "m", slog.String(catalog.KeyCode, "RZ-RT-005"), slog.Int("n", 1),
+		slog.String("authorization", "Bearer x"))
+	slog.New(s.Handler("")).InfoContext(t.Context(), "top", slog.String(catalog.KeyCode, "RZ-RT-001"),
+		slog.Group("", slog.String(catalog.KeyError, "e"), slog.Int("k", 2)))
+	// Nested inline groups: slot keys at any depth are framing only, and
+	// the other members are flattened, as on stdout.
+	slog.New(s.Handler("")).InfoContext(t.Context(), "nested",
+		slog.Group("", slog.Group("", slog.String(catalog.KeyCode, "RZ-RT-002"), slog.Int("k", 3)),
+			slog.Group(catalog.KeyError, slog.String("kind", "x"))))
+	if len(b.got) != 3 || out.Writes() != 0 {
+		t.Fatalf("bridge got %d records and stdout %d writes before the worker ran, want 3 and 0", len(b.got), out.Writes())
+	}
+	drain(s)
+	if len(b.got) != 3 {
+		t.Fatalf("bridge got %d records after the stdout write, want the same 3", len(b.got))
+	}
+	first := b.got[0]
+	if !first.HasTrace || first.TraceID != testIDs().trace || first.SpanID != testIDs().span {
+		t.Errorf("trace = %+v", first)
+	}
+	want := map[string]string{
+		"component": "gateway", "revision": "rev-0123456789ab", "policy": "p",
+		"g.code": "RZ-RT-005", "g.n": "1", "g.authorization": "[REDACTED]",
+	}
+	if got := recordAttrs(first.Record); fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("attrs = %v\nwant    %v", got, want)
+	}
+	if first.Record.Message != "m" || first.Record.Level != slog.LevelWarn {
+		t.Errorf("record = %v", first.Record)
+	}
+	want2 := map[string]string{"revision": "rev-0123456789ab", "code": "RZ-RT-001", "error": "e", "k": "2"}
+	if got := recordAttrs(b.got[1].Record); fmt.Sprint(got) != fmt.Sprint(want2) {
+		t.Errorf("attrs = %v\nwant    %v", got, want2)
+	}
+	want3 := map[string]string{"revision": "rev-0123456789ab", "code": "RZ-RT-002", "error.kind": "x", "k": "3"}
+	if got := recordAttrs(b.got[2].Record); fmt.Sprint(got) != fmt.Sprint(want3) {
+		t.Errorf("attrs = %v\nwant    %v", got, want3)
+	}
+
+	s.SetBridge(nil)
+	s.Logger("c").InfoContext(t.Context(), "no bridge")
+	drain(s)
+	if len(b.got) != 3 {
+		t.Fatal("bridge called after SetBridge(nil)")
+	}
+}
+
+// A record lost by stdout, to a failed write or to a full queue, still
+// reaches the bridge, and stdout counts its loss once in its own Stats.
+func TestStdoutLossKeepsTheBridge(t *testing.T) {
+	b := &recordingBridge{}
+	s, _ := newSink(t, Options{Stdout: &failWriter{}})
+	s.SetBridge(b)
+	s.Logger("c").InfoContext(t.Context(), "m")
+	drain(s)
+	if st := s.Stats(); st.ExportError != 1 || st.QueueFull != 0 {
+		t.Fatalf("stats = %+v, want exactly one export error", st)
+	}
+	if b.records() != 1 {
+		t.Fatalf("bridge got %d records after a failed write, want 1", b.records())
+	}
+
+	b2 := &recordingBridge{}
+	s2, _ := newSink(t, Options{QueueRecords: 2})
+	s2.SetBridge(b2)
+	for range 5 {
+		s2.Logger("c").InfoContext(t.Context(), "m")
+	}
+	if st := s2.Stats(); st.QueueFull != 3 || b2.records() != 5 {
+		t.Fatalf("stats = %+v with %d bridged; want 3 queue_full drops and all 5 bridged", st, b2.records())
+	}
+	s2.Close()
+	s2.Logger("c").InfoContext(t.Context(), "after close")
+	if st := s2.Stats(); st.QueueFull != 6 || b2.records() != 6 {
+		t.Fatalf("after Close: stats = %+v with %d bridged; want the record dropped from stdout and bridged", st, b2.records())
+	}
+}
+
+// A record too large for the stdout byte budget is dropped from stdout
+// without being frozen when no bridge is set, and frozen for the bridge
+// alone when one is.
+func TestOversizedRecordReachesTheBridge(t *testing.T) {
+	big := strings.Repeat("x", 4096)
+	s, out := newSink(t, Options{QueueBytes: 1024})
+	s.Logger("c").InfoContext(t.Context(), "m", slog.String("v", big))
+	if st := s.Stats(); st.QueueFull != 1 {
+		t.Fatalf("stats = %+v, want the record dropped from stdout", st)
+	}
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	s.Logger("c").InfoContext(t.Context(), "m", slog.Any("h", http.Header{"Authorization": {"Bearer LEAK"}, "X-Pad": {big}}))
+	drain(s)
+	if st := s.Stats(); st.QueueFull != 2 || b.records() != 1 || len(out.lines(t)) != 0 {
+		t.Fatalf("stats = %+v, %d bridged, %d lines; want stdout to drop it and the bridge to take it", st, b.records(), len(out.lines(t)))
+	}
+	if got := recordAttrs(b.got[0].Record)["h"]; strings.Contains(got, "LEAK") || !strings.Contains(got, "[REDACTED]") {
+		t.Errorf("bridged h = %q, want the frozen header map with Authorization redacted", got)
+	}
+}
+
+// TestErrorLogBridge checks that http.Server.ErrorLog is bridged through
+// the sink with a rate limit.
+func TestErrorLogBridge(t *testing.T) {
+	s, out := newSink(t, Options{Clock: clocktest.New(time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC))})
+	std := slog.NewLogLogger(s.ErrorLog("listener"), slog.LevelWarn)
+	for range 50 {
+		std.Print("http: TLS handshake error from 192.0.2.1:1234: EOF")
+	}
+	drain(s)
+	lines := out.lines(t)
+	if len(lines) != ErrorLogRate {
+		t.Fatalf("wrote %d lines, want %d", len(lines), ErrorLogRate)
+	}
+	m := object(t, lines[0])
+	if m["level"] != "WARN" || m["component"] != "listener" || m["msg"] != "http: TLS handshake error from 192.0.2.1:1234: EOF" {
+		t.Fatalf("line = %s", lines[0])
+	}
+}
+
+// TestCloseCountsAbandonedBatch checks that when the owner gives up on a
+// worker blocked in its write, Close counts the queued records as
+// queue_full and the lines of the blocked batch as export_error, once: the
+// batch written later is not counted again. The bridge took every record
+// when it was queued, whatever stdout did with it.
+func TestCloseCountsAbandonedBatch(t *testing.T) {
+	bw := newBlockingWriter()
+	s, _ := newSink(t, Options{Stdout: bw})
+	b := &recordingBridge{}
+	s.SetBridge(b)
+	log := s.Logger("c")
+	ctx := t.Context()
+	for range 3 {
+		log.InfoContext(ctx, "in the batch")
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s.Run(runCtx) }()
+	<-bw.entered // the worker holds the three lines in a blocked write
+	log.InfoContext(ctx, "queued")
+	log.InfoContext(ctx, "queued")
+	s.Close()
+	want := Stats{Produced: 5, QueueFull: 2, ExportError: 3}
+	if st := s.Stats(); st != want {
+		t.Fatalf("stats after Close = %+v, want %+v", st, want)
+	}
+	close(bw.release)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if st := s.Stats(); st != want {
+		t.Fatalf("stats after the write returned = %+v, want %+v", st, want)
+	}
+	if n := b.records(); n != 5 {
+		t.Fatalf("bridge got %d records, want all 5", n)
+	}
+	if s.bytes.Load() != 0 {
+		t.Fatalf("byte budget not released: %d", s.bytes.Load())
+	}
+}
+
+// TestHandleRacingClose checks that a Handle racing Close never leaves a
+// record queued and uncounted.
+func TestHandleRacingClose(t *testing.T) {
+	for range 50 {
+		s, _ := newSink(t, Options{})
+		log := s.Logger("c")
+		var wg sync.WaitGroup
+		for range 4 {
+			wg.Go(func() {
+				for range 50 {
+					log.InfoContext(t.Context(), "m")
+				}
+			})
+		}
+		wg.Go(s.Close)
+		wg.Wait()
+		s.Close()
+		st := s.Stats()
+		if len(s.q) != 0 || st.QueueFull != st.Produced || s.bytes.Load() != 0 {
+			t.Fatalf("queued %d, stats %+v, reserved %d", len(s.q), st, s.bytes.Load())
+		}
+	}
+}

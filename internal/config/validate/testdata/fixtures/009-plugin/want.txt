@@ -1,0 +1,1 @@
+extra.yaml:16:11 error RZ-CFG-009 Policy/geo-block-default spec.plugin: Plugin "geo-blok" not found (did you mean "geo-block"?)

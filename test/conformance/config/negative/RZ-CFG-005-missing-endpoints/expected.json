@@ -1,0 +1,18 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 16,
+    "column": 3,
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "path": [
+      "spec",
+      "endpoints"
+    ],
+    "message": "an Upstream needs endpoints unless it sets discovery or has protocol ai"
+  }
+]

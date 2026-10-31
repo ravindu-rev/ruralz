@@ -1,0 +1,1 @@
+ruralz.yaml:23:9 error RZ-CFG-005 Gateway/edge spec.telemetry.otlp.tls: telemetry.otlp.tls applies to an https endpoint only, and this endpoint is http (remove tls or use an https endpoint)

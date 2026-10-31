@@ -1,0 +1,31 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 12,
+    "column": 13,
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "internal"
+      },
+      "port"
+    ],
+    "message": "listener \"internal\" uses port 8080, already used by listener \"http\"",
+    "hint": "give each listener its own port",
+    "related": [
+      {
+        "file": "ruralz.yaml",
+        "line": 9,
+        "column": 13,
+        "message": "first used in"
+      }
+    ]
+  }
+]

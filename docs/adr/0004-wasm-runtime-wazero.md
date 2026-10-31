@@ -2,14 +2,6 @@
 id: ADR-0004
 title: "WASM runtime: wazero"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/05-wasm-plugin-system.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/08-security-and-identity.md
 ---
 
 # ADR-0004: WASM runtime: wazero
@@ -45,10 +37,10 @@ Chosen option: "wazero, imported as `github.com/tetratelabs/wazero`", because it
 |---|---|
 | Version and wrapping | v1.12.x floor, pinned in `go.mod`; imported only by `internal/pluginhost`, which both `ruralzd` and the CLI link ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)) |
 | Engine | `NewRuntimeConfigCompiler()`, never `NewRuntimeConfig()`, which silently falls back to the interpreter ([source](https://github.com/wazero/wazero/blob/main/config.go)), often ten times slower ([source](https://github.com/wazero/wazero/blob/main/README.md)). Compiler mode runs only on amd64 and arm64, the `ruralzd` production platforms ([Static builds](../engineering/01-tech-stack-and-libraries.md#static-builds)); without it, `ruralzd` activates no Plugins and reports a degraded state |
-| Runtimes and cache | One runtime per distinct `limits.memoryBytes`, since the page limit is a runtime setting, all sharing one in-memory `NewCompilationCache()`; never `NewCompilationCacheWithDir`, since no signature covers persisted native code (OQ-data-plane-11, option (c)) ([source](https://github.com/wazero/wazero/blob/main/cache.go)) |
+| Runtimes and cache | One runtime per distinct `limits.memoryBytes`, since the page limit is a runtime setting, all sharing one in-memory `NewCompilationCache()`; never `NewCompilationCacheWithDir`, since no signature covers persisted native code ([source](https://github.com/wazero/wazero/blob/main/cache.go)) |
 | Compilation | Once per digest and memory limit, off the request path and deduplicated, since the cache does not lock during compilation ([source](https://github.com/wazero/wazero/blob/main/cache.go)); one compile at a time with `experimental.WithCompilationWorkers` at most max(1, `GOMAXPROCS`/4) (target) ([source](https://github.com/wazero/wazero/blob/main/experimental/compilationworkers.go)) |
 | Instances | `InstantiateModule` on the shared compiled code, one instance per concurrent Phase call, because `api.Function.Call` is not goroutine-safe ([source](https://github.com/wazero/wazero/blob/main/api/wasm.go)); a background pool manager instantiates, never the request path |
-| Memory | `WithMemoryLimitPages` of floor(`limits.memoryBytes` / 64 KiB), alike on Nodes and in audit, default 16 MiB (target), not wazero's 4 GiB default; `WithMemoryCapacityFromMax(true)` reserves it eagerly, so `memory.grow` never copies ([source](https://github.com/wazero/wazero/blob/main/config.go)). `GOMEMLIMIT` MUST be at least [M_node](../operations/03-capacity-planning.md#formulas), counting this cap once; with Plugins active and `GOMEMLIMIT` unset or below the cap plus M_fix, the Node reports `ruralz_node_degraded_info{reason="plugin_memlimit"}` (proposed to Observability); an off-heap `experimental.MemoryAllocator` is the fallback ([source](https://github.com/wazero/wazero/blob/main/experimental/memory.go)) |
+| Memory | `WithMemoryLimitPages` of floor(`limits.memoryBytes` / 64 KiB), alike on Nodes and in audit, default 16 MiB (target), not wazero's 4 GiB default; `WithMemoryCapacityFromMax(true)` reserves it eagerly, so `memory.grow` never copies ([source](https://github.com/wazero/wazero/blob/main/config.go)). `GOMEMLIMIT` MUST be at least [M_node](../operations/03-capacity-planning.md#formulas), counting this cap once; with Plugins active and `GOMEMLIMIT` unset or below the cap plus M_fix, the Node reports `ruralz_node_degraded_info{reason="plugin_memlimit"}`; an off-heap `experimental.MemoryAllocator` is the fallback ([source](https://github.com/wazero/wazero/blob/main/experimental/memory.go)) |
 | Time | `WithCloseOnContextDone(true)` ([source](https://github.com/wazero/wazero/blob/main/config.go)) on a cancel-only per-call context (`context.WithCancel` of the request context), cancelled by a host timer of `limits.timeout`, default 5 ms (target), that stops while the guest is parked in its State Store call and resumes with the remaining time; that call has its own `stateStoreTimeout` context (pack section 8.7). 1,000 Host Function calls per call (target) replace fuel, which wazero lacks ([source](https://github.com/wazero/wazero/issues/422)) |
 | Faults | A trapped or timed-out instance is discarded; refills are rate-limited per [Default limits](../architecture/05-wasm-plugin-system.md#default-limits) |
 
@@ -100,7 +92,7 @@ flowchart LR
 - **SM-6 microbenchmark gate**, Planned (M2): the `pr-full` run gates alloc/op; the `nightly` and `release` Macro latency gate fails a pooled Phase call, interruption on, above 50 µs at p99 (target) ([Benchmarks and regression gates](../engineering/03-testing-and-quality-strategy.md#benchmarks-and-regression-gates)).
 - **Fuzzing**, Planned (M2): one target per Host Function group; out-of-bounds guest pointers trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **`govulncheck`** on every pull request, Planned (M0); SM-13 keeps unpatched sandbox escapes older than 30 days at zero (target).
-- **Review checklist item**: a pull request that uses `NewRuntimeConfig()`, enables `NewCompilationCacheWithDir`, disables `WithCloseOnContextDone`, gives it a deadline context, omits `WithMemoryLimitPages` or `WithMemoryCapacityFromMax`, or adds a second WebAssembly runtime MUST amend this ADR.
+- **Amendment trigger**: a pull request that uses `NewRuntimeConfig()`, enables `NewCompilationCacheWithDir`, disables `WithCloseOnContextDone`, gives it a deadline context, omits `WithMemoryLimitPages` or `WithMemoryCapacityFromMax`, or adds a second WebAssembly runtime MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -109,7 +101,7 @@ flowchart LR
 - Good, because it provides the documented host pattern: compile once, then instantiate per worker ([source](https://github.com/wazero/wazero/blob/main/runtime.go)).
 - Good, because v1.12.0 added exception handling, typed references and extended constant expressions ([source](https://github.com/wazero/wazero/releases/tag/v1.12.0)), so guests that use these proposals load.
 - Bad, because it has no fuel or instruction metering; maintainers point to context cancellation and page limits instead ([source](https://github.com/wazero/wazero/issues/422)).
-- Bad, because the repository name and Go module path differ ([source](https://github.com/wazero/wazero/blob/main/go.mod)), a naming trap the foundation pack corrected at freeze.
+- Bad, because the repository name and Go module path differ ([source](https://github.com/wazero/wazero/blob/main/go.mod)), a naming trap for imports.
 
 ### wasmtime-go
 
@@ -129,7 +121,6 @@ flowchart LR
 ## More information
 
 - Owning document: [WASM plugin system](../architecture/05-wasm-plugin-system.md#runtime) and its [Performance model](../architecture/05-wasm-plugin-system.md#performance-model); catalog row: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog).
-- Research: [Go runtime libraries](../_meta/research/go-libraries-runtime.md) section 2 and [Tooling and licenses](../_meta/research/tooling-and-licenses.md) section 4. The repository-path rejection is inferred from the proxy's `.mod` file, not reproduced with a Go toolchain.
+- The repository-path rejection is inferred from the proxy's `.mod` file, not reproduced with a Go toolchain.
 - Related decisions: [ADR-0001](0001-implementation-language-go.md) (static builds), [ADR-0005](0005-plugin-abi-v1.md) (Plugin ABI v1 and the proxy-wasm adapter) and [ADR-0017](0017-artifact-signing.md) (Plugin signatures verified before compilation).
 - Revisit when wazero ships metering or a cheaper fix for #2466, or if fuel metering becomes mandatory, which needs an ADR accepting CGO for wasmtime-go.
-- Proposed owning-document amendment: [Data plane](../architecture/03-data-plane.md#durable-and-shared-state) still lists an on-disk `${RURALZ_DATA_DIR}/cache/wazero/`, contradicting the in-memory-only rule; it SHOULD remove "compiled Plugin code" and `${RURALZ_DATA_DIR}/cache/wazero/` from that row, keep `${RURALZ_DATA_DIR}/cache/oci/sha256/` for Plugin artifacts, and close OQ-data-plane-11 with option (c). Foundation pack section 8.11 still names compiled code among disposable caches; that stays with OQ-wasm-plugin-system-16.

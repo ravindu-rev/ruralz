@@ -2,18 +2,6 @@
 id: ADR-0014
 title: "AI API surface: OpenAI-compatible facade plus native passthrough, provider usage authoritative"
 status: accepted
-date: 2026-09-25
-deciders: [ruralz-core]
-related:
-  - docs/architecture/06-ai-llm-gateway.md
-  - docs/_meta/foundation-pack.md
-  - docs/architecture/01-system-overview.md
-  - docs/architecture/02-configuration-model.md
-  - docs/engineering/01-tech-stack-and-libraries.md
-  - docs/vision/01-vision-and-positioning.md
-  - docs/architecture/12-performance-budgets-and-benchmarking.md
-  - docs/architecture/10-observability.md
-  - docs/engineering/03-testing-and-quality-strategy.md
 ---
 
 # ADR-0014: AI API surface: OpenAI-compatible facade plus native passthrough, provider usage authoritative
@@ -100,8 +88,8 @@ flowchart LR
 - **Token Budget property test**, Planned (M3): reservation, per-attempt settlement and the overshoot bound hold ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
 - **SM-10 scale job**, Planned (M3): the [AI provider mock](../engineering/03-testing-and-quality-strategy.md#ai-provider-mock) drops usage on some streams, and settlement MUST charge all of R.
 - **Fuzzing**, Planned (M3): per-dialect stream parsers extract the fixture's final usage or report it missing ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **Validation**, Planned (M3): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, [Error codes](../architecture/02-configuration-model.md#error-codes)).
-- **Review checklist item**: a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR.
+- **Validation**, Planned (M1): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, stage K, [Error codes](../architecture/02-configuration-model.md#error-codes)), before the AI gateway ships, so Bundles written for M3 validate the same way in every release; the configuration conformance suite holds its negative fixture.
+- **Amendment trigger**: a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR.
 
 ## Pros and cons of the options
 
@@ -133,7 +121,7 @@ flowchart LR
 ## More information
 
 - Owning document: [AI/LLM gateway](../architecture/06-ai-llm-gateway.md); tokenizer: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog).
-- Related decisions: [ADR-0008](0008-rate-limiting-local-bucket-and-gcra.md) (request-rate limits in `onRequestHeaders`), [ADR-0010](0010-telemetry-opentelemetry-first.md) (`gen_ai` telemetry) and [ADR-0011](0011-expressions-and-authorization-engines.md) (candidate `when` expressions).
-- Open questions that refine, not reverse, this decision: OQ-ai-llm-gateway-1 (client caps above `limits.maxOutputTokens`), OQ-ai-llm-gateway-2 with OQ-vision-and-positioning-15 and OQ-tech-stack-and-libraries-11 (estimate corrections; rate-limited provider count endpoints ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)) would be declared remote calls), OQ-ai-llm-gateway-3 (mixed dialects, InvokeModel) and OQ-ai-llm-gateway-16 (registrations). `ai.token-budget`'s default `failureMode` stays OQ-configuration-model-8.
+- Related decisions: [ADR-0008](0008-rate-limiting-local-bucket-and-gcra.md) (request-rate limits in `onRequestHeaders`), [ADR-0018](0018-telemetry-opentelemetry-prometheus-exporter.md) (`gen_ai` telemetry) and [ADR-0019](0019-expressions-authorization-comprehension-stop.md) (candidate `when` expressions).
+- Open questions that refine, not reverse, this decision: OQ-ai-llm-gateway-1 (client caps above `limits.maxOutputTokens`), OQ-ai-llm-gateway-2 with OQ-vision-and-positioning-15 and OQ-tech-stack-and-libraries-11 (estimate corrections; rate-limited provider count endpoints ([source](https://platform.claude.com/docs/en/build-with-claude/token-counting)) would be declared remote calls), OQ-ai-llm-gateway-3 (mixed dialects, InvokeModel) and OQ-ai-llm-gateway-16 (registrations).
+- `ai.token-budget` defaults to `failureMode: closed` (pack section 10).
 - OQ-ai-llm-gateway-15 proposes charging R per attempt without usage and releasing R when no attempt ran; its option (b) amends this ADR, and until it closes pack 8.9 applies as written.
-- Proposed amendment: [Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) SHOULD add a depguard rule confining `tiktoken-go/tokenizer` to the estimator and streaming-guard package, so no billing path can import it.

@@ -1,0 +1,1 @@
+routes/orders-summary.yaml:13:7 error RZ-CFG-019 Route/orders-summary spec.policies[name=ratelimit-global]: cannot replace Gateway Policy "ratelimit-global" in slot "ratelimit-global": it has overridable: false (declared in policies/common.yaml:46:3)

@@ -1,0 +1,79 @@
+[
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 4,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "$schema"
+    ],
+    "message": "$schema must be https://json-schema.org/draft/2020-12/schema"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 5,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "items",
+      "$ref"
+    ],
+    "message": "reference \"file:///etc/passwd\" resolves outside the schema document"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 6,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "properties",
+      "n",
+      "minimum"
+    ],
+    "message": "number is out of range: at most 128 characters and a decimal exponent within ±1000"
+  },
+  {
+    "code": "RZ-CFG-005",
+    "severity": "error",
+    "file": "policies/body.yaml",
+    "line": 6,
+    "column": 3,
+    "resource": {
+      "kind": "Policy",
+      "name": "body-schema"
+    },
+    "path": [
+      "spec",
+      "config",
+      "schema",
+      "properties",
+      "zip",
+      "pattern"
+    ],
+    "message": "pattern is not a valid RE2 regular expression: error parsing regexp: invalid or unsupported Perl syntax: `(?!`"
+  }
+]

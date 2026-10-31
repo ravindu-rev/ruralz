@@ -1,0 +1,19 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: geo-block
+spec:
+  image: ghcr.io/acme/ruralz-plugins/geo-block:1.4.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: geo-block-default
+spec:
+  type: plugin
+  plugin: geo-blok
+  filterClass: authz
+  config:
+    denyCountries: ["AQ"]

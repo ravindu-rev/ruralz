@@ -1,0 +1,8 @@
+apiVersion: ruralz/v1alpha1
+kind: AIModel
+metadata:
+  name: support-chat
+spec:
+  candidates:
+    - name: secondary
+      $patch: delete                    # Kubernetes strategic-merge directive

@@ -1,0 +1,12 @@
+# ruralz.io/patch: replace replaces the spec whole: no base retries or
+# timeout survive.
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+  annotations:
+    ruralz.io/patch: replace
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.prod.svc:8080"

@@ -1,0 +1,101 @@
+{
+  "title": "Bad fixture",
+  "uid": "bad-fixture",
+  "__inputs": [
+    {"name": "DS_PROM", "type": "datasource", "pluginId": "prometheus"},
+    {"name": "DS_LOKI", "type": "datasource", "pluginId": "loki"}
+  ],
+  "annotations": {
+    "list": [
+      {"name": "Annotations & Alerts", "datasource": {"type": "grafana", "uid": "-- Grafana --"}, "enable": true},
+      {"name": "Restarts", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "changes(process_start_time_seconds[5m]) > 0"}
+    ]
+  },
+  "panels": [
+    {
+      "title": "Unknown family",
+      "type": "timeseries",
+      "targets": [{"refId": "A", "expr": "sum(rate(ruralz_unknown_total[5m]))", "legendFormat": "ruralz_bogus_total"}]
+    },
+    {
+      "title": "Not a Ruralz metric",
+      "type": "timeseries",
+      "datasource": {"uid": "${datasource}"},
+      "targets": [{"refId": "A", "expr": "up == 0"}]
+    },
+    {
+      "title": "Histogram family name",
+      "type": "timeseries",
+      "datasource": "$datasource",
+      "targets": [{"refId": "A", "expr": "rate(ruralz_http_request_duration_seconds[5m])"}]
+    },
+    {
+      "title": "Row",
+      "type": "row",
+      "panels": [
+        {
+          "title": "Wrong label",
+          "type": "timeseries",
+          "datasource": {"type": "prometheus", "uid": "${datasource}"},
+          "targets": [{"refId": "A", "expr": "sum by (listener) (rate(ruralz_http_requests_total{listener=\"public\"}[5m]))"}]
+        },
+        {
+          "title": "Wrong reason",
+          "type": "stat",
+          "datasource": "${DS_PROM}",
+          "targets": [{"refId": "A", "expr": "max(ruralz_node_degraded_info{reason=\"bogus_reason\"})"}]
+        },
+        {
+          "title": "Bound that is not exported",
+          "type": "stat",
+          "datasource": {"type": "datasource", "uid": "-- Mixed --"},
+          "targets": [
+            {"refId": "A", "datasource": {"type": "prometheus", "uid": "${datasource}"}, "expr": "sum(rate(ruralz_http_gateway_duration_seconds_bucket{le=~\"0.001|9\"}[5m]))"},
+            {"refId": "B", "datasource": {"type": "loki", "uid": "${loki}"}, "expr": "sum(count_over_time({job=\"ruralz\"} |= \"error\" [5m]))"}
+          ]
+        },
+        {
+          "title": "Fine",
+          "type": "stat",
+          "targets": [{"refId": "A", "expr": "# Active requests of every listener\nsum(ruralz_http_active_requests) # now\n"}]
+        }
+      ]
+    },
+    {
+      "title": "Logs",
+      "type": "logs",
+      "datasource": {"type": "loki", "uid": "${loki}"},
+      "targets": [{"refId": "A", "expr": "{job=\"ruralz\"} |= \"RZ\" | json"}]
+    },
+    {
+      "title": "Logs by input",
+      "type": "logs",
+      "datasource": "${DS_LOKI}",
+      "targets": [{"refId": "A", "expr": "{job=\"ruralz\"}"}]
+    },
+    {
+      "title": "Test data",
+      "type": "timeseries",
+      "datasource": {"type": "grafana-testdata-datasource", "uid": "testdata"},
+      "targets": [{"refId": "A", "expr": "anything goes"}]
+    }
+  ],
+  "templating": {
+    "list": [
+      {"name": "datasource", "type": "datasource", "query": "prometheus"},
+      {"name": "loki", "type": "datasource", "query": "loki"},
+      {"name": "route", "type": "query", "query": "label_values(ruralz_route_requests_total, route)"},
+      {"name": "listener", "type": "custom", "query": "public,internal"},
+      {"name": "window", "type": "interval", "query": "1m,5m,10m"},
+      {"name": "filter", "type": "textbox", "query": "x"},
+      {"name": "cluster", "type": "constant", "query": "eu-1"},
+      {"name": "labels", "type": "adhoc", "datasource": {"type": "prometheus", "uid": "${datasource}"}},
+      {"name": "stream", "type": "query", "datasource": {"type": "loki", "uid": "${loki}"}, "query": "label_values({job=\"ruralz\"}, stream)"},
+      {
+        "name": "upstream", "type": "query", "datasource": {"type": "prometheus", "uid": "${datasource}"},
+        "definition": "label_values(ruralz_upstream_attempt_duration_seconds, upstream)",
+        "query": {"query": "label_values(ruralz_upstream_attempt_duration_seconds, upstream)", "refId": "V"}
+      }
+    ]
+  }
+}

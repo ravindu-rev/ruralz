@@ -1,0 +1,19 @@
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: beta
+spec:
+  credentials:
+    basic:
+      - username: batch
+        hash: "pbkdf2-sha256:p3QSJbD88BiOWUtS-PBuRA:s18LvDc4t_R93uVhQXgqaaBz1bwS7QkQFuZzsLHF95A"
+---
+apiVersion: ruralz/v1alpha1
+kind: Consumer
+metadata:
+  name: gamma
+spec:
+  credentials:
+    basic:
+      - username: batch
+        hash: "pbkdf2-sha256:p3QSJbD88BiOWUtS-PBuRA:s18LvDc4t_R93uVhQXgqaaBz1bwS7QkQFuZzsLHF95A"

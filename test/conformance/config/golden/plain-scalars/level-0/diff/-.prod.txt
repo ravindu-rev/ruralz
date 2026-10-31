@@ -1,0 +1,3 @@
+ruralz bundle diff: rev-f4cf3f1709c0 -> rev-f4cf3f1709c0 (environment: prod)
+
+0 resources changed: 0 added, 0 removed, 0 modified; 0 Route chains changed; impact: none

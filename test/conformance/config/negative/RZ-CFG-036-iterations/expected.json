@@ -1,0 +1,23 @@
+[
+  {
+    "code": "RZ-CFG-036",
+    "severity": "error",
+    "file": "ruralz.yaml",
+    "line": 20,
+    "column": 21,
+    "resource": {
+      "kind": "Consumer",
+      "name": "beta"
+    },
+    "path": [
+      "spec",
+      "credentials",
+      "basic",
+      {
+        "username": "batch"
+      },
+      "iterations"
+    ],
+    "message": "iterations 100000 is outside 600000 to 1000000"
+  }
+]

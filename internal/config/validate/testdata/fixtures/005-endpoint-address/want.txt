@@ -1,0 +1,4 @@
+extra.yaml:8:16 error RZ-CFG-005 Upstream/bad-addresses spec.endpoints[address=billing.shop.svc].address: endpoint address "billing.shop.svc": the address is not host:port
+extra.yaml:9:16 error RZ-CFG-005 Upstream/bad-addresses spec.endpoints[address=billing.shop.svc:0].address: endpoint address "billing.shop.svc:0": the port is not a decimal number from 1 to 65535
+extra.yaml:10:16 error RZ-CFG-005 Upstream/bad-addresses spec.endpoints[address="bad_host!:80"].address: endpoint address "bad_host!:80": the host is neither an IP address nor a DNS name: the byte '!' is not a letter, digit, '-' or '_'
+extra.yaml:11:16 error RZ-CFG-005 Upstream/bad-addresses spec.endpoints[address="[::1]:99999"].address: endpoint address "[::1]:99999": the port is not a decimal number from 1 to 65535

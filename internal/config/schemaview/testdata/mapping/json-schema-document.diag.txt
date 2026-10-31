@@ -1,0 +1,1 @@
+routes/json-schema-document.json:8:17 error RZ-CFG-005 Policy/order-schema spec.config.schema: must be an object or a boolean, not a string

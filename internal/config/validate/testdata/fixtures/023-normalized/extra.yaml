@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders-upper
+spec:
+  match:
+    hosts: ["API.Shop.Example."]
+    path: {prefix: /orders/../orders}
+  upstreams:
+    - name: inventory
