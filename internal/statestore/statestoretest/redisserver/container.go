@@ -56,11 +56,29 @@ func dockerHealth(ctx context.Context) (err error) {
 	return nil
 }
 
+// containerUser is the ACL user of the cluster and sentinel container
+// kinds, which clients reach at container IPs: the driver refuses a
+// non-loopback State Store URL without credentials (RZ-CFG-042).
+func containerUser() User {
+	return User{Name: "ruralz", Password: "ruralz-test-container"} //nolint:gosec // G101: a test container's password
+}
+
+// containerUserArgs returns the redis-server arguments that add the
+// user beside the default user, which replication and the sentinel's
+// links keep using.
+func containerUserArgs(u User) []string {
+	return []string{"--user", u.Name, "reset", "on", ">" + u.Password, "~*", "&*", "+@all"}
+}
+
 // startContainer starts a container-flavor deployment.
 func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 	ctx, cancel := context.WithTimeout(tb.Context(), containerTimeout)
 	defer cancel()
 	d := &Deployment{kind: k, acc: access{scheme: "redis"}}
+	if k.Topology() != statestore.TopologyStandalone {
+		u := containerUser()
+		d.acc.user, d.acc.dial.user, d.acc.dial.password = &u, u.Name, u.Password
+	}
 	logger := testcontainers.WithLogger(tclog.TestLogger(tb))
 	switch k.Topology() {
 	case statestore.TopologyCluster:
@@ -121,10 +139,11 @@ func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 // and only a Linux host reaches, then one more container per primary that
 // joins as its replica.
 func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, logger testcontainers.LoggerOption) error {
-	server := d.kind.server()
+	cmd := append([]string{d.kind.server(), "--cluster-enabled", "yes", "--protected-mode", "no", "--save", "", "--appendonly", "no"},
+		containerUserArgs(*d.acc.user)...)
 	run := func(name string) (clusterNode, error) {
 		ctr, err := testcontainers.Run(ctx, d.kind.Image(), logger,
-			testcontainers.WithCmd(server, "--cluster-enabled", "yes", "--protected-mode", "no", "--save", "", "--appendonly", "no"),
+			testcontainers.WithCmd(cmd...),
 			testcontainers.WithWaitStrategy(wait.ForLog("Ready to accept connections")))
 		if ctr != nil {
 			tb.Cleanup(func() { terminate(tb, ctr) })
@@ -195,7 +214,7 @@ func startContainerSentinel(ctx context.Context, tb testing.TB, d *Deployment, l
 		s := &Server{name: name, addr: addr, client: addr, acc: d.acc, ctr: ctr}
 		return s, ip, waitServing(ctx, s, d.kind)
 	}
-	server := []string{d.kind.server(), "--protected-mode", "no", "--save", "", "--appendonly", "no"}
+	server := append([]string{d.kind.server(), "--protected-mode", "no", "--save", "", "--appendonly", "no"}, containerUserArgs(*d.acc.user)...)
 	name := string(d.kind)
 	p, pip, err := run(name+"-primary", memberPort, "Ready to accept connections", testcontainers.WithCmd(server...))
 	if err != nil {
@@ -211,7 +230,7 @@ func startContainerSentinel(ctx context.Context, tb testing.TB, d *Deployment, l
 	}
 	s, _, err := run(name+"-sentinel", sentinelPort, "Sentinel ID is",
 		testcontainers.WithFiles(testcontainers.ContainerFile{
-			Reader: bytes.NewReader(containerSentinelConfig(pip)), ContainerFilePath: sentinelConfFile, FileMode: 0o666,
+			Reader: bytes.NewReader(containerSentinelConfig(pip, *d.acc.user)), ContainerFilePath: sentinelConfFile, FileMode: 0o666,
 		}),
 		testcontainers.WithCmd(d.kind.server(), sentinelConfFile, "--sentinel"))
 	if err != nil {
@@ -226,11 +245,13 @@ func startContainerSentinel(ctx context.Context, tb testing.TB, d *Deployment, l
 
 // containerSentinelConfig returns the configuration file of a sentinel
 // container monitoring the primary at host: protected mode off, as the
-// test process connects from outside the container, and the sentinel
-// timings.
-func containerSentinelConfig(host string) []byte {
+// test process connects from outside the container, the sentinel timings,
+// and u beside the default user, as the admin connections authenticate
+// as u.
+func containerSentinelConfig(host string, u User) []byte {
 	ds := []directive{{"port", strconv.Itoa(sentinelPort)}, {"protected-mode", "no"}}
 	ds = append(ds, sentinelMonitor(MasterSet, host, strconv.Itoa(memberPort))...)
+	ds = append(ds, directive{"user", u.Name, "reset", "on", ">" + u.Password, "~*", "&*", "+@all"})
 	return render(ds, nil)
 }
 

@@ -120,10 +120,12 @@ func TestNodeDirectives(t *testing.T) {
 }
 
 // TestContainerSentinelConfig checks the sentinel container's
-// configuration: its port, protected mode off for the test process, and
-// the monitor of the primary's container IP with the sentinel timings.
+// configuration: its port, protected mode off for the test process, the
+// monitor of the primary's container IP with the sentinel timings, and
+// the container user beside the default user.
 func TestContainerSentinelConfig(t *testing.T) {
-	conf, err := parseConf(string(containerSentinelConfig("172.17.0.2")))
+	u := containerUser()
+	conf, err := parseConf(string(containerSentinelConfig("172.17.0.2", u)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,6 +136,7 @@ func TestContainerSentinelConfig(t *testing.T) {
 	want := []string{
 		"port 26379", "protected-mode no", "sentinel monitor ruralz 172.17.0.2 6379 1",
 		"sentinel down-after-milliseconds ruralz 5000", "sentinel failover-timeout ruralz 10000",
+		"user ruralz reset on >" + u.Password + " ~* &* +@all",
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("sentinel container configuration\n%q\nwant\n%q", got, want)

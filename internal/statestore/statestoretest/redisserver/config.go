@@ -25,7 +25,8 @@ const (
 )
 
 // Options configure a deployment. Every field is for the process flavor:
-// the container flavor runs its images as they are.
+// the container flavor runs its images as they are, but for the ACL user
+// of its cluster and sentinel kinds (containerUser).
 type Options struct {
 	// TLS serves TLS only (port 0 and tls-port), replication, the
 	// cluster bus and a sentinel's links included, with a certificate for

@@ -28,7 +28,10 @@
 //     three-primary Redis and Valkey clusters of generic containers with
 //     one replica each, formed over container IPs, and a Redis or Valkey
 //     primary, replica and sentinel (Redis8Sentinel, Valkey9Sentinel),
-//     which names container IPs; only a Linux host reaches either.
+//     which names container IPs; only a Linux host reaches either. Their
+//     URLs carry the credentials of an ACL user every container of the
+//     deployment adds beside the default user, since the driver refuses a
+//     non-loopback URL without credentials (RZ-CFG-042).
 //
 // A cluster failover is a SIGKILL of a shard's primary (Server.Kill)
 // followed by its replica's promotion with CLUSTER FAILOVER TAKEOVER
