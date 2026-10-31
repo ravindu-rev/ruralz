@@ -424,10 +424,14 @@ func wideMembers(n int) string {
 // (45 MB), and the trees of 10,000 Routes checked before the decode was
 // known to fail (8 MB). The scanner's own scratch (the name records of the
 // widest object) is measured apart and not charged. What is measured is the
-// live heap right after a forced collection.
+// live heap right after a forced collection, in a build without the race
+// detector (raceEnabled).
 func TestDecodeFailingLiveHeap(t *testing.T) {
 	if testing.Short() {
 		t.Skip("memory test")
+	}
+	if raceEnabled {
+		t.Skip("measures memory, which the race detector changes and slows tenfold; the run without it measures it")
 	}
 	// One worker reads 4 MiB of short elements, three a sixteenth of it
 	// (the stack look of the measure is slow), and the wide elements hold
@@ -583,15 +587,18 @@ func TestDecodeInFlightBounded(t *testing.T) {
 // TestDecodeAllocationPerByte: a failing decode allocates a bounded number
 // of bytes per byte of the body. The slope of the bytes ReadDump allocates
 // between 512 KiB and 2 MiB bodies of three hostile shapes stays under 90
-// bytes per byte with the limits raised (it measures 50 to 75, with and
-// without the race detector), and under 8 with the default limits, which
-// stop the parse at the 20,001st resource, so reading the body and the
-// parser's copy of the content are all a hostile dump of any size costs
-// (it measures 3.5, and 5.9 under the race detector). One worker; bytes
-// allocated, the least of three runs, not time or a sampled heap.
+// bytes per byte with the limits raised (it measures 50 to 75), and under
+// 8 with the default limits, which stop the parse at the 20,001st
+// resource, so reading the body and the parser's copy of the content are
+// all a hostile dump of any size costs (it measures 3.5). One worker;
+// bytes allocated, the least of three runs, not time or a sampled heap, in
+// a build without the race detector (raceEnabled).
 func TestDecodeAllocationPerByte(t *testing.T) {
 	if testing.Short() {
 		t.Skip("allocation test")
+	}
+	if raceEnabled {
+		t.Skip("measures allocation, which the race detector changes and slows tenfold; the run without it measures it")
 	}
 	alloc := func(dec *Decoder, body []byte) float64 {
 		least := ^uint64(0)

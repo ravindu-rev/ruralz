@@ -893,8 +893,13 @@ func generationRef(ptr string) bool {
 // without it, as they spend, the ordinary two-pass documents are accepted,
 // and the library alone refuses the generations too; and what the walk
 // allocates grows with its pointers, not with its passes times its
-// pointers (a counter, never a time).
+// pointers (a counter, never a time). The walk runs on one goroutine, so
+// the race detector, which slows it tenfold, has nothing to check in it:
+// the run without it counts (raceEnabled).
 func TestFollowFixpointCost(t *testing.T) {
+	if raceEnabled {
+		t.Skip("counts a walk on one goroutine, which the race detector slows tenfold; the run without it counts")
+	}
 	docs := map[string]any{}
 	walkWith := func(schema string, budget int) *walker {
 		t.Helper()
