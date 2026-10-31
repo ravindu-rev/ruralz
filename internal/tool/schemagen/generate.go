@@ -721,6 +721,16 @@ func (g *generator) fieldSchema(parent reflect.Type, f reflect.StructField, d do
 	if err := applyValueMarkers(value, d, "field"); err != nil {
 		return nil, false, err
 	}
+	if _, ok := d.get("cel"); ok {
+		// A CEL field holds an expression or is absent: an empty string is
+		// RZ-CFG-005 at stage F in every CEL field
+		// (docs/architecture/02-configuration-model.md "Allowed places"), so
+		// no Node meets one that validation passed.
+		if _, set := value["minLength"]; set {
+			return nil, false, errors.New("a +ruralz:cel field takes no +ruralz:minLength: its expression is never empty")
+		}
+		value["minLength"] = 1
+	}
 	if m, ok := d.get("minProperties"); ok {
 		n, _ := strconv.Atoi(m.value) // checked with the markers above
 		value["minProperties"] = n

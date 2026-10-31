@@ -85,7 +85,6 @@ type CertificateSubject struct {
 type AuthzCELConfig struct {
 	// Rule allows the request when true; it is not empty.
 	// +ruralz:required
-	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now:bool
 	Rule string `json:"rule"`
 }
@@ -281,7 +280,6 @@ type HeaderRequestSet struct {
 	// Value is a literal value; it may be empty.
 	Value *string `json:"value,omitempty"`
 	// ValueExpression computes the value; it is not empty.
-	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now:string
 	ValueExpression string `json:"valueExpression,omitempty"`
 }
@@ -309,7 +307,6 @@ type HeaderResponseSet struct {
 	// Value is a literal value; it may be empty.
 	Value *string `json:"value,omitempty"`
 	// ValueExpression computes the value; it is not empty.
-	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:string
 	ValueExpression string `json:"valueExpression,omitempty"`
 }
@@ -398,7 +395,6 @@ type TransformRequestSet struct {
 	Name string `json:"name,omitempty"`
 	// ValueExpression computes the value: a string for targets header, query and path, and any value for target body, written there as JSON.
 	// +ruralz:required
-	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now,upstream:dyn
 	ValueExpression string `json:"valueExpression"`
 }
@@ -451,7 +447,6 @@ type TransformResponseSet struct {
 	Name string `json:"name"`
 	// ValueExpression computes the value: a string for target header, and any value for target body, written there as JSON.
 	// +ruralz:required
-	// +ruralz:minLength=1
 	// +ruralz:cel=request,source,route,consumer,auth,now,response,upstream:dyn
 	ValueExpression string `json:"valueExpression"`
 }

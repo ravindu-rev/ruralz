@@ -404,7 +404,7 @@ func TestCountersApart(t *testing.T) {
 
 // TestKeyPartitions covers config.key: by default the Consumer's name,
 // whose digest names the counter, so Consumers count apart; a constant
-// key shares one counter; an empty key puts every request in one.
+// key, the empty string as any other, puts every request in one counter.
 func TestKeyPartitions(t *testing.T) {
 	fx := newFixture(t)
 	f, _ := fx.build(t, "quota-daily", config("daily"))
@@ -414,7 +414,7 @@ func TestKeyPartitions(t *testing.T) {
 			t.Errorf("Consumer %s: outcome %+v digest %x; want an admission under its name", name, o.r, o.call.Quota.Digest)
 		}
 	}
-	for _, key := range []string{`"shared"`, ""} {
+	for _, key := range []string{`"shared"`, `""`} {
 		fx := newFixture(t)
 		cfg := config("daily")
 		cfg.Key = &key
@@ -525,10 +525,11 @@ func TestHandle(t *testing.T) {
 	}
 }
 
-// TestBuildRefusals covers Build: a config of another type (RZ-CFG-005),
-// Upstream scope or a placement without onRequestHeaders (RZ-CFG-020),
-// expressions that do not compile (RZ-CFG-014) or exceed the cost ceiling
-// (RZ-CFG-015), and the programming errors without a code.
+// TestBuildRefusals covers Build: a config of another type, or an empty
+// key or cost, with or without a CEL builder (RZ-CFG-005), Upstream scope
+// or a placement without onRequestHeaders (RZ-CFG-020), expressions that
+// do not compile (RZ-CFG-014) or exceed the cost ceiling (RZ-CFG-015),
+// and the programming errors without a code.
 func TestBuildRefusals(t *testing.T) {
 	fx := newFixture(t)
 	bad := func(s string) *string { return &s }
@@ -541,6 +542,9 @@ func TestBuildRefusals(t *testing.T) {
 		{"config type", func(e *filter.BuildEnv) { e.Config = &v1alpha1.RateLimitConfig{} }, CodeConfig, nil},
 		{"Upstream scope", func(e *filter.BuildEnv) { e.Scope = phase.ScopeUpstream }, CodeScope, nil},
 		{"no onRequestHeaders", func(e *filter.BuildEnv) { e.Phases = phase.Of(phase.OnLog) }, CodeScope, nil},
+		{"empty key", func(e *filter.BuildEnv) { e.Config.(*v1alpha1.QuotaConfig).Key = bad("") }, CodeConfig, nil},
+		{"empty cost", func(e *filter.BuildEnv) { e.Config.(*v1alpha1.QuotaConfig).Cost = bad("") }, CodeConfig, nil},
+		{"empty cost without CEL", func(e *filter.BuildEnv) { e.CEL = nil; e.Config.(*v1alpha1.QuotaConfig).Cost = bad("") }, CodeConfig, nil},
 		{"key syntax", func(e *filter.BuildEnv) { e.Config.(*v1alpha1.QuotaConfig).Key = bad(`request.`) }, CodeCEL, nil},
 		{"cost type", func(e *filter.BuildEnv) { e.Config.(*v1alpha1.QuotaConfig).Cost = bad(`"one"`) }, CodeCEL, nil},
 		{"cost ceiling", func(e *filter.BuildEnv) {

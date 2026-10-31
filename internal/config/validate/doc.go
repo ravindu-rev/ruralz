@@ -51,10 +51,10 @@
 //     listener.
 //   - RZ-CFG-041: one secret used with two destinations.
 //
-// The schema states, and stage F reports, ring-hash without hashKey,
-// a plugin Policy without plugin, a step maxBodyBytes below 1, a step
-// with collection: true and no group, and a zone map zone outside 1 to 63
-// characters of [a-z0-9-]. The
+// The schema states, and stage F reports, an empty expression in any CEL
+// field, ring-hash without hashKey, a plugin Policy without plugin, a step
+// maxBodyBytes below 1, a step with collection: true and no group, and a
+// zone map zone outside 1 to 63 characters of [a-z0-9-]. The
 // config of a plugin Policy against its Plugin's configSchema
 // (RZ-CFG-021) ships with the plugin Policy, Planned (M2); RZ-CFG-034
 // belongs to stage K and RZ-CFG-040 to the Node's serve check.

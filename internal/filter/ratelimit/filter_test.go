@@ -627,10 +627,10 @@ func TestHotReloadKeepsBuckets(t *testing.T) {
 	}
 }
 
-// TestBuildRefusals checks the Build errors: the config rules
-// (RZ-CFG-005), expressions that do not compile (RZ-CFG-014, RZ-CFG-015),
-// a placement where the Policy never decides (RZ-CFG-020), and the
-// programming errors without a code.
+// TestBuildRefusals checks the Build errors: the config rules and an
+// empty cost, with or without a CEL builder (RZ-CFG-005), expressions that
+// do not compile (RZ-CFG-014, RZ-CFG-015), a placement where the Policy
+// never decides (RZ-CFG-020), and the programming errors without a code.
 func TestBuildRefusals(t *testing.T) {
 	fx := newFixture(t, nil)
 	nine := make([]v1alpha1.RateLimit, 9)
@@ -658,6 +658,8 @@ func TestBuildRefusals(t *testing.T) {
 		{"burst above requests", keyed(withBurst), nil, CodeConfig},
 		{"duplicate limits", keyed(limit(5, time.Second), limit(5, time.Second)), nil, CodeConfig},
 		{"key does not compile", &v1alpha1.RateLimitConfig{Key: `request.`, Limits: []v1alpha1.RateLimit{limit(5, time.Second)}}, nil, CodeCEL},
+		{"empty cost", &v1alpha1.RateLimitConfig{Cost: ptr(""), Limits: []v1alpha1.RateLimit{limit(5, time.Second)}}, nil, CodeConfig},
+		{"empty cost without CEL", &v1alpha1.RateLimitConfig{Cost: ptr(""), Limits: []v1alpha1.RateLimit{limit(5, time.Second)}}, func(e *filter.BuildEnv) { e.CEL = nil }, CodeConfig},
 		{"cost not an int", &v1alpha1.RateLimitConfig{Cost: ptr(`"1"`), Limits: []v1alpha1.RateLimit{limit(5, time.Second)}}, nil, CodeCEL},
 		{"when not a bool", keyed(badWhen), nil, CodeCEL},
 		{"cost over the ceiling", &v1alpha1.RateLimitConfig{Cost: ptr(`size(request.headers.filter(a, request.headers.exists(b, request.headers.exists(c, a + b + c == ""))))`), Limits: []v1alpha1.RateLimit{limit(5, time.Second)}}, nil, CodeCost},
