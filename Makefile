@@ -41,7 +41,9 @@ HOST_ARCH := $(if $(filter aarch64 arm64,$(UNAME_M)),arm64,amd64)
 
 # Build metadata embedded with -ldflags -X and printed by `ruralz version`.
 # There is no build date, so rebuilding a tag reproduces identical binaries.
-VERSION ?= $(shell v=$$(git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null) && echo "$${v#v}" || echo 0.0.0-dev)
+# No "#" inside a function call: GNU Make 3.81, the macOS runners' make,
+# reads it as the start of a comment.
+VERSION ?= $(patsubst v%,%,$(shell git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null || echo v0.0.0-dev))
 COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null || echo unknown)
 FLAVOR ?= default
 # The release flags of stage 4 and stage 12. -s -w drop the symbol table
