@@ -53,10 +53,11 @@ func setJob(jobs []workflowJob, name, status, conclusion string) []workflowJob {
 	return jobs
 }
 
-// TestGateSelections: each gate reads its jobs; a job that did not
-// finish, did not succeed or did not run is a finding.
+// TestGateSelections: from M6, with the rh-1 jobs, each gate reads its
+// jobs; a job that did not finish, did not succeed or did not run is a
+// finding.
 func TestGateSelections(t *testing.T) {
-	sels := gateJobs()
+	sels := gateJobs(true)
 	for _, gate := range []string{gateGolden, gateConformance, gateFuzzing, gateChaos, gateBenchmarks, gateSecurity} {
 		if got := selectionFindings(releaseJobs(), sels[gate]); len(got) != 0 {
 			t.Errorf("%s on a passing run: %q", gate, got)
@@ -89,6 +90,39 @@ func TestGateSelections(t *testing.T) {
 	}
 	if got := selectionFindings(noChaos, sels[gateChaos]); !strings.Contains(strings.Join(got, "\n"), `no job "chaos-scale / Chaos at target scale" ran`) {
 		t.Errorf("Chaos without chaos-scale.yml: %q", got)
+	}
+}
+
+// rh1Skipped returns the release run's jobs as before M6: GitHub skipped
+// the rh-1 jobs, the Latency job, the soak and chaos-scale.yml's chaos job.
+func rh1Skipped() []workflowJob {
+	jobs := releaseJobs()
+	for _, name := range []string{"nightly / 11. Latency", "nightly / 11. Benchmark records", "12. Soak", "chaos-scale / " + chaosScaleJob} {
+		jobs = setJob(jobs, name, "completed", "skipped")
+	}
+	return jobs
+}
+
+// TestGateSelectionsBeforeM6: without the rh-1 jobs, the Chaos gate reads
+// the 11. Chaos job alone and the Benchmarks gate stage 9's gates alone,
+// so a release run in which GitHub skipped the rh-1 jobs passes both, and
+// a failed stage 9 gate still fails Benchmarks.
+func TestGateSelectionsBeforeM6(t *testing.T) {
+	sels := gateJobs(false)
+	for _, gate := range []string{gateChaos, gateBenchmarks} {
+		if got := selectionFindings(rh1Skipped(), sels[gate]); len(got) != 0 {
+			t.Errorf("%s with the rh-1 jobs skipped: %q", gate, got)
+		}
+	}
+	if got := ciFindings(rh1Skipped()); len(got) != 0 {
+		t.Errorf("All CI stages green with the rh-1 jobs skipped: %q", got)
+	}
+	failed := setJob(rh1Skipped(), "pr-full / 9. Regression gates (linux/amd64 alloc/op, size and idle RSS)", "completed", "failure")
+	if got := selectionFindings(failed, sels[gateBenchmarks]); !strings.Contains(strings.Join(got, "\n"), "9. Regression gates") {
+		t.Errorf("Benchmarks with a failed stage 9 gate: %q", got)
+	}
+	if got := selectionFindings(rh1Skipped(), gateJobs(true)[gateBenchmarks]); !strings.Contains(strings.Join(got, "\n"), `"nightly / 11. Latency" concluded skipped`) {
+		t.Errorf("from M6, Benchmarks with the Latency job skipped: %q", got)
 	}
 }
 
@@ -195,16 +229,17 @@ func TestReadSkips(t *testing.T) {
 }
 
 // TestDecide: the gates' rules over the evidence, then the skips: a
-// failed gate a maintainer skipped is skipped, an unused skip is noted, no
-// maintainer skips the Benchmarks gate of 0.1.0 or its candidates, and a
-// patch needs no candidate.
+// failed gate a maintainer skipped is skipped, the Benchmarks gate
+// included, an unused skip is noted, and a release needing no candidate
+// leaves that gate not applicable; before M6 the rh-1 jobs and records
+// count for nothing.
 func TestDecide(t *testing.T) {
 	recs, err := readRecords(writeRecords(t, releaseRecords("")))
 	if err != nil {
 		t.Fatal(err)
 	}
 	passing := func() *evidence {
-		return &evidence{jobs: releaseJobs(), records: recs, candidateApplies: true}
+		return &evidence{jobs: releaseJobs(), records: recs, candidateApplies: true, rh1: true}
 	}
 	outcomes := func(rs []gateResult) map[string]string {
 		m := map[string]string{}
@@ -213,11 +248,8 @@ func TestDecide(t *testing.T) {
 		}
 		return m
 	}
-	v010, _ := parseTag("v0.1.0")
-	v011, _ := parseTag("v0.1.1")
-	v010rc, _ := parseTag("v0.1.0-rc.1")
 
-	rs, notes := decide(v010, commitA, passing(), nil, nil)
+	rs, notes := decide(commitA, passing(), nil, nil)
 	for _, r := range rs {
 		if r.Outcome != outcomePassed {
 			t.Errorf("passing evidence: %s %s %q", r.Gate, r.Outcome, r.Findings)
@@ -240,11 +272,11 @@ func TestDecide(t *testing.T) {
 		gateBenchmarks: {Gate: gateBenchmarks, By: "omar", Role: "maintain", Reason: "rh-1 down"},
 	}
 	ev.records = nil // Benchmarks fails without records
-	rs, notes = decide(v010, commitA, ev, skips, []string{"earlier note"})
+	rs, notes = decide(commitA, ev, skips, []string{"earlier note"})
 	got := outcomes(rs)
 	want := map[string]string{
 		gateCI: outcomeFailed, gateGolden: outcomePassed, gateConformance: outcomePassed, gateFuzzing: outcomeFailed,
-		gateChaos: outcomeSkipped, gateBenchmarks: outcomeFailed, gateSecurity: outcomePassed, gateCandidate: outcomeSkipped,
+		gateChaos: outcomeSkipped, gateBenchmarks: outcomeSkipped, gateSecurity: outcomePassed, gateCandidate: outcomeSkipped,
 	}
 	for g, w := range want {
 		if got[g] != w {
@@ -252,7 +284,7 @@ func TestDecide(t *testing.T) {
 		}
 	}
 	text := strings.Join(notes, "\n")
-	for _, w := range []string{"earlier note", "Golden corpus: @jane's skip is unused: the gate passed", "no maintainer skips the Benchmarks gate of 0.1.0"} {
+	for _, w := range []string{"earlier note", "Golden corpus: @jane's skip is unused: the gate passed"} {
 		if !strings.Contains(text, w) {
 			t.Errorf("notes %q lack %q", notes, w)
 		}
@@ -266,15 +298,21 @@ func TestDecide(t *testing.T) {
 		}
 	}
 
-	// The candidate of 0.1.0 is just as bound; 0.1.1 may skip Benchmarks,
-	// and a patch needs no candidate.
-	rs, _ = decide(v010rc, commitA, &evidence{jobs: releaseJobs()}, map[string]skip{gateBenchmarks: skips[gateBenchmarks]}, nil)
+	// From M6 the Benchmarks gate fails without records; before M6, with
+	// the rh-1 jobs skipped and no records, every gate passes, and a
+	// release needing no candidate leaves that gate not applicable.
+	rs, _ = decide(commitA, &evidence{jobs: releaseJobs(), rh1: true}, nil, nil)
 	if got := outcomes(rs); got[gateBenchmarks] != outcomeFailed || got[gateCandidate] != outcomeNotApplicable {
-		t.Errorf("v0.1.0-rc.1: %v", got)
+		t.Errorf("from M6 without records: %v", got)
 	}
-	rs, _ = decide(v011, commitA, &evidence{jobs: releaseJobs()}, map[string]skip{gateBenchmarks: skips[gateBenchmarks]}, nil)
-	if got := outcomes(rs); got[gateBenchmarks] != outcomeSkipped || got[gateCandidate] != outcomeNotApplicable {
-		t.Errorf("v0.1.1: %v", got)
+	rs, notes = decide(commitA, &evidence{jobs: rh1Skipped()}, nil, nil)
+	for _, r := range rs {
+		if want := map[bool]string{true: outcomeNotApplicable, false: outcomePassed}[r.Gate == gateCandidate]; r.Outcome != want {
+			t.Errorf("before M6: %s %s %q, want %s", r.Gate, r.Outcome, r.Findings, want)
+		}
+	}
+	if len(notes) != 0 {
+		t.Errorf("before M6: notes %q", notes)
 	}
 }
 

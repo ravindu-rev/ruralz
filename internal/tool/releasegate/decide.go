@@ -28,6 +28,8 @@ type gatesOptions struct {
 	skipped, summary string
 	// dir is the checkout of the tagged commit.
 	dir string
+	// rh1 says the rh-1 jobs ran: RH1_PROVISIONED is true, from M6.
+	rh1 bool
 }
 
 // Gate outcomes.
@@ -63,6 +65,9 @@ type evidence struct {
 	// candidate is the Release candidate gate's outcome.
 	candidateApplies bool
 	candidate        []string
+	// rh1 says the rh-1 jobs ran, so the Chaos and Benchmarks gates read
+	// them and their records; before M6 GitHub skips them.
+	rh1 bool
 }
 
 // skippedFormat identifies the skipped-gates file of the release notes.
@@ -98,7 +103,7 @@ func runGates(ctx context.Context, g *github, o gatesOptions, now time.Time, git
 	if err != nil {
 		return nil, err
 	}
-	results, notes := decide(v, o.commit, ev, skips, notes)
+	results, notes := decide(o.commit, ev, skips, notes)
 	body := trackingBody(o, results, notes, "")
 	if err := updateTrackingIssue(ctx, g, iss, body); err != nil {
 		return nil, err
@@ -133,7 +138,7 @@ func runGates(ctx context.Context, g *github, o gatesOptions, now time.Time, git
 
 // gather reads the evidence of every gate.
 func gather(ctx context.Context, g *github, v version, o gatesOptions, now time.Time, git gitRunner) (*evidence, error) {
-	var ev evidence
+	ev := evidence{rh1: o.rh1}
 	var err error
 	if ev.jobs, err = listIn(ctx, g, g.repoPath("/actions/runs/%d/jobs?filter=latest", o.runID),
 		func(p *jobsPage) []workflowJob { return p.Jobs }); err != nil {
@@ -188,11 +193,10 @@ func gather(ctx context.Context, g *github, v version, o gatesOptions, now time.
 }
 
 // decide applies each gate's rule to the evidence, then the skips: a
-// failed gate a maintainer skipped is skipped, except the Benchmarks gate
-// of 0.1.0. It returns the results in gate order and the notes on skips
-// that do not count.
-func decide(v version, commit string, ev *evidence, skips map[string]skip, notes []string) ([]gateResult, []string) {
-	sels := gateJobs()
+// failed gate a maintainer skipped is skipped. It returns the results in
+// gate order and the notes on skips that do not count.
+func decide(commit string, ev *evidence, skips map[string]skip, notes []string) ([]gateResult, []string) {
+	sels := gateJobs(ev.rh1)
 	var results []gateResult
 	for _, gate := range gates() {
 		r := gateResult{Gate: gate}
@@ -209,7 +213,10 @@ func decide(v version, commit string, ev *evidence, skips map[string]skip, notes
 			}
 			r.Findings = append(r.Findings, ev.missingSeeds...)
 		case gateBenchmarks:
-			r.Findings = append(selectionFindings(ev.jobs, sels[gate]), benchmarkFindings(ev.records, commit, ev.prev)...)
+			r.Findings = selectionFindings(ev.jobs, sels[gate])
+			if ev.rh1 {
+				r.Findings = append(r.Findings, benchmarkFindings(ev.records, commit, ev.prev)...)
+			}
 		case gateCandidate:
 			if !ev.candidateApplies {
 				r.Outcome = outcomeNotApplicable
@@ -229,8 +236,6 @@ func decide(v version, commit string, ev *evidence, skips map[string]skip, notes
 		case !skipped:
 		case r.Outcome != outcomeFailed:
 			notes = append(notes, fmt.Sprintf("%s: @%s's skip is unused: the gate %s", gate, s.By, r.Outcome))
-		case gate == gateBenchmarks && v.benchmarksUnskippable():
-			notes = append(notes, fmt.Sprintf("%s: @%s's skip does not count: no maintainer skips the Benchmarks gate of 0.1.0, which waits for RH-1 and passing budgets", gate, s.By))
 		default:
 			r.Outcome, r.Skip = outcomeSkipped, &s
 		}
