@@ -669,6 +669,16 @@ func (b rulesetBody) apply(rs *ruleset) error {
 		}
 		rs.Rules = *b.Rules
 	}
+	// GitHub keeps update_allows_fetch_and_merge, which lets a branch sync
+	// its fork, only on branch rulesets: a tag ruleset's update rule reads
+	// back without parameters.
+	if rs.Target == "tag" {
+		for i := range rs.Rules {
+			if rs.Rules[i].Type == "update" {
+				rs.Rules[i].Parameters = nil
+			}
+		}
+	}
 	return nil
 }
 
@@ -683,8 +693,8 @@ func validRule(r rule) error {
 			return invalid("rule %s takes no parameters", r.Type)
 		}
 	case "update":
-		if len(p) != 1 || !isBool("update_allows_fetch_and_merge") {
-			return invalid("rule update takes update_allows_fetch_and_merge")
+		if len(p) != 0 && (len(p) != 1 || !isBool("update_allows_fetch_and_merge")) {
+			return invalid("rule update takes no parameters or update_allows_fetch_and_merge")
 		}
 	case "pull_request":
 		for _, k := range []string{"dismiss_stale_reviews_on_push", "require_code_owner_review", "require_last_push_approval", "required_review_thread_resolution"} {

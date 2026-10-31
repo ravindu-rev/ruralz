@@ -5,11 +5,11 @@
 # (docs/engineering/02-repository-layout-and-conventions.md, "Repository
 # settings"). It runs scripts/repo-settings.sh --check with
 # REPO_SETTINGS_TOKEN, a fine-grained, read-only token secret with
-# Administration: read, never with the workflow's own token, and the run
-# writes no setting. The script's "drift:" lines open the settings-drift
-# issue, or comment on the open one; drift (exit 1) and an error (exit 2)
-# fail the run, and an error with drift still reports the drift. It runs
-# every Tuesday at 06:37 UTC and on demand.
+# Administration: read and Actions: read, never with the workflow's own
+# token, and the run writes no setting. The script's "drift:" lines open
+# the settings-drift issue, or comment on the open one; drift (exit 1) and
+# an error (exit 2) fail the run, and an error with drift still reports
+# the drift. It runs every Tuesday at 06:37 UTC and on demand.
 name: repo-settings
 
 on:
@@ -44,7 +44,7 @@ jobs:
           GH_TOKEN: ${{ secrets.REPO_SETTINGS_TOKEN }}
         run: |
           if [[ -z "$GH_TOKEN" ]]; then
-            echo "::error title=REPO_SETTINGS_TOKEN missing::Add the repository secret REPO_SETTINGS_TOKEN, a fine-grained, read-only token with Administration: read."
+            echo "::error title=REPO_SETTINGS_TOKEN missing::Add the repository secret REPO_SETTINGS_TOKEN, a fine-grained, read-only token with Administration: read and Actions: read."
             exit 2
           fi
           report="$RUNNER_TEMP/report.txt"

@@ -238,8 +238,8 @@ read_immutable() {
 # The three rulesets, found by name among the repository's own rulesets.
 # Rule types compare as a set; a rule's parameters compare one by one, so
 # a parameter the table does not name, such as one GitHub adds later,
-# never reads as drift. GitHub returns bypass_actors only to a token that
-# may write the ruleset, so a missing list reads "unreadable".
+# never reads as drift. GitHub can leave bypass_actors out of the
+# response, depending on the token, so a missing list reads "unreadable".
 read_rulesets() {
   local list name area id
   list=$(api GET "repos/$repo/rulesets?includes_parents=false" --paginate --jq '.[] | [(.id | tostring), .name] | join("\t")') || return 1
@@ -417,8 +417,10 @@ wants() {
   want "$a" include '["refs/tags/v*"]'
   want "$a" exclude '[]'
   want "$a" bypass_actors '[]'
+  # The update rule of a tag ruleset has no parameters: GitHub keeps
+  # update_allows_fetch_and_merge, which lets a branch sync its fork, only
+  # on branch rulesets.
   want "$a" rules '["deletion","update"]'
-  want "$a" update.update_allows_fetch_and_merge false
   # The release Environment: deployments from v* tags only, the owner as
   # its one required reviewer, who approves the runs of the tags they
   # push, so self-review stays allowed; no wait timer.
@@ -553,7 +555,7 @@ EOF
 {"name":"$ruleset_tag_changes","target":"tag","enforcement":"active",
  "conditions":{"ref_name":{"include":["refs/tags/v*"],"exclude":[]}},
  "bypass_actors":[],
- "rules":[{"type":"update","parameters":{"update_allows_fetch_and_merge":false}},{"type":"deletion"}]}
+ "rules":[{"type":"update"},{"type":"deletion"}]}
 EOF
       ;;
   esac

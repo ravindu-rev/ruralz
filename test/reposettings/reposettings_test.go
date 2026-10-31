@@ -128,10 +128,7 @@ func tagChangesRuleset() ruleset {
 	return ruleset{
 		Name: "v* tag updates and deletion", Target: "tag", Enforcement: "active",
 		Include: []string{"refs/tags/v*"}, Exclude: []string{}, BypassActors: []bypassActor{},
-		Rules: []rule{
-			{Type: "update", Parameters: map[string]any{"update_allows_fetch_and_merge": false}},
-			{Type: "deletion"},
-		},
+		Rules: []rule{{Type: "update"}, {Type: "deletion"}},
 	}
 }
 
@@ -630,10 +627,11 @@ func TestCheckReportsDrift(t *testing.T) {
 		}, []string{
 			"drift: " + changes + `: rules is ["update"], want ["deletion","update"]`,
 		}},
-		{"v* tags fast-forwarded", func(t *testing.T, s *ghState) {
-			ruleOf(t, s, "v* tag updates and deletion", "update").Parameters["update_allows_fetch_and_merge"] = true
+		{"v* tags updated", func(t *testing.T, s *ghState) {
+			rs := rulesetNamed(t, s, "v* tag updates and deletion")
+			rs.Rules = rs.Rules[1:]
 		}, []string{
-			"drift: " + changes + ": update.update_allows_fetch_and_merge is true, want false",
+			"drift: " + changes + `: rules is ["deletion"], want ["deletion","update"]`,
 		}},
 		{"admins move v* tags", func(t *testing.T, s *ghState) {
 			rulesetNamed(t, s, "v* tag updates and deletion").BypassActors = []bypassActor{adminActor()}
@@ -740,6 +738,22 @@ func TestApplyConfiguresAFreshRepository(t *testing.T) {
 	}
 	again := check(t, r.state)
 	wantCode(t, again, 0)
+}
+
+// TestApplyTagUpdateRuleWithoutParameters: GitHub keeps
+// update_allows_fetch_and_merge only on branch rulesets, so the update
+// rule of the v* tag updates and deletion ruleset reads back without
+// parameters; apply writes it without any and finds it matching.
+func TestApplyTagUpdateRuleWithoutParameters(t *testing.T) {
+	t.Parallel()
+	r := apply(t, freshState(), faults{})
+	wantCode(t, r, 0)
+	if strings.Contains(r.stderr, "still differs") {
+		t.Errorf("apply found a setting differing after its write:\n%s", r)
+	}
+	if p := ruleOf(t, r.state, "v* tag updates and deletion", "update").Parameters; len(p) != 0 {
+		t.Errorf("the v* tag update rule reads back with parameters %v, want none", p)
+	}
 }
 
 // TestApplyWritesNothingWhenSettingsMatch: applying the table to a
