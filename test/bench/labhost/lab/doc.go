@@ -6,9 +6,15 @@
 // (docs/architecture/12-performance-budgets-and-benchmarking.md
 // "Reference hardware"): on RH-1U it serves the mock Upstream, the mock IdP
 // and the OTLP sink, on RH-1L it runs the open-loop load generator, on
-// RH-1S the fault proxy, and on every host it answers the pre-run host
-// checks (fixed frequency, thermal-throttle counters, a TCP echo for the
-// round trip between hosts).
+// RH-1S the fault proxy and supervises Valkey, and on every host it
+// answers the pre-run host checks (fixed frequency, thermal-throttle
+// counters, a TCP echo for the round trip between hosts). The chaos
+// harness's target profile uses it on the same hosts
+// (docs/engineering/03-testing-and-quality-strategy.md "Scale profiles"):
+// the chaos runs' mock Upstreams, their State Store servers, which the
+// run service supervises and signals (Child), and their load, which the
+// load service runs and whose records it keeps until no load of the
+// session runs (LoadService, Record).
 //
 // Every service speaks one protocol on its standard input and output, so
 // the harness drives it the same way through ssh on the lab hosts and as a
