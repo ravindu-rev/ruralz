@@ -22,13 +22,13 @@ func TestClockHoldsAStoppedNode(t *testing.T) {
 		t.Fatalf("Advance with a stopped Node = %v", err)
 	}
 	client := topo.HTTPClient()
-	if resp, _ := get(t, client, nodes[1].URL("http")+"/"); resp.Header.Get("X-Standin-Timer") != "fired" {
+	if resp := get(t, client, nodes[1].URL("http")+"/"); resp.Header.Get("X-Standin-Timer") != "fired" {
 		t.Error("the running Node's timer did not fire")
 	}
 	if err := nodes[0].Signal(t.Context(), syscall.SIGCONT); err != nil {
 		t.Fatal(err)
 	}
-	resp, _ := get(t, client, nodes[0].URL("http")+"/")
+	resp := get(t, client, nodes[0].URL("http")+"/")
 	if got := clockReading(t, resp); !got.Equal(topo.Now()) || resp.Header.Get("X-Standin-Timer") != "fired" {
 		t.Errorf("the resumed Node reads %s with its timer %s, want %s and fired", format(got), resp.Header.Get("X-Standin-Timer"), format(topo.Now()))
 	}

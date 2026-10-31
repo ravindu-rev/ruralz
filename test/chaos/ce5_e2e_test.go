@@ -34,7 +34,8 @@ const (
 // admits at most L × its admitted rate above the healthy bound, L being
 // the replica's lag sampled every 100 ms before the kill
 // (docs/architecture/11-scalability-and-distributed-state.md "Chaos
-// experiments").
+// experiments"). These are the Behavior of the failure catalog row FC-12,
+// and each run adds its Detection (FC12Criteria).
 func TestCE5PrimaryKilled(t *testing.T) {
 	t.Run("standalone", func(t *testing.T) {
 		ce5(t, "standalone", topology.StateStoreOptions{Replica: true}, func(ctx context.Context, r *Run, _ int) error {
@@ -85,6 +86,10 @@ func ce5(t *testing.T, variant string, store topology.StateStoreOptions, failove
 	samples := lag.Stop()
 	L, lagOK := ReplicaLag(samples)
 	r.Breakdown("replica_lag_ms", ms(L))
+	scripts, err := ReadScriptStats(ctx, ReplicaOf(dep, shard))
+	if err != nil {
+		t.Fatal(err)
+	}
 	kill := r.Inject("sigkill", primary.Name(), func() error { return primary.Kill(ctx) })
 	r.Inject("failover", primary.Name(), func() error { return failover(ctx, r, shard) })
 	fault := r.Hold(l, PhaseFault, FaultPhase)
@@ -184,6 +189,12 @@ func ce5(t *testing.T, variant string, store topology.StateStoreOptions, failove
 		t.Logf("chaos: %s admitted %d over %d windows; healthy bound %.0f, lag extra %.1f", c, admitted[c], windows, allowed, lagExtra)
 	}
 	r.Add(Check("admissions per victim key above the healthy bound plus L × its admitted rate", Functional, max(worstExtra, 0), EQ, 0))
+	promoted, err := ReadScriptStats(ctx, r.Primaries()[shard])
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Breakdown("noscript_replies_on_the_promoted_primary", float64(promoted.NoScript-scripts.NoScript))
+	r.Add(FC12Criteria(len(nodes), scripts, promoted)...)
 	r.RecoveryCriteria(l, base, rec, fault.End)
 	r.Finish()
 }

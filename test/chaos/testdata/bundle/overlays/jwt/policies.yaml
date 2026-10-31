@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: jwt-chaos}
+spec:
+  type: auth.jwt
+  config:
+    issuers:
+      - issuer: ${JWT_ISSUER}           # FC-16: the run's mock IdP
+        jwksUrl: ${JWKS_URL}
+        audiences: [chaos]

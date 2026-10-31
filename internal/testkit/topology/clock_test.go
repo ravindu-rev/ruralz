@@ -5,7 +5,6 @@ package topology
 
 import (
 	"errors"
-	"net/http"
 	"testing"
 	"time"
 )
@@ -25,7 +24,7 @@ func TestClockAdvancesEveryNode(t *testing.T) {
 	check := func(when, timer string) {
 		t.Helper()
 		for _, n := range nodes {
-			resp, _ := get(t, client, n.URL("http")+"/")
+			resp := get(t, client, n.URL("http")+"/")
 			if got := clockReading(t, resp); !got.Equal(topo.Now()) {
 				t.Errorf("%s: %s clock reads %s, the topology %s", when, n.Name(), format(got), format(topo.Now()))
 			}
@@ -57,7 +56,7 @@ func TestClockAdvancesEveryNode(t *testing.T) {
 
 // startReading is the first time a stand-in's clock showed, which a
 // ruralzd process takes as its start.
-func startReading(t *testing.T, resp *http.Response) time.Time {
+func startReading(t *testing.T, resp answer) time.Time {
 	t.Helper()
 	at, err := time.Parse(time.RFC3339Nano, resp.Header.Get("X-Standin-Start"))
 	if err != nil {
@@ -80,7 +79,7 @@ func TestClockStartsALaterProcessAtItsTime(t *testing.T) {
 	}
 	at := topo.Now()
 	second := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	resp, _ := get(t, topo.HTTPClient(), second.URL("http")+"/")
+	resp := get(t, topo.HTTPClient(), second.URL("http")+"/")
 	if got := startReading(t, resp); !got.Equal(at) {
 		t.Errorf("the new Node started at %s, want the topology's %s", format(got), format(at))
 	}
@@ -93,7 +92,7 @@ func TestClockStartsALaterProcessAtItsTime(t *testing.T) {
 	if err := topo.Advance(t.Context(), standinTimer); err != nil {
 		t.Fatal(err)
 	}
-	if resp, _ := get(t, topo.HTTPClient(), second.URL("http")+"/"); resp.Header.Get("X-Standin-Timer") != "fired" {
+	if resp := get(t, topo.HTTPClient(), second.URL("http")+"/"); resp.Header.Get("X-Standin-Timer") != "fired" {
 		t.Errorf("the new Node's boot timer is %s %v after its start, want fired", resp.Header.Get("X-Standin-Timer"), standinTimer)
 	}
 }
@@ -109,12 +108,12 @@ func TestClockStartsALaterProcessWithoutMovingNodes(t *testing.T) {
 		t.Fatalf("the clock read %s before the second start and %s after, want it unmoved", format(before), format(after))
 	}
 	for _, n := range []*Node{first, second} {
-		resp, _ := get(t, topo.HTTPClient(), n.URL("http")+"/")
+		resp := get(t, topo.HTTPClient(), n.URL("http")+"/")
 		if got := clockReading(t, resp); !got.Equal(before) {
 			t.Errorf("%s reads %s, want the topology's %s", n.Name(), format(got), format(before))
 		}
 	}
-	resp, _ := get(t, topo.HTTPClient(), second.URL("http")+"/")
+	resp := get(t, topo.HTTPClient(), second.URL("http")+"/")
 	if got := startReading(t, resp); !got.Equal(before) {
 		t.Errorf("the second Node started at %s, want the topology's %s", format(got), format(before))
 	}

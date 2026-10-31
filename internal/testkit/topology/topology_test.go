@@ -72,13 +72,13 @@ func TestNodesServeTheirOwnTestRender(t *testing.T) {
 		if err != nil || status != http.StatusOK || doc.Revision != DisplayRevision(r.TestDigest) {
 			t.Errorf("%s /readyz = %d %+v (%v), want ready on the test digest", n.Name(), status, doc, err)
 		}
-		resp, _ := get(t, topo.HTTPClient(), n.URL("http")+"/")
+		resp := get(t, topo.HTTPClient(), n.URL("http")+"/")
 		if got := resp.Header.Get("X-Standin-Revision"); got != DisplayRevision(r.TestDigest) {
 			t.Errorf("%s serves %s, want its test render", n.Name(), got)
 		}
 		// The https listener serves the certificate its secrets hold,
 		// canary lines and all, trusted through the harness's CA.
-		if resp, _ := get(t, topo.HTTPClient(), n.URL("https")+"/"); resp.StatusCode != http.StatusOK || resp.TLS == nil {
+		if resp := get(t, topo.HTTPClient(), n.URL("https")+"/"); resp.StatusCode != http.StatusOK || resp.TLS == nil {
 			t.Errorf("%s https answered %d over TLS %v", n.Name(), resp.StatusCode, resp.TLS != nil)
 		}
 	}
@@ -405,8 +405,8 @@ func TestAdminCredentials(t *testing.T) {
 		t.Errorf("/metrics = %q, %v", resp.Body, err)
 	}
 
-	clear := standinTopology(t, func(c *Config) { c.Transport.CleartextAdmin = true })
-	cn := addNodes(t, clear, 1, nodeOptions(t, clear))[0]
+	cleartext := standinTopology(t, func(c *Config) { c.Transport.CleartextAdmin = true })
+	cn := addNodes(t, cleartext, 1, nodeOptions(t, cleartext))[0]
 	if !strings.HasPrefix(cn.AdminURL(), "http://127.0.0.1:") {
 		t.Errorf("cleartext AdminURL = %s", cn.AdminURL())
 	}

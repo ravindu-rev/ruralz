@@ -50,7 +50,7 @@ func startJWT(t *testing.T, c mockidp.Config, prepare func(*mockidp.Server)) *jw
 	t.Helper()
 	top := newTopology(t, topology.Config{})
 	c.Now = top.Now
-	idp, err := top.StartIdP(c)
+	idp, err := top.StartIDP(c)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -56,7 +56,7 @@ func subscribeTap(ctx context.Context, t *testing.T, top *topology.Topology, n *
 	req.Header.Set("Authorization", "Bearer "+n.OperatorToken())
 	tr := &http.Transport{TLSClientConfig: top.ClientTLS()}
 	t.Cleanup(tr.CloseIdleConnections)
-	resp, err := (&http.Client{Transport: tr}).Do(req)
+	resp, err := (&http.Client{Transport: tr}).Do(req) //nolint:bodyclose // the reading goroutine below closes it
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestSecretLeaks(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	top.StartStateStore("main", topology.StateStoreOptions{Config: []string{"maxmemory 64mb", "maxmemory-policy noeviction"}})
-	idp, err := top.StartIdP(mockidp.Config{Now: top.Now})
+	idp, err := top.StartIDP(mockidp.Config{Now: top.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

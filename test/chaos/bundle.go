@@ -43,17 +43,54 @@ const (
 	// OverlayRouteTimeout gives /plain a timeout, the field V-6's N-1
 	// variant does not know.
 	OverlayRouteTimeout = "route-timeout"
+	// OverlayJWT adds the auth.jwt Policy jwt-chaos, whose one issuer is
+	// the run's mock IdP (BundleParams.JWTIssuer and JWKSURL), and the
+	// Route /jwt it guards (FC-16).
+	OverlayJWT = "jwt"
+	// OverlayDiscovery adds the dns discovery Upstreams discovered-a, A
+	// and AAAA records of DiscoveryAName on BundleParams.DiscoveryPort,
+	// and discovered-srv, SRV records of DiscoverySRVName's named port
+	// DiscoverySRVPort, with their Routes, and drops the main connection's
+	// TLS block, for a State Store reached by a DNS name behind the
+	// counting RESP proxy (FC-19).
+	OverlayDiscovery = "dns-discovery"
+	// OverlayEnvStateStore reads the main connection's URL from the
+	// process variable EnvStateStoreURL, which changes only with a
+	// restart, and drops its TLS block, so the URL can name each
+	// replacement deployment directly (GD-5).
+	OverlayEnvStateStore = "env-state-store"
 )
 
 // Overlays returns the chaos Bundle's overlays.
 func Overlays() []string {
-	return []string{OverlayCacheConnection, OverlayCleartext, OverlayCacheCleartext, OverlayRouteTimeout}
+	return []string{
+		OverlayCacheConnection, OverlayCleartext, OverlayCacheCleartext, OverlayRouteTimeout,
+		OverlayJWT, OverlayDiscovery, OverlayEnvStateStore,
+	}
 }
+
+// Names the overlays add: the Routes, the jwt-chaos audience, the DNS
+// names of the discovery Upstreams and the State Store URL's variable.
+const (
+	PathJWT               = "/jwt"
+	PathDiscoveredA       = "/discovered-a"
+	PathDiscoveredSRV     = "/discovered-srv"
+	JWTAudience           = "chaos"
+	UpstreamDiscoveredA   = "discovered-a"
+	UpstreamDiscoveredSRV = "discovered-srv"
+	DiscoveryAName        = "a.discovery.chaos.test"
+	DiscoverySRVName      = "srv.discovery.chaos.test"
+	// DiscoverySRVPort is discovered-srv's named port: its records are
+	// those of _http._tcp.srv.discovery.chaos.test.
+	DiscoverySRVPort = "http"
+	EnvStateStoreURL = "RURALZ_STATE_STORE_URL"
+	// RefStateStoreEnv is OverlayEnvStateStore's reference to it, which a
+	// run keeps as authored (topology.NodeOptions.AuthoredSecrets).
+	RefStateStoreEnv = "env:" + EnvStateStoreURL
+)
 
 // Secret references of the chaos Bundle, as NodeOptions.Secrets and
 // NodeOptions.StateStoreURLs key them.
-//
-//nolint:gosec // G101: secret reference names, not credentials.
 const (
 	RefTLSCertificate = "file:/etc/ruralz/tls/tls.crt"
 	RefTLSKey         = "file:/etc/ruralz/tls/tls.key"
@@ -156,6 +193,12 @@ type BundleParams struct {
 	// CacheTimeout is the cache Policy's stateStoreTimeout, the bound of
 	// its lookups and post-commit writes.
 	CacheTimeout time.Duration
+	// JWTIssuer and JWKSURL are jwt-chaos's issuer and its https jwksUrl,
+	// the run's mock IdP, which OverlayJWT requires.
+	JWTIssuer, JWKSURL string
+	// DiscoveryPort is discovered-a's port, which OverlayDiscovery
+	// requires.
+	DiscoveryPort int
 }
 
 // DefaultBundleParams returns parameters every limit of which stays far
@@ -191,7 +234,7 @@ func (p BundleParams) variables() (map[string]string, error) {
 		return nil, fmt.Errorf("chaos: bundle: cache stateStoreTimeout %v", p.CacheTimeout)
 	}
 	itoa := strconv.Itoa
-	return map[string]string{
+	vars := map[string]string{
 		"BACKEND_1":                 p.Backends[0],
 		"BACKEND_2":                 p.Backends[1],
 		"BACKEND_3":                 p.Backends[2],
@@ -207,7 +250,19 @@ func (p BundleParams) variables() (map[string]string, error) {
 		"FLOOD_REQUESTS":            itoa(p.Flood.Requests),
 		"FLOOD_CEILING":             itoa(p.Flood.Ceiling),
 		"CACHE_STATE_STORE_TIMEOUT": p.CacheTimeout.String(),
-	}, nil
+	}
+	// The variables only an overlay reads are set only when given, so an
+	// overlay rendered without them fails on its unresolved variable.
+	if p.JWTIssuer != "" {
+		vars["JWT_ISSUER"] = p.JWTIssuer
+	}
+	if p.JWKSURL != "" {
+		vars["JWKS_URL"] = p.JWKSURL
+	}
+	if p.DiscoveryPort > 0 {
+		vars["DISCOVERY_PORT"] = itoa(p.DiscoveryPort)
+	}
+	return vars, nil
 }
 
 // environmentName is the Environment the harness renders.
@@ -277,7 +332,7 @@ func diagError(ds diag.List) error {
 	}
 	var errs []error
 	for _, d := range ds {
-		errs = append(errs, fmt.Errorf("%s %s:%d:%d %s", d.Code, d.Location.File, d.Location.Line, d.Location.Column, d.Message))
+		errs = append(errs, fmt.Errorf("%s %s:%d:%d %s", d.Code, d.File, d.Line, d.Column, d.Message))
 	}
 	return errors.Join(errs...)
 }

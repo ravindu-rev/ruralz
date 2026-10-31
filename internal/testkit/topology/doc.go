@@ -82,7 +82,7 @@
 // an ACL user, an https OTLP sink, and admin TLS through
 // RURALZ_ADMIN_TLS_DIR with operator and metrics tokens. Transport turns
 // each off; cleartext elsewhere appears only where the Bundle declares it.
-// StartMockUpstream, StartIdP and StartOTLPSink run the in-process mocks,
+// StartMockUpstream, StartIDP and StartOTLPSink run the in-process mocks,
 // and StartBalancer runs the L4 balancer over the Nodes' listener of one
 // name, probing /readyz, with PROXY protocol v2 on request.
 //

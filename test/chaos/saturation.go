@@ -124,7 +124,7 @@ func (h *Harness) ReadSaturation() (float64, error) {
 	if h.Records == "" {
 		return 0, ErrNoSaturation
 	}
-	b, err := os.ReadFile(filepath.Join(h.Records, (&Record{Experiment: Saturation}).FileName())) //nolint:gosec // G304: the records directory the job names
+	b, err := os.ReadFile(filepath.Join(h.Records, (&Record{Experiment: Saturation}).FileName()))
 	if err != nil {
 		return 0, fmt.Errorf("chaos: saturation record: %w", err)
 	}

@@ -32,12 +32,12 @@ func (t *Topology) StartMockUpstream(c mockup.Config) (*mockup.Server, error) {
 	return s, nil
 }
 
-// StartIdP starts the in-process mock IdP that lives until the teardown.
+// StartIDP starts the in-process mock IdP that lives until the teardown.
 // Its token endpoint is the designated destination of an
 // auth.upstream-oauth2 client secret, so its records are not scanned. A
 // Bundle's JWKS and token URLs must be https (RZ-CFG-037): Config.TLS
 // defaults to a ServerTLS configuration.
-func (t *Topology) StartIdP(c mockidp.Config) (*mockidp.Server, error) {
+func (t *Topology) StartIDP(c mockidp.Config) (*mockidp.Server, error) {
 	if c.TLS == nil {
 		cfg, err := t.ServerTLS()
 		if err != nil {

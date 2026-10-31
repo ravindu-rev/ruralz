@@ -19,7 +19,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// RunInNetNS runs o.TestName in a new network namespace; see InNetNS.
+// RunInNetNS runs o.TestName in a new network namespace, and a new mount
+// namespace with o.ResolvConf; see InNetNS. When the kernel refuses to
+// create the namespaces the error wraps ErrNamespace.
 //
 // The child gets SIGKILL (Pdeathsig) when the test process dies. The
 // kernel ties Pdeathsig to the OS thread that forked the child, and the Go
@@ -37,6 +39,11 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 	if err != nil {
 		return -1, err
 	}
+	if o.ResolvConf != "" {
+		if err := checkResolvConf(o.ResolvConf); err != nil {
+			return -1, err
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return -1, fmt.Errorf("proc: %w", err)
@@ -53,7 +60,9 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 		}
 	}
 	cmd := exec.CommandContext(ctx, exe, args...) //nolint:gosec // G204: re-executing this test binary
-	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc)
+	// EnvNetNSResolvConf is always set, empty without a ResolvConf, so the
+	// child never takes one from the environment it inherits.
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"="+enc, EnvNetNSResolvConf+"="+o.ResolvConf)
 	cmd.Env = append(cmd.Env, o.Env...)
 	tail := newRing(64 << 10)
 	res := newTestResult(o.TestName)
@@ -71,12 +80,47 @@ func RunInNetNS(ctx context.Context, o NetNSOptions) (int, error) {
 		cmd.SysProcAttr.UidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getuid(), Size: 1}}
 		cmd.SysProcAttr.GidMappings = []syscall.SysProcIDMap{{ContainerID: 0, HostID: os.Getgid(), Size: 1}}
 	}
+	if o.ResolvConf != "" {
+		cmd.SysProcAttr.Cloneflags |= syscall.CLONE_NEWNS
+	}
 	cmd.WaitDelay = WaitDelay
 	runtime.LockOSThread()
-	err = cmd.Run()
+	if err := cmd.Start(); err != nil {
+		runtime.UnlockOSThread()
+		if namespaceErr(err) {
+			return -1, fmt.Errorf("%w for %s: %w", ErrNamespace, o.TestName, err)
+		}
+		return -1, fmt.Errorf("proc: run %s in a new network namespace: %w", o.TestName, err)
+	}
+	err = cmd.Wait()
 	runtime.UnlockOSThread()
 	res.finish()
 	return res.outcome(err, tail.bytes())
+}
+
+// namespaceErr reports whether a failed start is the kernel refusing the
+// child's namespaces (clone(2)): EPERM without the privilege, EINVAL
+// without the namespace kind, ENOSPC or EUSERS past the namespace limits.
+func namespaceErr(err error) bool {
+	for _, e := range []error{syscall.EPERM, syscall.EINVAL, syscall.ENOSPC, syscall.EUSERS} {
+		if errors.Is(err, e) {
+			return true
+		}
+	}
+	return false
+}
+
+// bindResolvConf makes every mount of the child's own mount namespace
+// private, so nothing it mounts propagates to the namespace it came from,
+// then bind-mounts src over ResolvConfPath.
+func bindResolvConf(src string) error {
+	if err := unix.Mount("", "/", "", unix.MS_REC|unix.MS_PRIVATE, ""); err != nil {
+		return fmt.Errorf("proc: make the mounts private: %w", err)
+	}
+	if err := unix.Mount(src, ResolvConfPath, "", unix.MS_BIND, ""); err != nil {
+		return fmt.Errorf("proc: bind-mount %s over %s: %w", src, ResolvConfPath, err)
+	}
+	return nil
 }
 
 // isVerboseFlag reports whether the command-line argument a sets -test.v

@@ -22,7 +22,8 @@ import (
 // breakers open, admitting nothing; afterwards the breakers close and
 // errors return to zero
 // (docs/architecture/11-scalability-and-distributed-state.md "Chaos
-// experiments"). Derived ceilings join in M2 and Token Budgets in M3.
+// experiments"). Derived ceilings join in M2 and Token Budgets in M3. The
+// run also asserts the failure catalog row FC-10 (AddFC10).
 func TestCE4StateStoreBlackholed(t *testing.T) {
 	s := saturation(t)
 	plan := PlanLimits(suite.Profile.LoadShare*s, suite.Profile.Nodes)
@@ -58,6 +59,7 @@ func TestCE4StateStoreBlackholed(t *testing.T) {
 	nodes := r.NodeNames()
 	raised := r.Sampler.ReasonRaised(nodes, BreakerReason, start, end)
 	r.Add(Check("Nodes raising state_store_breaker_open in the fault", Functional, float64(len(raised)), EQ, float64(len(nodes))))
+	r.AddFC10(l, base, rec, start, end)
 	r.RecoveryCriteria(l, base, rec, end)
 	r.Finish()
 }

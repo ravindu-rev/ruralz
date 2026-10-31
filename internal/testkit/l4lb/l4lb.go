@@ -208,6 +208,10 @@ type Config struct {
 	DialTimeout time.Duration
 	// Dial, when set, dials backends instead of a net.Dialer.
 	Dial func(ctx context.Context, network, addr string) (net.Conn, error)
+	// ProbeDial, when set, dials the readiness probes' connections instead
+	// of a net.Dialer, so a test can cut a backend's probe path with its
+	// traffic, as a partition of its zone does.
+	ProbeDial func(ctx context.Context, network, addr string) (net.Conn, error)
 }
 
 func (c *Config) setDefaults() error {
@@ -503,8 +507,12 @@ func (b *Balancer) AddBackend(ctx context.Context, be Backend) error {
 func (b *Balancer) addLocked(parent context.Context, be Backend, joined bool) {
 	var protocols http.Protocols
 	protocols.SetHTTP1(true)
+	dial := b.cfg.ProbeDial
+	if dial == nil {
+		dial = (&net.Dialer{}).DialContext
+	}
 	tr := &http.Transport{
-		DialContext:         (&net.Dialer{}).DialContext,
+		DialContext:         dial,
 		TLSClientConfig:     b.cfg.ProbeTLS.Clone(),
 		DisableKeepAlives:   b.cfg.ProbeNewConnections,
 		DisableCompression:  true,

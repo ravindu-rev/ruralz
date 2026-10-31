@@ -98,15 +98,15 @@ func TestUpstreamRow(t *testing.T) {
 	r.Baseline(l, base)
 	nodes := r.NodeNames()
 	up := promtext.L("upstream", UpstreamName)
-	perNode := func(name string, match promtext.Labels, from, to time.Time) (min float64) {
-		min = -1
+	perNode := func(name string, match promtext.Labels, from, to time.Time) (least float64) {
+		least = -1
 		for _, n := range nodes {
 			v := Increase(r.Sampler.Trace(n, name, match), from, to)
-			if min < 0 || v < min {
-				min = v
+			if least < 0 || v < least {
+				least = v
 			}
 		}
-		return max(min, 0)
+		return max(least, 0)
 	}
 
 	// One Endpoint resetting.
@@ -115,7 +115,7 @@ func TestUpstreamRow(t *testing.T) {
 		Check("one resetting: passive ejections on the Node with the fewest", Functional, perNode("ruralz_upstream_ejections_total", promtext.L("upstream", UpstreamName, "reason", "passive"), aStart, a.End), GE, 1),
 		Check("one resetting: retries on the Node with the fewest", Functional, perNode("ruralz_upstream_retries_total", up, aStart, a.End), GT, 0),
 	)
-	r.Breakdown("one_resetting_retry_budget_exhausted", r.sumIncrease("ruralz_upstream_retry_budget_exhausted_total", up, aStart, a.End))
+	r.Breakdown("one_resetting_retry_budget_exhausted", r.SumIncrease("ruralz_upstream_retry_budget_exhausted_total", up, aStart, a.End))
 
 	// One Endpoint slowed past perTryTimeout. A suspect Endpoint stays
 	// eligible, so ruralz_upstream_healthy_endpoints never shows the mark:
@@ -185,16 +185,6 @@ func TestUpstreamRow(t *testing.T) {
 		r.Add(Check("recovery errors after the breakers closed", Functional, float64(PhaseStats(st, closedAt, rec.End).Failed), EQ, 0))
 	}
 	r.Finish()
-}
-
-// sumIncrease returns how much a counter grew over (from, to] on every
-// Node together.
-func (r *Run) sumIncrease(name string, match promtext.Labels, from, to time.Time) float64 {
-	total := 0.0
-	for _, n := range r.Sampler.Nodes() {
-		total += Increase(r.Sampler.Trace(n, name, match), from, to)
-	}
-	return total
 }
 
 // requestTrack samples a mock Upstream's request count on a period.

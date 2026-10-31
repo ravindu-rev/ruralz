@@ -97,13 +97,13 @@ func TestCE16QueueSaturated(t *testing.T) {
 	}
 	r.Baseline(l, base)
 	dropped := func(kind string) float64 {
-		return r.sumIncrease("ruralz_state_writes_dropped_total", promtext.L("kind", kind), start, rec.End)
+		return r.SumIncrease("ruralz_state_writes_dropped_total", promtext.L("kind", kind), start, rec.End)
 	}
-	r.Breakdown("cache_invalidate_writes", r.sumIncrease("ruralz_state_ops_total", promtext.L("kind", "cache_invalidate"), start, fault.End))
+	r.Breakdown("cache_invalidate_writes", r.SumIncrease("ruralz_state_ops_total", promtext.L("kind", "cache_invalidate"), start, fault.End))
 	r.Add(
 		Check("cache_set drops while the queue saturates", Functional, dropped("cache_set"), GT, 0),
 		Check("cache_invalidate drops", Functional, dropped("cache_invalidate"), EQ, 0),
-		Check("refunds written while the queue saturates", Functional, r.sumIncrease("ruralz_state_ops_total", promtext.L("kind", "refund"), start, fault.End), GT, 0),
+		Check("refunds written while the queue saturates", Functional, r.SumIncrease("ruralz_state_ops_total", promtext.L("kind", "refund"), start, fault.End), GT, 0),
 		Check("refund drops", Functional, dropped("refund"), EQ, 0),
 		Check("Nodes raising state_store_breaker_open", Functional, float64(len(r.Sampler.ReasonRaised(r.NodeNames(), BreakerReason, base.Start, rec.End))), EQ, 0),
 		Check("failed requests", Functional, float64(LoadStats(l, base.Start, rec.End).Failed), EQ, 0),

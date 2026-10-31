@@ -5,6 +5,7 @@ package topology
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,8 +56,8 @@ const (
 	refCert     = "file:/etc/ruralz/tls/tls.crt"
 	refKey      = "file:/etc/ruralz/tls/tls.key"
 	refStoreURL = "env:RURALZ_STATE_STORE_URL"
-	refCredsCA  = "file:/etc/ruralz/redis/creds.json#ca"
-	refCredsKey = "file:/etc/ruralz/redis/creds.json#key"
+	refCredsCA  = "file:/etc/ruralz/redis/creds.json#ca"  //nolint:gosec // G101: a secret reference, not a credential.
+	refCredsKey = "file:/etc/ruralz/redis/creds.json#key" //nolint:gosec // G101: a secret reference, not a credential.
 )
 
 // standinCfg is a topology Config of stand-in Nodes on the controllable
@@ -107,8 +108,16 @@ func addNodes(t *testing.T, topo *Topology, n int, o NodeOptions) []*Node {
 	return nodes
 }
 
-// get sends a GET through client and returns the response with its body.
-func get(t *testing.T, client *http.Client, url string) (*http.Response, string) {
+// answer is the status, header and TLS state of a GET's response, whose
+// body get read and closed.
+type answer struct {
+	StatusCode int
+	Header     http.Header
+	TLS        *tls.ConnectionState
+}
+
+// get sends a GET through client and returns its answer.
+func get(t *testing.T, client *http.Client, url string) answer {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second) // a hang guard only
 	defer cancel()
@@ -121,15 +130,14 @@ func get(t *testing.T, client *http.Client, url string) (*http.Response, string)
 		t.Fatalf("GET %s: %v", url, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
+	if _, err := io.Copy(io.Discard, resp.Body); err != nil {
 		t.Fatalf("GET %s body: %v", url, err)
 	}
-	return resp, string(body)
+	return answer{StatusCode: resp.StatusCode, Header: resp.Header, TLS: resp.TLS}
 }
 
 // clockReading is the time a stand-in's clock showed when it answered.
-func clockReading(t *testing.T, resp *http.Response) time.Time {
+func clockReading(t *testing.T, resp answer) time.Time {
 	t.Helper()
 	at, err := time.Parse(time.RFC3339Nano, resp.Header.Get("X-Standin-Now"))
 	if err != nil {

@@ -140,17 +140,17 @@ func (s *Sampler) Round(ctx context.Context) {
 		wg.Go(func() {
 			sctx, cancel := context.WithTimeout(ctx, max(s.every, time.Second))
 			defer cancel()
-			real, node := s.real.Now(), s.node()
+			realTime, nodeTime := s.real.Now(), s.node()
 			set, err := promtext.Scrape(sctx, s.client, t.URL, http.Header{"Authorization": {"Bearer " + t.Token}})
-			s.record(t.Name, real, node, set, err)
+			s.record(t.Name, realTime, nodeTime, set, err)
 		})
 	}
 	wg.Wait()
 }
 
 // record keeps one scrape.
-func (s *Sampler) record(node string, real, nodeTime time.Time, set promtext.Set, err error) {
-	smp := Sample{Real: real, Node: nodeTime, Err: err}
+func (s *Sampler) record(node string, realTime, nodeTime time.Time, set promtext.Set, err error) {
+	smp := Sample{Real: realTime, Node: nodeTime, Err: err}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err == nil {

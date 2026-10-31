@@ -7,13 +7,11 @@ package chaos
 
 import (
 	"context"
-	"strconv"
 	"syscall"
 	"testing"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
-	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 )
 
 // Phases of the State Store row's runs.
@@ -91,7 +89,7 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 	nodes := r.NodeNames()
 	r.Add(
 		Check("baseline RZ-STS responses", Functional, float64(CodesIn(closed, base.Start, base.End, STSCodes()...)), EQ, 0),
-		Check("requests waiting a second State Store deadline", Functional, r.slowRequests(slowAt, stopped.End, 2*StateStoreTimeout, "limited", "limited-closed"), EQ, 0),
+		Check("requests waiting a second State Store deadline", Functional, r.RequestsOver(slowAt, stopped.End, 2*StateStoreTimeout, "limited", "limited-closed"), EQ, 0),
 		Check("Nodes whose breaker opened while the State Store was slow", Functional, float64(len(r.Sampler.ReasonRaised(nodes, BreakerReason, slowAt, slow.End))), EQ, float64(len(nodes))),
 		Check("Nodes whose breaker was open while the State Store was stopped", Functional, float64(len(r.Sampler.ReasonRaised(nodes, BreakerReason, stopAt, stopped.End))), EQ, float64(len(nodes))),
 		r.AdmissionCheck("fail-open admissions per key and window", limited, time.Second, slowAt, stopped.End, int64(r.Nodes)*int64(plan.Ceiling)),
@@ -99,9 +97,9 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 		Check("closed-Policy admissions after the first RZ-STS", Functional, float64(AdmittedAfter(closed, slowAt, stopped.End, STSCodes()...)), EQ, 0),
 	)
 	for _, route := range []string{"limited", "limited-closed"} {
-		r.Breakdown("over_two_deadlines_baseline_"+route, r.slowRequests(base.Start, base.End, 2*StateStoreTimeout, route))
-		r.Breakdown("over_two_deadlines_slow_"+route, r.slowRequests(slowAt, slow.End, 2*StateStoreTimeout, route))
-		r.Breakdown("over_two_deadlines_stopped_"+route, r.slowRequests(stopAt, stopped.End, 2*StateStoreTimeout, route))
+		r.Breakdown("over_two_deadlines_baseline_"+route, r.RequestsOver(base.Start, base.End, 2*StateStoreTimeout, route))
+		r.Breakdown("over_two_deadlines_slow_"+route, r.RequestsOver(slowAt, slow.End, 2*StateStoreTimeout, route))
+		r.Breakdown("over_two_deadlines_stopped_"+route, r.RequestsOver(stopAt, stopped.End, 2*StateStoreTimeout, route))
 	}
 	// The breaker's cause while stopped: connection errors after the
 	// SIGKILL, timeouts while frozen.
@@ -118,20 +116,4 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 		r.Add(r.AdmissionCheck("healthy admissions per key and window after the breakers closed", limited, time.Second, closedAt, rec.End, 2*int64(plan.Requests)))
 	}
 	r.Finish()
-}
-
-// slowRequests returns how many requests of the Routes named routes the
-// Nodes timed above d over (from, to], by their request duration
-// histogram on the Nodes' clock: d is one of its bucket bounds.
-func (r *Run) slowRequests(from, to time.Time, d time.Duration, routes ...string) float64 {
-	le := strconv.FormatFloat(d.Seconds(), 'g', -1, 64)
-	total := 0.0
-	for _, route := range routes {
-		for _, n := range r.Sampler.Nodes() {
-			all := Increase(r.Sampler.Trace(n, "ruralz_http_request_duration_seconds_count", promtext.L("route", route)), from, to)
-			fast := Increase(r.Sampler.Trace(n, "ruralz_http_request_duration_seconds_bucket", promtext.L("route", route, "le", le)), from, to)
-			total += all - fast
-		}
-	}
-	return total
 }

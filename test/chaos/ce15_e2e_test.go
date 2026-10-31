@@ -107,8 +107,8 @@ func TestCE15KeyRotationFlood(t *testing.T) {
 	r.Add(
 		Check("commands the RESP proxies' logs dropped", Functional, float64(missed), EQ, 0),
 		Check("first-seen GCRA calls of a Node above its budget, 200 per second beyond the full budget", Functional, excess, EQ, 0),
-		Check("allow_local decisions on flood keys", Functional, r.sumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyFlood, "result", "allow_local"), fault.Start, rec.Start.Add(time.Second)), GT, 0),
-		Check("main-segment evictions", Functional, r.sumIncrease("ruralz_ratelimit_bucket_evictions_total", promtext.L("segment", "main"), bl.Start, rec.End), EQ, 0),
+		Check("allow_local decisions on flood keys", Functional, r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyFlood, "result", "allow_local"), fault.Start, rec.Start.Add(time.Second)), GT, 0),
+		Check("main-segment evictions", Functional, r.SumIncrease("ruralz_ratelimit_bucket_evictions_total", promtext.L("segment", "main"), bl.Start, rec.End), EQ, 0),
 		Check("GCRA calls the Nodes counted minus those the proxies saw", Functional, nodeCalls-float64(len(got)), EQ, 0),
 	)
 	r.Finish()

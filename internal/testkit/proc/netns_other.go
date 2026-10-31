@@ -31,6 +31,11 @@ func SetupNetNS(map[string]string) error {
 	return fmt.Errorf("proc: network namespaces: %w", errors.ErrUnsupported)
 }
 
+// bindResolvConf needs Linux mount namespaces.
+func bindResolvConf(string) error {
+	return fmt.Errorf("proc: mount namespaces: %w", errors.ErrUnsupported)
+}
+
 // WriteSysctl needs Linux.
 func WriteSysctl(string, string) error {
 	return fmt.Errorf("proc: sysctl: %w", errors.ErrUnsupported)

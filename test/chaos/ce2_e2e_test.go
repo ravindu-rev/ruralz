@@ -199,7 +199,7 @@ func logCloses(t *testing.T, closes []Span, held []Conn, proto func(Conn) string
 }
 
 // streamOfConn returns a function naming the stream whose requests
-// travelled a balancer connection, by the client address both report.
+// traveled a balancer connection, by the client address both report.
 func streamOfConn(l *Load) func(Conn) string {
 	by := map[string]string{}
 	for _, st := range l.Streams {

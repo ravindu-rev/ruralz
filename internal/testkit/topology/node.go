@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -279,8 +280,37 @@ func (n *Node) env() []string {
 	if v := os.Getenv("SYSTEMROOT"); v != "" {
 		env = append(env, "SYSTEMROOT="+v)
 	}
+	n.mu.Lock()
+	extra := slices.Clone(n.opts.Env)
+	n.mu.Unlock()
 	env = append(env, t.cfg.Env...)
-	return append(env, n.opts.Env...)
+	return append(env, extra...)
+}
+
+// Setenv sets the variable key to value in the environment the Node's
+// next process starts with (NodeOptions.Env, after Config.Env), replacing
+// an earlier value, as an operator changes a Node's setting before a
+// restart: a running process keeps the environment it started with, so a
+// value read from the environment, such as a State Store URL from an env
+// secret, changes only with a restart. A secret variable's value must
+// carry a canary, as in NodeOptions.Env.
+func (n *Node) Setenv(key, value string) error {
+	if key == "" || strings.ContainsRune(key, '=') {
+		return fmt.Errorf("topology: %s: variable name %q", n.name, key)
+	}
+	kv := key + "=" + value
+	if err := n.t.checkSecretEnv([]string{kv}); err != nil {
+		return err
+	}
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	env := slices.DeleteFunc(slices.Clone(n.opts.Env), func(e string) bool {
+		k, _, _ := strings.Cut(e, "=")
+		return k == key
+	})
+	env = append(env, kv)
+	n.opts.Env = env
+	return nil
 }
 
 // startProcess starts one process of the Node from binary, passes it its
@@ -298,7 +328,7 @@ func (n *Node) startProcess(ctx context.Context, binary, name string) (*proc.Pro
 		}
 		spec.ExtraFiles = []*os.File{child}
 	}
-	p, err := proc.Start(t.ctx, spec)
+	p, err := proc.Start(t.ctx, spec) //nolint:contextcheck // The process outlives the call: it runs until the teardown cancels the topology's context.
 	// The child has its own copy now. Closing this one at once makes the
 	// socket end when the child exits, which tells a dying Node from a
 	// slow one.
@@ -530,7 +560,10 @@ func (n *Node) WaitHolder(ctx context.Context, p *proc.Process) error {
 		case <-p.Done():
 			return fmt.Errorf("topology: %s exited (%v) before holding the lock%s", p.Name(), p.State(), outputTail(p))
 		case <-ctx.Done():
-			return fmt.Errorf("topology: %s does not hold the lock of %s: %w (holder.json: %+v, %v)", p.Name(), n.name, ctx.Err(), h, err)
+			if err != nil {
+				return fmt.Errorf("topology: %s does not hold the lock of %s: %w (holder.json: %w)", p.Name(), n.name, ctx.Err(), err)
+			}
+			return fmt.Errorf("topology: %s does not hold the lock of %s: %w (holder.json: %+v)", p.Name(), n.name, ctx.Err(), h)
 		case <-time.After(PollInterval):
 		}
 	}

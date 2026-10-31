@@ -58,7 +58,7 @@ func TestV1GateRejections(t *testing.T) {
 		{Name: "limited", Path: PathLimited, Rate: rate / 2, APIKeys: true, Counted: Decisions()},
 	}})
 	ctx := r.Context()
-	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	busy, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,13 +256,13 @@ func changed(a, b map[string]string) int {
 	return n
 }
 
-// replaceOnce replaces the first old in b by new.
-func replaceOnce(b []byte, old, new string) ([]byte, error) {
+// replaceOnce replaces the first old in b by repl.
+func replaceOnce(b []byte, old, repl string) ([]byte, error) {
 	i := bytes.Index(b, []byte(old))
 	if i < 0 {
 		return nil, fmt.Errorf("chaos: %q not in the test render", old)
 	}
-	return append(append(append([]byte(nil), b[:i]...), new...), b[i+len(old):]...), nil
+	return append(append(append([]byte(nil), b[:i]...), repl...), b[i+len(old):]...), nil
 }
 
 // badCAFile is the secret file, under a Node's secret root, of
@@ -314,13 +314,13 @@ func withRefusedStateStoreURL(n *topology.Node, b []byte, canaryValue string) ([
 	return replaceOnce(b, cur, path)
 }
 
-// replaceInDoc replaces the first old after marker by new.
-func replaceInDoc(b []byte, marker, old, new string) ([]byte, error) {
+// replaceInDoc replaces the first old after marker by repl.
+func replaceInDoc(b []byte, marker, old, repl string) ([]byte, error) {
 	i := bytes.Index(b, []byte(marker))
 	if i < 0 {
 		return nil, fmt.Errorf("chaos: %q not in the test render", marker)
 	}
-	rest, err := replaceOnce(b[i:], old, new)
+	rest, err := replaceOnce(b[i:], old, repl)
 	if err != nil {
 		return nil, err
 	}

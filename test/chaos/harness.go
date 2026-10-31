@@ -1,6 +1,14 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
+// Package chaos is the nightly Chaos job's suite
+// (docs/engineering/03-testing-and-quality-strategy.md "Chaos testing"):
+// the M1 Scalability chaos experiments, the M1 System overview failure
+// rows and the M1 lab gates of the Verification runbook, each injecting
+// its fault into Nodes under load and asserting its criteria through
+// metrics and responses, with one ruralz.chaos.v1 record per run. The runs
+// are tests under the e2e build tag; the untagged files hold the harness
+// they share with the drills of test/chaos/gameday.
 package chaos
 
 import (
@@ -66,10 +74,14 @@ type Harness struct {
 // NewHarness returns the harness of a test binary: the profile from the
 // environment, ruralzd built into dir as the controllable-clock and the
 // release build (or taken from RURALZ_TEST_BIN_DIR for both), and the
-// configuration pipeline.
+// configuration pipeline. The target profile needs its RH-1 inventory and
+// stops at ErrTargetPlacement (checkProfile).
 func NewHarness(ctx context.Context, dir string) (*Harness, error) {
 	p, err := ProfileFromEnv()
 	if err != nil {
+		return nil, err
+	}
+	if err := checkProfile(p, os.Getenv); err != nil {
 		return nil, err
 	}
 	root, err := binaries.RepoRoot(".")

@@ -26,7 +26,7 @@ import (
 // every key of its file.
 
 // refOAuthSecret is the client secret of the binding cases.
-const refOAuthSecret = "file:/etc/ruralz/oauth/client-secret"
+const refOAuthSecret = "file:/etc/ruralz/oauth/client-secret" //nolint:gosec // G101: a secret reference, not a credential
 
 // oauthPolicy is the auth.upstream-oauth2 Policy name against tokenURL
 // with the client secret secretRef (a flow mapping).
@@ -41,11 +41,11 @@ func apiKeyConsumer(keyRef string) string {
 
 func TestSecretToDestinationBinding(t *testing.T) {
 	top := newTopology(t, topology.Config{})
-	issuer, err := top.StartIdP(mockidp.Config{Now: top.Now})
+	issuer, err := top.StartIDP(mockidp.Config{Now: top.Now})
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := top.StartIdP(mockidp.Config{Now: top.Now})
+	other, err := top.StartIDP(mockidp.Config{Now: top.Now})
 	if err != nil {
 		t.Fatal(err)
 	}

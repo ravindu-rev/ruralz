@@ -84,7 +84,7 @@ func SchemaOverlay(views map[string][]byte) string {
 func (h *Harness) NMinusOne(ctx context.Context) (binaries.Set, error) {
 	views := map[string][]byte{}
 	for _, v := range schemaViews() {
-		b, err := os.ReadFile(filepath.Join(h.Root, "api", "schema", filepath.FromSlash(v))) //nolint:gosec // G304: the repository's own schema
+		b, err := os.ReadFile(filepath.Join(h.Root, "api", "schema", filepath.FromSlash(v)))
 		if err != nil {
 			return binaries.Set{}, fmt.Errorf("chaos: %w", err)
 		}

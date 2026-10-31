@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -245,6 +246,38 @@ func TestProbeConnections(t *testing.T) {
 				t.Errorf("4 probes used %d connections, want %d", got, c.wantConns)
 			}
 		})
+	}
+}
+
+// ProbeDial carries the readiness probes, apart from Dial, so a test cuts
+// a backend's probe path with its traffic: a refused probe dial is a
+// failed probe, and the backend turns unhealthy after UnhealthyThreshold
+// of them while its listener still accepts.
+func TestProbeDial(t *testing.T) {
+	fk := fake()
+	a := newNode(t, "a", 200)
+	var dials atomic.Int64
+	var cut atomic.Bool
+	refused := errors.New("probe path cut")
+	probeDial := func(ctx context.Context, network, addr string) (net.Conn, error) {
+		dials.Add(1)
+		if cut.Load() {
+			return nil, refused
+		}
+		return (&net.Dialer{}).DialContext(ctx, network, addr)
+	}
+	lb := startLB(t, Config{Backends: []Backend{a.backend()}, Clock: fk, ProbeDial: probeDial, ProbeNewConnections: true})
+	probed(t, lb, 1, "a")
+	if s, _ := lb.Backend("a"); s.State != Healthy || dials.Load() != 1 {
+		t.Fatalf("first probe through ProbeDial: %+v, %d dials", s, dials.Load())
+	}
+	cut.Store(true)
+	for range DefaultUnhealthyThreshold {
+		tick(t, lb, fk, "a")
+	}
+	s, _ := lb.Backend("a")
+	if s.State != Unhealthy || !errors.Is(s.LastProbe.Err, refused) || dials.Load() != 1+DefaultUnhealthyThreshold {
+		t.Errorf("probes over a cut path: %+v, %d dials; want unhealthy after %d refused probe dials", s, dials.Load(), DefaultUnhealthyThreshold)
 	}
 }
 

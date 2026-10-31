@@ -56,8 +56,8 @@ func TestAdminResponsesAreCaptured(t *testing.T) {
 }
 
 // protoField encodes one length-delimited protobuf field.
-func protoField(field int, b []byte) []byte {
-	out := binary.AppendUvarint(nil, uint64(field<<3|2))
+func protoField(field uint64, b []byte) []byte {
+	out := binary.AppendUvarint(nil, field<<3|2)
 	out = binary.AppendUvarint(out, uint64(len(b)))
 	return append(out, b...)
 }
@@ -133,7 +133,7 @@ func TestDesignatedDestinationsAndIncompleteLogs(t *testing.T) {
 	cfg := standinCfg(t)
 	cfg.ArtifactDir = t.TempDir() // the recorded failure keeps its evidence here
 	topo := New(rtb, cfg)
-	idp, err := topo.StartIdP(mockidp.Config{})
+	idp, err := topo.StartIDP(mockidp.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}

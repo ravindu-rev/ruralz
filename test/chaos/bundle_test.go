@@ -56,10 +56,14 @@ func TestRenderBundle(t *testing.T) {
 		{"cleartext", OverlayCleartext, "standalone", nil, []string{"/etc/ruralz/state/ca.crt"}},
 		{"cache connection cleartext", OverlayCacheCleartext, "standalone", []string{"/etc/ruralz/state/cache-url"}, []string{"/etc/ruralz/state/cache-ca.crt"}},
 		{"route timeout", OverlayRouteTimeout, "standalone", []string{`timeout: "30s"`}, []string{"cache-url"}},
+		{"jwt", OverlayJWT, "standalone", []string{"type: auth.jwt", `issuer: "https://127.0.0.1:9443"`, `jwksUrl: "https://127.0.0.1:9443/.well-known/jwks.json"`, "prefix: /jwt", "- chaos"}, []string{"discovery:"}},
+		{"dns discovery", OverlayDiscovery, "standalone", []string{"service: a.discovery.chaos.test", "port: 9001", "service: srv.discovery.chaos.test", "port: http", "prefix: /discovered-srv"}, []string{"/etc/ruralz/state/ca.crt", "auth.jwt"}},
+		{"env State Store URL", OverlayEnvStateStore, "standalone", []string{"provider: env", "name: RURALZ_STATE_STORE_URL"}, []string{"/etc/ruralz/state/url", "/etc/ruralz/state/ca.crt"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := testParams()
 			p.Overlay, p.Topology = tc.overlay, tc.topology
+			p.JWTIssuer, p.JWKSURL, p.DiscoveryPort = "https://127.0.0.1:9443", "https://127.0.0.1:9443/.well-known/jwks.json", 9001
 			p.Limited = Limit{Requests: 120, Ceiling: 20}
 			out, err := RenderBundle(t.Context(), pl, p)
 			if err != nil {
@@ -101,6 +105,8 @@ func TestRenderBundleRefusals(t *testing.T) {
 		{"topology", func(p *BundleParams) { p.Topology = "ring" }, "topology"},
 		{"overlay", func(p *BundleParams) { p.Overlay = "prod" }, "overlay"},
 		{"ceiling above limit", func(p *BundleParams) { p.Limited = Limit{Requests: 10, Ceiling: 11} }, "RZ-CFG-005"},
+		{"jwt overlay without its IdP", func(p *BundleParams) { p.Overlay = OverlayJWT }, "JWT_ISSUER"},
+		{"discovery overlay without its port", func(p *BundleParams) { p.Overlay = OverlayDiscovery }, "DISCOVERY_PORT"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := testParams()

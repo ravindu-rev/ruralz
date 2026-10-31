@@ -101,7 +101,7 @@ func TestKillAndStartAgain(t *testing.T) {
 	if p, _ := n.Port("http"); p != port {
 		t.Errorf("the restarted Node listens on %d, want its port %d", p, port)
 	}
-	resp, _ := get(t, topo.HTTPClient(), n.URL("http")+"/")
+	resp := get(t, topo.HTTPClient(), n.URL("http")+"/")
 	if pid := resp.Header.Get("X-Standin-Pid"); pid != strconv.Itoa(n.Process().PID()) {
 		t.Errorf("served by pid %s, want the new process %d", pid, n.Process().PID())
 	}
@@ -146,7 +146,7 @@ func TestReloadKeepsPortsAndActivates(t *testing.T) {
 	if err := n.WaitRevision(t.Context(), r.TestDigest); err != nil {
 		t.Fatal(err)
 	}
-	if resp, _ := get(t, topo.HTTPClient(), n.URL("extra")+"/"); resp.StatusCode != http.StatusOK {
+	if resp := get(t, topo.HTTPClient(), n.URL("extra")+"/"); resp.StatusCode != http.StatusOK {
 		t.Errorf("the added listener answered %d", resp.StatusCode)
 	}
 
@@ -197,7 +197,7 @@ func TestHandoverMovesTheNodeToItsSuccessor(t *testing.T) {
 	if code, err := old.Wait(t.Context()); err != nil || code != 0 {
 		t.Fatalf("the old process ended %d, %v; want a Drain to exit 0", code, err)
 	}
-	resp, _ := get(t, topo.HTTPClient(), n.URL("http")+"/")
+	resp := get(t, topo.HTTPClient(), n.URL("http")+"/")
 	if pid := resp.Header.Get("X-Standin-Pid"); pid != strconv.Itoa(succ.PID()) {
 		t.Errorf("served by pid %s, want the successor %d", pid, succ.PID())
 	}

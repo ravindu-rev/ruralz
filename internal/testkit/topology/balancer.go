@@ -56,7 +56,7 @@ func (t *Topology) StartBalancer(ctx context.Context, listener string, o Balance
 			c.Backends = append(c.Backends, be)
 		}
 	}
-	lb, err := l4lb.Start(t.ctx, c)
+	lb, err := l4lb.Start(t.ctx, c) //nolint:contextcheck // The balancer outlives the call: it runs until the teardown cancels the topology's context.
 	if err != nil {
 		return nil, fmt.Errorf("topology: %w", err)
 	}

@@ -95,7 +95,7 @@ func newCredentials(t testing.TB, top *topology.Topology) *credentials {
 	}
 	enc := base64.RawURLEncoding
 	c.basicHash = "pbkdf2-sha256:" + enc.EncodeToString(salt) + ":" + enc.EncodeToString(key)
-	if c.idp, err = top.StartIdP(mockidp.Config{}); err != nil {
+	if c.idp, err = top.StartIDP(mockidp.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	return c

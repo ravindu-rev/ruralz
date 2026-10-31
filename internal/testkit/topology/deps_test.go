@@ -259,7 +259,7 @@ func TestBalancerOverTheNodes(t *testing.T) {
 	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 	pids := map[string]bool{}
 	for range 4 {
-		resp, _ := get(t, client, "http://"+lb.Addr()+"/")
+		resp := get(t, client, "http://"+lb.Addr()+"/")
 		pids[resp.Header.Get("X-Standin-Pid")] = true
 	}
 	for _, n := range nodes {
@@ -298,7 +298,7 @@ func TestBalancerProxyProtocol(t *testing.T) {
 	}
 	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}
 	client := &http.Client{Transport: &http.Transport{DialContext: (&net.Dialer{LocalAddr: local}).DialContext}}
-	resp, _ := get(t, client, "http://"+lb.Addr()+"/")
+	resp := get(t, client, "http://"+lb.Addr()+"/")
 	host, _, err := net.SplitHostPort(resp.Header.Get("X-Standin-Client"))
 	if err != nil || host != "127.0.0.2" {
 		t.Errorf("the Node saw the client as %q, want 127.0.0.2", resp.Header.Get("X-Standin-Client"))
@@ -313,25 +313,25 @@ func TestMocks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if resp, _ := get(t, topo.HTTPClient(), up.URL()+"/"); resp.StatusCode != http.StatusOK {
+	if resp := get(t, topo.HTTPClient(), up.URL()+"/"); resp.StatusCode != http.StatusOK {
 		t.Errorf("mock Upstream answered %d", resp.StatusCode)
 	}
-	idp, err := topo.StartIdP(mockidp.Config{})
+	idp, err := topo.StartIDP(mockidp.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(idp.JWKSURL(), "https://") {
 		t.Errorf("JWKS URL %s, want https", idp.JWKSURL())
 	}
-	if resp, _ := get(t, topo.HTTPClient(), idp.JWKSURL()); resp.StatusCode != http.StatusOK {
+	if resp := get(t, topo.HTTPClient(), idp.JWKSURL()); resp.StatusCode != http.StatusOK {
 		t.Errorf("JWKS answered %d", resp.StatusCode)
 	}
 	sink, err := topo.StartOTLPSink(otlpsink.Config{})
 	if err != nil || !strings.HasPrefix(sink.URL(), "https://") {
 		t.Errorf("OTLP sink %v, %v; want an https endpoint", sink, err)
 	}
-	clear := standinTopology(t, func(c *Config) { c.Transport.CleartextOTLP = true })
-	if s, err := clear.StartOTLPSink(otlpsink.Config{}); err != nil || !strings.HasPrefix(s.URL(), "http://") {
+	cleartext := standinTopology(t, func(c *Config) { c.Transport.CleartextOTLP = true })
+	if s, err := cleartext.StartOTLPSink(otlpsink.Config{}); err != nil || !strings.HasPrefix(s.URL(), "http://") {
 		t.Errorf("cleartext OTLP sink %v, %v; want an http endpoint", s, err)
 	}
 }

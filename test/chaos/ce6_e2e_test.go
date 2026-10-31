@@ -44,7 +44,8 @@ const (
 // connection, then the variants under allkeys-lru on either connection
 // and under volatile-ttl on the cache connection
 // (docs/architecture/11-scalability-and-distributed-state.md "Chaos
-// experiments").
+// experiments"). The runs also assert the failure catalog row FC-13
+// (FC13Criteria).
 func TestCE6StateStoreFull(t *testing.T) {
 	t.Run("main-noeviction", func(t *testing.T) { ce6(t, "main-noeviction", false, "noeviction") })
 	t.Run("cache-noeviction", func(t *testing.T) { ce6(t, "cache-noeviction", true, "noeviction") })
@@ -161,7 +162,7 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 	nodes := r.NodeNames()
 	r.Breakdown("evicted_keys", float64(evicted-evictedBefore))
 	skipped := func(from, to time.Time) float64 {
-		return r.sumIncrease("ruralz_cache_store_skipped_total", promtext.L("reason", "memory"), from, to)
+		return r.SumIncrease("ruralz_cache_store_skipped_total", promtext.L("reason", "memory"), from, to)
 	}
 	closed := l.StreamNamed("closed")
 	switch variant {
@@ -169,17 +170,17 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 		r.Add(
 			Check("stores skipped for memory above 70%", Functional, skipped(skipAt, fullAt), GT, 0),
 			Check("keys evicted", Functional, float64(evicted-evictedBefore), EQ, 0),
-			Check("ratelimit fail-open decisions once full", Functional, r.sumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyLimited, "result", "fail_open"), fullAt, fault.End), GT, 0),
+			Check("ratelimit fail-open decisions once full", Functional, r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyLimited, "result", "fail_open"), fullAt, fault.End), GT, 0),
 			Check("closed-Policy RZ-STS-002 responses once full", Functional, float64(CodesIn(closed, fullAt, fault.End, CodeSTSError)), GT, 0),
 		)
 		r.RecoveryCriteria(l, base, rec, end)
 	case "cache-noeviction":
 		r.Add(
 			Check("stores skipped for memory", Functional, skipped(base.Start, rec.End), EQ, 0),
-			Check("refused stores counted as call errors", Functional, r.sumIncrease("ruralz_state_calls_total", promtext.L("op", "cache_set", "result", "error"), fullAt, fault.End), GT, 0),
+			Check("refused stores counted as call errors", Functional, r.SumIncrease("ruralz_state_calls_total", promtext.L("op", "cache_set", "result", "error"), fullAt, fault.End), GT, 0),
 			Check("failed requests", Functional, float64(LoadStats(l, base.Start, rec.End).Failed), EQ, 0),
 			Check("main-connection RZ-STS responses", Functional, float64(CodesIn(closed, base.Start, rec.End, STSCodes()...)), EQ, 0),
-			Check("main-connection fail-open decisions", Functional, r.sumIncrease("ruralz_ratelimit_decisions_total", promtext.L("result", "fail_open"), base.Start, rec.End), EQ, 0),
+			Check("main-connection fail-open decisions", Functional, r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("result", "fail_open"), base.Start, rec.End), EQ, 0),
 		)
 	case "main-allkeys-lru", "cache-allkeys-lru":
 		r.Add(Check("Nodes raising state_store_eviction_policy", Functional, float64(len(r.Sampler.ReasonRaised(nodes, EvictionReason, base.Start, rec.End))), EQ, float64(len(nodes))))
@@ -205,6 +206,7 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 		r.Add(Check("recovery errors", Functional, float64(ErrorsAfter(l, rec.Start, rec.End, STSCodes()...)), EQ, 0))
 		r.StaleReasons(nodes, base.End, rec.End)
 	}
+	r.Add(FC13Criteria(policy, onCache, evicted-evictedBefore, len(r.Sampler.ReasonRaised(nodes, EvictionReason, base.Start, rec.End)))...)
 	r.Finish()
 }
 

@@ -40,7 +40,7 @@ type CallLog struct {
 	mu     sync.Mutex
 	calls  []Call
 	seqs   map[*respproxy.Proxy]uint64
-	missed int64
+	missed uint64
 
 	stop chan struct{}
 	done chan struct{}
@@ -88,7 +88,7 @@ func (cl *CallLog) drain() {
 			cl.mu.Lock()
 			for _, c := range cmds {
 				if c.Seq > seq+1 {
-					cl.missed += int64(c.Seq - seq - 1)
+					cl.missed += c.Seq - seq - 1
 				}
 				seq = c.Seq
 				for _, a := range c.Args {
@@ -115,7 +115,7 @@ func (cl *CallLog) watched(arg string) bool {
 
 // Stop stops collecting after a last drain and returns the calls and how
 // many commands the proxies' logs dropped before a drain read them.
-func (cl *CallLog) Stop() ([]Call, int64) {
+func (cl *CallLog) Stop() ([]Call, uint64) {
 	select {
 	case <-cl.stop:
 	default:

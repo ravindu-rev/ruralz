@@ -60,15 +60,15 @@ type Pump struct {
 	done chan struct{}
 }
 
-// StartPump starts advancing c every step of real (DefaultPumpStep when 0)
-// until Stop or the end of ctx.
-func StartPump(ctx context.Context, c Advancer, real clock.Clock, step time.Duration) *Pump {
+// StartPump starts advancing c every step of realClock (DefaultPumpStep
+// when 0) until Stop or the end of ctx.
+func StartPump(ctx context.Context, c Advancer, realClock clock.Clock, step time.Duration) *Pump {
 	if step <= 0 {
 		step = DefaultPumpStep
 	}
-	now := real.Now()
+	now := realClock.Now()
 	p := &Pump{
-		c: c, real: real, step: step,
+		c: c, real: realClock, step: step,
 		offset: c.Now().Sub(now),
 		marks:  []Mark{{Sent: now, Answered: now, Node: c.Now()}},
 		stop:   make(chan struct{}), done: make(chan struct{}),

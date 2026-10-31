@@ -53,6 +53,11 @@ type StreamSpec struct {
 	// Connections bounds or sets the stream's connections; 0 keeps the
 	// load generator's default.
 	Connections int
+	// DisableKeepAlives opens a connection per HTTP/1.1 request, so the
+	// L4 balancer spreads the stream's requests over every healthy Node,
+	// one restarted after the load began included, which keep-alive
+	// connections, moved off a Node by its Drain, never return to.
+	DisableKeepAlives bool
 	// Rate is the stream's offered rate in requests per second.
 	Rate float64
 	// KeyHeader and Keys set a per-request key header, such as
@@ -206,8 +211,8 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 		// balances connections, carries a light load to every Node.
 		hc := loadgen.HTTPConfig{
 			URL: base + ss.Path, Method: ss.Method, Body: ss.Body, Protocol: ss.Protocol, Connections: ss.Connections,
-			RoundRobin: ss.Protocol == loadgen.HTTP1,
-			KeyHeader:  ss.KeyHeader, Keys: ss.Keys, Prepare: ss.Prepare, TLS: clientTLS,
+			RoundRobin: ss.Protocol == loadgen.HTTP1, DisableKeepAlives: ss.DisableKeepAlives,
+			KeyHeader: ss.KeyHeader, Keys: ss.Keys, Prepare: ss.Prepare, TLS: clientTLS,
 		}
 		if ss.APIKeys {
 			if ss.KeyHeader != "" {
@@ -215,7 +220,7 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 			}
 			hc.KeyHeader, hc.Keys = APIKeyField, listKeys(keys)
 		}
-		tgt, err := loadgen.NewHTTP(hc)
+		tgt, err := loadgen.NewHTTP(hc) //nolint:contextcheck // NewHTTP only checks the URL with a request it never sends; loadgen.Start below takes ctx
 		if err != nil {
 			l.close()
 			return nil, fmt.Errorf("chaos: load: stream %s: %w", ss.Name, err)

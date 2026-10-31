@@ -131,7 +131,7 @@ func ce12(t *testing.T, measurement bool) {
 	excess, slack := BucketLaw(localLoad.Streams[0].Requests(), Admitted, r.NodeSpan, perWindow, perWindow, local.Start, local.End)
 	r.Breakdown("hot_local_decision_interval_ms", ms(slack))
 	r.Add(Check("localOnly admissions above N_serving × ceiling per window beyond the full buckets", Functional, excess, EQ, 0))
-	r.Breakdown("hot_local_allow_local", r.sumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyHotLocal, "result", "allow_local"), local.Start, local.End))
+	r.Breakdown("hot_local_allow_local", r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("policy", PolicyHotLocal, "result", "allow_local"), local.Start, local.End))
 	got, missed := calls.Stop()
 	ceiling := int64(max(1, requests/nodes))
 	worstHot, totalHot := CallsPerWindow(got, KeyTag(HotKey), r.NodeSpan, time.Second, declared.Start, declared.End)

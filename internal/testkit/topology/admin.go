@@ -112,7 +112,7 @@ func (n *Node) Readyz(ctx context.Context) (adminapi.Readyz, int, error) {
 // Node's /readyz answers 200, as ruralz dev run --ready-timeout does; a
 // Node whose process exits first fails at once.
 func (n *Node) WaitReady(ctx context.Context) error {
-	return n.waitReadyz(ctx, "ready", func(doc adminapi.Readyz, status int) bool {
+	return n.waitReadyz(ctx, "ready", func(_ adminapi.Readyz, status int) bool {
 		return status == http.StatusOK
 	})
 }

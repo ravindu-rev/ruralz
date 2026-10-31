@@ -263,7 +263,7 @@ func (s *standIn) boot(lock *nodedir.Lock) int {
 	}
 	// A socket left by a killed holder is stale: this process holds the
 	// lock.
-	_ = os.Remove(s.dir.HandoverSocketPath()) //nolint:gosec // G703: a fixed name under RURALZ_DATA_DIR
+	_ = os.Remove(s.dir.HandoverSocketPath())
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", s.dir.HandoverSocketPath())
 	if err != nil {
 		s.logf("handover socket: %v", err)
@@ -279,18 +279,21 @@ func (s *standIn) boot(lock *nodedir.Lock) int {
 
 // load reads and parses RURALZ_CONFIG and resolves its secrets.
 func (s *standIn) load() (*standinConfig, error) {
-	data, err := os.ReadFile(s.cfgPath) //nolint:gosec // G703: RURALZ_CONFIG, the test render the harness wrote
+	data, err := os.ReadFile(s.cfgPath)
 	if err != nil {
 		return nil, fmt.Errorf("read config: %w", err)
 	}
-	if fi, err := os.Stat(s.cfgPath); err == nil { //nolint:gosec // G703: see above
+	if fi, err := os.Stat(s.cfgPath); err == nil {
 		s.mu.Lock()
 		s.stamp = fi
 		s.mu.Unlock()
 	}
 	docs, diags, err := profile.Parse(context.Background(), data, 1, s.cfgPath, profile.FormatYAML, profile.Options{})
-	if err != nil || len(diags) > 0 {
-		return nil, fmt.Errorf("config does not parse: %v %s", err, diagText(diags))
+	if err != nil {
+		return nil, fmt.Errorf("config does not parse: %w %s", err, diagText(diags))
+	}
+	if len(diags) > 0 {
+		return nil, fmt.Errorf("config does not parse: %s", diagText(diags))
 	}
 	cfg := &standinConfig{adminPort: DefaultAdminPort}
 	cfg.digest, _ = standinDigest(data)
@@ -307,14 +310,14 @@ func (s *standIn) load() (*standinConfig, error) {
 		}
 		spec, _ := d.Root.Get("spec")
 		if admin, ok := spec.Get("admin"); ok {
-			cfg.adminPort, _ = intMember(admin, "port", DefaultAdminPort)
+			cfg.adminPort, _ = portMember(admin, DefaultAdminPort)
 		}
 		ls, _ := spec.Get("listeners")
 		if ls == nil {
 			continue
 		}
 		for _, l := range ls.Items {
-			port, _ := intMember(l, "port", 0)
+			port, _ := portMember(l, 0)
 			sl := standinListener{name: text(l, "name"), protocol: text(l, "protocol"), port: port}
 			if pp, ok := l.Get("proxyProtocol"); ok && pp.Kind == tree.KindBool {
 				sl.proxyProtocol = pp.Bool
@@ -592,7 +595,7 @@ func (s *standIn) reload(why string) {
 	prev, cur := s.stamp, s.cfg
 	s.mu.Unlock()
 	if why == "" && len(cur.unresolved) == 0 {
-		fi, err := os.Stat(s.cfgPath) //nolint:gosec // G703: RURALZ_CONFIG, the test render the harness wrote
+		fi, err := os.Stat(s.cfgPath)
 		if err != nil || (prev != nil && os.SameFile(prev, fi) && fi.ModTime().Equal(prev.ModTime()) && fi.Size() == prev.Size()) {
 			return
 		}
@@ -832,7 +835,7 @@ func (s *standIn) handoverIn() int {
 // takeLock records the lock and writes holder.json.
 func (s *standIn) takeLock(lock *nodedir.Lock) int {
 	h, _ := nodedir.NewHolder(s.nodeID, "0.0.0-standin")
-	_ = os.Remove(s.dir.HandoverSocketPath()) //nolint:gosec // G703: a fixed name under RURALZ_DATA_DIR
+	_ = os.Remove(s.dir.HandoverSocketPath())
 	if err := lock.WriteHolder(h); err != nil {
 		s.logf("holder: %v", err)
 		return 1

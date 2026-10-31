@@ -1,0 +1,21 @@
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: discovered-a
+spec:
+  protocol: http
+  discovery:                            # FC-19: A and AAAA records the harness DNS server answers
+    type: dns
+    service: a.discovery.chaos.test
+    port: ${DISCOVERY_PORT}
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: discovered-srv
+spec:
+  protocol: http
+  discovery:                            # FC-19: SRV records of _http._tcp.srv.discovery.chaos.test
+    type: dns
+    service: srv.discovery.chaos.test
+    port: http

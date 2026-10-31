@@ -77,13 +77,21 @@ type Spec struct {
 	// Zones, when set, are the failure zones the Nodes split over, as
 	// evenly as possible with earlier zones taking the remainder
 	// (ZoneSplit), each Node's RURALZ_ZONE, as GD-2 splits 10 Nodes 4, 3
-	// and 3 over zones a, b and c; Run.Zone names a Node's.
+	// and 3 over zones b, c and a; Run.Zone names a Node's.
 	Zones []string
 	// PumpStep overrides DefaultPumpStep.
 	PumpStep time.Duration
 	// Mock sets each mock Upstream's configuration before it starts
 	// (Name and LogSize are the harness's).
 	Mock func(i int, c *mockup.Config)
+	// Node adjusts the Nodes' options after the harness filled them, as
+	// GD-5 keeps OverlayEnvStateStore's reference as authored and gives
+	// its value in the Nodes' environment.
+	Node func(r *Run, o *topology.NodeOptions)
+	// Balancer adjusts an L4 balancer's settings, by the listener it
+	// balances, before it starts, as GD-2 dials one zone's Nodes through
+	// fault proxies.
+	Balancer func(r *Run, listener string, c *l4lb.Config)
 }
 
 // DefaultKeep are the metric families every run samples: degraded
@@ -255,6 +263,9 @@ func (r *Run) nodeOptions() (topology.NodeOptions, error) {
 		r.APIKeys[c] = k
 		o.Secrets[ConsumerKeyRef(c)] = []byte(k)
 	}
+	if r.Spec.Node != nil {
+		r.Spec.Node(r, &o)
+	}
 	return o, nil
 }
 
@@ -297,7 +308,11 @@ func (r *Run) Zone(node string) string { return r.zones[node] }
 // and waits until every Node is healthy behind it.
 func (r *Run) startBalancer(listener string) *topology.Balancer {
 	r.T.Helper()
-	b, err := r.Top.StartBalancer(r.ctx, listener, topology.BalancerOptions{Config: l4lb.Config{Redispatch: true}})
+	c := l4lb.Config{Redispatch: true}
+	if r.Spec.Balancer != nil {
+		r.Spec.Balancer(r, listener, &c)
+	}
+	b, err := r.Top.StartBalancer(r.ctx, listener, topology.BalancerOptions{Config: c})
 	if err != nil {
 		r.T.Fatal(err)
 	}

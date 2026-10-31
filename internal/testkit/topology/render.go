@@ -169,7 +169,7 @@ func (n *Node) rewritePorts(ctx context.Context, gw *tree.Node, r *Render) error
 	if ls, ok := spec.Get("listeners"); ok && ls.Kind == tree.KindList {
 		for _, l := range ls.Items {
 			name, protocol := text(l, "name"), text(l, "protocol")
-			authored, err := intMember(l, "port", -1)
+			authored, err := portMember(l, -1)
 			if err != nil || name == "" || authored < 0 {
 				return fmt.Errorf("topology: %s: a Gateway listener without a name or an integer port", n.name)
 			}
@@ -189,7 +189,7 @@ func (n *Node) rewritePorts(ctx context.Context, gw *tree.Node, r *Render) error
 		admin = &tree.Node{Kind: tree.KindMap}
 		spec.Set("admin", tree.Pos{}, admin)
 	}
-	authored, err := intMember(admin, "port", DefaultAdminPort)
+	authored, err := portMember(admin, DefaultAdminPort)
 	if err != nil {
 		return fmt.Errorf("topology: %s: admin.port: %w", n.name, err)
 	}
@@ -246,9 +246,10 @@ func text(n *tree.Node, key string) string {
 	return v.Text
 }
 
-// intMember returns the integer member key of a map node, def when absent.
-func intMember(n *tree.Node, key string, def int) (int, error) {
-	v, ok := n.Get(key)
+// portMember returns the integer port member of a map node, def when
+// absent.
+func portMember(n *tree.Node, def int) (int, error) {
+	v, ok := n.Get("port")
 	if !ok {
 		return def, nil
 	}
@@ -272,7 +273,7 @@ func diagText(l diag.List) string {
 			parts = append(parts, fmt.Sprintf("and %d more", len(l)-3))
 			break
 		}
-		parts = append(parts, fmt.Sprintf("%s %d:%d %s", d.Code, d.Location.Line, d.Location.Column, d.Message))
+		parts = append(parts, fmt.Sprintf("%s %d:%d %s", d.Code, d.Line, d.Column, d.Message))
 	}
 	return strings.Join(parts, "; ")
 }

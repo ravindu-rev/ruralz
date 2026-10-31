@@ -165,15 +165,15 @@ func (f *fakeAdvancer) Now() time.Time { return f.now }
 // at a time, never runs faster than real time when behind, adds jumps,
 // and follows another caller's advance.
 func TestPumpCatchUp(t *testing.T) {
-	real := clocktest.New(t0)
-	c := &fakeAdvancer{now: t0.Add(time.Hour), real: real}
-	p := &Pump{c: c, real: real, step: 10 * time.Millisecond, offset: time.Hour, marks: []Mark{{Sent: t0, Answered: t0, Node: c.now}}}
-	real.Advance(10 * time.Millisecond)
+	realClock := clocktest.New(t0)
+	c := &fakeAdvancer{now: t0.Add(time.Hour), real: realClock}
+	p := &Pump{c: c, real: realClock, step: 10 * time.Millisecond, offset: time.Hour, marks: []Mark{{Sent: t0, Answered: t0, Node: c.now}}}
+	realClock.Advance(10 * time.Millisecond)
 	if err := p.catchUp(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
 	// Behind by 100 ms: one step only, the rest dropped from the track.
-	real.Advance(100 * time.Millisecond)
+	realClock.Advance(100 * time.Millisecond)
 	if err := p.catchUp(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestPumpCatchUp(t *testing.T) {
 	if p.MaxBehind() != 100*time.Millisecond {
 		t.Errorf("MaxBehind = %v", p.MaxBehind())
 	}
-	real.Advance(10 * time.Millisecond)
+	realClock.Advance(10 * time.Millisecond)
 	if err := p.catchUp(t.Context(), 0); err != nil {
 		t.Fatal(err)
 	}
@@ -210,9 +210,9 @@ func TestPumpCatchUp(t *testing.T) {
 // until the condition holds, at most the maximum, each a jump the pump's
 // track keeps.
 func TestPumpWalk(t *testing.T) {
-	real := clocktest.New(t0)
-	c := &fakeAdvancer{now: t0, real: real}
-	p := &Pump{c: c, real: real, step: 10 * time.Millisecond, marks: []Mark{{Sent: t0, Answered: t0, Node: t0}}}
+	realClock := clocktest.New(t0)
+	c := &fakeAdvancer{now: t0, real: realClock}
+	p := &Pump{c: c, real: realClock, step: 10 * time.Millisecond, marks: []Mark{{Sent: t0, Answered: t0, Node: t0}}}
 	ok, err := p.Walk(t.Context(), time.Second, 0, 10*time.Second, func() bool { return len(c.adv) == 3 })
 	if err != nil || !ok || !slices.Equal(c.adv, []time.Duration{time.Second, time.Second, time.Second}) {
 		t.Fatalf("Walk until three steps = %v, %v with advances %v", ok, err, c.adv)
@@ -255,9 +255,9 @@ func (f *crossingAdvancer) Advance(ctx context.Context, d time.Duration) error {
 // Drain steps ended it at the walk's first step and failed the request
 // with RZ-UP-001.
 func TestWalkLeavesConnectTimeoutRealTime(t *testing.T) {
-	real := clocktest.New(t0)
-	c := &crossingAdvancer{fakeAdvancer: fakeAdvancer{now: t0, real: real}, deadline: t0.Add(resilience.DefaultConnectTimeout)}
-	p := &Pump{c: c, real: real, step: DefaultPumpStep, marks: []Mark{{Sent: t0, Answered: t0, Node: t0}}}
+	realClock := clocktest.New(t0)
+	c := &crossingAdvancer{fakeAdvancer: fakeAdvancer{now: t0, real: realClock}, deadline: t0.Add(resilience.DefaultConnectTimeout)}
+	p := &Pump{c: c, real: realClock, step: DefaultPumpStep, marks: []Mark{{Sent: t0, Answered: t0, Node: t0}}}
 	ctx, stop := context.WithCancel(t.Context())
 	errc := make(chan error, 1)
 	go func() {
@@ -266,10 +266,10 @@ func TestWalkLeavesConnectTimeoutRealTime(t *testing.T) {
 		errc <- err
 	}()
 	for ctx.Err() == nil {
-		if err := real.BlockUntil(ctx, 1); err != nil {
+		if err := realClock.BlockUntil(ctx, 1); err != nil {
 			break
 		}
-		real.Advance(WalkStepWait)
+		realClock.Advance(WalkStepWait)
 	}
 	if err := <-errc; err != nil {
 		t.Fatal(err)

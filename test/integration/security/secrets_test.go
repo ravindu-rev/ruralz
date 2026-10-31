@@ -142,7 +142,7 @@ func TestSecretFileAndEnvRules(t *testing.T) {
 		if err := os.WriteFile(path, []byte(key), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(path, mode); err != nil { //nolint:gosec // G302: the modes under test, group or other writable included
+		if err := os.Chmod(path, mode); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -281,7 +281,7 @@ func TestStartRefusals(t *testing.T) {
 		{"admin token file inside the secret root", func(t *testing.T, s *setup) { into(t, s, "RURALZ_ADMIN_TOKEN_FILE") }, []string{"RURALZ_ADMIN_TOKEN_FILE", "RURALZ_SECRET_ROOT"}},
 		{"metrics token file inside the secret root", func(t *testing.T, s *setup) { into(t, s, "RURALZ_ADMIN_METRICS_TOKEN_FILE") }, []string{"RURALZ_ADMIN_METRICS_TOKEN_FILE", "RURALZ_SECRET_ROOT"}},
 		{"MAC key file inside the secret root", func(t *testing.T, s *setup) { into(t, s, "RURALZ_STATE_STORE_MAC_KEY_FILE") }, []string{"RURALZ_STATE_STORE_MAC_KEY_FILE", "RURALZ_SECRET_ROOT"}},
-		{"admin TLS directory inside the secret root", func(t *testing.T, s *setup) {
+		{"admin TLS directory inside the secret root", func(_ *testing.T, s *setup) {
 			s.env["RURALZ_ADMIN_TLS_DIR"] = filepath.Join(s.root, "admin-tls")
 		}, []string{"RURALZ_ADMIN_TLS_DIR", "RURALZ_SECRET_ROOT"}},
 		{"secret root reached through a symlink", func(t *testing.T, s *setup) {
@@ -352,7 +352,7 @@ func TestEgressGuardAndRedirects(t *testing.T) {
 	}
 	t.Run("RURALZ_FETCH_ALLOW without the IdP's address", func(t *testing.T) {
 		top := newTopology(t, topology.Config{})
-		idp, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		idp, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -373,7 +373,7 @@ func TestEgressGuardAndRedirects(t *testing.T) {
 	t.Run("https redirect to http", func(t *testing.T) {
 		top := newTopology(t, topology.Config{})
 		plain := startMock(t, top, mockup.Config{})
-		idp, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		idp, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -395,11 +395,11 @@ func TestEgressGuardAndRedirects(t *testing.T) {
 	})
 	t.Run("https redirects to an allowed and a denied address", func(t *testing.T) {
 		top := newTopology(t, topology.Config{})
-		first, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		first, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
-		second, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		second, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -407,7 +407,7 @@ func TestEgressGuardAndRedirects(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		third, err := top.StartIdP(mockidp.Config{Now: top.Now, Listen: "127.0.0.2:0", TLS: denied})
+		third, err := top.StartIDP(mockidp.Config{Now: top.Now, Listen: "127.0.0.2:0", TLS: denied})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -438,11 +438,11 @@ func TestEgressGuardAndRedirects(t *testing.T) {
 	})
 	t.Run("tokenUrl redirect", func(t *testing.T) {
 		top := newTopology(t, topology.Config{})
-		issuer, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		issuer, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}
-		elsewhere, err := top.StartIdP(mockidp.Config{Now: top.Now})
+		elsewhere, err := top.StartIDP(mockidp.Config{Now: top.Now})
 		if err != nil {
 			t.Fatal(err)
 		}

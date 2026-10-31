@@ -8,7 +8,6 @@ package e2e
 import (
 	"bytes"
 	"context"
-	"crypto/tls"
 	"fmt"
 	"io/fs"
 	"net"
@@ -192,7 +191,7 @@ func newShopRest(t *testing.T, o shopRestOptions) *shopRest {
 		t.Fatal(err)
 	}
 	s.clientSecret = top.Canary()
-	if s.idp, err = top.StartIdP(mockidp.Config{
+	if s.idp, err = top.StartIDP(mockidp.Config{
 		Issuer:  shopIssuer,
 		Clients: map[string]string{shopClientID: s.clientSecret},
 		Now:     o.now,
@@ -328,14 +327,6 @@ func (s *shopRest) listener(n *topology.Node, name string) string {
 		s.t.Fatalf("%s has no listener %s", n.Name(), name)
 	}
 	return u
-}
-
-// tlsConfig returns the client TLS configuration of the https listener:
-// the harness's CA and the listener's hostname as SNI.
-func (s *shopRest) tlsConfig() *tls.Config {
-	c := s.top.ClientTLS()
-	c.ServerName = shopHost
-	return c
 }
 
 // jwt mints a token the mock IdP signs for jwt-default with the scope,
