@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -39,21 +40,99 @@ const (
 // errPortInUse marks a start that lost its port to another process.
 var errPortInUse = errors.New("redisserver: port in use")
 
-// launcher starts the redis-server processes of one test.
+// portInUse is what a redis-server that lost its port writes.
+const portInUse = "Address already in use"
+
+// loopback is the address the servers of this machine bind.
+const loopback = "127.0.0.1"
+
+// launcher starts the redis-server processes of one test: on this
+// machine, or on a Host.
 type launcher struct {
 	tb   testing.TB
-	path string   // the redis-server binary
+	path string   // the redis-server binary of this machine
 	args []string // arguments ahead of the configuration file
 	env  []string // the complete environment of the processes
-	// ports returns a free loopback port.
+	// host, when set, runs the servers instead of this machine (StartOn).
+	host Host
+	// ports returns a free port of the servers' address.
 	ports func(context.Context) (int, error)
 	// held are the ports of the servers this launcher started.
 	held map[int]bool
 }
 
-// port returns a free loopback port that no server of this launcher holds
-// and that is not avoid. ports can return a port it returned before,
-// because a port is free again once its probe closes.
+// ip returns the address the servers bind and announce, and the test and
+// the clients dial: loopback, or the Host's.
+func (l *launcher) ip() string {
+	if l.host != nil {
+		return l.host.Addr()
+	}
+	return loopback
+}
+
+// join joins the elements of a server file's path: slash-separated on a
+// Host, whose servers run on a Linux lab host, and in this machine's form
+// otherwise.
+func (l *launcher) join(elem ...string) string {
+	if l.host != nil {
+		return path.Join(elem...)
+	}
+	return filepath.Join(elem...)
+}
+
+// baseDir returns the deployment's directory: the test's temporary
+// directory, or a fresh directory on the Host, which the end of the test
+// removes after the servers stopped.
+func (l *launcher) baseDir(ctx context.Context) (string, error) {
+	if l.host == nil {
+		return l.tb.TempDir(), nil
+	}
+	dir, err := l.host.MkdirTemp(ctx, "", "redisserver-")
+	if err != nil {
+		return "", fmt.Errorf("redisserver: %w", err)
+	}
+	// Registered before any server's cleanup, so it runs after them all.
+	l.tb.Cleanup(func() {
+		if err := l.host.RemoveAll(context.WithoutCancel(ctx), dir); err != nil {
+			l.tb.Errorf("redisserver: remove %s: %v", dir, err)
+		}
+	})
+	return dir, nil
+}
+
+// nodeDir creates a fresh directory for the server name under base.
+func (l *launcher) nodeDir(ctx context.Context, base, name string) (string, error) {
+	if l.host == nil {
+		dir, err := os.MkdirTemp(base, name+"-")
+		if err != nil {
+			return "", fmt.Errorf("redisserver: %w", err)
+		}
+		return dir, nil
+	}
+	dir, err := l.host.MkdirTemp(ctx, base, name+"-")
+	if err != nil {
+		return "", fmt.Errorf("redisserver: %w", err)
+	}
+	return dir, nil
+}
+
+// writeFile writes a file of the deployment, mode 0600.
+func (l *launcher) writeFile(ctx context.Context, name string, data []byte) error {
+	if l.host == nil {
+		if err := os.WriteFile(name, data, 0o600); err != nil {
+			return fmt.Errorf("redisserver: %w", err)
+		}
+		return nil
+	}
+	if err := l.host.WriteFile(ctx, name, data); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	return nil
+}
+
+// port returns a free port that no server of this launcher holds and that
+// is not avoid. ports can return a port it returned before, because a
+// port is free again once its probe closes.
 func (l *launcher) port(ctx context.Context, avoid int) (int, error) {
 	for range portAttempts {
 		p, err := l.ports(ctx)
@@ -78,7 +157,7 @@ func childEnv() []string {
 
 // freePort returns a loopback port that was free a moment ago.
 func freePort(ctx context.Context) (int, error) {
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", "127.0.0.1:0")
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", loopback+":0")
 	if err != nil {
 		return 0, fmt.Errorf("redisserver: free port: %w", err)
 	}
@@ -90,43 +169,56 @@ func freePort(ctx context.Context) (int, error) {
 	return a.Port, nil
 }
 
-// writeTLS writes a fresh CA and a certificate for localhost, 127.0.0.1
-// and ::1 into dir. The certificate serves both ends: a replica and a
-// cluster node present it as a client too, and the cluster bus requires
-// client certificates.
-func writeTLS(dir string) (*pki.CA, *tlsFiles, error) {
-	ca, err := pki.NewCA(pki.CAOptions{CommonName: "Ruralz Test State Store CA"})
+// writeTLS writes a fresh CA and a certificate for localhost, 127.0.0.1,
+// ::1 and, on a Host, its address and names into base. The certificate
+// serves both ends: a replica and a cluster node present it as a client
+// too, and the cluster bus requires client certificates. caFile is the
+// CA on this machine, for Deployment.CAFile: base's own on this machine,
+// a copy in the test's temporary directory for a Host.
+func (l *launcher) writeTLS(ctx context.Context, base string) (ca *pki.CA, files *tlsFiles, caFile string, err error) {
+	ca, err = pki.NewCA(pki.CAOptions{CommonName: "Ruralz Test State Store CA"})
 	if err != nil {
-		return nil, nil, fmt.Errorf("redisserver: %w", err)
+		return nil, nil, "", fmt.Errorf("redisserver: %w", err)
 	}
-	leaf, err := ca.Issue(pki.LeafOptions{
-		CommonName:  "localhost",
-		DNSNames:    []string{"localhost"},
-		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-	})
+	names := []string{"localhost"}
+	ips := []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback}
+	if l.host != nil {
+		// startOn checked that the address parses.
+		ips = append(ips, net.ParseIP(l.host.Addr()))
+		names = append(names, l.host.Names()...)
+	}
+	leaf, err := ca.Issue(pki.LeafOptions{CommonName: "localhost", DNSNames: names, IPAddresses: ips})
 	if err != nil {
-		return nil, nil, fmt.Errorf("redisserver: %w", err)
+		return nil, nil, "", fmt.Errorf("redisserver: %w", err)
 	}
-	cert, key, err := leaf.WriteFiles(dir, "server")
-	if err != nil {
-		return nil, nil, fmt.Errorf("redisserver: %w", err)
+	files = &tlsFiles{ca: l.join(base, "ca.crt"), cert: l.join(base, "server.crt"), key: l.join(base, "server.key")}
+	for name, data := range map[string][]byte{files.ca: ca.CertPEM, files.cert: leaf.ChainPEM, files.key: leaf.KeyPEM} {
+		if err := l.writeFile(ctx, name, data); err != nil {
+			return nil, nil, "", err
+		}
 	}
-	caFile := filepath.Join(dir, "ca.crt")
-	if err := ca.WriteFile(caFile); err != nil {
-		return nil, nil, fmt.Errorf("redisserver: %w", err)
+	caFile = files.ca
+	if l.host != nil {
+		caFile = filepath.Join(l.tb.TempDir(), "ca.crt")
+		if err := ca.WriteFile(caFile); err != nil {
+			return nil, nil, "", fmt.Errorf("redisserver: %w", err)
+		}
 	}
-	return ca, &tlsFiles{ca: caFile, cert: cert, key: key}, nil
+	return ca, files, caFile, nil
 }
 
 // startProcess starts a process-flavor deployment.
 func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 	ctx, cancel := context.WithTimeout(l.tb.Context(), startTimeout)
 	defer cancel()
-	base := l.tb.TempDir()
+	base, err := l.baseDir(ctx)
+	if err != nil {
+		return nil, err
+	}
 	d := &Deployment{kind: k, acc: access{scheme: "redis"}}
-	cfg := nodeConfig{users: o.Users, extra: o.Config}
+	cfg := nodeConfig{bind: l.ip(), users: o.Users, extra: o.Config}
 	if o.TLS {
-		ca, files, err := writeTLS(base)
+		ca, files, caFile, err := l.writeTLS(ctx, base)
 		if err != nil {
 			return nil, err
 		}
@@ -134,7 +226,7 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 		if err != nil {
 			return nil, fmt.Errorf("redisserver: %w", err)
 		}
-		d.acc.scheme, d.acc.dial.tls, d.caFile, cfg.tls = "rediss", client, files.ca, files
+		d.acc.scheme, d.acc.dial.tls, d.caFile, cfg.tls = "rediss", client, caFile, files
 	}
 	if len(o.Users) > 0 {
 		u := o.Users[0]
@@ -169,7 +261,7 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 			return nil, err
 		}
 		d.nodes = append(d.nodes, s)
-		nodes = append(nodes, clusterNode{srv: s, host: "127.0.0.1", port: s.node.port, busPort: s.node.busPort})
+		nodes = append(nodes, clusterNode{srv: s, host: l.ip(), port: s.node.port, busPort: s.node.busPort})
 	}
 	if cluster {
 		if err := bootstrapCluster(ctx, nodes); err != nil {
@@ -183,7 +275,7 @@ func startProcess(l *launcher, k Kind, o Options) (*Deployment, error) {
 				return nil, err
 			}
 			d.shardReplicas = append(d.shardReplicas, s)
-			replicas = append(replicas, clusterNode{srv: s, host: "127.0.0.1", port: s.node.port, busPort: s.node.busPort})
+			replicas = append(replicas, clusterNode{srv: s, host: l.ip(), port: s.node.port, busPort: s.node.busPort})
 		}
 		if err := attachReplicas(ctx, nodes, replicas); err != nil {
 			return nil, err
@@ -255,10 +347,11 @@ func (l *launcher) startNode(ctx context.Context, base, name string, cfg nodeCon
 				return nil, err
 			}
 		}
-		if cfg.dir, err = os.MkdirTemp(base, name+"-"); err != nil {
-			return nil, fmt.Errorf("redisserver: %w", err)
+		if cfg.dir, err = l.nodeDir(ctx, base, name); err != nil {
+			return nil, err
 		}
-		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(cfg.port))
+		cfg.base = base
+		addr := net.JoinHostPort(l.ip(), strconv.Itoa(cfg.port))
 		s := &Server{name: name, addr: addr, client: addr, acc: acc, l: l, node: cfg}
 		if announce != nil {
 			if a := announce(addr); a != "" {
@@ -288,9 +381,77 @@ func (l *launcher) startNode(ctx context.Context, base, name string, cfg nodeCon
 	return nil, fmt.Errorf("redisserver: %s: no free port in %d attempts: %w", name, portAttempts, last)
 }
 
+// serverProc is a running redis-server: a process of this machine, or
+// one a Host started.
+type serverProc interface {
+	// kill sends SIGKILL and waits until the process exited.
+	kill(ctx context.Context) error
+	// signal sends sig.
+	signal(sig os.Signal) error
+	// output returns what the process wrote, as far as it is kept.
+	output() string
+	// end kills the process if it still runs and waits for it, with the
+	// test.
+	end()
+}
+
+// localProc is a redis-server process of this machine.
+type localProc struct{ p *proc.Process }
+
+func (lp localProc) kill(ctx context.Context) error {
+	if err := lp.p.Kill(); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	select {
+	case <-lp.p.Done():
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (lp localProc) signal(sig os.Signal) error {
+	if err := lp.p.Signal(sig); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	return nil
+}
+
+func (lp localProc) output() string {
+	out, errOut := lp.p.Output()
+	return string(out) + string(errOut)
+}
+
+func (lp localProc) end() {
+	_ = lp.p.Kill()
+	<-lp.p.Done()
+}
+
+// hostProc is a redis-server a Host started.
+type hostProc struct{ p HostProcess }
+
+func (hp hostProc) kill(ctx context.Context) error {
+	if err := hp.p.Kill(ctx); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	return nil
+}
+
+func (hp hostProc) signal(sig os.Signal) error {
+	if err := hp.p.Signal(sig); err != nil {
+		return fmt.Errorf("redisserver: %w", err)
+	}
+	return nil
+}
+
+func (hp hostProc) output() string { return hp.p.Output() }
+
+func (hp hostProc) end() { _ = hp.p.Close() }
+
 // start writes the configuration, starts redis-server (with --sentinel
 // for a sentinel, which rewrites its configuration file as it runs) and
-// waits until it is ready and answers PING.
+// waits until it logs its readiness line and answers PING, on this
+// machine or a Host.
 func (s *Server) start(ctx context.Context) error {
 	s.mu.Lock()
 	cfg := s.node
@@ -298,20 +459,67 @@ func (s *Server) start(ctx context.Context) error {
 		sc := *cfg.sentinel
 		cfg.sentinel = &sc
 	}
+	old := s.proc
 	s.mu.Unlock()
+	if old != nil {
+		// The process a Restart killed: ending it also releases what holds
+		// it, such as a Host's session.
+		old.end()
+	}
 	ds, err := cfg.directives()
 	if err != nil {
 		return err
 	}
-	conf := filepath.Join(cfg.dir, "redis.conf")
-	if err := os.WriteFile(conf, render(ds, cfg.extra), 0o600); err != nil {
-		return fmt.Errorf("redisserver: %w", err)
+	conf := s.l.join(cfg.dir, "redis.conf")
+	if err := s.l.writeFile(ctx, conf, render(ds, cfg.extra)); err != nil {
+		return err
 	}
+	var p serverProc
+	if s.l.host != nil {
+		hs := HostServer{Name: s.name, Dir: cfg.base, Port: cfg.port, Args: []string{conf}, Ready: readyServer}
+		if cfg.sentinel != nil {
+			hs.Args, hs.Ready = append(hs.Args, "--sentinel"), readySentinel
+		}
+		hp, err := s.l.host.Start(ctx, hs)
+		if err != nil {
+			if strings.Contains(err.Error(), portInUse) {
+				return fmt.Errorf("%w: %s", errPortInUse, s.name)
+			}
+			return fmt.Errorf("redisserver: %s did not start: %w", s.name, err)
+		}
+		p = hostProc{hp}
+	} else {
+		lp, err := s.startLocal(ctx, cfg, conf)
+		if err != nil {
+			return err
+		}
+		p = lp
+	}
+	s.mu.Lock()
+	s.proc = p
+	s.mu.Unlock()
+	if _, err := s.Do(ctx, "PING"); err != nil {
+		out := p.output()
+		p.end()
+		return fmt.Errorf("redisserver: %s did not start: %w\n%s", s.name, err, tail(out))
+	}
+	return nil
+}
+
+// The lines a server and a sentinel write once they serve.
+const (
+	readyServer   = `Ready to accept connections`
+	readySentinel = `Sentinel ID is`
+)
+
+// startLocal starts redis-server on this machine and waits for its
+// readiness line.
+func (s *Server) startLocal(ctx context.Context, cfg nodeConfig, conf string) (localProc, error) {
 	args := append(slices.Clone(s.l.args), conf)
-	ready := regexp.MustCompile(`Ready to accept connections`)
+	ready := regexp.MustCompile(readyServer)
 	if cfg.sentinel != nil {
 		args = append(args, "--sentinel")
-		ready = regexp.MustCompile(`Sentinel ID is`)
+		ready = regexp.MustCompile(readySentinel)
 	}
 	// The process outlives ctx, which bounds the start alone; cleanup
 	// ends it with the test.
@@ -320,25 +528,18 @@ func (s *Server) start(ctx context.Context) error {
 		Env: s.l.env, Dir: cfg.dir, RingBytes: outputBytes,
 	})
 	if err != nil {
-		return fmt.Errorf("redisserver: %w", err)
+		return localProc{}, fmt.Errorf("redisserver: %w", err)
 	}
-	s.mu.Lock()
-	s.proc = p
-	s.mu.Unlock()
-	_, err = p.WaitOutput(ctx, ready)
-	if err == nil {
-		_, err = s.Do(ctx, "PING")
+	lp := localProc{p}
+	if _, err := p.WaitOutput(ctx, ready); err != nil {
+		out := lp.output()
+		lp.end()
+		if strings.Contains(out, portInUse) {
+			return localProc{}, fmt.Errorf("%w: %s", errPortInUse, s.name)
+		}
+		return localProc{}, fmt.Errorf("redisserver: %s did not start: %w\n%s", s.name, err, tail(out))
 	}
-	if err == nil {
-		return nil
-	}
-	_ = p.Kill()
-	<-p.Done()
-	out := s.Output()
-	if strings.Contains(out, "Address already in use") {
-		return fmt.Errorf("%w: %s", errPortInUse, s.name)
-	}
-	return fmt.Errorf("redisserver: %s did not start: %w\n%s", s.name, err, tail(out))
+	return lp, nil
 }
 
 // cleanup ends the process with the test and shows its output when the
@@ -347,10 +548,9 @@ func (s *Server) cleanup() {
 	s.mu.Lock()
 	p := s.proc
 	s.mu.Unlock()
-	_ = p.Kill()
-	<-p.Done()
+	p.end()
 	if s.l.tb.Failed() {
-		s.l.tb.Logf("redisserver: %s output:\n%s", s.name, tail(s.Output()))
+		s.l.tb.Logf("redisserver: %s output:\n%s", s.name, tail(p.output()))
 	}
 }
 

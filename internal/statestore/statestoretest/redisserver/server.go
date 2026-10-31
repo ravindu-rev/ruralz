@@ -17,7 +17,6 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
-	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // Start starts a deployment of kind k for tb; it stops when tb ends.
@@ -363,11 +362,11 @@ type Server struct {
 	client string // what clients are given (Options.Announce), else addr
 	acc    access
 
-	// The process flavor.
+	// The process flavor, on this machine or a Host.
 	l    *launcher
 	mu   sync.Mutex // guards node and proc
 	node nodeConfig
-	proc *proc.Process
+	proc serverProc
 
 	// The container flavor.
 	ctr testcontainers.Container
@@ -411,8 +410,9 @@ func (s *Server) Info(ctx context.Context, section string) (map[string]string, e
 }
 
 // Kill kills a redis-server process (SIGKILL on Linux) and waits for it
-// to exit; the process flavor's "primary killed" fault. Containers
-// return errors.ErrUnsupported.
+// to exit; the process flavor's "primary killed" fault, on this machine
+// or a Host. Killing an exited process is not an error. Containers return
+// errors.ErrUnsupported.
 func (s *Server) Kill(ctx context.Context) error {
 	if s.l == nil {
 		return fmt.Errorf("redisserver: kill %s: %w", s.name, errors.ErrUnsupported)
@@ -420,20 +420,16 @@ func (s *Server) Kill(ctx context.Context) error {
 	s.mu.Lock()
 	p := s.proc
 	s.mu.Unlock()
-	if err := p.Kill(); err != nil {
-		return fmt.Errorf("redisserver: %w", err)
+	if err := p.kill(ctx); err != nil {
+		return fmt.Errorf("redisserver: kill %s: %w", s.name, err)
 	}
-	select {
-	case <-p.Done():
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("redisserver: kill %s: %w", s.name, ctx.Err())
-	}
+	return nil
 }
 
-// Signal sends sig to a redis-server process, such as SIGSTOP and
-// SIGCONT for the frozen State Store fault, whose sockets stay open.
-// Containers return errors.ErrUnsupported.
+// Signal sends sig to a redis-server process, on this machine or a Host,
+// such as SIGSTOP and SIGCONT for the frozen State Store fault, whose
+// sockets stay open; signaling an exited process fails. Containers return
+// errors.ErrUnsupported.
 func (s *Server) Signal(sig os.Signal) error {
 	if s.l == nil {
 		return fmt.Errorf("redisserver: signal %s: %w", s.name, errors.ErrUnsupported)
@@ -441,10 +437,7 @@ func (s *Server) Signal(sig os.Signal) error {
 	s.mu.Lock()
 	p := s.proc
 	s.mu.Unlock()
-	if err := p.Signal(sig); err != nil {
-		return fmt.Errorf("redisserver: %w", err)
-	}
-	return nil
+	return p.signal(sig)
 }
 
 // Restart kills a running redis-server process and starts it again on
@@ -462,7 +455,7 @@ func (s *Server) Restart(ctx context.Context) error {
 }
 
 // Output returns what the current redis-server process wrote, as far as
-// its bounded rings hold it; "" for a container.
+// its bounded rings, or a Host, keep it; "" for a container.
 func (s *Server) Output() string {
 	s.mu.Lock()
 	p := s.proc
@@ -470,6 +463,5 @@ func (s *Server) Output() string {
 	if p == nil {
 		return ""
 	}
-	out, errOut := p.Output()
-	return string(out) + string(errOut)
+	return p.output()
 }
