@@ -32,7 +32,8 @@ func TestAirGappedStart(t *testing.T) {
 	writeShared(t, filepath.Join(p.run, "resolv.conf"), []byte(resolvConf))
 
 	p.up(ctx, svcUpstream, svcRuralzd)
-	out, err := p.compose(ctx, "--profile", svcProbe, "run", "--rm", "--no-deps", "--no-tty", svcProbe)
+	// -T: no pseudo-TTY, so the output is the probe's report alone.
+	out, err := p.compose(ctx, "--profile", svcProbe, "run", "--rm", "--no-deps", "-T", svcProbe)
 	if err != nil {
 		t.Fatalf("the probe: %v\n%s", err, out)
 	}
