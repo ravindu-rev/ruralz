@@ -167,7 +167,10 @@ func TestProbeTrustsCA(t *testing.T) {
 	})
 	t.Run("without -ca", func(t *testing.T) {
 		var stdout, stderr bytes.Buffer
-		if got := probe(t.Context(), []string{"-ready", ts.URL + "/readyz", "-timeout", "300ms", "-interval", "10ms"}, &stdout, &stderr); got != ExitOK {
+		// The report keeps the last attempt the timeout did not cut, so the
+		// timeout only has to let a first TLS handshake finish, even on a
+		// loaded CI runner, where 300 ms cut the only attempt.
+		if got := probe(t.Context(), []string{"-ready", ts.URL + "/readyz", "-timeout", "3s", "-interval", "10ms"}, &stdout, &stderr); got != ExitOK {
 			t.Fatalf("probe = %d, want %d (%s)", got, ExitOK, stderr.String())
 		}
 		var rep ProbeReport
