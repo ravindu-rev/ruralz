@@ -246,16 +246,17 @@ func (d *devRun) driveNode(what string, cond func() bool) time.Duration {
 }
 
 // waitServing waits in real time, moving neither clock, until the child
-// logs its first Revision active and a listener serving. Its start is real
-// work, and drive moves the command's clock 50 times faster than real
-// time, so driving meanwhile could run the command's ready timeout out on
-// the test clock before a slow start answered, as on a loaded CI runner.
+// logs its first Revision active and a listener serving, in the JSON or
+// the short form. Its start is real work, and drive moves the command's
+// clock 50 times faster than real time, so driving meanwhile could run the
+// command's ready timeout out on the test clock before a slow start
+// answered, as on a loaded CI runner.
 func (d *devRun) waitServing() {
 	d.t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	for {
 		s := d.inv.stderr.String()
-		if strings.Contains(s, `"msg":"revision activated"`) && strings.Contains(s, `"msg":"listener serving"`) {
+		if strings.Contains(s, "revision activated") && strings.Contains(s, "listener serving") {
 			return
 		}
 		if d.exited() || time.Now().After(deadline) {
