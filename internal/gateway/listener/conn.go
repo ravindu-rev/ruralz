@@ -9,6 +9,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,6 +46,9 @@ type Conn struct {
 	cache    filter.ConnCache
 	// requests numbers the requests the connection carried (NextRequest).
 	requests atomic.Uint32
+	// timedOut holds the error of the write that timed out, which every
+	// later Write returns.
+	timedOut atomic.Pointer[error]
 
 	// sniffing and sniffed track the h2c preface; only Read, which
 	// net/http never calls concurrently, touches them.
@@ -122,11 +126,24 @@ func (c *Conn) Read(b []byte) (int, error) {
 }
 
 // Write writes to the connection; on a proxyProtocol listener a write
-// before the header also reads it, so a refusal can surface here.
+// before the header also reads it, so a refusal can surface here. Once a
+// write has timed out, every later write fails at once with its error
+// (docs/architecture/03-data-plane.md "Bounded resources"): the stream
+// stops at an unknown point, and the close_notify that the Close of a TLS
+// connection writes after net/http's failed response write would wait
+// its own 5 s deadline on a peer that reads nothing.
 func (c *Conn) Write(b []byte) (int, error) {
+	if err := c.timedOut.Load(); err != nil {
+		return 0, *err
+	}
 	n, err := c.Conn.Write(b)
-	if err != nil && c.proxy {
-		c.checkRefused(err)
+	if err != nil {
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			c.timedOut.CompareAndSwap(nil, &err)
+		}
+		if c.proxy {
+			c.checkRefused(err)
+		}
 	}
 	return n, err
 }

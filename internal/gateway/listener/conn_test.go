@@ -7,14 +7,100 @@ import (
 	"bufio"
 	"context"
 	"crypto/tls"
+	"errors"
+	"net"
 	"net/http"
 	"net/netip"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/gateway/admission"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
+	"github.com/ravindu-rev/ruralz/internal/testkit/pki"
 )
+
+// countingConn counts the writes that reach it.
+type countingConn struct {
+	net.Conn
+	writes atomic.Int32
+}
+
+func (c *countingConn) Write(b []byte) (int, error) {
+	c.writes.Add(1)
+	return c.Conn.Write(b)
+}
+
+// TestTimedOutWriteEndsWrites: once a write on a connection timed out,
+// every later write fails at once with its error without reaching the
+// socket, so closing a TLS connection after net/http's failed response
+// write sends no close_notify, which a peer that reads nothing would hold
+// for crypto/tls's 5 s deadline (docs/architecture/03-data-plane.md
+// "Bounded resources").
+func TestTimedOutWriteEndsWrites(t *testing.T) {
+	p := newTestPKI(t)
+	leaf, err := p.ca.Issue(pki.LeafOptions{CommonName: "node", IPAddresses: ipsOf([]string{"127.0.0.1"}), Server: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := leaf.TLSCertificate()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ln.Close() }()
+	type server struct {
+		inner *countingConn
+		rec   *Conn
+		tls   *tls.Conn
+		err   error
+	}
+	accepted := make(chan server, 1)
+	go func() {
+		nc, err := ln.Accept()
+		if err != nil {
+			accepted <- server{err: err}
+			return
+		}
+		inner := &countingConn{Conn: nc}
+		rec := newConn(inner, "main", newFakeMetrics().m, 0, time.Time{}, true, false)
+		srv := tls.Server(rec, &tls.Config{Certificates: []tls.Certificate{cert}, MinVersion: tls.VersionTLS12})
+		accepted <- server{inner: inner, rec: rec, tls: srv, err: srv.HandshakeContext(t.Context())}
+	}()
+	cli, err := (&tls.Dialer{Config: &tls.Config{RootCAs: p.roots(), MinVersion: tls.VersionTLS12}}).DialContext(t.Context(), "tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = cli.Close() }()
+	s := <-accepted
+	if s.err != nil {
+		t.Fatal(s.err)
+	}
+	// A deadline in the past times the next write out at once; the client
+	// reads nothing from here on.
+	if err := s.tls.SetWriteDeadline(time.Unix(1, 0)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.tls.Write([]byte("response")); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("write past its deadline = %v, want a timeout", err)
+	}
+	writes := s.inner.writes.Load()
+	if err := s.rec.SetWriteDeadline(time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.rec.Write([]byte("more")); !errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("write after a timed-out write, deadline lifted = %v, want its timeout", err)
+	}
+	_ = s.tls.Close()
+	if got := s.inner.writes.Load() - writes; got != 0 {
+		t.Errorf("%d write(s) reached the socket after the timed-out one, want none: Close wrote close_notify", got)
+	}
+}
 
 // TestCleartextConnectionMetrics checks the http listener's connection
 // metrics: an HTTP/1.1 connection counts accepted http1, an h2c one
