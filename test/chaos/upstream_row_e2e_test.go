@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
@@ -142,12 +143,17 @@ func TestUpstreamRow(t *testing.T) {
 	if !lastSuspect.IsZero() {
 		skipped = arrivals.between(lastSuspect.Add(every), bStart.Add(PerTryTimeout-every))
 	}
+	// The attempts on the slowed Endpoint end at perTryTimeout as attempt
+	// timeouts, RZ-UP-003; a retry within the budget may still answer the
+	// client, so they show in ruralz_upstream_attempts_total rather than
+	// in the responses, which carry RZ-UP-003 only past the budget.
+	attemptTimeouts := r.SumIncrease(catalog.UpstreamAttemptsTotal, promtext.L("upstream", UpstreamName, "error", "timeout"), bStart, b.End)
 	timeouts := CodesIn(st, bStart, b.End, "RZ-UP-003")
 	stB := PhaseStats(st, bStart, b.End)
 	r.Add(
 		Check("one slowed: Endpoint suspect after the slowdown, seconds (sampled every 100 ms)", Functional, suspect.Seconds(), LE, (StallTimeout+every).Seconds()),
 		Check("one slowed: new attempts on the suspect Endpoint", Functional, float64(skipped), EQ, 0),
-		Check("one slowed: attempts ending with RZ-UP-003", Functional, float64(timeouts), GT, 0),
+		Check("one slowed: attempts ending with RZ-UP-003", Functional, attemptTimeouts, GT, 0),
 		Check("one slowed: failures other than RZ-UP-003", Functional, float64(stB.Failed-timeouts), EQ, 0),
 		Check("one slowed: ejections on the Node with the fewest", Functional, perNode("ruralz_upstream_ejections_total", up, bStart, b.End), GE, 1),
 	)
