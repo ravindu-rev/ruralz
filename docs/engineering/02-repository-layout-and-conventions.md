@@ -78,7 +78,7 @@ github.com/ravindu-rev/ruralz
 │   ├── buildinfo/               version, commit and flavor set by -ldflags -X; floor guard file
 │   ├── console/                 embed package; dist/ holds a committed placeholder
 │   ├── gen/proto/               generated protobuf Go code (committed)
-│   ├── testkit/                 test support: binaries, processes, PKI, fault proxy, mocks, load
+│   ├── testkit/                 test support: binaries, processes, PKI, fault proxy, mocks, load, allocations
 │   └── tool/                    CI programs (Package layers); never linked into a binary
 ├── pkg/
 │   └── config/v1alpha1/         public Go types of the ten kinds; schema source
@@ -155,7 +155,7 @@ L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{d
       ulid    jsonval    httpfield    sfv    routematch    netaddr    pkg/config/v1alpha1    api/schema
 test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/handlertest
       statestore/statestoretest{,/redisserver,/respproxy}
-      testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus}
+      testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus,allocs}
       testkit/{mockup,mockidp,otlpsink,l4lb,loadgen,topology}
       test/{conformance/config,conformance/protocol,property,e2e,chaos,chaos/gameday,compose,t5,quickstart}
       test/integration/{cel,telemetry,security,statestore}    test/bench/{harness,scenarios,gen,functional,labhost}
