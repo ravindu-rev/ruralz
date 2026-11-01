@@ -313,8 +313,9 @@ func (c *Child) stop(ctx context.Context) error {
 }
 
 // lineWatch passes a child's output on to dst and closes matched at the
-// first line matching re; safe for concurrent use by the child's two
-// output streams.
+// first line matching re, once dst holds that line, so whoever waits for
+// matched finds the line passed on; safe for concurrent use by the child's
+// two output streams.
 type lineWatch struct {
 	dst     io.Writer
 	re      *regexp.Regexp
@@ -328,6 +329,7 @@ type lineWatch struct {
 func (w *lineWatch) Write(b []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	_, _ = w.dst.Write(b)
 	if w.re != nil && !w.seen {
 		for _, c := range b {
 			if c != '\n' {
@@ -345,7 +347,6 @@ func (w *lineWatch) Write(b []byte) (int, error) {
 			w.line = w.line[:0]
 		}
 	}
-	_, _ = w.dst.Write(b)
 	return len(b), nil
 }
 

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -87,6 +88,42 @@ func TestChildReadyLine(t *testing.T) {
 	cfg.ReadyLine = "("
 	if _, err := StartChild(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "ready line") {
 		t.Errorf("StartChild with a bad ready line = %v", err)
+	}
+}
+
+// writerFunc is an io.Writer of a function.
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(b []byte) (int, error) { return f(b) }
+
+// TestLineWatchPassesTheReadyLineOnFirst: matched closes only once the
+// output holding the ready line reached dst, so StartChild returns with
+// the child's line passed on.
+func TestLineWatchPassesTheReadyLineOnFirst(t *testing.T) {
+	w := &lineWatch{re: regexp.MustCompile(`^ready`), matched: make(chan struct{})}
+	var got strings.Builder
+	w.dst = writerFunc(func(b []byte) (int, error) {
+		select {
+		case <-w.matched:
+			if !strings.Contains(got.String(), "ready on :80\n") {
+				t.Errorf("matched closed before the ready line reached dst, which holds %q and gets %q", got.String(), b)
+			}
+		default:
+		}
+		return got.Write(b)
+	})
+	for _, chunk := range []string{"starting\nrea", "dy on :80\n", "serving\n"} {
+		if n, err := w.Write([]byte(chunk)); err != nil || n != len(chunk) {
+			t.Fatalf("Write(%q) = %d, %v", chunk, n, err)
+		}
+	}
+	select {
+	case <-w.matched:
+	default:
+		t.Fatal("matched still open after the ready line")
+	}
+	if want := "starting\nready on :80\nserving\n"; got.String() != want {
+		t.Errorf("dst holds %q, want %q", got.String(), want)
 	}
 }
 
