@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
 	"github.com/ravindu-rev/ruralz/internal/testkit/l4lb"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 )
 
 var t0 = time.Unix(1_000_000, 0)
@@ -608,6 +610,31 @@ func TestPlanLimits(t *testing.T) {
 	}
 	if got := len(p.Streams()); got != 4 {
 		t.Errorf("%d streams", got)
+	}
+}
+
+// TestReasonClearedAtDatesTheAnswer: a reason a sample shows cleared is
+// dated by the sample's answer, by when the Node had rendered it cleared,
+// not by the scrape's start, when the reason may still have held.
+func TestReasonClearedAtDatesTheAnswer(t *testing.T) {
+	s := &Sampler{keep: DefaultKeep(), ids: map[string]int{}, samples: map[string][]Sample{}}
+	expo := func(v int) promtext.Set {
+		text := "# TYPE " + DegradedMetric + " gauge\n" + DegradedMetric + `{reason="` + BreakerReason + `"} ` + strconv.Itoa(v) + "\n"
+		set, err := promtext.ParseBytes([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	s.record("node-1", at(0), at(0), at(4), expo(1), nil)
+	s.record("node-1", at(1000), at(1000), at(1012), expo(0), nil)
+	s.record("node-2", at(0), at(0), at(3), expo(0), nil)
+	if got, ok := s.ReasonClearedAt([]string{"node-1", "node-2"}, BreakerReason, at(0)); !ok || !got.Equal(at(1012)) {
+		t.Errorf("ReasonClearedAt = %v, %v; want the clearing sample's answer %v", got, ok, at(1012))
+	}
+	s.record("node-2", at(2000), at(2000), at(2010), expo(1), nil)
+	if _, ok := s.ReasonClearedAt([]string{"node-1", "node-2"}, BreakerReason, at(0)); ok {
+		t.Error("ReasonClearedAt reported a reason a Node's last sample still raises as cleared")
 	}
 }
 

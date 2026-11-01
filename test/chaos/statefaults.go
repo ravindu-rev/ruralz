@@ -180,9 +180,13 @@ func AdmittedAfter(st *Stream, from, to time.Time, codes ...string) int64 {
 }
 
 // ReasonClearedAt returns the real instant by which every Node of nodes
-// had cleared reason for good after real instant from: the first sample
-// of each Node after its last sample still raising it. ok is false when
-// a Node still raised it at its last sample.
+// had cleared reason for good after real instant from: when the answer
+// of each Node's first sample after its last sample still raising it had
+// arrived. A sample's state held by its answer, not by its start: a Node
+// renders its exposition after the scrape began, so the reason may clear
+// between the two, and a request sent in between can still meet the
+// state the reason marks, as a State client breaker not yet closed. ok
+// is false when a Node still raised it at its last sample.
 func (s *Sampler) ReasonClearedAt(nodes []string, reason string, from time.Time) (time.Time, bool) {
 	var at time.Time
 	for _, n := range nodes {
@@ -196,7 +200,7 @@ func (s *Sampler) ReasonClearedAt(nodes []string, reason string, from time.Time)
 				if i == len(tr)-1 {
 					return time.Time{}, false
 				}
-				cleared = tr[i+1].Real
+				cleared = tr[i+1].Done
 			}
 		}
 		if cleared.After(at) {
