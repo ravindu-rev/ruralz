@@ -74,8 +74,6 @@ type item struct {
 	node  *tree.Node
 	text  string
 	style tree.Style
-	// multi marks a quoted scalar or flow collection over several lines.
-	multi bool
 	// ps and pe are the offsets of a plain scalar's first line.
 	ps, pe int
 }
@@ -92,7 +90,9 @@ func (it item) first() tree.Pos {
 // either order. Each is followed by white space, the end of its line or,
 // in a flow collection, a flow indicator; in block context the properties
 // are on one line and the white space after them is skipped, and in a
-// flow collection the separation after them may span lines.
+// flow collection the separation after them may span lines, as it does
+// before a flow node or a flow mapping's key; a flow pair's implicit key
+// is on one line with its properties (keyColon).
 func (y *yamlParser) props(fc fctx) props {
 	var pr props
 	for {
@@ -224,17 +224,15 @@ func (y *yamlParser) readContent(fc fctx, pr props) item {
 		if fc.key {
 			y.syntax(pr.pos(it.at), msgComplexKey)
 		}
-		line := y.line
 		if c == '[' {
 			it.kind, it.node = itemSeq, y.flowSeq(fc.minIndent, pr)
 		} else {
 			it.kind, it.node = itemMap, y.flowMap(fc.minIndent, pr)
 		}
-		it.multi = y.line != line
 		y.afterNode(fc)
 	case c == '"' || c == '\'':
 		it.kind = itemQuoted
-		it.text, it.style, it.multi = y.quoted(fc.minIndent)
+		it.text, it.style = y.quoted(fc.minIndent)
 		y.afterNode(fc)
 	case c == '*':
 		if pr.any {
@@ -419,7 +417,7 @@ func (y *yamlParser) plainMore(start, end int, inFlow bool, minIndent int) (stri
 // cursor past its closing quote. Every line after its first that holds
 // content is indented at least minIndent spaces, and none is a document
 // marker (c-forbidden).
-func (y *yamlParser) quoted(minIndent int) (string, tree.Style, bool) {
+func (y *yamlParser) quoted(minIndent int) (string, tree.Style) {
 	at := y.here()
 	t := y.text
 	off := y.off
@@ -428,13 +426,11 @@ func (y *yamlParser) quoted(minIndent int) (string, tree.Style, bool) {
 		y.syntax(at, msg)
 	}
 	y.buf = value
-	multi := false
 	for i := off; ; {
 		nl := strings.IndexByte(t[i:end], '\n')
 		if nl < 0 {
 			break
 		}
-		multi = true
 		s := i + nl + 1
 		e := lineEnd(t, s)
 		line := t[s:e]
@@ -455,17 +451,21 @@ func (y *yamlParser) quoted(minIndent int) (string, tree.Style, bool) {
 		style = tree.StyleSingleQuoted
 	}
 	y.skipTo(end)
-	return string(value), style, multi
+	return string(value), style
 }
 
 // keyColon reports whether the item is an implicit key: a ':' follows it on
 // its line, after white space only, followed by white space or the end of
 // the line or, in a flow collection, by a flow indicator, or directly after
 // a quoted key there. It then checks the key and moves the cursor past the
-// ':'. An implicit key is one scalar on one line of at most 1,024
-// characters (YAML 1.2.2 section 7.4); a collection key is RZ-CFG-001. A
-// quoted key or a flow collection is JSON-like: in a flow collection a ':'
-// may follow it directly (c-s-implicit-json-key).
+// ':'. An implicit key is one scalar of at most 1,024 characters on one
+// line, from its first tag or anchor to its ':' (YAML 1.2.2 sections 6.7
+// and 7.4): in the key contexts of rules 154 and 155 the separation after a
+// property is in-line (rule 80 in rules 96, 159 and 160), so a flow pair's
+// key whose properties end an earlier line, as a flow node's may, is
+// refused at its ':', as is a key whose content spans lines; a collection
+// key is RZ-CFG-001. A quoted key or a flow collection is JSON-like: in a
+// flow collection a ':' may follow it directly (c-s-implicit-json-key).
 func (y *yamlParser) keyColon(it item, inFlow bool) (keyRead, bool) {
 	t := y.text
 	i := y.off
@@ -483,7 +483,9 @@ func (y *yamlParser) keyColon(it item, inFlow bool) (keyRead, bool) {
 	switch {
 	case it.kind == itemSeq || it.kind == itemMap:
 		y.syntax(it.props.pos(it.at), msgComplexKey)
-	case it.multi:
+	case it.first().Line != y.here().Line:
+		// The cursor is on the line of the ':', with only white space
+		// between them, so the key's first token is on an earlier line.
 		y.syntax(y.posOf(i), msgMultiLineKey)
 	case i-first > maxImplicitKey && utf8.RuneCountInString(t[first:i]) > maxImplicitKey:
 		y.syntax(it.first(), msgLongKey)
@@ -750,8 +752,8 @@ func (y *yamlParser) flowSeq(minIndent int, pr props) *tree.Node {
 
 // flowSeqEntry parses one entry of a flow sequence: a flow node, or a flow
 // pair, a single-pair mapping: an explicit "? key : value", ": value" with
-// an empty key, or an implicit key on one line followed by ':'
-// (ns-flow-seq-entry).
+// an empty key, or an implicit key on one line with its properties,
+// followed by ':' (ns-flow-seq-entry).
 func (y *yamlParser) flowSeqEntry(fc fctx) *tree.Node {
 	at := y.here()
 	c := y.cur()
