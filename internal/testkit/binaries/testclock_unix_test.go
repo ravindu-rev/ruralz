@@ -25,7 +25,9 @@ import (
 // The controllable-clock build exits 2 without its command socket, and
 // with it runs on the commanded clock from the start the harness sends
 // first: a 10 s timer fires only once the harness advances the clock past
-// it.
+// it. The test advances only once the probe wrote its build line, which
+// it writes after arming the timer: an advance before the timer is armed
+// would put the timer past it.
 func TestTestClockBuildFollowsCommands(t *testing.T) {
 	t.Setenv(EnvBinDir, "")
 	set, err := Build(t.Context(), clockFixture(t), filepath.Join(t.TempDir(), "bin"), BuildOptions{TestClock: true, Commands: []string{Ruralzd}})
@@ -85,6 +87,17 @@ func TestTestClockBuildFollowsCommands(t *testing.T) {
 	}
 	if got := ask("now"); !got.Equal(start) {
 		t.Fatalf("now = %v, want the start %v", got, start)
+	}
+	armed := time.Now().Add(30 * time.Second) // a hang guard only
+	for !strings.Contains(stdout.String(), "testclock true\n") {
+		select {
+		case err := <-waited:
+			t.Fatalf("the probe exited (%v) before arming its timer: %q", err, stdout.String())
+		case <-time.After(10 * time.Millisecond):
+		}
+		if time.Now().After(armed) {
+			t.Fatalf("the probe wrote no build line: %q", stdout.String())
+		}
 	}
 	if got := ask("advance 9s"); got.Sub(start) != 9*time.Second {
 		t.Fatalf("advance 9s moved the clock by %v", got.Sub(start))
