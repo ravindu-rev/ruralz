@@ -96,8 +96,12 @@ type Request struct {
 	// Local is the client address of the request's connection, which
 	// the L4 balancer attributes to a Node.
 	Local string
-	// Node is the Node the balancer attributes the connection to, set
-	// for every request that did not achieve; "" when unknown.
+	// Node is the Node the balancer attributes the connection to, set as
+	// the request ends, while its connection is the newest from Local, or
+	// at the target profile once its record returned; "" when unknown. A
+	// later connection from the same client address, as a stream that
+	// opens a connection per request makes, takes over the address, so
+	// attributing by Local after the request ended could name its Node.
 	Node string
 }
 
@@ -328,8 +332,8 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 	return l, nil
 }
 
-// add keeps one finished request, attributing a failed one to its Node
-// while the balancer still knows its connection.
+// add keeps one finished request, attributing it to its Node while its
+// connection is the newest the balancer knows from its client address.
 func (s *Stream) add(smp loadgen.Sample, attr attribute) {
 	s.keep(Request{
 		Seq: smp.Seq, Intended: smp.Intended, Sent: smp.Sent, Done: smp.Done,
@@ -338,12 +342,12 @@ func (s *Stream) add(smp loadgen.Sample, attr attribute) {
 }
 
 // keep keeps one finished request: its key named by its Consumer for the
-// API key streams, a failed one attributed to its Node.
+// API key streams, attributed to its Node.
 func (s *Stream) keep(r Request, attr attribute) {
 	if c, ok := s.consumer[r.Key]; ok && s.Spec.APIKeys {
 		r.Key = c
 	}
-	if s.Failed(r) && r.Local != "" && attr != nil {
+	if r.Local != "" && attr != nil {
 		r.Node = attr(s.Spec.HTTPS, r.Local)
 	}
 	s.mu.Lock()

@@ -595,6 +595,34 @@ func TestPlanLimits(t *testing.T) {
 	}
 }
 
+// TestStreamKeepAttributesEveryRequest: a stream attributes every
+// finished request to its Node as it ends, an answered one as well as a
+// failed one, before a later connection from the same client address, as
+// a stream opening a connection per request makes, takes the address
+// over.
+func TestStreamKeepAttributesEveryRequest(t *testing.T) {
+	st := &Stream{Spec: StreamSpec{Name: "closed-fresh", DisableKeepAlives: true}}
+	const local = "127.0.0.1:40000"
+	carrier := "node-1"
+	attr := func(_ bool, client string) string {
+		if client != local {
+			return ""
+		}
+		return carrier
+	}
+	st.keep(Request{Seq: 1, Outcome: loadgen.Success, Status: 200, Local: local}, attr)
+	st.keep(Request{Seq: 2, Outcome: loadgen.Reset, Local: local}, attr)
+	carrier = "node-2" // a later connection from the same address
+	st.keep(Request{Seq: 3, Outcome: loadgen.Success, Status: 200, Local: local}, attr)
+	st.keep(Request{Seq: 4, Outcome: loadgen.Success, Status: 200}, attr)
+	want := []string{"node-1", "node-1", "node-2", ""}
+	for i, q := range st.Requests() {
+		if q.Node != want[i] {
+			t.Errorf("request %d attributed to %q, want %q", q.Seq, q.Node, want[i])
+		}
+	}
+}
+
 // TestStreamAnalyses checks the code order, admissions after a code and
 // phase statistics over a stream's requests.
 func TestStreamAnalyses(t *testing.T) {
