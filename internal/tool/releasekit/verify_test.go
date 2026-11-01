@@ -293,6 +293,18 @@ func TestVerifyImage(t *testing.T) {
 			"/var/lib/ruralz is a directory of mode 0700 owned by 0:0",
 		},
 		{
+			"directory untraversable", setEntry("etc/", func(e *layerEntry) { e.Mode = 0o644 }),
+			"linux/amd64: /etc is a directory of mode 0644 owned by 0:0, want a directory of mode 0755 owned by 0:0",
+		},
+		{
+			"directory writable by the Node", setEntry("var/lib/", func(e *layerEntry) { e.UID, e.GID = imageUID, imageUID }),
+			"/var/lib is a directory of mode 0755 owned by 65532:65532, want a directory of mode 0755 owned by 0:0",
+		},
+		{
+			"directory a file", setEntry("usr/share/doc/", func(e *layerEntry) { e.Name, e.Type = "usr/share/doc", tar.TypeReg }),
+			"/usr/share/doc is a file of mode 0755 owned by 0:0, want a directory of mode 0755 owned by 0:0",
+		},
+		{
 			"data directory missing", func(s *imageSpec) {
 				s.Entries = slices.Delete(s.Entries, entryNamed(s, "var/lib/ruralz/"), entryNamed(s, "var/lib/ruralz/")+1)
 			},

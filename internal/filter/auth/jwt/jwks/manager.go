@@ -437,11 +437,10 @@ func (m *Manager) Wait(ctx context.Context, r *Round, hs []*Handle) {
 		default:
 		}
 		if t == nil {
-			d := r.deadline.Sub(m.clock.Now())
-			if d <= 0 {
+			if !m.clock.Now().Before(r.deadline) {
 				return
 			}
-			t = m.clock.NewTimer(d)
+			t = m.clock.NewTimerAt(r.deadline)
 		}
 		tc := t.C()
 		select {

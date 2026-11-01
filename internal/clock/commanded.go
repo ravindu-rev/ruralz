@@ -222,6 +222,20 @@ func (c *Commanded) AfterFunc(d time.Duration, f func()) Timer {
 	return c.arm(&commandedTimer{c: c, index: -1, fn: f}, d)
 }
 
+// NewTimerAt returns a timer whose channel receives when an advance
+// reaches t, or at once when the clock already has: the deadline holds
+// whatever advances came since the caller computed it.
+func (c *Commanded) NewTimerAt(t time.Time) Timer {
+	return c.armAt(&commandedTimer{c: c, index: -1, ch: make(chan time.Time, 1)}, func(time.Time) time.Time { return t })
+}
+
+// AfterFuncAt returns a timer that calls f when an advance reaches t, on
+// the command goroutine, or at once in a new goroutine when the clock
+// already has.
+func (c *Commanded) AfterFuncAt(t time.Time, f func()) Timer {
+	return c.armAt(&commandedTimer{c: c, index: -1, fn: f}, func(time.Time) time.Time { return t })
+}
+
 // Sleep blocks until an advance passes d or ctx is done; d <= 0 returns at
 // once (ctx.Err() when ctx is already done).
 func (c *Commanded) Sleep(ctx context.Context, d time.Duration) error {
@@ -246,20 +260,31 @@ func (c *Commanded) Pending() int {
 }
 
 // arm schedules t to fire after d; d <= 0 fires it at once without arming
-// it. t.at is written only under c.mu, and the fire time is read under it
-// too, so a Reset on one goroutine never races an advance on the command
-// goroutine.
+// it.
 func (c *Commanded) arm(t *commandedTimer, d time.Duration) *commandedTimer {
+	return c.armAt(t, func(now time.Time) time.Time { return now.Add(d) })
+}
+
+// armAt schedules t to fire at the deadline deadline returns for the
+// clock's time, read under c.mu; a deadline not after it fires t at once
+// without arming it. t.at is written only under c.mu, and the fire time is
+// read under it too, so a Reset on one goroutine never races an advance on
+// the command goroutine.
+func (c *Commanded) armAt(t *commandedTimer, deadline func(now time.Time) time.Time) *commandedTimer {
 	c.mu.Lock()
-	t.at = c.now.Add(max(d, 0))
-	at := t.at
-	if d > 0 {
+	at := deadline(c.now)
+	due := at.After(c.now)
+	if !due {
+		at = c.now
+	}
+	t.at = at
+	if due {
 		c.seq++
 		t.seq = c.seq
 		heap.Push(&c.timers, t)
 	}
 	c.mu.Unlock()
-	if d <= 0 {
+	if !due {
 		t.fire(true, at)
 	}
 	return t
@@ -390,6 +415,12 @@ func (t *commandedTimer) Stop() bool          { return t.c.remove(t) }
 func (t *commandedTimer) Reset(d time.Duration) bool {
 	active := t.c.remove(t)
 	t.c.arm(t, d)
+	return active
+}
+
+func (t *commandedTimer) ResetAt(at time.Time) bool {
+	active := t.c.remove(t)
+	t.c.armAt(t, func(time.Time) time.Time { return at })
 	return active
 }
 

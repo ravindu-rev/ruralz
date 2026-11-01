@@ -34,11 +34,14 @@ type Series struct {
 	Labels promtext.Labels
 }
 
-// Sample is one scrape of one Node: when it was taken, in real and Node
-// time, and the kept series' values; Err reports a scrape that failed, as
-// a stopped or killed Node's does.
+// Sample is one scrape of one Node: when it began, in real and Node time,
+// when its answer had arrived, in real time, and the kept series' values;
+// Err reports a scrape that failed, as a stopped or killed Node's does.
+// The Node rendered its exposition at some instant between Real and Done,
+// so a state the sample shows held by Done.
 type Sample struct {
 	Real, Node time.Time
+	Done       time.Time
 	Err        error
 	values     map[int]float64
 }
@@ -142,15 +145,15 @@ func (s *Sampler) Round(ctx context.Context) {
 			defer cancel()
 			realTime, nodeTime := s.real.Now(), s.node()
 			set, err := promtext.Scrape(sctx, s.client, t.URL, http.Header{"Authorization": {"Bearer " + t.Token}})
-			s.record(t.Name, realTime, nodeTime, set, err)
+			s.record(t.Name, realTime, nodeTime, s.real.Now(), set, err)
 		})
 	}
 	wg.Wait()
 }
 
 // record keeps one scrape.
-func (s *Sampler) record(node string, realTime, nodeTime time.Time, set promtext.Set, err error) {
-	smp := Sample{Real: realTime, Node: nodeTime, Err: err}
+func (s *Sampler) record(node string, realTime, nodeTime, done time.Time, set promtext.Set, err error) {
+	smp := Sample{Real: realTime, Node: nodeTime, Done: done, Err: err}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err == nil {
@@ -238,7 +241,10 @@ func matches(l, match promtext.Labels) bool {
 // Point is one value of a series sum over time.
 type Point struct {
 	Real, Node time.Time
-	Value      float64
+	// Done is the real instant the sample's answer had arrived, by when
+	// Value held.
+	Done  time.Time
+	Value float64
 }
 
 // Trace returns a Node's sum of name over match at every successful
@@ -247,7 +253,7 @@ func (s *Sampler) Trace(node, name string, match promtext.Labels) []Point {
 	var out []Point
 	for _, smp := range s.Samples(node) {
 		if v, ok := s.Sum(smp, name, match); ok {
-			out = append(out, Point{Real: smp.Real, Node: smp.Node, Value: v})
+			out = append(out, Point{Real: smp.Real, Node: smp.Node, Done: smp.Done, Value: v})
 		}
 	}
 	return out

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
 // DefaultWarmup is the load generator's warm-up before a run's 60 s
@@ -60,17 +61,21 @@ type StreamSpec struct {
 	DisableKeepAlives bool
 	// Rate is the stream's offered rate in requests per second.
 	Rate float64
-	// KeyHeader and Keys set a per-request key header, such as
-	// KeyHeader with loadgen.Cycle.
+	// KeyHeader and Keys set a per-request key header, such as KeyHeader
+	// with a lab.KeysList source. A source is a pure function of each
+	// request's sequence number, which the load host runs too at the
+	// target profile and from which the harness derives a returned
+	// record's key.
 	KeyHeader string
-	Keys      loadgen.KeySource
+	Keys      *lab.KeySpec
 	// APIKeys rotates the Consumers' API keys in APIKeyField, request seq
 	// carrying Consumers()[seq % 4]'s key.
 	APIKeys bool
 	// Counted are the problem codes counted as achieved, such as
 	// Decisions() on a limit Route.
 	Counted []string
-	// Prepare adjusts each request last.
+	// Prepare adjusts each request last. It runs on the harness's host
+	// only, so a target profile run, whose load runs on RH-1L, takes none.
 	Prepare func(r *http.Request, seq uint64)
 }
 
@@ -91,8 +96,12 @@ type Request struct {
 	// Local is the client address of the request's connection, which
 	// the L4 balancer attributes to a Node.
 	Local string
-	// Node is the Node the balancer attributes the connection to, set
-	// for every request that did not achieve; "" when unknown.
+	// Node is the Node the balancer attributes the connection to, set as
+	// the request ends, while its connection is the newest from Local, or
+	// at the target profile once its record returned; "" when unknown. A
+	// later connection from the same client address, as a stream that
+	// opens a connection per request makes, takes over the address, so
+	// attributing by Local after the request ended could name its Node.
 	Node string
 }
 
@@ -110,11 +119,17 @@ func (s *Stream) Failed(r Request) bool {
 	}
 }
 
-// Stream is one running load stream.
+// Stream is one running load stream: a load generator on the harness's
+// host, or at the target profile a stream of a load on the load host.
 type Stream struct {
 	Spec StreamSpec
 	gen  *loadgen.Generator
 	tgt  *loadgen.HTTPTarget
+	// remote is the stream on the load host; nil for gen.
+	remote *remoteStream
+	// keys is the stream's key source, from which a returned record's key
+	// is derived; nil without keys.
+	keys loadgen.KeySource
 
 	mu       sync.Mutex
 	requests []Request
@@ -130,15 +145,49 @@ func (s *Stream) Result() *loadgen.Result {
 	return s.result
 }
 
-// Requests returns the stream's finished requests in completion order.
+// Requests returns the stream's finished requests in completion order. A
+// stream on the load host has them only once they returned, once the
+// run's load ended: reading them before fails the test.
 func (s *Stream) Requests() []Request {
+	if s.remote != nil && !s.remote.rl.recordsReturned() {
+		s.remote.rl.s.t.Fatalf("chaos: %s's records stay on the load host until the run's load has ended: read them after its last Wait", s.Spec.Name)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]Request(nil), s.requests...)
 }
 
-// Generator returns the stream's load generator.
+// Generator returns the stream's load generator; nil on the load host.
 func (s *Stream) Generator() *loadgen.Generator { return s.gen }
+
+// progress returns the stream's progress, on the harness's clock.
+func (s *Stream) progress() loadgen.Progress {
+	if s.remote != nil {
+		return s.remote.progress()
+	}
+	return s.gen.Progress()
+}
+
+// startTime returns the intended send time of request 0.
+func (s *Stream) startTime() time.Time {
+	if s.remote != nil {
+		return s.remote.startTime()
+	}
+	return s.gen.StartTime()
+}
+
+// ended reports whether every request of the stream ended.
+func (s *Stream) ended() bool {
+	if s.remote != nil {
+		return s.remote.ended()
+	}
+	select {
+	case <-s.gen.Done():
+		return true
+	default:
+		return false
+	}
+}
 
 // Load is the load of one run: one open-loop generator per stream,
 // started together with one warm-up and measured duration.
@@ -147,6 +196,8 @@ type Load struct {
 	// settle reports a load whose streams extend their warm-up by the
 	// load generator's settle rule and run until Wait stops them.
 	settle bool
+	// remote is the load on the load host; nil on the harness's host.
+	remote *remoteLoad
 }
 
 // LoadSpec configures a run's load.
@@ -166,12 +217,65 @@ type LoadSpec struct {
 	Duration time.Duration
 }
 
+// streamDuration returns how long each stream of spec runs past its
+// warm-up: a stream that settles early still covers a timeline that
+// starts at the latest stream's warm-up end.
+func (spec LoadSpec) streamDuration() time.Duration {
+	d := spec.Duration
+	if spec.Settle != nil {
+		d += max(0, spec.Settle.Max-spec.Warmup)
+	}
+	return d
+}
+
 // attribute maps a client address to the Node the balancer that carried
 // the connection attributes it to.
 type attribute func(https bool, local string) string
 
-// startLoad starts every stream of spec against the balancer addresses.
-func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, clientTLS *tls.Config, apiKeys map[string]string, attr attribute) (*Load, error) {
+// apiKeys returns the Consumers' API keys in Consumers order and the
+// Consumer of each key.
+func apiKeys(keys map[string]string) ([]string, map[string]string, error) {
+	out := make([]string, 0, len(keys))
+	byKey := map[string]string{}
+	for _, c := range Consumers() {
+		k, ok := keys[c]
+		if !ok {
+			return nil, nil, fmt.Errorf("chaos: load: no API key for Consumer %s", c)
+		}
+		out = append(out, k)
+		byKey[k] = c
+	}
+	return out, byKey, nil
+}
+
+// streamKeys returns a stream's key header and the description and source
+// of its keys: the Consumers' API keys, its own keys, or none.
+func streamKeys(ss StreamSpec, keys []string) (string, *lab.KeySpec, loadgen.KeySource, error) {
+	switch {
+	case ss.Rate <= 0:
+		return "", nil, nil, fmt.Errorf("chaos: load: stream %s has rate %v", ss.Name, ss.Rate)
+	case ss.APIKeys && ss.KeyHeader != "":
+		return "", nil, nil, fmt.Errorf("chaos: load: stream %s sets both APIKeys and KeyHeader", ss.Name)
+	case (ss.KeyHeader == "") != (ss.Keys == nil):
+		return "", nil, nil, fmt.Errorf("chaos: load: stream %s sets a key header without keys or keys without a header", ss.Name)
+	}
+	header, spec := ss.KeyHeader, ss.Keys
+	if ss.APIKeys {
+		header, spec = APIKeyField, &lab.KeySpec{Kind: lab.KeysList, Values: keys}
+	}
+	if spec == nil {
+		return "", nil, nil, nil
+	}
+	src, err := spec.Source()
+	if err != nil {
+		return "", nil, nil, fmt.Errorf("chaos: load: stream %s: %w", ss.Name, err)
+	}
+	return header, spec, src, nil
+}
+
+// startLoad starts every stream of spec against the balancer addresses on
+// the harness's host.
+func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, clientTLS *tls.Config, apiKeyMap map[string]string, attr attribute) (*Load, error) {
 	if spec.Warmup == 0 {
 		spec.Warmup = DefaultWarmup
 	}
@@ -179,29 +283,20 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 		return nil, errors.New("chaos: load: no stream or no duration")
 	}
 	l := &Load{settle: spec.Settle != nil}
-	duration := spec.Duration
-	if spec.Settle != nil {
-		// A stream that settles early still covers a timeline that starts
-		// at the latest stream's warm-up end.
-		duration += max(0, spec.Settle.Max-spec.Warmup)
-	}
-	keys := make([]string, 0, len(apiKeys))
-	byKey := map[string]string{}
-	for _, c := range Consumers() {
-		k, ok := apiKeys[c]
-		if !ok {
-			return nil, fmt.Errorf("chaos: load: no API key for Consumer %s", c)
-		}
-		keys = append(keys, k)
-		byKey[k] = c
+	keys, byKey, err := apiKeys(apiKeyMap)
+	if err != nil {
+		return nil, err
 	}
 	for _, ss := range spec.Streams {
-		if ss.Rate <= 0 {
-			return nil, fmt.Errorf("chaos: load: stream %s has rate %v", ss.Name, ss.Rate)
+		header, _, src, err := streamKeys(ss, keys)
+		if err != nil {
+			l.close()
+			return nil, err
 		}
 		base := "http://" + httpAddr
 		if ss.HTTPS {
 			if httpsAddr == "" {
+				l.close()
 				return nil, fmt.Errorf("chaos: load: stream %s needs the https balancer", ss.Name)
 			}
 			base = "https://" + httpsAddr
@@ -212,25 +307,19 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 		hc := loadgen.HTTPConfig{
 			URL: base + ss.Path, Method: ss.Method, Body: ss.Body, Protocol: ss.Protocol, Connections: ss.Connections,
 			RoundRobin: ss.Protocol == loadgen.HTTP1, DisableKeepAlives: ss.DisableKeepAlives,
-			KeyHeader: ss.KeyHeader, Keys: ss.Keys, Prepare: ss.Prepare, TLS: clientTLS,
-		}
-		if ss.APIKeys {
-			if ss.KeyHeader != "" {
-				return nil, fmt.Errorf("chaos: load: stream %s sets both APIKeys and KeyHeader", ss.Name)
-			}
-			hc.KeyHeader, hc.Keys = APIKeyField, listKeys(keys)
+			KeyHeader: header, Keys: src, Prepare: ss.Prepare, TLS: clientTLS,
 		}
 		tgt, err := loadgen.NewHTTP(hc) //nolint:contextcheck // NewHTTP only checks the URL with a request it never sends; loadgen.Start below takes ctx
 		if err != nil {
 			l.close()
 			return nil, fmt.Errorf("chaos: load: stream %s: %w", ss.Name, err)
 		}
-		s := &Stream{Spec: ss, tgt: tgt, consumer: byKey}
+		s := &Stream{Spec: ss, tgt: tgt, keys: src, consumer: byKey}
 		l.Streams = append(l.Streams, s)
 	}
 	for _, s := range l.Streams {
 		gen, err := loadgen.Start(ctx, s.tgt, loadgen.Config{
-			Rate: s.Spec.Rate, Warmup: spec.Warmup, Settle: spec.Settle, Duration: duration,
+			Rate: s.Spec.Rate, Warmup: spec.Warmup, Settle: spec.Settle, Duration: spec.streamDuration(),
 			OnResult: func(smp loadgen.Sample) { s.add(smp, attr) },
 		})
 		if err != nil {
@@ -243,17 +332,22 @@ func startLoad(ctx context.Context, spec LoadSpec, httpAddr, httpsAddr string, c
 	return l, nil
 }
 
-// add keeps one finished request, attributing a failed one to its Node
-// while the balancer still knows its connection.
+// add keeps one finished request, attributing it to its Node while its
+// connection is the newest the balancer knows from its client address.
 func (s *Stream) add(smp loadgen.Sample, attr attribute) {
-	r := Request{
+	s.keep(Request{
 		Seq: smp.Seq, Intended: smp.Intended, Sent: smp.Sent, Done: smp.Done,
 		Outcome: smp.Outcome, Status: smp.Status, Code: smp.Code, Key: smp.Key, Local: smp.Conn.Local,
-	}
+	}, attr)
+}
+
+// keep keeps one finished request: its key named by its Consumer for the
+// API key streams, attributed to its Node.
+func (s *Stream) keep(r Request, attr attribute) {
 	if c, ok := s.consumer[r.Key]; ok && s.Spec.APIKeys {
 		r.Key = c
 	}
-	if s.Failed(r) && r.Local != "" && attr != nil {
+	if r.Local != "" && attr != nil {
 		r.Node = attr(s.Spec.HTTPS, r.Local)
 	}
 	s.mu.Lock()
@@ -261,12 +355,26 @@ func (s *Stream) add(smp loadgen.Sample, attr attribute) {
 	s.mu.Unlock()
 }
 
+// refresh reads a load host's progress of l; nothing on the harness's
+// host.
+func (l *Load) refresh() error {
+	if l.remote == nil {
+		return nil
+	}
+	return l.remote.refresh()
+}
+
 // MeasureStart returns when every stream's measured phase has begun: the
 // latest stream's warm-up end; ok is false while a stream's warm-up end
 // is undecided, as while a settling stream has not settled.
 func (l *Load) MeasureStart() (t time.Time, ok bool) {
+	_ = l.refresh() // a failed read leaves the last progress
+	return l.measureStart()
+}
+
+func (l *Load) measureStart() (t time.Time, ok bool) {
 	for _, s := range l.Streams {
-		st := s.gen.Progress().MeasureStart
+		st := s.progress().MeasureStart
 		if st.IsZero() {
 			return time.Time{}, false
 		}
@@ -280,8 +388,9 @@ func (l *Load) MeasureStart() (t time.Time, ok bool) {
 // Settled reports whether every stream's warm-up settled; a load without
 // Settle always has.
 func (l *Load) Settled() bool {
+	_ = l.refresh() // a failed read leaves the last progress
 	for _, s := range l.Streams {
-		if !s.gen.Progress().Settled {
+		if !s.progress().Settled {
 			return false
 		}
 	}
@@ -297,7 +406,7 @@ func (l *Load) Warmup() time.Duration {
 	}
 	first := t
 	for _, s := range l.Streams {
-		if st := s.gen.StartTime(); st.Before(first) {
+		if st := s.startTime(); st.Before(first) {
 			first = st
 		}
 	}
@@ -308,7 +417,10 @@ func (l *Load) Warmup() time.Duration {
 // ends, and returns MeasureStart.
 func (l *Load) WaitMeasuring(ctx context.Context) (time.Time, error) {
 	for {
-		if t, ok := l.MeasureStart(); ok {
+		if err := l.refresh(); err != nil {
+			return time.Time{}, err
+		}
+		if t, ok := l.measureStart(); ok {
 			return t, nil
 		}
 		select {
@@ -323,14 +435,15 @@ func (l *Load) WaitMeasuring(ctx context.Context) (time.Time, error) {
 // t, so a run's phases follow the load's schedule, or ctx ends.
 func (l *Load) WaitUntil(ctx context.Context, t time.Time) error {
 	for {
+		if err := l.refresh(); err != nil {
+			return err
+		}
 		done := true
 		for _, s := range l.Streams {
-			select {
-			case <-s.gen.Done():
+			if s.ended() {
 				continue
-			default:
 			}
-			if s.gen.Progress().Next.Before(t) {
+			if s.progress().Next.Before(t) {
 				done = false
 			}
 		}
@@ -347,6 +460,10 @@ func (l *Load) WaitUntil(ctx context.Context, t time.Time) error {
 
 // Stop ends every stream's schedule.
 func (l *Load) Stop() {
+	if l.remote != nil {
+		l.remote.stop()
+		return
+	}
 	for _, s := range l.Streams {
 		if s.gen != nil {
 			s.gen.Stop()
@@ -356,10 +473,18 @@ func (l *Load) Stop() {
 
 // Wait waits for every stream and keeps its result. A settling load runs
 // past its timeline (LoadSpec.Settle), so Wait stops it first; call it
-// once the run's last phase has ended.
-func (l *Load) Wait() error {
+// once the run's last phase has ended. On the load host, the records of
+// every load of the run return once the last of them ended.
+func (l *Load) Wait() error { return l.wait(true) }
+
+// wait is Wait; records false leaves a load host's records there, as a
+// failed run's cleanup does.
+func (l *Load) wait(records bool) error {
 	if l.settle {
 		l.Stop()
+	}
+	if l.remote != nil {
+		return l.remote.wait(records)
 	}
 	var errs []error
 	for _, s := range l.Streams {
@@ -385,10 +510,3 @@ func (l *Load) close() {
 		}
 	}
 }
-
-// listKeys is a fixed list of keys, used in turn.
-type listKeys []string
-
-func (l listKeys) Key(seq uint64) string { return l[seq%uint64(len(l))] }
-func (l listKeys) Cardinality() int      { return len(l) }
-func (l listKeys) Distribution() string  { return "cycle" }

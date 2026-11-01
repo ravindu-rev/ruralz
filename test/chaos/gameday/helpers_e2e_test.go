@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 	"github.com/ravindu-rev/ruralz/internal/testkit/topology"
 	"github.com/ravindu-rev/ruralz/test/chaos"
@@ -51,7 +52,7 @@ func writeConfig(n *topology.Node, b []byte) error {
 // waitUntil polls cond every topology.PollInterval of real time for at
 // most d and reports whether it held: a condition wait under a real-time
 // deadline, never a bare sleep.
-func waitUntil(ctx context.Context, d time.Duration, cond func() bool) bool {
+func waitUntil(ctx context.Context, d time.Duration, cond func() bool) bool { //nolint:unparam // each caller names its own bound, the readiness waits' 30 s today
 	deadline := time.Now().Add(d)
 	for !cond() {
 		if !time.Now().Before(deadline) {
@@ -64,6 +65,16 @@ func waitUntil(ctx context.Context, d time.Duration, cond func() bool) bool {
 		}
 	}
 	return true
+}
+
+// waitNodeTime is WaitNodeTime on the run's Nodes' clock, real time
+// without a controllable clock, polled every topology.PollInterval.
+func waitNodeTime(ctx context.Context, r *chaos.Run, d time.Duration, cond func() bool) bool {
+	node := time.Now
+	if r.TestClock {
+		node = r.Top.Now
+	}
+	return WaitNodeTime(ctx, clock.Real(), node, topology.PollInterval, d, cond)
 }
 
 // revisions returns each Node's active Revision from /readyz.

@@ -56,20 +56,32 @@ func TestScriptStats(t *testing.T) {
 	}
 }
 
-// TestFC12Criteria checks FC-12's Detection: every Node loads its scripts
-// on the promoted primary, counted from before the kill.
+// TestFC12Criteria checks FC-12's Detection: every Node loaded its scripts
+// on the promoted primary since it started, at the failover or before it,
+// as a cluster's Nodes do on their connections to a replica, and a NOSCRIPT
+// reply after the failover is followed by a load.
 func TestFC12Criteria(t *testing.T) {
-	before := ScriptStats{Loads: 2}
 	for _, tc := range []struct {
-		after ScriptStats
-		pass  bool
+		name          string
+		before, after ScriptStats
+		pass          bool
 	}{
-		{ScriptStats{Loads: 12}, true},
-		{ScriptStats{Loads: 11, NoScript: 4}, false},
+		{"loaded at the failover", ScriptStats{Loads: 2}, ScriptStats{Loads: 12}, true},
+		{"loaded before the failover", ScriptStats{Loads: 10}, ScriptStats{Loads: 10}, true},
+		{"a NOSCRIPT then a load", ScriptStats{Loads: 10}, ScriptStats{Loads: 11, NoScript: 3}, true},
+		{"a Node never loaded", ScriptStats{}, ScriptStats{Loads: 9}, false},
+		{"a NOSCRIPT and no load", ScriptStats{Loads: 10}, ScriptStats{Loads: 10, NoScript: 3}, false},
 	} {
-		cs := FC12Criteria(10, before, tc.after)
-		if len(cs) != 1 || !strings.HasPrefix(cs[0].Name, FC12+": ") || (cs[0].Verdict == VerdictPass) != tc.pass {
-			t.Errorf("FC12Criteria(10, %+v, %+v) = %+v, want pass %v", before, tc.after, cs, tc.pass)
+		cs := FC12Criteria(10, tc.before, tc.after)
+		pass := len(cs) == 2
+		for _, c := range cs {
+			if !strings.HasPrefix(c.Name, FC12+": ") {
+				t.Errorf("%s: criterion %q is not FC-12's", tc.name, c.Name)
+			}
+			pass = pass && c.Verdict == VerdictPass
+		}
+		if pass != tc.pass {
+			t.Errorf("%s: FC12Criteria(10, %+v, %+v) = %+v, want pass %v", tc.name, tc.before, tc.after, cs, tc.pass)
 		}
 	}
 }

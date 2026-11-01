@@ -4,9 +4,11 @@
 package handover
 
 import (
+	"bytes"
 	"errors"
 	"maps"
 	"net"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,8 +40,9 @@ func TestMarkers(t *testing.T) {
 
 // TestEncodeMessages checks each message's wire form: one JSON object on
 // its own line with the members of "Handover protocol", a null
-// activeDigest for a new process without an active Revision, and the
-// usage members on accepted and usage.
+// activeDigest for a new process without an active Revision, the usage
+// members on accepted and usage, and watchdogUsec on accepted only while
+// the holder runs a watchdog.
 func TestEncodeMessages(t *testing.T) {
 	u := Usage{Connections: 3, InflightUnits: 4, BufferedBytes: 5, PluginMemoryBytes: 6, RSSBytes: 7}
 	usage := `"connections":3,"inflightUnits":4,"bufferedBytes":5,"pluginMemoryBytes":6,"rssBytes":7`
@@ -61,7 +64,12 @@ func TestEncodeMessages(t *testing.T) {
 		},
 		{name: "refused", v: refusedWire{Type: TypeRefused, Reason: ReasonBusy}, want: `{"type":"refused","reason":"busy"}`},
 		{name: "reload", v: reloadWire{Type: TypeReload, Digest: digestB}, want: `{"type":"reload","digest":"` + digestB.String() + `"}`},
-		{name: "accepted", v: acceptedWire{Type: TypeAccepted, Usage: u}, want: `{"type":"accepted",` + usage + `}`},
+		{name: "accepted", v: acceptedMessage(u, 0), want: `{"type":"accepted",` + usage + `}`},
+		{
+			name: "accepted with the holder's watchdog interval",
+			v:    acceptedMessage(u, 30*time.Second),
+			want: `{"type":"accepted",` + usage + `,"watchdogUsec":30000000}`,
+		},
 		{name: "usage", v: usageWire{Type: TypeUsage, Usage: u}, want: `{"type":"usage",` + usage + `}`},
 		{name: "listening", v: bareWire{Type: TypeListening}, want: `{"type":"listening"}`},
 		{name: "released", v: bareWire{Type: TypeReleased}, want: `{"type":"released"}`},
@@ -74,6 +82,77 @@ func TestEncodeMessages(t *testing.T) {
 			}
 			if got := string(b); got != tt.want+"\n" {
 				t.Errorf("encode = %s, want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+// acceptedWatchdog reads line as a successor reads an accepted message and
+// returns the holder's watchdog interval it carries.
+func acceptedWatchdog(line string) (inbound, time.Duration, error) {
+	m, err := decode([]byte(line))
+	if err != nil {
+		return inbound{}, 0, err
+	}
+	iv, err := m.watchdog()
+	return m, iv, err
+}
+
+// TestAcceptedWatchdogRoundTrip checks that the holder's watchdog interval
+// reaches the successor through accepted unchanged, from one microsecond,
+// WATCHDOG_USEC's unit, to the largest a time.Duration holds, with the
+// usage beside it, and that a holder without a watchdog sends an accepted
+// the successor reads as none.
+func TestAcceptedWatchdogRoundTrip(t *testing.T) {
+	u := Usage{Connections: 3, InflightUnits: 4, BufferedBytes: 5, PluginMemoryBytes: 6, RSSBytes: 7}
+	for _, iv := range []time.Duration{0, time.Microsecond, 30 * time.Second, time.Duration(maxWatchdogUsec) * time.Microsecond} {
+		t.Run(iv.String(), func(t *testing.T) {
+			b, err := encode(acceptedMessage(u, iv))
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			m, got, err := acceptedWatchdog(string(bytes.TrimSuffix(b, []byte("\n"))))
+			if err != nil || m.Type != TypeAccepted || m.Usage != u || got != iv {
+				t.Errorf("accepted %s read back as type %q, usage %+v, watchdog %v, %v; want accepted, %+v, %v", b, m.Type, m.Usage, got, err, u, iv)
+			}
+		})
+	}
+}
+
+// TestDecodeAcceptedWatchdog checks how a successor reads watchdogUsec: an
+// accepted without it, as an older holder or one without a watchdog
+// sends, or with null or 0, carries no interval, so the successor runs
+// none of its own; a whole number of microseconds up to the largest a
+// time.Duration holds is the interval; a negative or larger value, or one
+// that is not a whole number, breaks the protocol.
+func TestDecodeAcceptedWatchdog(t *testing.T) {
+	largest := strconv.FormatInt(maxWatchdogUsec, 10)
+	tooLarge := strconv.FormatInt(maxWatchdogUsec+1, 10)
+	tests := []struct {
+		name    string
+		line    string
+		want    time.Duration
+		wantErr error
+	}{
+		{
+			name: "an older holder's accepted",
+			line: `{"type":"accepted","connections":3,"inflightUnits":4,"bufferedBytes":5,"pluginMemoryBytes":6,"rssBytes":7}`,
+		},
+		{name: "null", line: `{"type":"accepted","watchdogUsec":null}`},
+		{name: "zero", line: `{"type":"accepted","watchdogUsec":0}`},
+		{name: "one microsecond", line: `{"type":"accepted","watchdogUsec":1}`, want: time.Microsecond},
+		{name: "the T5 unit's 30 s", line: `{"type":"accepted","connections":3,"watchdogUsec":30000000}`, want: 30 * time.Second},
+		{name: "the largest duration", line: `{"type":"accepted","watchdogUsec":` + largest + `}`, want: time.Duration(maxWatchdogUsec) * time.Microsecond},
+		{name: "negative", line: `{"type":"accepted","watchdogUsec":-1}`, wantErr: ErrProtocol},
+		{name: "beyond a duration", line: `{"type":"accepted","watchdogUsec":` + tooLarge + `}`, wantErr: ErrProtocol},
+		{name: "a string", line: `{"type":"accepted","watchdogUsec":"30s"}`, wantErr: ErrProtocol},
+		{name: "a fraction", line: `{"type":"accepted","watchdogUsec":1.5}`, wantErr: ErrProtocol},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, got, err := acceptedWatchdog(tt.line)
+			if !errors.Is(err, tt.wantErr) || got != tt.want {
+				t.Errorf("accepted %s: watchdog %v, %v; want %v, %v", tt.line, got, err, tt.want, tt.wantErr)
 			}
 		})
 	}

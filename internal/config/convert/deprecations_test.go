@@ -13,6 +13,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/allocs"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -320,12 +321,12 @@ func TestClipBounded(t *testing.T) {
 			t.Errorf("clip(%q) = %q, want %q, valid UTF-8", s, got, want)
 		}
 	}
+	// A MemStats delta here counted the runtime's own allocations too,
+	// such as the sudogs of the mark workers the 16 MiB allocation set
+	// going, and failed at 5,736 bytes; allocs measures clip alone.
 	long := strings.Repeat("1", 16<<20)
-	var before, after runtime.MemStats
-	runtime.ReadMemStats(&before)
-	got := clip(long)
-	runtime.ReadMemStats(&after)
-	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > 4096 || got != strings.Repeat("1", maxShown)+"..." {
+	var got string
+	if alloc := allocs.Least(3, func() { got = clip(long) }); alloc > 4096 || got != strings.Repeat("1", maxShown)+"..." {
 		t.Errorf("clip of 16 MiB = %d bytes, allocating %d; want %d bytes and at most 4096", len(got), alloc, maxShown+3)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
@@ -103,7 +104,7 @@ func (h *HostChecker) Check(ctx context.Context, sc Scenario) error {
 			reasons = append(reasons, fmt.Sprintf("%s facts: %v", role, err))
 			continue
 		}
-		cpus, _ := lab.ParseCPUList(p.Hosts[role].CPUs)
+		cpus, _ := proc.ParseCPUList(p.Hosts[role].CPUs)
 		for _, why := range CheckFacts(h.prev[role], f, cpus) {
 			reasons = append(reasons, string(role)+": "+why)
 		}

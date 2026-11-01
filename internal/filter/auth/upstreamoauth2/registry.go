@@ -130,7 +130,7 @@ func (r *Registry) Run(ctx context.Context) error {
 		var timer clock.Timer
 		var fire <-chan time.Time
 		if !next.IsZero() {
-			timer = r.clock.NewTimer(next.Sub(r.clock.Now()))
+			timer = r.clock.NewTimerAt(next)
 			fire = timer.C()
 		}
 		select {

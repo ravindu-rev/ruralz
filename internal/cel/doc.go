@@ -74,11 +74,15 @@
 // limit (target). A program is reused across snapshots only under equal
 // caps.
 //
-// Both estimates are cel-go's with two corrections that make them upper
-// bounds of the runtime cost (costFacts): a unit per evaluation of a field
-// selection on a dyn value, which cel-go's estimator does not charge but
-// its runtime does, and one more entry for a split result than its
-// string's size, as n separators split into n + 1 entries.
+// Both estimates are cel-go's with three corrections that make them upper
+// bounds of the runtime cost (costFacts). Two are units cel-go's runtime
+// charges and its estimator does not: a unit per evaluation of a field
+// selection on a dyn value, and a unit per evaluation of a selection,
+// presence test or index whose operand is not an identifier, a selection,
+// an index or a conditional, such as a list or map literal, a call or a
+// comprehension, which cel-go evaluates as a relative attribute. The third
+// counts a split result at one entry more than its string's size, as n
+// separators split into n + 1 entries.
 //
 // A tracked program holding a comprehension evaluates in an execution
 // frame whose context stops it at the smaller of the request deadline and

@@ -8,7 +8,9 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"slices"
+	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/config/canonical"
 	"github.com/ravindu-rev/ruralz/internal/config/revision"
@@ -28,6 +30,10 @@ const LKGFormat = "ruralz.lkg.v1"
 // MaxMessage bounds one message: a JSON object of at most 64 KiB, then a
 // newline.
 const MaxMessage = 64 << 10
+
+// maxWatchdogUsec is the largest watchdogUsec a time.Duration holds, the
+// bound sdnotify.WatchdogInterval puts on WATCHDOG_USEC.
+const maxWatchdogUsec = math.MaxInt64 / int64(time.Microsecond)
 
 // Message types, the type member of each message.
 const (
@@ -146,11 +152,23 @@ type reloadWire struct {
 	Digest revision.Digest `json:"digest"`
 }
 
-// acceptedWire is the accepted message: the holder's usage at acceptance.
-// A member the accepted message gains goes here.
+// acceptedWire is the accepted message: the holder's usage at acceptance
+// and, while the holder runs a watchdog, its interval. A member the
+// accepted message gains goes here, optional, so a reader of either
+// release reads it (docs/engineering/04-release-versioning-and-compatibility.md
+// "Versioned surfaces": format changes are additive).
 type acceptedWire struct {
 	Type string `json:"type"`
 	Usage
+	// WatchdogUsec is the holder's watchdog interval in microseconds, as
+	// WATCHDOG_USEC gives one; absent while the holder runs no watchdog.
+	WatchdogUsec int64 `json:"watchdogUsec,omitempty"`
+}
+
+// acceptedMessage returns the accepted message of a holder with usage u
+// whose watchdog runs with the interval watchdog, 0 for none.
+func acceptedMessage(u Usage, watchdog time.Duration) acceptedWire {
+	return acceptedWire{Type: TypeAccepted, Usage: u, WatchdogUsec: watchdog.Microseconds()}
 }
 
 // usageWire is the usage message.
@@ -186,6 +204,21 @@ type inbound struct {
 	Reason       string            `json:"reason"`
 	Digest       string            `json:"digest"`
 	Usage
+	// WatchdogUsec is an accepted message's watchdogUsec: 0 when it is
+	// absent or null.
+	WatchdogUsec int64 `json:"watchdogUsec"`
+}
+
+// watchdog returns the holder's watchdog interval an accepted message
+// carries: watchdogUsec microseconds, or 0, no watchdog, when the member is
+// absent, null or 0, as WATCHDOG_USEC=0 means none. A holder that runs no
+// watchdog sends none. A negative value, or one a time.Duration cannot
+// hold, breaks the protocol.
+func (m inbound) watchdog() (time.Duration, error) {
+	if m.WatchdogUsec < 0 || m.WatchdogUsec > maxWatchdogUsec {
+		return 0, fmt.Errorf("%w: watchdogUsec %d is not a number of microseconds a duration holds", ErrProtocol, m.WatchdogUsec)
+	}
+	return time.Duration(m.WatchdogUsec) * time.Microsecond, nil
 }
 
 // encode returns v as one message line.

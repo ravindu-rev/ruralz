@@ -10,6 +10,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
+	"github.com/ravindu-rev/ruralz/internal/testkit/allocs"
 )
 
 // TestBlockScalars covers block scalar values (YAML 1.2.2 section 8.1): the
@@ -289,7 +290,7 @@ func TestBlankLinesAfterBlockScalarAreLinear(t *testing.T) {
 		src := gen(n)
 		var docs []Document
 		var diags diag.List
-		got := allocatedBy(func() { docs, diags = parseYAML(t, src) })
+		got := allocs.Bytes(func() { docs, diags = parseYAML(t, src) })
 		if len(diags) != 0 || len(docs) != 1 {
 			t.Fatal(codes(diags))
 		}
@@ -318,7 +319,7 @@ func checkLinear(t *testing.T, name string, gen func(n, m int) string) {
 		var docs []Document
 		var diags diag.List
 		var err error
-		got := allocatedBy(func() {
+		got := allocs.Bytes(func() {
 			docs, diags, err = parse(context.Background(), []byte(src), 0, "f.yaml", FormatYAML, Options{}, true)
 		})
 		if err != nil || len(diags) != 0 || len(docs) != 1 {

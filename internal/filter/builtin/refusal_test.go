@@ -20,7 +20,8 @@ import (
 // activation, under an offline code, by a Factory of the table. A config
 // rule a Factory refuses is a finding of stage F or of the type's check
 // (checks.Table()); a CEL field that does not compile is RZ-CFG-014 or
-// RZ-CFG-015, which stage J reports from the same compiler.
+// RZ-CFG-015, which stage J reports from the same compiler, and an empty
+// one RZ-CFG-005, which stage F reports.
 
 // configCase is one Policy config of one type, as JSON text.
 type configCase struct {
@@ -120,8 +121,11 @@ func refusedCases() []configCase {
 		{v1alpha1.PolicyTypeRateLimit, "requests below 1", `{"limits":[{"requests":0,"window":"1s"}]}`, codeCFG5},
 		{v1alpha1.PolicyTypeRateLimit, "when does not compile", `{"limits":[{"requests":1,"window":"1s","when":"request.method =="}]}`, codeCEL},
 		{v1alpha1.PolicyTypeRateLimit, "cost not an int", `{"limits":[{"requests":1,"window":"1s"}],"cost":"\"two\""}`, codeCEL},
+		{v1alpha1.PolicyTypeRateLimit, "empty cost", `{"limits":[{"requests":1,"window":"1s"}],"cost":""}`, codeCFG5},
 		{v1alpha1.PolicyTypeQuota, "key does not compile", `{"consumerQuota":"daily","key":"consumer.name +"}`, codeCEL},
 		{v1alpha1.PolicyTypeQuota, "cost not an int", `{"consumerQuota":"daily","cost":"request.method"}`, codeCEL},
+		{v1alpha1.PolicyTypeQuota, "empty key", `{"consumerQuota":"daily","key":""}`, codeCFG5},
+		{v1alpha1.PolicyTypeQuota, "empty cost", `{"consumerQuota":"daily","cost":""}`, codeCFG5},
 		{v1alpha1.PolicyTypeValidationJSONSchema, "unknown type", `{"schema":{"type":"nope"}}`, codeCFG5},
 		{v1alpha1.PolicyTypeValidationJSONSchema, "remote ref", `{"schema":{"$ref":"https://schemas.example/order.json"}}`, codeCFG5},
 		{v1alpha1.PolicyTypeValidationJSONSchema, "not RE2", `{"schema":{"pattern":"(?<=a)b"}}`, codeCFG5},

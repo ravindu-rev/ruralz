@@ -1,6 +1,6 @@
 # Benchmark hosts runbook
 
-This directory sets up the hosts of the benchmark harness, `test/bench/harness`, and of `chaos-scale.yml`, as [Reference hardware](../../docs/architecture/12-performance-budgets-and-benchmarking.md#reference-hardware) defines them:
+This directory sets up the hosts of the benchmark harness, `test/bench/harness`, and of `chaos-scale.yml`, as [Reference hardware](../../docs/architecture/12-performance-budgets-and-benchmarking.md#reference-hardware) defines them. The hosts are rented and this runbook run in milestone M6, Reference hardware benchmarks ([Roadmap](../../docs/roadmap/01-roadmap-and-milestones.md#m6-reference-hardware-benchmarks)); until then GitHub skips every `rh-1` job:
 
 | File | Contents |
 |---|---|
@@ -16,10 +16,10 @@ This directory sets up the hosts of the benchmark harness, `test/bench/harness`,
 
 | Host | Role in the inventory | Runs |
 |---|---|---|
-| RH-1 | `gateway` | `ruralzd` in its 4-core cpuset, the `rh-1` runner and the harness on the other cores |
-| RH-1L | `load` | `internal/testkit/loadgen`, oha and vegeta through `test/bench/labhost` |
-| RH-1U | `upstream` | The mock Upstream, the mock IdP and the OTLP sink |
-| RH-1S | `statestore` | Valkey 9 from the pinned image, and S5x's fault proxy |
+| RH-1 | `gateway` | `ruralzd` in its 4-core cpuset, `chaos-scale.yml`'s Nodes sharing it, the `rh-1` runner and the harness on the other cores |
+| RH-1L | `load` | `internal/testkit/loadgen`, oha and vegeta through `test/bench/labhost`, and `chaos-scale.yml`'s load, whose records labhost keeps until the run's load has ended |
+| RH-1U | `upstream` | The mock Upstream, the mock IdP and the OTLP sink, and `chaos-scale.yml`'s three mock Upstreams |
+| RH-1S | `statestore` | Valkey 9 from the pinned image, S5x's fault proxy, and `chaos-scale.yml`'s State Store deployments of the pinned image |
 
 Rent four bare-metal machines of the RH-1 specification on one switch, with a minimal Debian stable install, root ssh access (or a user with passwordless `sudo`) and an ed25519 ssh host key. Every host runs nothing else.
 
@@ -76,7 +76,7 @@ Each runner's job-started hook, `runner.sh admit`, runs before any step of the j
 1. The repository secret `REPO_SETTINGS_TOKEN`, the fine-grained read-only token with Administration: read that `repo-settings.yml` uses, also lets nightly's RH-1 runner status job list the runners.
 2. Set the repository variable `RH1_PROVISIONED` to `true`. Nightly's Latency job, the release soak job and `chaos-scale.yml` then run on `rh-1`, one at a time in the `rh-1` concurrency group, and the runner status job opens or updates the "RH-1 runner offline" `nightly-failure` issue whenever no online runner carries the label.
 3. Run `nightly.yml` on demand from `main`: its Latency job checks every host before each scenario and fails with an "RH-1 host check failed" annotation when a host's frequency, throttle counters or round trip are off.
-4. `chaos-scale.yml` reads the same inventory; its `target` profile stops before its first run until the chaos harness places the State Store, mocks and load on RH-1S, RH-1U and RH-1L, RH-1L returning every request's record once the load ends ([Scale profiles](../../docs/engineering/03-testing-and-quality-strategy.md#scale-profiles)).
+4. `chaos-scale.yml` reads the same inventory and places its `target` profile's runs on the four hosts: the Nodes on RH-1, the mock Upstreams on RH-1U, the State Store on RH-1S and the load on RH-1L, which returns every request's record once the run's load has ended ([Scale profiles](../../docs/engineering/03-testing-and-quality-strategy.md#scale-profiles)).
 
 Only protected branches and tags run on `rh-1`: the runner's hook admits no job of another ref or of a pull-request event, and each `rh-1` job's first step refuses them too, so the rulesets `scripts/repo-settings.sh` applies to `main`, `release-*` and `v*` tags must be in place first.
 

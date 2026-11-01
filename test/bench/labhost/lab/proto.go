@@ -34,15 +34,32 @@ const (
 	OpReset = "reset"
 	// OpWindow declares a sink fold window [Start, End) named Name.
 	OpWindow = "window"
-	// OpResult answers what the sink folded into window Name.
+	// OpResult answers what the sink folded into window Name, or each
+	// stream's result of the ended load Name (load).
 	OpResult = "result"
-	// OpRemove drops sink window Name.
+	// OpRemove drops sink window Name, or the ended load Name with its
+	// records (load).
 	OpRemove = "remove"
 	// OpMode switches a service's mode: the sink's answer to exports, Name
 	// "stall" holding every export until the next "accept", so the Node's
 	// telemetry queues fill (the constants runs' queue bounds); the fault
 	// proxy between "pass" and its configured "delay" (O2).
 	OpMode = "mode"
+	// OpSignal delivers the signal Name, such as "SIGSTOP", to a
+	// supervised child (run): the State Store faults of the chaos runs.
+	OpSignal = "signal"
+	// OpWait answers once a supervised child exited, with how (run).
+	OpWait = "wait"
+	// OpStart starts the load Name of Request.Load (load).
+	OpStart = "start"
+	// OpProgress answers the progress of the load Name (load).
+	OpProgress = "progress"
+	// OpStop ends the schedules of the load Name (load).
+	OpStop = "stop"
+	// OpRecords answers block Request.Block of the records of stream
+	// Request.Stream of the load Name, once no load of the session runs
+	// (load).
+	OpRecords = "records"
 )
 
 // Request is one command line on a service's standard input.
@@ -54,6 +71,11 @@ type Request struct {
 	// Where, on a sink window, folds only the access records whose
 	// attribute of that name is present and not empty (failure_modes).
 	Where string `json:"where,omitempty"`
+	// Load is the load OpStart starts.
+	Load *LoadStart `json:"load,omitempty"`
+	// Stream and Block select the records OpRecords answers.
+	Stream int `json:"stream,omitempty"`
+	Block  int `json:"block,omitempty"`
 }
 
 // Ready is the first line a service writes: what it serves on.
@@ -79,6 +101,16 @@ type Response struct {
 	Window  *Window      `json:"window,omitempty"`
 	Proxy   *ProxyStats  `json:"proxy,omitempty"`
 	Conns   *ConnsStats  `json:"conns,omitempty"`
+	// Exit is how a supervised child ended (OpWait).
+	Exit *ChildExit `json:"exit,omitempty"`
+	// Now is the load service's clock as it answered, from which the
+	// harness takes the load host's clock offset.
+	Now time.Time `json:"now,omitzero"`
+	// LoadState is a load's progress, with each stream's result once
+	// asked by OpResult.
+	LoadState *LoadState `json:"loadState,omitempty"`
+	// Records is one block of a stream's records (OpRecords).
+	Records *RecordBlock `json:"records,omitempty"`
 }
 
 // ProcessStats is a process's CPU over a wall-clock interval.

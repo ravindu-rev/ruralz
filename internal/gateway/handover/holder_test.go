@@ -119,12 +119,13 @@ func TestStartHolderConfig(t *testing.T) {
 		mod  func(t *testing.T, c *HolderConfig)
 		want error
 	}{
-		"no dir":         {mod: func(_ *testing.T, c *HolderConfig) { c.Dir = nil }, want: ErrConfig},
-		"no lock":        {mod: func(_ *testing.T, c *HolderConfig) { c.Lock = nil }, want: ErrConfig},
-		"no activations": {mod: func(_ *testing.T, c *HolderConfig) { c.Activations = nil }, want: ErrConfig},
-		"no drain":       {mod: func(_ *testing.T, c *HolderConfig) { c.Drain = nil }, want: ErrConfig},
-		"nil sockets":    {mod: func(_ *testing.T, c *HolderConfig) { c.Sockets = []Sockets{nil} }, want: ErrConfig},
-		"lock not taken": {mod: func(_ *testing.T, c *HolderConfig) { c.Lock = NewLock() }, want: ErrNotHeld},
+		"no dir":            {mod: func(_ *testing.T, c *HolderConfig) { c.Dir = nil }, want: ErrConfig},
+		"no lock":           {mod: func(_ *testing.T, c *HolderConfig) { c.Lock = nil }, want: ErrConfig},
+		"no activations":    {mod: func(_ *testing.T, c *HolderConfig) { c.Activations = nil }, want: ErrConfig},
+		"no drain":          {mod: func(_ *testing.T, c *HolderConfig) { c.Drain = nil }, want: ErrConfig},
+		"nil sockets":       {mod: func(_ *testing.T, c *HolderConfig) { c.Sockets = []Sockets{nil} }, want: ErrConfig},
+		"negative watchdog": {mod: func(_ *testing.T, c *HolderConfig) { c.Watchdog = -time.Second }, want: ErrConfig},
+		"lock not taken":    {mod: func(_ *testing.T, c *HolderConfig) { c.Lock = NewLock() }, want: ErrNotHeld},
 		"lock released": {mod: func(t *testing.T, c *HolderConfig) {
 			if err := c.Lock.Release(); err != nil {
 				t.Fatal(err)
@@ -200,6 +201,42 @@ func TestHolderAccepts(t *testing.T) {
 			}
 			if !r.acts.isHeld() {
 				t.Error("activations run again after accepted")
+			}
+		})
+	}
+}
+
+// TestHolderAcceptsWithItsWatchdog checks the holder's watchdog interval
+// on accepted: watchdogUsec in microseconds while the holder runs a
+// watchdog, and no watchdogUsec member while it runs none, so its
+// successor runs no watchdog unless its own environment enables one. The
+// usage reports carry no interval.
+func TestHolderAcceptsWithItsWatchdog(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		watchdog time.Duration
+		want     int64
+	}{
+		{name: "the T5 unit's 30 s", watchdog: 30 * time.Second, want: 30_000_000},
+		{name: "a 4 s interval", watchdog: 4 * time.Second, want: 4_000_000},
+		{name: "no watchdog"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newHolderRig(t, func(_ *holderRig, c *HolderConfig) { c.Watchdog = tt.watchdog })
+			w := r.dial()
+			w.send(readyFor(digestA))
+			line := w.readLine()
+			m, err := decode([]byte(line))
+			if err != nil || m.Type != TypeAccepted || m.Usage != holderUsage || m.WatchdogUsec != tt.want {
+				t.Fatalf("accepted %s: %+v, %v; want the usage and watchdogUsec %d", line, m, err, tt.want)
+			}
+			if has := strings.Contains(line, `"watchdogUsec"`); has != (tt.want != 0) {
+				t.Errorf("accepted %s has a watchdogUsec member: %t, want %t", line, has, tt.want != 0)
+			}
+			waitArmed(t, r.clk, 2) // the next report and the listening bound
+			r.clk.Advance(UsageInterval)
+			if line := w.readLine(); strings.Contains(line, `"watchdogUsec"`) {
+				t.Errorf("usage %s carries the watchdog interval, want accepted alone to", line)
 			}
 		})
 	}

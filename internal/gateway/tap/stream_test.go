@@ -170,15 +170,17 @@ var errNoDeadline = errors.New("write without a deadline")
 
 // deadlineWriter is a ResponseWriter that takes write deadlines on a fake
 // clock, as a net/http connection does on the real one. It reports each
-// write and flush on events. With stall set, a write blocks until the
-// clock passes its deadline and then fails with os.ErrDeadlineExceeded,
-// as it does for a client that stopped reading.
+// write and flush on events, and each deadline it takes on set. With
+// stall set, a write blocks until the clock passes its deadline and then
+// fails with os.ErrDeadlineExceeded, as it does for a client that stopped
+// reading.
 type deadlineWriter struct {
 	t      *testing.T
 	clk    *clocktest.Fake
 	header http.Header
 	stall  bool
 	events chan string
+	set    chan struct{}
 
 	mu        sync.Mutex
 	deadline  time.Time
@@ -187,7 +189,7 @@ type deadlineWriter struct {
 }
 
 func newDeadlineWriter(t *testing.T, clk *clocktest.Fake, stall bool) *deadlineWriter {
-	return &deadlineWriter{t: t, clk: clk, header: http.Header{}, stall: stall, events: make(chan string, 16)}
+	return &deadlineWriter{t: t, clk: clk, header: http.Header{}, stall: stall, events: make(chan string, 16), set: make(chan struct{}, 16)}
 }
 
 func (w *deadlineWriter) Header() http.Header { return w.header }
@@ -199,6 +201,10 @@ func (w *deadlineWriter) SetWriteDeadline(d time.Time) error {
 	defer w.mu.Unlock()
 	w.deadline = d
 	w.deadlines = append(w.deadlines, d)
+	select {
+	case w.set <- struct{}{}:
+	default: // a reader waits for the count, not each signal
+	}
 	return nil
 }
 
@@ -240,6 +246,25 @@ func (w *deadlineWriter) recorded() []time.Time {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	return slices.Clone(w.deadlines)
+}
+
+// recordedN returns the deadlines once w took n of them: the handler
+// clears a batch's deadline after its flush returned, so the flush event
+// comes before that clear.
+func (w *deadlineWriter) recordedN(n int) []time.Time {
+	w.t.Helper()
+	guard := time.NewTimer(10 * time.Second) // a hang guard only
+	defer guard.Stop()
+	for {
+		if got := w.recorded(); len(got) >= n {
+			return got
+		}
+		select {
+		case <-w.set:
+		case <-guard.C:
+			w.t.Fatalf("deadlines %v, want %d of them", w.recorded(), n)
+		}
+	}
 }
 
 // serveTap runs h.ServeHTTP for w until the returned cancel; returned is
@@ -286,7 +311,7 @@ func TestEveryWriteHasADeadline(t *testing.T) {
 	w.next("flush")
 	later := start.Add(time.Minute + WriteTimeout)
 	want := []time.Time{start.Add(WriteTimeout), {}, later, later, {}}
-	if got := w.recorded(); !slices.EqualFunc(got, want, time.Time.Equal) {
+	if got := w.recordedN(len(want)); !slices.EqualFunc(got, want, time.Time.Equal) {
 		t.Fatalf("deadlines %v, want %v", got, want)
 	}
 	cancel()

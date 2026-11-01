@@ -299,9 +299,10 @@ func (e *env) do(method, path string, body []byte, header ...string) response {
 	return r
 }
 
-// send sends one request to the Node's web listener with client.
+// send sends one request to the Node's web listener with client, for at
+// most requestTimeout or the client's longer Timeout.
 func (e *env) send(client *http.Client, method, path string, body []byte, header ...string) (response, error) {
-	ctx, cancel := context.WithTimeout(e.t.Context(), requestTimeout)
+	ctx, cancel := context.WithTimeout(e.t.Context(), max(requestTimeout, client.Timeout))
 	defer cancel()
 	var rd io.Reader
 	if body != nil {

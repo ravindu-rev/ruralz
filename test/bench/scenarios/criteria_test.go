@@ -6,10 +6,13 @@ package scenarios
 import (
 	"errors"
 	"io"
+	"maps"
 	"math"
+	"net/http"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -338,6 +341,61 @@ func TestPausedBody(t *testing.T) {
 		t.Errorf("body = %q, want %q", got, want)
 	}
 	b.reach() // a second reach is a no-op
+}
+
+// bodyReader is a RoundTripper that reads each request's body to its end,
+// counting the bytes, then answers 200 with no body.
+type bodyReader struct {
+	read  atomic.Int64
+	ended atomic.Int64
+}
+
+func (r *bodyReader) RoundTrip(req *http.Request) (*http.Response, error) {
+	buf := make([]byte, 100)
+	for {
+		n, err := req.Body.Read(buf)
+		r.read.Add(int64(n))
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+	_ = req.Body.Close()
+	r.ended.Add(1)
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: http.NoBody, Request: req}, nil
+}
+
+// TestFloodHoldsTheBodiesPaused covers the body flood's pause: held runs
+// once every body has sent 90% of itself, while no request has ended, and
+// the bodies go on only after it returns, so a scrape taken from held sees
+// the bytes they hold.
+func TestFloodHoldsTheBodiesPaused(t *testing.T) {
+	const n, size = 3, 1000
+	rt := &bodyReader{}
+	calls := 0
+	codes, statuses, err := flood(t.Context(), rt, "http://flood.invalid/flood", n, size, func() {
+		calls++
+		if got, want := rt.read.Load(), int64(n*size*9/10); got != want {
+			t.Errorf("bytes sent when held runs = %d, want %d, 90%% of each body", got, want)
+		}
+		if got := rt.ended.Load(); got != 0 {
+			t.Errorf("requests ended when held runs = %d, want 0", got)
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Errorf("held ran %d times, want once", calls)
+	}
+	if got := rt.read.Load(); got != n*size {
+		t.Errorf("bytes sent = %d, want %d", got, n*size)
+	}
+	if len(codes) != 0 || !maps.Equal(statuses, map[int]int{http.StatusOK: n}) {
+		t.Errorf("flood = %v, %v; want no codes and %d answers 200", codes, statuses, n)
+	}
 }
 
 // TestProblemCode covers reading a problem document's code.

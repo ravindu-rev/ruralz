@@ -23,8 +23,9 @@ import (
 // FC-20's run, the code that rejects a Revision of an apiVersion the
 // Nodes do not serve (docs/architecture/02-configuration-model.md), its
 // phases, how long each state holds under load once every Node reached
-// it, and how long the run waits for every Node to act on a published
-// source, as the Verification runbook's gate steps wait.
+// it, and how long, in Node time, the run waits for every Node to act on
+// a published source, which the Nodes poll on their clock, as the
+// Verification runbook's gate steps wait.
 const (
 	fc20Name           = "FC-20"
 	fc20Invalid        = "RZ-CFG-007"
@@ -96,7 +97,7 @@ func TestFC20BadRevision(t *testing.T) {
 	rejected := func(n string) bool {
 		return FC20Rose(r.Sampler.Trace(n, catalog.ConfigActivationsTotal, promtext.L("result", "rejected", "code", fc20Invalid)), invalidAt)
 	}
-	waitUntil(ctx, fc20Wait, func() bool {
+	waitNodeTime(ctx, r, fc20Wait, func() bool {
 		r.Sampler.Round(ctx)
 		for _, n := range nodes {
 			if !rejected(n) {

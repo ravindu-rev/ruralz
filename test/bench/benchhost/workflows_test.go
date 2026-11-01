@@ -48,16 +48,21 @@ func jobs(t *testing.T, wf string) map[string]string {
 	return out
 }
 
-// rh1Runner is the runs-on expression of a job that runs on rh-1 once
-// RH1_PROVISIONED is true.
-const rh1Runner = `runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}`
+// rh1Runner is the runs-on expression of a job that runs on rh-1.
+const rh1Runner = `runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}`
+
+// rh1Only is the job condition of a job that runs only once
+// RH1_PROVISIONED is true, alone or after the job's other conditions.
+func rh1Only() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^    if: (.* && )?vars\.RH1_PROVISIONED == 'true'$`)
+}
 
 // TestRH1Jobs: the jobs on rh-1 are nightly's Latency job, the release
 // soak job and chaos-scale.yml's job (docs/architecture/12-performance-budgets-and-benchmarking.md
 // "Reference hardware"); each runs alone in the rh-1 concurrency group,
 // which never cancels a running job, for at most 180 minutes, first
-// refuses an unprotected ref or a pull-request event, and fails with an
-// "RH-1 not provisioned" annotation until RH1_PROVISIONED is true.
+// refuses an unprotected ref or a pull-request event, and runs only once
+// RH1_PROVISIONED is true, from M6: until then GitHub skips it.
 func TestRH1Jobs(t *testing.T) {
 	want := map[string]string{"nightly.yml": "latency", "release.yml": "soak", "chaos-scale.yml": "chaos"}
 	for file, id := range want {
@@ -77,8 +82,6 @@ func TestRH1Jobs(t *testing.T) {
 				rh1Runner,
 				"    concurrency:\n      group: rh-1\n      cancel-in-progress: false\n",
 				"    timeout-minutes: 180\n",
-				"        if: vars.RH1_PROVISIONED != 'true'\n",
-				"title=RH-1 not provisioned::",
 				"PROTECTED: ${{ github.ref_protected }}",
 				`if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then`,
 			} {
@@ -86,11 +89,30 @@ func TestRH1Jobs(t *testing.T) {
 					t.Errorf("job %s lacks %q", id, s)
 				}
 			}
-			_, steps, _ := strings.Cut(block, "    steps:\n")
+			head, steps, _ := strings.Cut(block, "    steps:\n")
+			if !rh1Only().MatchString(head) {
+				t.Errorf("job %s does not run only once RH1_PROVISIONED is true:\n%s", id, head)
+			}
+			if strings.Contains(block, "RH-1 not provisioned") {
+				t.Errorf("job %s fails until RH1_PROVISIONED is true instead of being skipped", id)
+			}
 			if !strings.HasPrefix(steps, "      - name: Protected ref\n") {
 				t.Errorf("job %s does not check its ref first:\n%s", id, steps)
 			}
 		})
+	}
+}
+
+// TestReleaseBaselineWithRH1: release.yml downloads the previous release
+// for the Latency job's baseline only once RH1_PROVISIONED is true, and
+// passes the baseline artifact only when that job made it.
+func TestReleaseBaselineWithRH1(t *testing.T) {
+	all := jobs(t, workflow(t, "release.yml"))
+	if head, _, _ := strings.Cut(all["baseline"], "    steps:\n"); !rh1Only().MatchString(head) {
+		t.Errorf("the baseline job does not run only once RH1_PROVISIONED is true:\n%s", head)
+	}
+	if want := "baseline-artifact: ${{ needs.baseline.result == 'success' && 'bench-baseline' || '' }}"; !strings.Contains(all["nightly"], want) {
+		t.Errorf("the nightly call lacks %q", want)
 	}
 }
 

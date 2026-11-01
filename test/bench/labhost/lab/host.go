@@ -159,28 +159,3 @@ func statusField(status, key string) string {
 	}
 	return ""
 }
-
-// ParseCPUList parses a cpuset list such as "0-3,8,10-11".
-func ParseCPUList(s string) ([]int, bool) {
-	var out []int
-	for part := range strings.SplitSeq(strings.TrimSpace(s), ",") {
-		if part == "" {
-			continue
-		}
-		lo, hi, isRange := strings.Cut(part, "-")
-		a, err := strconv.Atoi(lo)
-		if err != nil || a < 0 {
-			return nil, false
-		}
-		b := a
-		if isRange {
-			if b, err = strconv.Atoi(hi); err != nil || b < a {
-				return nil, false
-			}
-		}
-		for c := a; c <= b; c++ {
-			out = append(out, c)
-		}
-	}
-	return out, len(out) > 0
-}

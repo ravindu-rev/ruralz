@@ -167,7 +167,7 @@ These rules come from the [style guide](_meta/style-guide.md) and the [foundatio
 
 | Convention | What it means for a reader |
 |---|---|
-| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability: `M0` Foundations, `M1` Core gateway, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region + bench suite, `M5` Enterprise hardening. `Not planned` always carries a reason. No capability is described as supported or shipped. |
+| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability: `M0` Foundations, `M1` Core gateway, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region, `M5` Enterprise hardening, `M6` Reference hardware benchmarks. `Not planned` always carries a reason. No capability is described as supported or shipped. |
 | Number tags | Every performance or scale figure carries `(target)` (a design goal to be met) or `(hypothesis)` (an estimate to be measured) on the same line, unless that line cites a measurement. No untagged figure is a measured result. |
 | Open question IDs | Unresolved points are listed in the Open questions table of the owning document, with IDs `OQ-<docslug>-<n>` (for example `OQ-data-plane-3`) and a Blocking? column. A document that cites an unresolved point refers to its ID; an answered question leaves the table and its answer moves into the text. |
 | ADR IDs | Decisions are cited as `ADR-NNNN`; an ADR is edited in place when its decision changes. |

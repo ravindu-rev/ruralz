@@ -21,6 +21,16 @@ import (
 // and RZ-STS error codes").
 const inFlightCeiling = 8192
 
+// The burst's deadlines, above the time a loaded runner takes to answer
+// its 8,448 requests once the replies pass, the Upstream's connections
+// opened as they go: under the default 15 s Route timeout and the
+// harness's 20 s client bound the burst depended on the runner's speed,
+// and the Route deadline reset the streams of the slowest requests.
+const (
+	inFlightRouteTimeout  = "60s"
+	inFlightClientTimeout = 90 * time.Second
+)
+
 // TestInFlightCeiling checks the 8,192-call ceiling: with the counting
 // proxy holding every EVALSHA reply, the calls of a burst of requests take
 // the ceiling's slots and wait, and every call past it is skipped without
@@ -34,14 +44,14 @@ func TestInFlightCeiling(t *testing.T) {
 		stateStore:   redisStore("standalone", urlRef),
 		upstream:     e.up.Addr(),
 		upstreamSpec: []string{"circuitBreaker: {maxConnections: 16384, maxPendingRequests: 16384}"},
-		docs:         []string{rateLimit("rl", 1000000, "1s", "", "closed"), route("limited", "/limited", "rl")},
+		docs:         []string{rateLimit("rl", 1000000, "1s", "", "closed"), route("limited", "/limited", "rl") + "  timeout: " + inFlightRouteTimeout + "\n"},
 	}.render(), mainURLs())
 	e.warmUp("/limited", "x-client", "hot")
 	m := e.meter("main")
 	before := e.metrics()
 	release := m.hold(queueHold)
 	defer release()
-	client := h2cClient(e)
+	client := h2cClient(e, inFlightClientTimeout)
 
 	const over = 256
 	total := inFlightCeiling + over
@@ -87,11 +97,12 @@ func TestInFlightCeiling(t *testing.T) {
 }
 
 // h2cClient returns a client speaking HTTP/2 over cleartext with prior
-// knowledge to the Node's web listener, many streams per connection.
-func h2cClient(e *env) *http.Client {
+// knowledge to the Node's web listener, many streams per connection, each
+// request bounded by timeout.
+func h2cClient(e *env, timeout time.Duration) *http.Client {
 	var p http.Protocols
 	p.SetUnencryptedHTTP2(true)
 	tr := &http.Transport{Protocols: &p}
 	e.t.Cleanup(tr.CloseIdleConnections)
-	return &http.Client{Transport: tr, Timeout: requestTimeout}
+	return &http.Client{Transport: tr, Timeout: timeout}
 }

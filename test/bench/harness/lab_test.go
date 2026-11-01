@@ -48,7 +48,7 @@ func TestOwner(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("no POSIX user IDs")
 	}
-	got, err := owner(t.Context(), Loopback(t.TempDir()).Runner(RoleStateStore))
+	got, err := Owner(t.Context(), Loopback(t.TempDir()).Runner(RoleStateStore))
 	if err != nil {
 		t.Fatal(err)
 	}

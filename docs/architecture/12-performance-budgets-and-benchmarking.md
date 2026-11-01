@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document owns every Ruralz Performance Budget: the latency, throughput, allocation, memory, startup and Hot Reload ceilings that Ruralz Gateway and Ruralz Control must meet on stated reference hardware, each tagged (target) or (hypothesis). It fixes the per-stage latency budget of the Filter Chain, the reference hardware, the benchmark scenarios and open-loop method, the CI regression gates, the profiling playbook and the reports that tie budgets to the SLOs of [Observability](10-observability.md). Each budget becomes a gate in the milestone that ships its component, from Planned (M1). Contributors, architects and operators read it before changing a hot path, sizing a Node or publishing a number.
+This document owns every Ruralz Performance Budget: the latency, throughput, allocation, memory, startup and Hot Reload ceilings that Ruralz Gateway and Ruralz Control must meet on stated reference hardware, each tagged (target) or (hypothesis). It fixes the per-stage latency budget of the Filter Chain, the reference hardware, the benchmark scenarios and open-loop method, the CI regression gates, the profiling playbook and the reports that tie budgets to the SLOs of [Observability](10-observability.md). Each budget measured off the reference hardware becomes a gate in the milestone that ships its component, from Planned (M1); the budgets measured on it gate from Planned (M6), which provisions it. Contributors, architects and operators read it before changing a hot path, sizing a Node or publishing a number.
 
 ## Scope and non-goals
 
@@ -28,7 +28,7 @@ These rules turn P10 ([Vision and positioning](../vision/01-vision-and-positioni
 | BP-4 | Budgets compose: stage p50 values sum to at most the end-to-end p50, and stage p99 values plus a runtime reserve sum to at most the end-to-end p99 | Percentiles do not add, so the sums plan a budget and the end-to-end values gate it |
 | BP-5 | Pay only for what is attached: an unsubscribed Phase costs one nil check ([System overview](01-system-overview.md#design-principles)) | Scenarios add one feature at a time |
 | BP-6 | Latency holds at a stated load, never at saturation | Every latency budget names its offered rate |
-| BP-7 | A budget gates from the milestone that ships its component; changing a value is a `perf` pull request here with benchmark evidence | Budgets move deliberately, never by drift |
+| BP-7 | A budget gates from the milestone that ships its component, or from M6 when it is measured on the [reference hardware](#reference-hardware); changing a value is a `perf` pull request here with benchmark evidence | Budgets move deliberately, never by drift |
 
 ### Seed targets
 
@@ -46,22 +46,22 @@ The binding seeds, from which the rest derives, are PB-1, PB-4, PB-5, PB-6 and P
 
 | ID | Performance Budget | Value | Measured by | SLO in [Observability](10-observability.md#slo-definitions) | Milestone |
 |---|---|---|---|---|---|
-| PB-1 | Gateway-added p99, S1 at 10,000 rps per core on RH-1 | 1 ms or less (target) | Access-log `gateway_duration`; `ruralz_http_gateway_duration_seconds` | SLO-GW-2 | Planned (M1) |
-| PB-2 | Gateway-added p99, S2 at half saturation (SM-4) | 1 ms or less (target) | Same | SLO-GW-2 | Planned (M1) |
-| PB-3 | Gateway-added p50, S2 at half saturation (SM-5) | 150 µs or less (target) | Same | SLO-GW-3 | Planned (M1) |
-| PB-4 | S1 saturation throughput on 4 vCPU | 50,000 rps or more (target) | Rate ladder | None | Planned (M1) |
+| PB-1 | Gateway-added p99, S1 at 10,000 rps per core on RH-1 | 1 ms or less (target) | Access-log `gateway_duration`; `ruralz_http_gateway_duration_seconds` | SLO-GW-2 | Planned (M6) |
+| PB-2 | Gateway-added p99, S2 at half saturation (SM-4) | 1 ms or less (target) | Same | SLO-GW-2 | Planned (M6) |
+| PB-3 | Gateway-added p50, S2 at half saturation (SM-5) | 150 µs or less (target) | Same | SLO-GW-3 | Planned (M6) |
+| PB-4 | S1 saturation throughput on 4 vCPU | 50,000 rps or more (target) | Rate ladder | None | Planned (M6) |
 | PB-5 | Plugin Phase call overhead, pooled, p99 (SM-6) | 50 µs or less (target) | `ruralz_plugin_call_overhead_seconds` | SLO-GW-4 | Planned (M2) |
 | PB-6 | Base RSS with R Routes in the active Revision | 100 MB + 2 KB × R or less (target) | RSS after idle settle | None | Planned (M1) |
-| PB-7 | Hot Reload of 5,000 Routes on an idle Node | 500 ms or less (target) | `ruralz_config_activation_duration_seconds{stage="total"}` | Related: SLO-GW-6, compile stage only | Planned (M1) |
+| PB-7 | Hot Reload of 5,000 Routes on an idle Node | 500 ms or less (target) | `ruralz_config_activation_duration_seconds{stage="total"}` | Related: SLO-GW-6, compile stage only | Planned (M6) |
 | PB-8 | Ruralz-owned allocations per S1 request, `net/http` excluded | 30 or fewer (target) | `testing.AllocsPerRun` over one whole S1 request ([alloc/op gate](#regression-policy-and-gates)) | None | Planned (M1) |
-| PB-9 | Same-zone GCRA round trip p99, S5 | 1 ms or less (hypothesis) | `ruralz_state_call_duration_seconds{op="gcra",zone="same"}` | SLO-GW-5 | Planned (M1) |
-| PB-10 | Telemetry CPU at defaults, half saturation | 5% or less of Node CPU (target) | S2 with telemetry on and off ([Scenarios](#scenarios)), plus the measured per-request CPU of metric recording | Related: SLO-GW-7 watches drops | Planned (M1) |
-| PB-11 | Goodput in O1b at 150% offered load | 90% or more of saturation, excess only as `RZ-RT-005` (target) | Generator; `ruralz_http_node_responses_total` | Related: SLO-GW-1, which `RZ-RT-005` burns | Planned (M1) |
-| PB-12 | Gateway-added time to first token, bodies up to 16 KiB, p99, excluding State Store, embedding, provider and estimator time | 1 ms or less (target) | `ruralz_http_gateway_duration_seconds` in S6n, ending at header commit | None (OQ-performance-budgets-and-benchmarking-9) | Planned (M3) |
+| PB-9 | Same-zone GCRA round trip p99, S5 | 1 ms or less (hypothesis) | `ruralz_state_call_duration_seconds{op="gcra",zone="same"}` | SLO-GW-5 | Planned (M6) |
+| PB-10 | Telemetry CPU at defaults, half saturation | 5% or less of Node CPU (target) | S2 with telemetry on and off ([Scenarios](#scenarios)), plus the measured per-request CPU of metric recording | Related: SLO-GW-7 watches drops | Planned (M6) |
+| PB-11 | Goodput in O1b at 150% offered load | 90% or more of saturation, excess only as `RZ-RT-005` (target) | Generator; `ruralz_http_node_responses_total` | Related: SLO-GW-1, which `RZ-RT-005` burns | Planned (M6) |
+| PB-12 | Gateway-added time to first token, bodies up to 16 KiB, p99, excluding State Store, embedding, provider and estimator time | 1 ms or less (target) | `ruralz_http_gateway_duration_seconds` in S6n, ending at header commit | None (OQ-performance-budgets-and-benchmarking-9) | Planned (M6) |
 | PB-13 | Rollout convergence, 100 Nodes, `all-at-once`, p95 (SM-9) | 30 s or less (target) | `ruralz_control_rollout_duration_seconds` | SLO-CP-1 | Planned (M2) |
-| PB-14 | Cross-zone GCRA round trip p99, S5x | 2 ms or less (hypothesis) | `ruralz_state_call_duration_seconds{op="gcra",zone="cross"}` | None: SLO-GW-5 counts only `zone="same"` calls | Planned (M1) |
-| PB-15 | Gateway-added p99, S2 at 60% of saturation | 1 ms or less (target) | As PB-2 | SLO-GW-2 | Planned (M1) |
-| PB-16 | Gateway-added p99, S2 at 80% of saturation | 2 ms or less (target) | As PB-2 | Related: SLO-GW-2 burns (OQ-performance-budgets-and-benchmarking-13) | Planned (M1) |
+| PB-14 | Cross-zone GCRA round trip p99, S5x | 2 ms or less (hypothesis) | `ruralz_state_call_duration_seconds{op="gcra",zone="cross"}` | None: SLO-GW-5 counts only `zone="same"` calls | Planned (M6) |
+| PB-15 | Gateway-added p99, S2 at 60% of saturation | 1 ms or less (target) | As PB-2 | SLO-GW-2 | Planned (M6) |
+| PB-16 | Gateway-added p99, S2 at 80% of saturation | 2 ms or less (target) | As PB-2 | Related: SLO-GW-2 burns (OQ-performance-budgets-and-benchmarking-13) | Planned (M6) |
 
 PB-12 restates the [AI/LLM gateway](06-ai-llm-gateway.md#streaming) value, PB-13 [SM-9](../vision/01-vision-and-positioning.md#success-metrics), and PB-14 the [cross-zone round trip](11-scalability-and-distributed-state.md#latency-budgets) paid outside the primary's zone. PB-15 covers the four-zone [autoscaling threshold](11-scalability-and-distributed-state.md#autoscaling-signals), PB-16 zone-loss survivors, whose load burns SLO-GW-2.
 
@@ -135,20 +135,20 @@ flowchart TD
 
 ### Reference hardware
 
-Latency, throughput and memory budgets gate on RH-1, plus RH-2 from M2, except idle RSS (stage 9, shared runners, both architectures) and fan-out and accounting rows PB-13, F2 and SM-10 (Testing's dedicated general runners).
+Latency, throughput and memory budgets gate on RH-1 and RH-2 from Planned (M6), which provisions them, except idle RSS (stage 9, shared runners, both architectures), the Plugin Phase call's microbenchmark (SM-6, shared runners) and the fan-out and accounting rows PB-13, F2 and SM-10 (Testing's dedicated general runners), which gate from their components' milestones.
 
 | ID | Role | Specification | Use |
 |---|---|---|---|
 | RH-1 | Reference machine | Bare-metal linux/amd64, one socket, 16 or more physical cores at a fixed 3.0 GHz or more, turbo, deep C-states and SMT off, 64 GiB of RAM, a 25 Gbit/s NIC, Debian stable with its longterm kernel (target) | `ruralzd` in a cgroup v2 cpuset of 4 cores on the NIC's NUMA node, `GOMAXPROCS=4`; interrupts elsewhere; the runner and the harness |
 | RH-1L, RH-1U, RH-1S | Load generator; mock and Collector sink; State Store | Same specification and switch; round trip p99 of 50 µs or less (hypothesis) | RH-1L runs the load tools; RH-1U the mock Upstream, the mock IdP and the OTLP sink; RH-1S one Valkey primary in a 4-core cpuset (target) and S5x's fault proxy |
-| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Reported once provisioned; gates from M2 |
-| RH-3 | Reproduction profile | A cloud VM with 4 dedicated vCPUs for the Node (target), plus helper VMs for the load tools, the mock and sink, and the State Store | Published, never gated; one RH-3 run publishes with `0.1.0` |
+| RH-2 | linux/arm64 ([tech stack](../engineering/01-tech-stack-and-libraries.md#static-builds)) | Same rules | Gates from Planned (M6) |
+| RH-3 | Reproduction profile | A cloud VM with 4 dedicated vCPUs for the Node (target), plus helper VMs for the load tools, the mock and sink, and the State Store | Published, never gated; one RH-3 run publishes with the release that exits M6, Planned (M6) |
 
-RH-1 is rented bare metal meeting this specification; Revington-owned hardware stays the long-term home. `deploy/benchhost` holds provider-agnostic, idempotent setup scripts that run over SSH on each host, one inventory file per profile (RH-1, RH-3 and loopback) and a runbook; the owner rents the machines, registers the runner and sets the repository variable `RH1_PROVISIONED` to `true`. The Latency job, the release soak job and the [weekly `chaos-scale.yml`](../engineering/03-testing-and-quality-strategy.md#chaos-testing) run on `rh-1`, serialized through the `rh-1` concurrency group, once `RH1_PROVISIONED` is `true`; until then each fails with an "RH-1 not provisioned" annotation and no RH-1 budget is measured.
+RH-1 is rented bare metal meeting this specification, provisioned in M6 with RH-2 and RH-3; Revington-owned hardware stays the long-term home. `deploy/benchhost` holds provider-agnostic, idempotent setup scripts that run over SSH on each host, one inventory file per profile (RH-1, RH-3 and loopback) and a runbook; in M6 the owner rents the machines, registers the runner and sets the repository variable `RH1_PROVISIONED` to `true`. The Latency job, the release soak job and the [weekly `chaos-scale.yml`](../engineering/03-testing-and-quality-strategy.md#chaos-testing) run on `rh-1`, serialized through the `rh-1` concurrency group, once `RH1_PROVISIONED` is `true`; until then GitHub skips each of them, the release gates read none of their results, and no RH-1 budget is measured.
 
 The `rh-1` runner is an ephemeral just-in-time runner on RH-1, outside `ruralzd`'s cpuset: a service on RH-1 holds a GitHub App's key, registers one runner at repository level through the App, runs it as the harness's user from a fresh copy of root's runner install until it has taken one job, deletes the copy, then registers the next. If the repository moves to an organization, the runner joins an organization runner group limited to this repository. It runs only the jobs of `nightly.yml`, `chaos-scale.yml` and `release.yml`, which calls the other two, on protected branches and tags, scheduled, dispatched or pushed, never pull-request code. Every workflow of the repository can target a repository-level runner, so the runner's job-started hook checks, before any step of the job it took, the job's repository, workflow, ref, ref protection and event, which GitHub sets and no workflow can, and kills the runner on any other job: a failed hook alone would still run the job's `if: always()` steps. Every `rh-1` job's first step also refuses an unprotected ref and a pull-request event, and fork workflows of every outside contributor need approval ([Repository layout](../engineering/02-repository-layout-and-conventions.md)). The App key never leaves RH-1, and neither its tokens nor the runner's configuration appear on a command line.
 
-The harness, `test/bench/harness`, runs on RH-1 and drives the other hosts over SSH, as a dedicated user whose key `deploy/benchhost` provisions. For each run it builds the test-support helper `test/bench/labhost`, which serves the mock Upstream, the mock IdP and the OTLP sink on RH-1U, runs `internal/testkit/loadgen`, oha and vegeta on RH-1L and the fault proxy on RH-1S, and supervises Valkey there; it copies the helper and the load tools to their hosts and starts each in a `systemd-run` scope on its cpuset. Every helper service writes one ready line, answers one JSON request per line on its standard input and stops when that input ends, so a dropped SSH session stops it too; the load generator reads one run's spec and writes its result, with the histograms, the 10 s warm-up windows and the interval log built on RH-1L from the per-request lines, so a run's raw samples never cross the network. A profile inventory names each host's address, cpusets and working directory, the fixed secret root and TLS directory, the services' fixed addresses that the profile's overlay names, and whether scopes and host checks apply; the loopback profile runs the same services as child processes on one host, without scopes or host checks. Benchmark runs use the release build of `ruralzd` and real time by design, never the test-only build whose clock a correctness suite controls ([Hermetic rule scope](../engineering/03-testing-and-quality-strategy.md#hermetic-rule-scope)). `chaos-scale.yml` drives the same hosts the same way: its Nodes run on RH-1, each with `GOMAXPROCS=1` in one cpuset they share, and RH-1S holds a Valkey 9 primary with its replica and sentinel, or three primaries with one replica each for CE-5's `cluster` run ([Scale profiles](../engineering/03-testing-and-quality-strategy.md#scale-profiles)).
+The harness, `test/bench/harness`, runs on RH-1 and drives the other hosts over SSH, as a dedicated user whose key `deploy/benchhost` provisions. For each run it builds the test-support helper `test/bench/labhost`, which serves the mock Upstream, the mock IdP and the OTLP sink on RH-1U, runs `internal/testkit/loadgen`, oha and vegeta on RH-1L and the fault proxy on RH-1S, and supervises Valkey there; it copies the helper and the load tools to their hosts and starts each in a `systemd-run` scope on its cpuset. Every helper service writes one ready line, answers one JSON request per line on its standard input and stops when that input ends, so a dropped SSH session stops it too; a process it supervises, such as Valkey, is ready once it wrote its own readiness line and its port accepts connections, and takes signals on request, through `docker kill` when it runs in a container, which a stop also ends when it is frozen; the load generator reads one run's spec and writes its result, with the histograms, the 10 s warm-up windows and the interval log built on RH-1L from the per-request lines, so a run's raw samples never cross the network. A profile inventory names each host's address, cpusets and working directory, the fixed secret root and TLS directory, the services' fixed addresses that the profile's overlay names, and whether scopes and host checks apply; the loopback profile runs the same services as child processes on one host, without scopes or host checks. Benchmark runs use the release build of `ruralzd` and real time by design, never the test-only build whose clock a correctness suite controls ([Hermetic rule scope](../engineering/03-testing-and-quality-strategy.md#hermetic-rule-scope)). `chaos-scale.yml` drives the same hosts the same way: its Nodes run on RH-1, each with `GOMAXPROCS=1` in one cpuset they share, its mock Upstreams on RH-1U, RH-1S holds a Valkey 9 primary with its replica and sentinel, or three primaries with one replica each for CE-5's `cluster` run, and its load runs on RH-1L, whose helper keeps every request's record until the run's load has ended, then returns them all to the harness ([Scale profiles](../engineering/03-testing-and-quality-strategy.md#scale-profiles)).
 
 Every host runs one settings baseline, which `deploy/benchhost` applies and each record names; changing a value is a `perf` pull request here:
 
@@ -177,14 +177,14 @@ Saturation is the highest open-loop step whose achieved rate stays within 0.5% o
 
 | Scenario | Saturation on 4 vCPU | Per vCPU | Latency point | Milestone |
 |---|---|---|---|---|
-| S1 plain proxying | 50,000 rps or more (target), PB-4 | 12,500 rps or more (target) | PB-1 at 40,000 rps (target) | Planned (M1) |
-| S2 reference scenario | 32,000 rps or more (target) | 8,000 rps or more (target) | PB-2, PB-3 at 16,000; PB-15 at 19,200; PB-16 at 25,600 rps (target) | Planned (M1) |
-| S3 HTTP/2 over TLS 1.3 | 28,000 rps or more (target) | 7,000 rps or more (target) | 1 ms p99 at half saturation (target) | Planned (M1); HTTP/3 variant Planned (M3) |
-| S4 one header-only Plugin | 36,000 rps or more (target) | 9,000 rps or more (target) | PB-5 at half saturation (target) | Planned (M2) |
-| S5 GCRA in a `redis` State Store | 40,000 rps or more (target) | 10,000 rps or more (target) | PB-9 at half saturation (hypothesis) | Planned (M1) |
-| S6 AI streaming | 1,000 streams at 100 chunks per second on 1.2 vCPU or less (target) | Reported | PB-12 in S6n (target) | Planned (M3) |
-| S7 gRPC unary (`connectrpc.com/connect`) | 30,000 rps or more (target) | 7,500 rps or more (target) | 1 ms p99 at half saturation (target) | Planned (M3) |
-| S8 event ingress | Reported | Reported | Set with the event protocols | Planned (M4) |
+| S1 plain proxying | 50,000 rps or more (target), PB-4 | 12,500 rps or more (target) | PB-1 at 40,000 rps (target) | Planned (M6) |
+| S2 reference scenario | 32,000 rps or more (target) | 8,000 rps or more (target) | PB-2, PB-3 at 16,000; PB-15 at 19,200; PB-16 at 25,600 rps (target) | Planned (M6) |
+| S3 HTTP/2 over TLS 1.3 | 28,000 rps or more (target) | 7,000 rps or more (target) | 1 ms p99 at half saturation (target) | Planned (M6) |
+| S4 one header-only Plugin | 36,000 rps or more (target) | 9,000 rps or more (target) | PB-5 at half saturation (target) | Planned (M6) |
+| S5 GCRA in a `redis` State Store | 40,000 rps or more (target) | 10,000 rps or more (target) | PB-9 at half saturation (hypothesis) | Planned (M6) |
+| S6 AI streaming | 1,000 streams at 100 chunks per second on 1.2 vCPU or less (target) | Reported | PB-12 in S6n (target) | Planned (M6) |
+| S7 gRPC unary (`connectrpc.com/connect`) | 30,000 rps or more (target) | 7,500 rps or more (target) | 1 ms p99 at half saturation (target) | Planned (M6) |
+| S8 event ingress | Reported | Reported | Set with the event protocols | Planned (M6) |
 
 ```text
 S4 per 10,000 rps: 0.8 vCPU S1 work + 0.2 Phase call overhead + 0.1 guest logic = 1.1 vCPU (target)
@@ -502,13 +502,13 @@ Every layer runs in a stage or `nightly` job of [Testing and quality strategy](.
 | Layer | Contents | Runs on | Milestone |
 |---|---|---|---|
 | Microbenchmarks | `go test -bench -benchmem` over every hot-path benchmark that `test/bench/allocgate.json` lists ([Regression policy and gates](#regression-policy-and-gates)), PB-8's `testing.AllocsPerRun` over one whole S1 request among them, and the Plugin Phase call | Shared runners, `pr-full` | Planned (M1); Plugin Phase call Planned (M2) |
-| Component benchmarks | Loader compile ladder, JWT per algorithm, token bucket shards, `RZ-RT-005` rejection, metric aggregates at 4 P and 32 P (target), metric recording per request for PB-10, typical match and key CEL expressions; tokenizer, Planned (M3). Each benchmark times every call into an HdrHistogram inside `ruralzd`'s cpuset, in five runs interleaved with its baseline. The loader's 2 s for parsing an input of up to 1 MiB (target) ([ADR-0003](../adr/0003-configuration-format.md#confirmation)) is measured by the nightly Fuzz job instead and never asserted in a plain test run, whose tests assert only its 256 MiB heap bound (target) | RH-1, `nightly` Latency job; the 1 MiB parse in the `nightly` Fuzz job | Planned (M1) |
-| Scenarios | S1 to S8, S5x, S6n, O1, O2, C1, C2, R1, G1, constants tests | RH-1 hosts, Latency job: S1 and S2 nightly, the rest in the slot rotation | Planned (M1) to Planned (M4) |
+| Component benchmarks | Loader compile ladder, JWT per algorithm, token bucket shards, `RZ-RT-005` rejection, metric aggregates at 4 P and 32 P (target), metric recording per request for PB-10, typical match and key CEL expressions; tokenizer, Planned (M3). Each benchmark times every call into an HdrHistogram inside `ruralzd`'s cpuset, in five runs interleaved with its baseline. The loader's 2 s for parsing an input of up to 1 MiB (target) ([ADR-0003](../adr/0003-configuration-format.md#confirmation)) is measured by the nightly Fuzz job instead and never asserted in a plain test run, whose tests assert only its 256 MiB heap bound (target) | RH-1, `nightly` Latency job; the 1 MiB parse in the `nightly` Fuzz job | Planned (M6); the 1 MiB parse Planned (M1) |
+| Scenarios | S1 to S8, S5x, S6n, O1, O2, C1, C2, R1, G1, constants tests | RH-1 hosts, Latency job: S1 and S2 nightly, the rest in the slot rotation | Planned (M6) |
 | Scenario smoke run | Every M1 scenario on the loopback profile at 100 rps for 5 s (target): it starts, serves and writes a valid record, with no numeric criteria, within 5 minutes in all (target) | Shared runners, `pr-full` stage 8 | Planned (M1) |
 | Functional variants | Every M1 scenario and constants run at reduced scale on the loopback profile, asserting only criteria that hold on any hardware (below) | General runners, `nightly` Functional job | Planned (M1) |
 | Control-plane scale and accounting | F1 (SM-9), F2, SM-10 | Dedicated general runners, `nightly` Scale job | Planned (M2) to Planned (M3) |
-| Soak | S2 at half saturation for 2 hours (target), under the soak rule below | RH-1, `release` soak job | Planned (M1) |
-| Release trend | The M4 bench suite: S1, S2, S5 and S6 of each release against the budgets and the previous releases, on the same hosts and Bundles | RH-1, `release` | Planned (M4) |
+| Soak | S2 at half saturation for 2 hours (target), under the soak rule below | RH-1, `release` soak job | Planned (M6) |
+| Release trend | The M6 bench suite: S1, S2, S5 and S6 of each release against the budgets and the previous releases, on the same hosts and Bundles | RH-1, `release` | Planned (M6) |
 
 The Latency job runs alone on RH-1 within Testing's 3-hour limit (target):
 
@@ -538,13 +538,13 @@ Slot  Contents                                                           Minutes
 7     S6n A/B 40 (M3)                                                          40 (target)
 8     S7 A/B 40; S7 ladder 14 (M3)                                             54 (target)
 9     S3 HTTP/3 variant A/B 40 (M3)                                            40 (target)
-Rotation: every item runs every four nights at M1, five at M2, nine at M3 (target).
+Rotation: with every slot from M6, each item runs every nine nights (target).
 The 2-hour soak (target) exceeds a slot, so it runs in release only.
 ```
 
 The re-queued items and the rotation position live on the `bench-records` branch beside the records ([Publication](#publication)), so each night starts where the last one stopped. An inconclusive item re-queues once; inconclusive again, it fails and opens the issue. A night's invalid single run re-runs once while the reserve lasts.
 
-In `release`, `release.yml` calls `nightly.yml` with its `rotation-all` input. One Latency job on `rh-1` then runs S1, S2, the component benchmarks and every M1 slot without the 3-hour limit, comparing with the previous release's signed linux/amd64 archive, or against absolute budgets only for `0.1.0`; the baseline runs and the comparisons record that release's commit and toolchain, read from the binary's Go build information. A separate soak job on `rh-1` follows, serialized through the `rh-1` concurrency group. Both upload `ruralz.bench.v1` records ([Release pipeline](../engineering/04-release-versioning-and-compatibility.md#release-pipeline)).
+From M6, `release.yml` calls `nightly.yml` with its `rotation-all` input. One Latency job on `rh-1` then runs S1, S2, the component benchmarks and every slot without the 3-hour limit, comparing with the previous release's signed linux/amd64 archive, or against absolute budgets alone without a previous release; the baseline runs and the comparisons record that release's commit and toolchain, read from the binary's Go build information. A separate soak job on `rh-1` follows, serialized through the `rh-1` concurrency group. Both upload `ruralz.bench.v1` records ([Release pipeline](../engineering/04-release-versioning-and-compatibility.md#release-pipeline)).
 
 The soak samples RSS and goroutines every 10 s (target). Its RSS drift is the median of the last 10 minutes against the median of minutes 10 to 20, 2% or less of the latter (target); its goroutines are flat when those two medians differ by at most 1% or 50, whichever is larger (target). The soak also meets S2's validity rules, exports with zero telemetry drops, and meets PB-2 and PB-3 over its whole run.
 
@@ -557,9 +557,9 @@ A change fails when it regresses p99 latency by more than 5% (target) or alloc/o
 | Gate | Stage and job | Baseline | Fails when | Milestone |
 |---|---|---|---|---|
 | alloc/op | `pr-full` | Merge base, interleaved, 10 runs each (target), `GOGC=off`, fixed `GOMAXPROCS` | Median alloc/op above the base by more than 3% (target), or a cap of `test/bench/allocgate.json` exceeded | Planned (M1) |
-| Macro p99 | Latency job, each scenario on its night; `release` | The commit of the same scenario's last valid passing run, re-run interleaved; for `release`, the previous release's signed linux/amd64 archive | Median-of-runs p99, external or internal, above the baseline by more than 5% (target), with four of five pairs slower | Planned (M1) |
-| Component benchmarks | Latency job; `release` | The same benchmark's last valid passing run, interleaved, five runs each (target) | A target the documents tie to the benchmark missed: CEL expressions under 2 µs at p99, the `RZ-RT-005` rejection's 16 µs mean CPU (target); or a median p99 above the baseline by more than 5% (target), with four of five pairs slower. Other per-stage values are reported | Planned (M1) |
-| Absolute budgets and criteria | Latency job; `release` | Budget catalog, throughput targets, scenario criteria, constants table | Any missed. A budget's result is the pooled histogram of the five head runs; each run's value is reported | Planned (M1) |
+| Macro p99 | Latency job, each scenario on its night; `release` | The commit of the same scenario's last valid passing run, re-run interleaved; for `release`, the previous release's signed linux/amd64 archive | Median-of-runs p99, external or internal, above the baseline by more than 5% (target), with four of five pairs slower | Planned (M6) |
+| Component benchmarks | Latency job; `release` | The same benchmark's last valid passing run, interleaved, five runs each (target) | A target the documents tie to the benchmark missed: CEL expressions under 2 µs at p99, the `RZ-RT-005` rejection's 16 µs mean CPU (target); or a median p99 above the baseline by more than 5% (target), with four of five pairs slower. Other per-stage values are reported | Planned (M6) |
+| Absolute budgets and criteria | Latency job; `release` | Budget catalog, throughput targets, scenario criteria, constants table | Any missed. A budget's result is the pooled histogram of the five head runs; each run's value is reported | Planned (M6) |
 | Size and idle RSS | `pr-full` | Fixed values | Stripped release binary above 160 MiB, or idle `VmRSS` after the settle above 89 MiB (target) | Planned (M1) |
 | Control-plane scale and accounting | Scale job; `release` | PB-13, the F2 rows, SM-10 | Any missed | Planned (M2) to Planned (M3) |
 
@@ -636,17 +636,20 @@ Constants delegated by [Data plane](03-data-plane.md#performance-budgets), [Scal
 | Plugin instance wait | 1 ms (target) | WASM plugin system | S4 burst at twice the busy count: wait p99 within 1 ms, then `RZ-PLG` |
 | `state.read` pool ramp; long guest calls during GC | 1 to 25 instances in 250 ms; gateway-added p99 of 1 ms or less (target) | WASM plugin system | S4 variants: a load step; a long-running guest |
 
-A row whose test names a CE experiment, the rate-limit key table and the post-commit write queue, is verified by that experiment's runs in Testing's Chaos job and `chaos-scale.yml` ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)); slot 4's constants runs cover the other rows.
+A row whose test names a CE experiment, the rate-limit key table and the post-commit write queue, is verified by that experiment's runs in Testing's Chaos job and, from M6, `chaos-scale.yml` ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)); the functional variants cover the other rows at reduced scale, and slot 4's constants runs at full scale from M6.
 
 ### Milestone plan
 
+Each scenario joins the scenario smoke run and the functional variants with its milestone; every scenario runs and gates on the reference hardware from M6.
+
 | Milestone | Joins the suite |
 |---|---|
-| Planned (M1) | S1, S2, S3, S5, S5x; O1, O2, C1, C2, R1, G1; microbenchmarks; component benchmarks; the scenario smoke run and the functional variants; alloc/op, size and idle RSS gates; soak; constants tests except Plugin rows |
+| Planned (M1) | S1, S2, S3, S5, S5x; O1, O2, C1, C2, R1, G1; microbenchmarks; component benchmarks; the scenario smoke run and the functional variants; alloc/op, size and idle RSS gates; constants tests except Plugin rows |
 | Planned (M2) | S4 and PB-5 (SM-6); F1 (SM-9), F2; Plugin constants rows; `authz.opa` and `authz.cedar` costs; reload with Plugins |
-| Planned (M3) | S6, S6n (PB-12), the tokenizer benchmark, S7, the HTTP/3 variant of S3; WebSocket and SSE session memory; SM-10 |
-| Planned (M4) | The release-trend bench suite; S8; the `default.pgo` build ([tech stack](../engineering/01-tech-stack-and-libraries.md#version-floor)) |
-| Planned (M5) | The FIPS build, with P1's feature set, runs every scenario but HTTP/3 under the same budgets (target), except S3 and C2 handshakes, reported until measured since they may cost more (hypothesis) |
+| Planned (M3) | S6, S6n, the tokenizer benchmark, S7, the HTTP/3 variant of S3; WebSocket and SSE session memory; SM-10 |
+| Planned (M4) | S8 |
+| Planned (M5) | The FIPS build, with P1's feature set, in the scenario smoke run and the functional variants |
+| Planned (M6) | RH-1, RH-2 and RH-3; the Latency job with every scenario above, the component benchmarks and the macro p99, component and absolute budget gates; the soak; PB-12 in S6n; the release-trend bench suite; the `default.pgo` build ([tech stack](../engineering/01-tech-stack-and-libraries.md#version-floor)); the FIPS build under the same budgets (target) for every scenario but HTTP/3, except S3 and C2 handshakes, reported until measured since they may cost more (hypothesis) |
 
 ## Profiling playbook
 
@@ -702,7 +705,7 @@ Ruralz rules:
 
 ### Profile-guided optimization
 
-`default.pgo` for `cmd/ruralzd` is Planned (M4). Go reports 2 to 14% gains, with CPU pprof profiles driving inlining ([source](https://go.dev/doc/pgo)). The profile merges the previous release's S2 and S4 CPU profiles; the PGO build passes the same gates, and no budget assumes its gain.
+`default.pgo` for `cmd/ruralzd` is Planned (M6). Go reports 2 to 14% gains, with CPU pprof profiles driving inlining ([source](https://go.dev/doc/pgo)). The profile merges the previous release's S2 and S4 CPU profiles; the PGO build passes the same gates, and no budget assumes its gain.
 
 ## Reporting
 
@@ -722,10 +725,10 @@ Every run writes one `ruralz.bench.v1` record of kind `macro` or `component`, an
 
 ### Publication
 
-- Nightly and release runs publish their records, raw histograms and CPU profiles from this repository (P10), Planned (M1). The Latency and soak jobs upload them, and a records job on a GitHub-hosted runner after each, `nightly`'s for the Latency job and the release's soak records job for the soak, the only jobs besides a release's publish job that hold `contents: write`, commits them to the orphan `bench-records` branch, so the `rh-1` jobs keep read-only tokens. Each night's records land under `records/<date>-<run ID>/`, one directory per scenario; the branch also holds each scenario's baseline and the rotation state in `state.json`, and a 90-day workflow artifact keeps a copy. A release also attaches its records as the release asset `ruralz_<version>_bench.tar.gz`, listed in the manifest and `SHA256SUMS` ([Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts)). Release notes list every budget with its result from the summary records.
-- One RH-3 run publishes with `0.1.0`, beside RH-1's results and never gated.
+- Nightly and release runs publish their records, raw histograms and CPU profiles from this repository (P10), Planned (M6). The Latency and soak jobs upload them, and a records job on a GitHub-hosted runner after each, `nightly`'s for the Latency job and the release's soak records job for the soak, the only jobs besides a release's publish job that hold `contents: write`, commits them to the orphan `bench-records` branch, so the `rh-1` jobs keep read-only tokens. Each night's records land under `records/<date>-<run ID>/`, one directory per scenario; the branch also holds each scenario's baseline and the rotation state in `state.json`, and a 90-day workflow artifact keeps a copy. A release also attaches its records as the release asset `ruralz_<version>_bench.tar.gz`, listed in the manifest and `SHA256SUMS` ([Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts)). Release notes list every budget with its result from the summary records.
+- One RH-3 run publishes with the release that exits M6, beside RH-1's results and never gated.
 - Other documents quote Ruralz performance only as a tagged target or a published result.
-- S1 and S2 nightly and release results publish from Planned (M1) (SM-4, SM-5); from Planned (M4) the bench suite publishes S1, S2, S5 and S6 for each release beside the budgets and the previous releases' results.
+- S1 and S2 nightly and release results publish from Planned (M6) (SM-4, SM-5), and the bench suite publishes S1, S2, S5 and S6 for each release beside the budgets and the previous releases' results.
 - Every result carries its Ruralz release, commit and configuration.
 
 ### Production comparison

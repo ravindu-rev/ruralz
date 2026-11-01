@@ -29,6 +29,15 @@ const (
 	portFromDefault   = "default"
 )
 
+// Where the watchdog's interval came from
+// (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Handover
+// under systemd"): the process's environment, or a handover successor's
+// holder, whose accepted message carried it.
+const (
+	watchdogFromEnvironment = "environment"
+	watchdogFromHolder      = "holder"
+)
+
 // serve runs the Node: the Drain first, so a stop signal during the boot
 // drains at once, then the boot, then the wait for the Drain's end. It
 // returns the Drain's exit code once every goroutine the Node started
@@ -54,8 +63,10 @@ func (n *node) serve(ctx context.Context) int {
 
 // boot starts the background parts, binds the admin port, starts the
 // activation loop and, once the first boot attempt ended, sends READY=1
-// (a lock holder) or runs the handover gate (a successor). A boot that
-// cannot bind its admin port fails the Node: exit 1.
+// (a lock holder) or runs the handover gate (a successor). A process that
+// took the lock at start starts its watchdog here, a successor only once
+// it takes the lock. A boot that cannot bind its admin port fails the
+// Node: exit 1.
 func (n *node) boot(ctx context.Context) {
 	n.loops.goRun("retirer", n.retirer.Run)
 	n.loops.goRun("upstream manager", n.ups.Run)
@@ -71,11 +82,13 @@ func (n *node) boot(ctx context.Context) {
 	}
 	n.log.InfoContext(ctx, "admin port bound", "port", port, "from", from, "addresses", addrList(n.adminSock.Addrs()))
 	if !n.successor {
-		n.startHolder(ctx)
+		n.startHolder(ctx, n.interval.env.Watchdog)
 	}
 	n.loops.goRun("activation loop", n.loader.Run)
-	if r := n.startWatchdog(ctx); r != nil {
-		n.failed(r)
+	if !n.successor {
+		if r := n.startWatchdog(ctx, n.interval.env.Watchdog, watchdogFromEnvironment); r != nil {
+			n.failed(r)
+		}
 	}
 	n.loops.goFunc("boot", func(ctx context.Context) {
 		select {
@@ -140,14 +153,15 @@ func (n *node) bootAdminPort(ctx context.Context) (int, string) {
 
 // startHolder serves the handover socket of the process holding the
 // data-directory lock, so a new process on the same data directory can
-// take over. A socket that cannot serve leaves the Node serving without
-// in-place upgrades, logged at error.
-func (n *node) startHolder(ctx context.Context) {
+// take over; its accepted message carries watchdog, the interval the
+// process's watchdog runs with, 0 for none. A socket that cannot serve
+// leaves the Node serving without in-place upgrades, logged at error.
+func (n *node) startHolder(ctx context.Context, watchdog time.Duration) {
 	h, err := handover.StartHolder(n.loopCtx, handover.HolderConfig{ //nolint:contextcheck // the holder serves until shutdown ends the loops' context, not this call's.
 		Dir: n.dir, Lock: n.lock, Activations: n.loader, Drain: n.drainer,
 		Sockets: []handover.Sockets{n.set, n.adminSock}, Admin: n.adminSrv,
-		Meter: handover.Meter{Conns: n.conns, Units: n.units, Budget: n.budget},
-		Clock: n.clk, Logger: n.rt.Logger(componentHandover),
+		Meter:    handover.Meter{Conns: n.conns, Units: n.units, Budget: n.budget},
+		Watchdog: watchdog, Clock: n.clk, Logger: n.rt.Logger(componentHandover),
 	})
 	if err != nil {
 		n.log.ErrorContext(ctx, "handover socket not served: in-place upgrades are off", catalog.KeyError, err.Error())
@@ -159,9 +173,10 @@ func (n *node) startHolder(ctx context.Context) {
 }
 
 // handover runs a successor's handover gate once its boot ended: taking
-// the lock makes it the holder, which watches the source and serves the
-// handover socket in its turn; a refused or lost handover fails the Node,
-// exit 1; a Drain that started first decides the exit.
+// the lock makes it the holder, which starts its watchdog, watches the
+// source and serves the handover socket in its turn; a refused or lost
+// handover fails the Node, exit 1; a Drain that started first decides the
+// exit.
 func (n *node) handover(ctx context.Context) {
 	rec, err := nodedir.NewHolder(n.nodeID, n.version)
 	if err != nil {
@@ -185,7 +200,13 @@ func (n *node) handover(ctx context.Context) {
 	switch out {
 	case handover.OutcomeHolder:
 		n.loader.TookLock()
-		n.startHolder(ctx)
+		// Run returns once MAINPID=, READY=1 and STATUS= were sent, so the
+		// watchdog's first ping follows them.
+		watchdog, from := successorWatchdog(n.interval.env.Watchdog, succ.HolderWatchdog())
+		if r := n.startWatchdog(ctx, watchdog, from); r != nil {
+			n.failed(r)
+		}
+		n.startHolder(ctx, watchdog)
 		if err != nil {
 			n.failed(err)
 		}
@@ -196,11 +217,26 @@ func (n *node) handover(ctx context.Context) {
 	}
 }
 
-// startWatchdog starts the watchdog when the service manager asks for one:
-// WATCHDOG=1 every half interval while the admin server, the retirer and
-// the activation loop each answered its probe within the interval.
-func (n *node) startWatchdog(ctx context.Context) error {
-	iv := n.interval.env.Watchdog
+// successorWatchdog returns the interval a handover successor's watchdog
+// runs with once it took the lock, and where it came from: its own when
+// its environment enables one, as sd_watchdog_enabled(3) reads it, else
+// the one its holder's accepted message carried, which systemd's
+// ExecReload= helper leaves it to (WATCHDOG_USEC goes to the ExecStart=
+// process only); 0, no watchdog, when neither gives one, as from a holder
+// that runs none (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+// "Handover under systemd").
+func successorWatchdog(own, holder time.Duration) (time.Duration, string) {
+	if own > 0 {
+		return own, watchdogFromEnvironment
+	}
+	return holder, watchdogFromHolder
+}
+
+// startWatchdog starts the watchdog with the interval iv, which came from
+// from, when iv is set: WATCHDOG=1 as soon as the admin server, the
+// retirer and the activation loop each answered its probe, then every
+// half interval while each answered within the interval.
+func (n *node) startWatchdog(ctx context.Context, iv time.Duration, from string) error {
 	if iv <= 0 {
 		return nil
 	}
@@ -215,7 +251,7 @@ func (n *node) startWatchdog(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("watchdog: %w", err)
 	}
-	n.log.InfoContext(ctx, "watchdog enabled", "interval", iv.String())
+	n.log.InfoContext(ctx, "watchdog enabled", "interval", iv.String(), "from", from)
 	n.loops.goRun("watchdog", wd.Run)
 	return nil
 }

@@ -49,10 +49,15 @@
 // admin server, the retirer and the activation loop, has run within the
 // interval: each part has a [Probe] that returns once the part has run,
 // and a part counts as run when its last probe succeeded no longer than
-// one interval ago. As sd_watchdog_enabled(3) does, a WATCHDOG_PID naming
-// another process means no watchdog. systemd sets both variables for the
-// unit's ExecStart= process only, so a handover successor, which the
-// ExecReload= helper starts, finds no interval of its own and its
-// Watchdog runs with the interval it is given. Time comes from an
-// injected clock.Clock.
+// one interval ago. Its first WATCHDOG=1 goes as soon as every part has
+// run, not a half interval after it starts. As sd_watchdog_enabled(3)
+// does, a WATCHDOG_PID naming another process means no watchdog. systemd
+// sets both variables for the unit's ExecStart= process only, so a
+// handover successor, which the ExecReload= helper starts, finds no
+// interval of its own: its Watchdog runs with the interval its holder's
+// handover accepted message carried, started once it took the lock and
+// sent MAINPID=. Its predecessor pinged every half interval until its
+// Drain started, so the successor's first ping, as soon as its parts
+// have run, comes before the service manager's watchdog runs out. Time
+// comes from an injected clock.Clock.
 package sdnotify

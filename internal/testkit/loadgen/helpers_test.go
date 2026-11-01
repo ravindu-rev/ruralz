@@ -40,8 +40,11 @@ func idle(g *Generator, fk *clocktest.Fake) bool {
 	return p.Done == p.Scheduled && p.Next.After(fk.Now())
 }
 
-// drive advances fk by step(i) until g's run ends, letting every due
+// drive moves fk on by step(i) until g's run ends, letting every due
 // request end before each step, so latencies depend on the steps alone.
+// Each step is a Jump: with Advance, the generator, woken by the timer of
+// its next request, could read any deadline inside a long step and send
+// some of the requests the step makes late on time.
 func drive(t *testing.T, g *Generator, fk *clocktest.Fake, step func(i int) time.Duration) *Result {
 	t.Helper()
 	for i := 0; ; i++ {
@@ -55,7 +58,7 @@ func drive(t *testing.T, g *Generator, fk *clocktest.Fake, step func(i int) time
 			return res
 		default:
 		}
-		fk.Advance(step(i))
+		fk.Jump(step(i))
 	}
 }
 

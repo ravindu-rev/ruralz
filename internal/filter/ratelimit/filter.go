@@ -99,10 +99,11 @@ type limitDef struct {
 
 // Build compiles one ratelimit Policy: the config rules of Check
 // (RZ-CFG-005), config.key, config.cost and each limits[].when at their
-// places (RZ-CFG-014, RZ-CFG-015), and a placement where the Policy
-// decides, onRequestHeaders at Gateway or Route scope (RZ-CFG-020). Each
-// limit is registered in the key table, so buckets of an unchanged limit
-// survive a Hot Reload. An ended ctx is its error, without a code.
+// places (RZ-CFG-014, RZ-CFG-015), an empty cost being RZ-CFG-005, and a
+// placement where the Policy decides, onRequestHeaders at Gateway or Route
+// scope (RZ-CFG-020). Each limit is registered in the key table, so
+// buckets of an unchanged limit survive a Hot Reload. An ended ctx is its
+// error, without a code.
 func (f Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -180,12 +181,19 @@ func (f Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter,
 }
 
 // compile compiles config.key, config.cost and each limits[].when; an
-// absent key or the default cost needs no program.
+// absent key or when, or the default cost, needs no program. An empty
+// cost is RZ-CFG-005, the finding stage F reports for an empty expression
+// in any CEL field (docs/architecture/02-configuration-model.md "Allowed
+// places"), so Build never reads it as the default; the decoded key and
+// when cannot tell an empty expression from an absent one.
 func (flt *Filter) compile(env filter.BuildEnv, cfg *v1alpha1.RateLimitConfig) error {
 	flt.whens = make([]expr.Program, len(cfg.Limits))
 	cost := defaultCost
 	if cfg.Cost != nil {
 		cost = *cfg.Cost
+	}
+	if cost == "" {
+		return errcode.Errorf(CodeConfig, "ratelimit: config.cost is empty")
 	}
 	needCEL := cfg.Key != "" || cost != defaultCost
 	for _, l := range cfg.Limits {

@@ -6,13 +6,13 @@ This catalog lists every feature Ruralz plans, grouped in ten categories, with t
 
 ## Scope and non-goals
 
-In scope: every Ruralz feature planned for M0 to M5, one row each; its milestone, carrying mechanism and owning design section; the features Ruralz deliberately does not plan, with a reason; and counts per category and milestone. The [Roadmap](../roadmap/01-roadmap-and-milestones.md) defers to this catalog on the milestone of a single feature, and M1 exit criterion 6 is measured against it. Terms follow the binding [foundation pack](../_meta/foundation-pack.md), whose section 13 makes this document the owner of the feature list.
+In scope: every Ruralz feature planned for M0 to M6, one row each; its milestone, carrying mechanism and owning design section; the features Ruralz deliberately does not plan, with a reason; and counts per category and milestone. The [Roadmap](../roadmap/01-roadmap-and-milestones.md) defers to this catalog on the milestone of a single feature, and M1 exit criterion 6 is measured against it. Terms follow the binding [foundation pack](../_meta/foundation-pack.md), whose section 13 makes this document the owner of the feature list.
 
 Non-goals:
 
 - Field and Policy type design, owned by the [Configuration model](../architecture/02-configuration-model.md); a missing field becomes an Open question here, never an invented field.
 - Behavior, failure semantics and performance of each feature, owned by the architecture document linked in its Design cell.
-- Performance figures, owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), whose M4 bench suite measures Ruralz against its own Performance Budgets and previous releases.
+- Performance figures, owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), whose M6 bench suite measures Ruralz against its own Performance Budgets and previous releases.
 - Calendar dates, which no milestone carries (OQ-roadmap-and-milestones-2).
 - Commercial support and Ruralz Cloud terms, which sell help and operations, never a feature ([Vision and positioning](../vision/01-vision-and-positioning.md)).
 
@@ -33,8 +33,9 @@ Each category section holds one table with four columns.
 | M1 | Core gateway |
 | M2 | WASM + Control/GitOps |
 | M3 | AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 |
-| M4 | Event protocols + multi-region + bench suite |
+| M4 | Event protocols + multi-region |
 | M5 | Enterprise hardening (SSO/SAML for Ruralz Console, FIPS build, monetization hooks) |
+| M6 | Reference hardware benchmarks (RH-1, RH-2 and RH-3, the budget gates and bench suite on them) |
 
 A **Policy** is configuration; a **Filter** (built-in Go) or a **Plugin** (WASM) implements it. Every row names only kinds, fields, Policy types and Filters of the [Configuration model](../architecture/02-configuration-model.md#kind-catalog) and commands of the [CLI and API surface](../reference/01-cli-and-api-surface.md). Where a feature needs a field or Policy type that is not registered yet, the Mechanism cell names the kind that would carry it and the Open question that decides it.
 
@@ -356,7 +357,7 @@ flowchart LR
     C --> M5["Planned (M5): 14"]
 ```
 
-M1 exit criterion 6 holds when every Planned (M1) row works in the `0.1.0` release; a Policy type or protocol of a later milestone fails validation with `RZ-CFG-040` until its release serves it.
+M1 exit criterion 4 holds when every Planned (M1) row works in the `0.1.0` release; a Policy type or protocol of a later milestone fails validation with `RZ-CFG-040` until its release serves it.
 
 ## Open questions
 

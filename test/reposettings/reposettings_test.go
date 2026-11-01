@@ -51,6 +51,7 @@ func areas() []string {
 		`Ruleset "main and release-*"`,
 		`Ruleset "v* tag creation"`,
 		`Ruleset "v* tag updates and deletion"`,
+		`Ruleset "develop"`,
 		`Environment "release"`,
 		`Environment "release" deployment branches`,
 	}
@@ -132,6 +133,14 @@ func tagChangesRuleset() ruleset {
 	}
 }
 
+func developRuleset() ruleset {
+	return ruleset{
+		Name: "develop", Target: "branch", Enforcement: "active",
+		Include: []string{"refs/heads/develop"}, Exclude: []string{}, BypassActors: []bypassActor{},
+		Rules: []rule{{Type: "deletion"}},
+	}
+}
+
 // desiredState is the repository with every setting of the table.
 func desiredState() *ghState {
 	s := freshState()
@@ -142,11 +151,11 @@ func desiredState() *ghState {
 	s.DefaultWorkflowPermissions, s.CanApprovePullRequests = "read", false
 	s.ApprovalPolicy = "all_external_contributors"
 	s.PrivateVulnerabilityReporting, s.DependabotAlerts, s.SecurityUpdates, s.ImmutableReleases = true, true, true, true
-	s.Rulesets = []ruleset{branchesRuleset(), tagCreationRuleset(), tagChangesRuleset()}
+	s.Rulesets = []ruleset{branchesRuleset(), tagCreationRuleset(), tagChangesRuleset(), developRuleset()}
 	for i := range s.Rulesets {
 		s.Rulesets[i].ID = i + 1
 	}
-	s.NextRulesetID = 4
+	s.NextRulesetID = 5
 	s.Environment = &environment{
 		Reviewers:    []int{ownerID},
 		BranchPolicy: &branchScheme{ProtectedBranches: false, CustomBranchPolicies: true},
@@ -469,6 +478,7 @@ func TestCheckReportsDrift(t *testing.T) {
 		branches   = `Ruleset "main and release-*"`
 		creation   = `Ruleset "v* tag creation"`
 		changes    = `Ruleset "v* tag updates and deletion"`
+		develop    = `Ruleset "develop"`
 		env        = `Environment "release"`
 		envBranch  = `Environment "release" deployment branches`
 		checksWant = `[{"context":"pr-fast","integration_id":15368},{"context":"pr-full","integration_id":15368},{"context":"pr-title","integration_id":15368}]`
@@ -638,6 +648,22 @@ func TestCheckReportsDrift(t *testing.T) {
 		}, []string{
 			"drift: " + changes + ": bypass_actors is " + adminByp + ", want []",
 		}},
+		{"develop ruleset missing", func(_ *testing.T, s *ghState) {
+			i := slices.IndexFunc(s.Rulesets, func(rs ruleset) bool { return rs.Name == "develop" })
+			s.Rulesets = slices.Delete(s.Rulesets, i, i+1)
+		}, []string{
+			"drift: " + develop + ": missing",
+		}},
+		{"develop without the deletion rule", func(t *testing.T, s *ghState) {
+			rulesetNamed(t, s, "develop").Rules = []rule{{Type: "non_fast_forward"}}
+		}, []string{
+			"drift: " + develop + `: rules is ["non_fast_forward"], want ["deletion"]`,
+		}},
+		{"admins delete develop", func(t *testing.T, s *ghState) {
+			rulesetNamed(t, s, "develop").BypassActors = []bypassActor{adminActor()}
+		}, []string{
+			"drift: " + develop + ": bypass_actors is " + adminByp + ", want []",
+		}},
 		{"the tag rulesets on branches", func(t *testing.T, s *ghState) {
 			rulesetNamed(t, s, "v* tag creation").Target = "branch"
 			rulesetNamed(t, s, "v* tag updates and deletion").Target = "branch"
@@ -724,6 +750,7 @@ func TestApplyConfiguresAFreshRepository(t *testing.T) {
 		"POST " + repoPath + "/rulesets",
 		"POST " + repoPath + "/rulesets",
 		"POST " + repoPath + "/rulesets",
+		"POST " + repoPath + "/rulesets",
 		"PUT " + repoPath + "/environments/release",
 		"POST " + repoPath + "/environments/release/deployment-branch-policies",
 	})
@@ -732,7 +759,7 @@ func TestApplyConfiguresAFreshRepository(t *testing.T) {
 		updated = append(updated, "updated: "+a)
 	}
 	wantLines(t, "updated areas", linesWithPrefix(r.stdout, "updated: "), updated)
-	wantContains(t, r, "stdout", "repo-settings: 14 area(s) updated, 0 unchanged\n")
+	wantContains(t, r, "stdout", "repo-settings: 15 area(s) updated, 0 unchanged\n")
 	if got, want := normalized(t, r.state), normalized(t, desiredState()); got != want {
 		t.Errorf("settings after apply:\n%s\nwant\n%s", got, want)
 	}
@@ -768,7 +795,7 @@ func TestApplyWritesNothingWhenSettingsMatch(t *testing.T) {
 		unchanged = append(unchanged, "unchanged: "+a)
 	}
 	wantLines(t, "unchanged areas", linesWithPrefix(r.stdout, "unchanged: "), unchanged)
-	wantContains(t, r, "stdout", "repo-settings: 0 area(s) updated, 14 unchanged\n")
+	wantContains(t, r, "stdout", "repo-settings: 0 area(s) updated, 15 unchanged\n")
 }
 
 // TestApplyUpdatesOnlyDriftedAreas: apply writes just the areas that
@@ -990,6 +1017,7 @@ func TestCheckSkipsHiddenSettings(t *testing.T) {
 		`notice: Ruleset "main and release-*": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 		`notice: Ruleset "v* tag creation": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 		`notice: Ruleset "v* tag updates and deletion": bypass_actors not checked: GitHub leaves it out of the response to this token`,
+		`notice: Ruleset "develop": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 	}
 	r := run(t, desiredState(), hidden, true, "--check")
 	wantCode(t, r, 0)
@@ -1021,7 +1049,7 @@ func TestApplyContinuesPastAFailedArea(t *testing.T) {
 	if got, want := normalized(t, r.state), normalized(t, wantState); got != want {
 		t.Errorf("settings after apply:\n%s\nwant\n%s", got, want)
 	}
-	wantContains(t, r, "stderr", "repo-settings: 3 error(s)\n")
+	wantContains(t, r, "stderr", "repo-settings: 4 error(s)\n")
 }
 
 func nonNil(s []string) []string {

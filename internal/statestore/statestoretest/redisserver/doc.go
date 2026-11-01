@@ -20,7 +20,13 @@
 //     down (Deployment.AwaitFailover). Servers bind loopback ports, keep
 //     no data on disk, can be killed and restarted on their port
 //     (Server.Kill, Server.Restart), and frozen with their sockets open
-//     by SIGSTOP until SIGCONT (Server.Signal).
+//     by SIGSTOP until SIGCONT (Server.Signal). StartOn runs the same
+//     kinds on another host (Host), as the target chaos profile places
+//     its State Store on RH-1S: the servers bind and announce the host's
+//     address, their certificate names it too, their files live in a
+//     directory on the host, and the host starts, signals and kills them,
+//     ready once a server wrote its readiness line and its port accepts
+//     connections.
 //   - container: the images of images.go, each pinned by digest, through
 //     testcontainers-go, on the linux/amd64 container leg: Redis 8 and
 //     Valkey 9.0.1 or newer (version checked at start) through

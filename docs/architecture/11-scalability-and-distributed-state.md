@@ -660,7 +660,7 @@ Each runs against at least 10 Nodes (target) under open-loop load, since closed-
 
 Every experiment follows one timeline: the load generator's warm-up; a 60 s baseline (target) with zero errors, no Missed request and the offered rate achieved within 0.5%, else the run is invalid; the fault, for the duration its row gives, else 60 s (target); then 60 s of recovery (target), in which every degraded reason the fault raised clears and errors return to zero. "50% load" is half the topology's saturation, measured at the run's start with the load generator's rate ladder and saturation rule; [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#chaos-testing) gives the Node counts and rates of each scale profile.
 
-Shard script CPU is the State Store server's main-thread CPU per 1 s, from the deltas of `used_cpu_sys_main_thread` and `used_cpu_user_main_thread` in `INFO cpu`; each run also records the `cmdstat_evalsha` microseconds per second of `INFO commandstats` as an ungated breakdown. Latency criteria, such as CE-3's p99, are measurements: they gate only at target scale on RH-1, and the nightly runs record them.
+Shard script CPU is the State Store server's main-thread CPU per 1 s, from the deltas of `used_cpu_sys_main_thread` and `used_cpu_user_main_thread` in `INFO cpu`; each run also records the `cmdstat_evalsha` microseconds per second of `INFO commandstats` as an ungated breakdown. Latency criteria, such as CE-3's p99, are measurements: they gate only at target scale on RH-1, from M6, and the nightly runs record them.
 
 ## Pointers to related documents
 

@@ -65,6 +65,22 @@ func (r rotateKeys) Key(seq uint64) string {
 func (r rotateKeys) Cardinality() int     { return 0 }
 func (r rotateKeys) Distribution() string { return "rotating" }
 
+// List returns the keys given, each used in turn: request seq takes
+// keys[seq % len(keys)], as the chaos runs rotate the Consumers' API keys
+// and /undeclared's keys.
+func List(keys ...string) (KeySource, error) {
+	if len(keys) == 0 {
+		return nil, errors.New("loadgen: a key list needs a key")
+	}
+	return listKeys(append([]string(nil), keys...)), nil
+}
+
+type listKeys []string
+
+func (l listKeys) Key(seq uint64) string { return l[seq%uint64(len(l))] }
+func (l listKeys) Cardinality() int      { return len(l) }
+func (l listKeys) Distribution() string  { return "list" }
+
 // Single returns one key for every request: the hot key of CE-12.
 func Single(key string) KeySource { return singleKey(key) }
 
