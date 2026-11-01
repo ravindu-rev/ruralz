@@ -276,12 +276,15 @@ jobs:
             "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
             make nightly NIGHTLY_JOB=chaos "CHAOS_PACKAGES=$PACKAGES" "TEST_FLAGS=$FLAGS"
       - name: Hand the records and evidence to the runner user
-        # The suite ran as root, so root owns the files.
+        # The suite ran as root, so root owns the files and every directory
+        # it created on their way, dist/ included: the records directory is
+        # created mode 0750, so a root-owned dist/ keeps the upload out of
+        # dist/chaos.
         if: always()
         env:
           RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
         run: |
-          for d in dist/chaos "$RURALZ_TEST_ARTIFACT_DIR"; do
+          for d in dist "$RURALZ_TEST_ARTIFACT_DIR"; do
             if [[ -d "$d" ]]; then
               sudo chown -R "$(id -u):$(id -g)" "$d"
             fi
