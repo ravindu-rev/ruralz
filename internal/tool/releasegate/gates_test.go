@@ -36,7 +36,7 @@ func releaseJobs() []workflowJob {
 		ok("pr-full / pr-full"),
 		ok("main / 10. End-to-end"), ok("main / 10. Quickstart archives"), ok("main / 10. Quickstart linux/amd64"),
 		ok("nightly / 11. Fuzz plan"), ok("nightly / 11. Fuzz shard 0"), ok("nightly / 11. Fuzz shard 1"),
-		ok("nightly / 11. Chaos (experiments)"), ok("nightly / 11. Chaos (rows)"), ok("nightly / 11. Chaos (drills)"),
+		ok("nightly / 11. Chaos (experiments-1)"), ok("nightly / 11. Chaos (experiments-2)"), ok("nightly / 11. Chaos (rows)"), ok("nightly / 11. Chaos (drills)"),
 		ok("nightly / 11. Latency"), ok("nightly / 11. Benchmark records"), ok("nightly / 6. Supply chain rescan"), skipped("nightly / Nightly issues"),
 		ok("t5-systemd / T5 systemd (ubuntu-24.04)"), skipped("t5-systemd / T5 issues"),
 		ok("chaos-scale / Chaos at target scale"), skipped("chaos-scale / Chaos-scale issues"),
@@ -431,7 +431,7 @@ func TestRunGates(t *testing.T) {
 	// The Chaos job fails: the Chaos gate fails, and so does "All CI
 	// stages green", which reads every re-run job; no skipped file is
 	// written.
-	f.jobs[42] = setJob(releaseJobs(), "nightly / 11. Chaos (experiments)", "completed", "failure")
+	f.jobs[42] = setJob(releaseJobs(), "nightly / 11. Chaos (experiments-2)", "completed", "failure")
 	_ = os.Remove(o.skipped)
 	findings, err = runGates(t.Context(), f.client(t), o, now, fakeGit("p/testdata/fuzz/FuzzX/1"), &out)
 	if err != nil || len(findings) != 2 || !strings.Contains(findings[0], `gate "All CI stages green" failed`) || !strings.Contains(findings[1], `gate "Chaos" failed`) {

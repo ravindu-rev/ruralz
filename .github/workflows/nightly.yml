@@ -226,16 +226,20 @@ jobs:
 
   chaos:
     name: 11. Chaos (${{ matrix.part }})
-    # The suite in three parts, each on its own runner within the 3-hour
-    # limit: the CE experiments, the failure rows and lab gates beside
-    # them, and the drills. Each part measures its own saturation.
+    # The suite in four parts, each on its own runner within the 3-hour
+    # limit: the CE experiments in two halves, the failure rows and lab
+    # gates beside them, and the drills. Each part measures its own
+    # saturation.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - part: experiments
+          - part: experiments-1
             packages: ./test/chaos
-            flags: -run ^TestCE
+            flags: -run '^TestCE(1|2|3|4|12)[A-Z]'
+          - part: experiments-2
+            packages: ./test/chaos
+            flags: -run '^TestCE(5|6|15|16)[A-Z]'
           - part: rows
             packages: ./test/chaos
             flags: -skip ^TestCE
