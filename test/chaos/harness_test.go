@@ -143,6 +143,22 @@ func TestSaturationState(t *testing.T) {
 	}
 }
 
+// TestSaturationSamplesNothing: the saturation measurement's run samples
+// no /metrics, whose rounds would show in the steps' latency, and a run
+// without a sampler stops its background work and records its
+// breakdowns.
+func TestSaturationSamplesNothing(t *testing.T) {
+	if s := saturationSpec(); s.Name != Saturation || s.SampleEvery >= 0 {
+		t.Errorf("saturationSpec() = %+v, want the %q run with a negative SampleEvery", s, Saturation)
+	}
+	r := &Run{rec: Record{Breakdowns: map[string]float64{}}}
+	r.stopBackground()
+	r.counterBreakdowns()
+	if len(r.rec.Breakdowns) != 0 {
+		t.Errorf("breakdowns of a run without a sampler or pump = %v", r.rec.Breakdowns)
+	}
+}
+
 // fakeAdvancer is a controllable clock whose Advance can also move the
 // real clock, as a slow Node's answer does.
 type fakeAdvancer struct {

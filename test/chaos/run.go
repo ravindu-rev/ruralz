@@ -67,7 +67,10 @@ type Spec struct {
 	// one.
 	HTTPS bool
 	// SampleEvery is the /metrics sampling period; default
-	// DefaultSampleEvery.
+	// DefaultSampleEvery. Negative samples nothing, as the saturation
+	// measurement, which reads the load alone: a round scrapes and parses
+	// every Node's exposition at once, a burst of work on the host that
+	// shows in the load's latency.
 	SampleEvery time.Duration
 	// Keep lists extra metric families the sampler keeps beside
 	// DefaultKeep.
@@ -125,10 +128,12 @@ type Run struct {
 	Cache *topology.StateStore
 	// Mocks are the in-process mock Upstreams; none at the target profile,
 	// whose mocks run on RH-1U, at Params.Backends.
-	Mocks   [3]*mockup.Server
-	HTTP    *topology.Balancer
-	HTTPS   *topology.Balancer
-	Pump    *Pump
+	Mocks [3]*mockup.Server
+	HTTP  *topology.Balancer
+	HTTPS *topology.Balancer
+	Pump  *Pump
+	// Sampler samples the Nodes' /metrics; nil when Spec.SampleEvery is
+	// negative.
 	Sampler *Sampler
 	// APIKeys maps each Consumer to its API key, a canary.
 	APIKeys map[string]string
@@ -245,13 +250,15 @@ func (h *Harness) Start(t testing.TB, s Spec) *Run {
 	if r.TestClock {
 		r.Pump = StartPump(ctx, r.Top, clock.Real(), s.PumpStep)
 	}
-	r.Sampler = StartSampler(ctx, SamplerConfig{
-		Client:  &http.Client{Transport: &http.Transport{TLSClientConfig: r.Top.ClientTLS()}},
-		Targets: r.scrapeTargets,
-		Every:   s.SampleEvery,
-		Keep:    append(DefaultKeep(), s.Keep...),
-		Node:    r.nodeNow,
-	})
+	if s.SampleEvery >= 0 {
+		r.Sampler = StartSampler(ctx, SamplerConfig{
+			Client:  &http.Client{Transport: &http.Transport{TLSClientConfig: r.Top.ClientTLS()}},
+			Targets: r.scrapeTargets,
+			Every:   s.SampleEvery,
+			Keep:    append(DefaultKeep(), s.Keep...),
+			Node:    r.nodeNow,
+		})
+	}
 	r.rec = Record{Format: Format, Experiment: s.Name, Profile: h.Profile.Name, Commit: h.Commit, Nodes: r.Nodes, Breakdowns: map[string]float64{}}
 	if sat, err := h.Saturation(); err == nil {
 		r.rec.Breakdowns[SaturationBreakdown] = sat
@@ -408,7 +415,9 @@ func (r *Run) nodeNow() time.Time {
 // stopBackground stops the sampler and the pump before the topology's
 // teardown stops the Nodes.
 func (r *Run) stopBackground() {
-	r.Sampler.Stop()
+	if r.Sampler != nil {
+		r.Sampler.Stop()
+	}
 	if r.Pump != nil {
 		if err := r.Pump.Stop(); err != nil {
 			r.T.Errorf("%v", err)
@@ -784,12 +793,14 @@ func breakdownCounters() map[string][]string {
 }
 
 // counterBreakdowns records the increase of every breakdown counter over
-// the run as ungated values.
+// the run as ungated values, when the run sampled.
 func (r *Run) counterBreakdowns() {
-	far := time.Now().Add(time.Hour)
-	for name, by := range breakdownCounters() {
-		for k, v := range r.Sampler.Totals(name, time.Time{}, far, by...) {
-			r.Breakdown(k, v)
+	if r.Sampler != nil {
+		far := time.Now().Add(time.Hour)
+		for name, by := range breakdownCounters() {
+			for k, v := range r.Sampler.Totals(name, time.Time{}, far, by...) {
+				r.Breakdown(k, v)
+			}
 		}
 	}
 	if r.Pump != nil {
