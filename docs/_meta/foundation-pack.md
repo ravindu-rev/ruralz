@@ -119,7 +119,7 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 
 | Concern | Decision | ADR |
 |---|---|---|
-| Language / build | Go 1.26 floor (`go 1.26.0`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. | ADR-0001 |
+| Language / build | Go 1.26 floor (`go 1.26.10`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. | ADR-0001 |
 | License | Apache-2.0 everything; DCO; Revington trademark policy | ADR-0002 |
 | Config | YAML 1.2 + JSON Schema, restricted YAML profile, Kubernetes-style resources, strategic-merge overlays | ADR-0003 |
 | WASM runtime | wazero: repository `github.com/wazero/wazero`, Go module path `github.com/tetratelabs/wazero` (pure Go). | ADR-0004 |

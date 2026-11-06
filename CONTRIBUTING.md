@@ -33,7 +33,7 @@ Go comes from the `go.mod` `toolchain` line: with the default `GOTOOLCHAIN=auto`
 make help                                            # list targets
 make tools                                           # pinned golangci-lint, govulncheck, actionlint and promtool into bin/
 make hygiene lint generate build test supply-chain   # what CI stages 1 to 6 run
-make floor FLOOR_GOTOOLCHAIN=go1.26.8                # the Go 1.26 floor job, with GOEXPERIMENT=jsonv2
+make floor FLOOR_GOTOOLCHAIN=go1.26.10               # the Go 1.26 floor job, with GOEXPERIMENT=jsonv2
 ```
 
 | Target | CI stage | What it runs |

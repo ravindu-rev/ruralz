@@ -34,7 +34,7 @@ Chosen option: "Go 1.26 or newer with `CGO_ENABLED=0` static binaries", plus a `
 
 | Rule | Value | Planned |
 |---|---|---|
-| Floor | Root `go.mod` declares `go 1.26.0`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force it | Planned (M0) |
+| Floor | Root `go.mod` declares `go 1.26.10`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force Go 1.26, and `lestrrat-go/jwx/v4` v4.6.0 the patch | Planned (M0) |
 | Release toolchain | Latest patch of the newest Go release, pinned by the `toolchain` directive (now `go1.27.1` ([source](https://go.dev/doc/devel/release))); release and FIPS builds set no `GOEXPERIMENT` | Planned (M0) |
 | Floor CI job | Latest 1.26 patch with `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`, which jwx v4 needs on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) | Planned (M0) |
 | Build flags | `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` version metadata | Planned (M0) |

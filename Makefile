@@ -55,7 +55,7 @@ LDFLAGS := -s -w \
 	-X $(MODULE)/internal/buildinfo.flavor=$(FLAVOR)
 
 # The floor job runs the latest Go 1.26 patch. CI installs it and keeps
-# GOTOOLCHAIN=local; elsewhere pass FLOOR_GOTOOLCHAIN=go1.26.8 (or newer 1.26 patch).
+# GOTOOLCHAIN=local; elsewhere pass FLOOR_GOTOOLCHAIN=go1.26.10 (or a newer 1.26 patch).
 FLOOR_GOTOOLCHAIN ?= local
 
 # Stage 8. RURALZ_TEST_STATESTORE=process|container and
