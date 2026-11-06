@@ -1,3 +1,2 @@
 go test fuzz v1
 string("{\"spec\":{},\"spec\":{\"type\":\"quota\",\"config\":{}}}")
-
