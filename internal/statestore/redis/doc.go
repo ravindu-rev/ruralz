@@ -33,9 +33,15 @@
 // with ForceSingleClient, cluster reading the slot map from any seed and
 // refreshing it every 10 s, after a redirect and after a closed
 // connection, sentinel asking the sentinels for the master set's primary
-// at start, on +switch-master, when its sentinel connection closes and
-// every 10 s. The URL's credentials authenticate to the primary and to
-// the sentinels, in the client's HELLO, and its database is the
+// at start, on +switch-master and when its sentinel connection closes.
+// Every 10 s the driver asks the sentinel seeds itself, in order until
+// one answers, each ask within the admin timeout on a connection of its
+// own, and only when they name a primary other than the one the client
+// sends to does it close the client's sentinel connections, so the client
+// asks again: the client never checks the primary it holds with ROLE on a
+// schedule, which under its lock would let a frozen primary hold up a
+// failover the sentinels announce. The URL's credentials authenticate to
+// the primary and to the sentinels, in HELLO, and its database is the
 // primary's; sentinels get no script load. The primary is one shard
 // whatever its address. Commands always go through the auto-pipelined connections
 // (2 per shard, rueidis PipelineMultiplex 1), whose rings together hold

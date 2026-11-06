@@ -132,11 +132,16 @@ type Driver struct {
 	// that the last maintenance pass found the client not sending to;
 	// the maintenance goroutine owns the field (followPrimary).
 	unconfirmed *string
+	// sentinelCheckedAt is when the last sentinel check began, on the
+	// driver's clock; the maintenance goroutine owns the field
+	// (checkSentinels). sentinelChecking is set while a check runs.
+	sentinelCheckedAt time.Time
+	sentinelChecking  atomic.Bool
 
 	trips sync.Pool
 
-	skewLog, macLog, clientLog      rateLog
-	evictionWarned, unlimitedWarned atomic.Bool
+	skewLog, macLog, clientLog, sentinelLog rateLog
+	evictionWarned, unlimitedWarned         atomic.Bool
 }
 
 var _ statestore.Driver = (*Driver)(nil)

@@ -142,6 +142,13 @@ func (s *fakeSentinel) switchMaster(set, to string) {
 	}
 }
 
+// connections returns the client connections open.
+func (s *fakeSentinel) connections() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.conns)
+}
+
 // subscribers returns the connections subscribed to the events.
 func (s *fakeSentinel) subscribers() int {
 	s.mu.Lock()
