@@ -4,6 +4,7 @@
 package schemaidx
 
 import (
+	"bytes"
 	"fmt"
 	"iter"
 	"slices"
@@ -25,14 +26,17 @@ type Field struct {
 }
 
 // Dispatch is one if/then/else result applied to the object at schema
-// path Path: the rule whose Conditions matched, every other rule's else
-// branch applying; with no Conditions, no rule matched and every else
-// branch applies.
+// path Path: the result for an object that has the members of Conditions
+// with their values and no other member a rule there tests. Every rule
+// those members satisfy applies its then branch (the rule the Conditions
+// come from, and any rule testing a subset of them against the same
+// values), every other rule its else branch; with no Conditions, no rule
+// matched and every else branch applies.
 type Dispatch struct {
 	// Path is the schema path of the object the rules test.
 	Path string
-	// Conditions are the matching rule's member consts; nil when no rule
-	// matched.
+	// Conditions are the member consts of the rule the result is listed
+	// for; nil when no rule matched.
 	Conditions []Condition
 }
 
@@ -51,9 +55,15 @@ const (
 // Fields enumerates every schema position of every kind: the resource
 // root, each declared member, array elements ("[]") and typed-map values
 // ("{}"), depth first with members in name order. Below an object with
-// if/then/else dispatch it adds the positions each rule changes when it
-// alone matches, then those the else branches change when none matches,
-// each with its Dispatch appended to Where. When a branch adds x-ruralz-*
+// if/then/else dispatch it adds, rule by rule, the positions that change
+// when the object has just the members the rule tests, with their consts
+// (the rule matches, with any other rule those members satisfy; a rule
+// repeating an earlier rule's conditions adds nothing), then those the
+// else branches change when no rule matches, each with its Dispatch
+// appended to Where. Every position is one an instance with the members
+// Where states can have: a member a rule tests holds a scalar under that
+// rule's Dispatch, so a branch giving it a schema of its own lists the
+// member there without positions below it. When a branch adds x-ruralz-*
 // keywords to the dispatched object itself, that object is listed again
 // at its path with the Dispatch, so Fields reports every marker Lookup
 // and Walk apply. A recursive schema is listed once per cycle. Consumers
@@ -133,28 +143,31 @@ func (e *enumerator) visit(n *Node, where []Dispatch) {
 	}
 	e.stack = append(e.stack, n)
 	defer func() { e.stack = e.stack[:len(e.stack)-1] }()
-	e.children(n, nil, where)
+	e.children(n, nil, where, nil)
 	if len(n.cases) == 0 {
 		return
 	}
 	path := string(e.path)
-	mask := make([]byte, len(n.cases))
-	for i := range mask {
-		mask[i] = '0'
-	}
+	listed := make(map[string]bool, len(n.cases))
 	for i, c := range n.cases {
-		mask[i] = '1'
+		mask := n.ruleMask(i)
+		if listed[string(mask)] {
+			continue
+		}
+		listed[string(mask)] = true
 		d := Dispatch{Path: path, Conditions: slices.Clone(c.ifc.consts)}
-		e.variant(n, mask, append(slices.Clone(where), d))
-		mask[i] = '0'
+		e.variant(n, mask, append(slices.Clone(where), d), c.ifc.consts)
 	}
-	e.variant(n, mask, append(slices.Clone(where), Dispatch{Path: path}))
+	none := bytes.Repeat([]byte{'0'}, len(n.cases))
+	e.variant(n, none, append(slices.Clone(where), Dispatch{Path: path}), nil)
 }
 
-// variant visits the positions that the dispatch result for mask changes.
-// It does nothing once the consumer stopped the enumeration, since a
-// FieldsSeq yield must not be called again after it returned false.
-func (e *enumerator) variant(n *Node, mask []byte, where []Dispatch) {
+// variant visits the positions that the dispatch result for mask changes;
+// tested are the conditions of the rule it is listed for, whose members
+// hold scalars. It does nothing once the consumer stopped the enumeration,
+// since a FieldsSeq yield must not be called again after it returned
+// false.
+func (e *enumerator) variant(n *Node, mask []byte, where []Dispatch, tested []Condition) {
 	if e.stopped {
 		return
 	}
@@ -169,7 +182,7 @@ func (e *enumerator) variant(n *Node, mask []byte, where []Dispatch) {
 				return
 			}
 		}
-		e.children(v, n, where)
+		e.children(v, n, where, tested)
 	}
 }
 
@@ -182,7 +195,9 @@ func sameKeywords(a, b Keywords) bool {
 
 // children visits the members, elements and values of n; with base set it
 // skips those whose schema equals base's (unchanged by a dispatch branch).
-func (e *enumerator) children(n, base *Node, where []Dispatch) {
+// A member that tested names is listed alone: it holds the scalar const
+// of its condition, so no position below it exists.
+func (e *enumerator) children(n, base *Node, where []Dispatch, tested []Condition) {
 	mark := len(e.path)
 	for name, child := range n.Properties() {
 		if prev, ok := base.Property(name); ok && prev == child {
@@ -192,7 +207,13 @@ func (e *enumerator) children(n, base *Node, where []Dispatch) {
 			e.path = append(e.path, '.')
 		}
 		e.path = append(e.path, name...)
-		e.visit(child, where)
+		if slices.ContainsFunc(tested, func(c Condition) bool { return c.Member == name }) {
+			if !e.stopped && !e.emit(e.kind, e.path, child, where) {
+				e.stopped = true
+			}
+		} else {
+			e.visit(child, where)
+		}
 		e.path = e.path[:mark]
 	}
 	if it, ok := n.Items(); ok {

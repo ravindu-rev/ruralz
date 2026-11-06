@@ -4,6 +4,7 @@
 package schemaidx
 
 import (
+	"bytes"
 	"encoding/json"
 	"iter"
 	"maps"
@@ -199,20 +200,20 @@ func (b *builder) fill(n *Node) {
 		n.addl = b.node(addl, nil)
 	}
 	if b.precompute && len(n.cases) > 0 {
+		// The dispatch results Fields enumerates: no rule matching, and
+		// each rule's own conditions holding (ruleMask).
 		n.variants = map[string]*Node{}
-		mask := make([]byte, len(n.cases))
-		for i := range mask {
-			mask[i] = '0'
-		}
-		if v := b.variant(n, mask); v != n {
-			n.variants[string(mask)] = v
-		}
+		masks := [][]byte{bytes.Repeat([]byte{'0'}, len(n.cases))}
 		for i := range n.cases {
-			mask[i] = '1'
+			masks = append(masks, n.ruleMask(i))
+		}
+		for _, mask := range masks {
+			if _, done := n.variants[string(mask)]; done {
+				continue
+			}
 			if v := b.variant(n, mask); v != n {
 				n.variants[string(mask)] = v
 			}
-			mask[i] = '0'
 		}
 	}
 }
@@ -265,9 +266,10 @@ func (b *builder) variant(n *Node, mask []byte) *Node {
 	return b.node(slices.Concat(n.parts, branches), decided)
 }
 
-// runtimeVariant builds a dispatch result Load did not precompute (two or
-// more rules matching at once), reading the shared memo and writing a
-// local one.
+// runtimeVariant builds a dispatch result Load did not precompute (rules
+// matching at once that no one rule's conditions imply, such as two rules
+// testing different members), reading the shared memo and writing a local
+// one.
 func (n *Node) runtimeVariant(mask []byte) *Node {
 	if len(n.branches(mask)) == 0 {
 		return n
@@ -332,21 +334,37 @@ func stringMember(member, value string) *tree.Node {
 	}}
 }
 
-// eval reports whether the instance object satisfies the condition. A
-// const constrains only a present member ("properties" semantics);
-// required members must be present.
+// eval reports whether the instance object satisfies the condition: it has
+// every tested member, equal to the member's const (parseCond requires
+// each tested member, so a const never holds for an absent one).
 func (c *cond) eval(inst *tree.Node) bool {
-	for _, r := range c.required {
-		if _, ok := inst.Get(r); !ok {
-			return false
-		}
-	}
 	for _, k := range c.consts {
-		if m, ok := inst.Get(k.Member); ok && !constEqual(k.Value, m) {
+		if m, ok := inst.Get(k.Member); !ok || !constEqual(k.Value, m) {
 			return false
 		}
 	}
 	return true
+}
+
+// ruleMask returns the mask Select computes for an instance object that
+// has just the members case i tests, each equal to its const, and no other
+// member a case tests: case i and every case whose conditions those
+// members satisfy (two rules testing one member against one value match
+// together). A case matches such an object exactly when each of its
+// condKeys is one of case i's.
+func (n *Node) ruleMask(i int) []byte {
+	own := n.cases[i].ifc.keys
+	out := make([]byte, len(n.cases))
+	for j, c := range n.cases {
+		out[j] = '1'
+		for _, k := range c.ifc.keys {
+			if !slices.Contains(own, k) {
+				out[j] = '0'
+				break
+			}
+		}
+	}
+	return out
 }
 
 // constEqual compares a scalar const with an instance node; numbers
@@ -392,13 +410,71 @@ func jsonEqual(a, b any) bool {
 	}
 }
 
+// numberEqual reports whether two number literals are one number: equal
+// texts or equal numberKeys.
 func numberEqual(a, b string) bool {
-	if a == b {
-		return true
+	return a == b || numberKey(a) == numberKey(b)
+}
+
+// numberKey returns the value of the JSON number literal s as its sign,
+// significant digits and power of ten, such as "15e-1" for 1.5 and 1.50,
+// "1e3" for 1000 and 1e3, and "0" for every zero, so two literals have one
+// key exactly when they are one number; it takes time linear in len(s). A
+// text that is no number literal, or whose exponent has more than 18
+// digits, is keyed by its text ("?" and the text): such numbers compare
+// only as written.
+func numberKey(s string) string {
+	rest, neg := strings.CutPrefix(s, "-")
+	n := leadingDigits(rest)
+	whole, rest := rest[:n], rest[n:]
+	frac := ""
+	if after, ok := strings.CutPrefix(rest, "."); ok {
+		n = leadingDigits(after)
+		if n == 0 {
+			return "?" + s
+		}
+		frac, rest = after[:n], after[n:]
 	}
-	x, okA := new(big.Rat).SetString(a)
-	y, okB := new(big.Rat).SetString(b)
-	return okA && okB && x.Cmp(y) == 0
+	exp := int64(0)
+	if rest != "" && (rest[0] == 'e' || rest[0] == 'E') {
+		e, sign := rest[1:], int64(1)
+		if e != "" && (e[0] == '+' || e[0] == '-') {
+			if e[0] == '-' {
+				sign = -1
+			}
+			e = e[1:]
+		}
+		n = leadingDigits(e)
+		digits := strings.TrimLeft(e[:n], "0")
+		if n == 0 || len(digits) > 18 {
+			return "?" + s
+		}
+		v, _ := strconv.ParseInt(digits, 10, 64) // "" (an exponent of zeros) is 0
+		exp, rest = sign*v, e[n:]
+	}
+	if whole == "" || rest != "" {
+		return "?" + s
+	}
+	all := strings.TrimLeft(whole+frac, "0")
+	sig := strings.TrimRight(all, "0")
+	if sig == "" {
+		return "0"
+	}
+	// s is sig × 10^(exp + trailing zeros dropped − fraction digits).
+	key := sig + "e" + strconv.FormatInt(exp+int64(len(all)-len(sig)-len(frac)), 10)
+	if neg {
+		return "-" + key
+	}
+	return key
+}
+
+// leadingDigits returns the number of ASCII digits s starts with.
+func leadingDigits(s string) int {
+	n := 0
+	for n < len(s) && '0' <= s[n] && s[n] <= '9' {
+		n++
+	}
+	return n
 }
 
 // Def returns the nearest $defs name of the node, such as "Limits" or

@@ -385,8 +385,9 @@ func TestFieldsResolveSynthetic(t *testing.T) {
 	// before dispatch, which no instance selects once else branches exist:
 	// an instance matching no rule gets the else results.
 	x := mustLoad(t, synthetic)
+	key := freeName(x)
 	for _, f := range x.Fields() {
-		res, path := instanceFor(f)
+		res, path := instanceFor(f, key)
 		info, ok := x.Lookup(f.Kind, res, path)
 		static := len(f.Where) == 0 && strings.HasPrefix(f.Path, "spec.variant")
 		if !ok || !info.Known() || (!static && info.Node != f.Node) {
@@ -523,6 +524,12 @@ func TestLoadErrors(t *testing.T) {
 		{"defs member", `{"$defs":{"a":1}}`, "object or a boolean"},
 		{"validation unknown string", obj(`{"x-ruralz-validations":[{"rule":"r","level":"high"}]}`), "a validation is"},
 		{"if required", obj(`{"if":{"required":[1]}}`), "required must be"},
+		// A Dispatch states a rule by its member consts, each required, so
+		// an if testing anything else is refused.
+		{"if presence only", obj(`{"if":{"required":["a"]}}`), "at least one member against a const"},
+		{"if empty", obj(`{"if":{}}`), "at least one member against a const"},
+		{"if untested required", obj(`{"if":{"properties":{"a":{"const":1}},"required":["a","b"]}}`), `requires "b" without testing it`},
+		{"if const unrequired", obj(`{"if":{"properties":{"a":{"const":1}}}}`), `tests "a" against a const without requiring it`},
 		{"apiVersion", `{"properties":{"apiVersion":{"const":"other/v1"}}}`, "not \"test/v1\""},
 	} {
 		_, err := Load("test/v1", []byte(tc.doc))
@@ -590,6 +597,71 @@ func TestDispatchScalarConsts(t *testing.T) {
 	}
 	if numberEqual("1", "x") {
 		t.Error("numberEqual(1, x)")
+	}
+}
+
+func TestNumberKey(t *testing.T) {
+	// Number literals compare by value, exactly (not as doubles) and in
+	// linear time; an exponent of more than 18 digits, or a text that is
+	// no number literal, compares only as written.
+	for _, tc := range []struct {
+		a, b string
+		want bool
+	}{
+		{"1.5", "1.50", true},
+		{"1000", "1e3", true},
+		{"1E+3", "10e2", true},
+		{"0.001", "1e-3", true},
+		{"-0", "0.0e7", true},
+		{"-1.5", "-15e-1", true},
+		{"12e18", "1.2e19", true},
+		{"1e000", "1", true},
+		{"1e999999999999999999", "10e999999999999999998", true},
+		{"1", "10", false},
+		{"-1", "1", false},
+		{"9007199254740993", "9007199254740992", false},
+		{"1e1000000000000000000", "10e999999999999999999", false},
+		{"1e1000000000000000000", "1e1000000000000000000", true},
+		{"1.", "1", false},
+		{"+1", "1", false},
+		{".5", "0.5", false},
+		{"1e", "1", false},
+		{"x", "x", true},
+		{"1", "x", false},
+	} {
+		if got := numberEqual(tc.a, tc.b); got != tc.want {
+			t.Errorf("numberEqual(%q, %q) = %v (keys %q, %q), want %v", tc.a, tc.b, got, numberKey(tc.a), numberKey(tc.b), tc.want)
+		}
+	}
+	if got := numberKey("-0.0150e3"); got != "-15e0" {
+		t.Errorf(`numberKey("-0.0150e3") = %q, want "-15e0"`, got)
+	}
+}
+
+func TestRulesMatchingByValue(t *testing.T) {
+	// Rules testing one member against equal numbers written differently
+	// match together, both in Select and in the results Load precomputes
+	// and Fields lists: an else branch of one of them never applies with
+	// the others' then branches.
+	x := mustLoad(t, `{"properties":{"kind":{"enum":["K"]}},
+	  "allOf":[{"if":{"properties":{"kind":{"const":"K"}},"required":["kind"]},"then":{"properties":{"spec":{"$ref":"#/$defs/S"}}}}],
+	  "$defs":{"S":{"type":"object","additionalProperties":false,"properties":{"u":{"type":"number"}},"allOf":[
+	    {"if":{"properties":{"u":{"const":1}},"required":["u"]},"then":{"properties":{"x":{}}}},
+	    {"if":{"properties":{"u":{"const":1.0}},"required":["u"]},"then":{"properties":{"y":{}}}},
+	    {"if":{"properties":{"u":{"const":10e-1}},"required":["u"]},"else":{"properties":{"z":{}}}}]}}}`)
+	spec, _ := x.Spec("K")
+	sel := spec.Select(parseTree(t, `{"u":1}`))
+	if again := spec.Select(parseTree(t, `{"u":1.00}`)); again != sel || !slices.Equal(sel.PropertyNames(), []string{"u", "x", "y"}) {
+		t.Errorf("Select(u=1) = %v (same node for u=1.00: %v), want [u x y]", sel.PropertyNames(), again == sel)
+	}
+	var got []string
+	for _, f := range x.Fields() {
+		if len(f.Where) > 0 {
+			got = append(got, f.Path+" "+whereText(f))
+		}
+	}
+	if want := []string{"spec.x spec:u=1", "spec.y spec:u=1", "spec.z spec:none"}; !slices.Equal(got, want) {
+		t.Errorf("dispatch fields = %q, want %q", got, want)
 	}
 }
 
