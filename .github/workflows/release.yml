@@ -8,11 +8,12 @@
 #               titles and footers of the non-merge commits since the
 #               previous vX.Y.Z tag what the push releases: a breaking
 #               change moves the minor while the major is 0 (the major
-#               from 1.0.0), feat the minor, fix and perf the patch, and
-#               the first release is 0.1.0. When nothing releases, as for
-#               docs, test, ci, build, chore, refactor, revert and
-#               Dependabot's build(deps) commits, the run ends here,
-#               successfully.
+#               from 1.0.0), feat the minor, fix, perf and build(deps) the
+#               patch, and the first release is 0.1.0; a Release-As: X.Y.Z
+#               footer above that version raises it to X.Y.Z. When nothing
+#               releases, as for docs, test, ci (Dependabot's ci(deps)
+#               included), other build, chore, refactor and revert
+#               commits, the run ends here, successfully.
 #   2. PR       the PR pipeline, pr.yml, on the pushed commit.
 #   3. Build    release-build.yml: archives, image, SBOMs, notes,
 #               checksums, keyless Sigstore signatures and attestations.

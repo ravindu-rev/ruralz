@@ -107,6 +107,19 @@ func parseTitle(subject string) (title, bool) {
 // footer is a line "<token>: <value>" whose value runs on over the next
 // lines until a blank line or another footer.
 func footers(body string, keys ...string) []string {
+	return footerValues(body, func(token string) bool { return slices.Contains(keys, token) })
+}
+
+// footersFold returns the values of the footers whose token is key in any
+// case, as Conventional Commits reads every footer token but BREAKING
+// CHANGE.
+func footersFold(body, key string) []string {
+	return footerValues(body, func(token string) bool { return strings.EqualFold(token, key) })
+}
+
+// footerValues returns the values of the footers whose token match
+// accepts, in body order.
+func footerValues(body string, match func(token string) bool) []string {
 	token := regexp.MustCompile(`^(BREAKING CHANGE|[A-Za-z][A-Za-z0-9-]*): (.*)$`)
 	var out []string
 	var cur *strings.Builder
@@ -122,7 +135,7 @@ func footers(body string, keys ...string) []string {
 		line := strings.TrimRight(sc.Text(), " \t\r")
 		if m := token.FindStringSubmatch(line); m != nil {
 			flush()
-			if slices.Contains(keys, m[1]) {
+			if match(m[1]) {
 				cur = &strings.Builder{}
 				cur.WriteString(m[2])
 			}

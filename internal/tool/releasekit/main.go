@@ -20,14 +20,19 @@
 // Conventional Commits titles and footers of the non-merge commits since
 // the previous release, the highest vX.Y.Z tag the commit contains besides
 // its own: a breaking change ("!" or a BREAKING CHANGE footer) moves the
-// minor while the major is 0 and the major from 1.0.0, feat the minor, fix
-// and perf the patch, anything else nothing; the first release is 0.1.0. A
-// commit that a release tag already names resumes that release; one that a
-// later release contains releases nothing. It prints the decision and
-// writes version, tag, previous and tagged as key=value lines to -outputs
-// ($GITHUB_OUTPUT), or to standard output without it; version is empty
-// when nothing is released. A release tag of the version due on another
-// commit is a finding.
+// minor while the major is 0 and the major from 1.0.0, feat the minor,
+// fix, perf and build(deps) the patch, anything else nothing; the first
+// release is 0.1.0. A Release-As: X.Y.Z footer above that version, or
+// beside commits that release nothing, raises it to X.Y.Z, the highest of
+// several counting; one at or below it sets nothing. A footer that is no
+// version X.Y.Z or not above the previous release is a finding, unless a
+// later commit's valid footer replaces it. A commit that a release tag
+// already names resumes that release; one that a later release contains
+// releases nothing. It prints the decision and writes version, tag,
+// previous and tagged as key=value lines to -outputs ($GITHUB_OUTPUT), or
+// to standard output without it; version is empty when nothing is
+// released. A release tag of the version due on another commit is a
+// finding.
 //
 // image checks the OCI image layout the image build wrote (one image
 // index holding one image manifest per platform of the image plan, every

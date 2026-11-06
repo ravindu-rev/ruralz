@@ -6,12 +6,13 @@
 # request does (docs/engineering/02-repository-layout-and-conventions.md,
 # "Pull request rules"). Dependabot reads this file from the default branch,
 # main. Security updates also target main and, since main is the default
-# branch, follow the commit-message options below too. Commit
-# titles take a Conventional Commits prefix: build(deps) for Go modules and
-# for the digest-pinned image of deploy/container/Dockerfile, whose literal
-# FROM line the docker updates move, ci(deps) for actions; a merge of either
-# type releases nothing by itself
-# (docs/engineering/04-release-versioning-and-compatibility.md).
+# branch, follow the commit-message options below too. Commit titles take
+# the Conventional Commits prefix that the release reads
+# (docs/engineering/04-release-versioning-and-compatibility.md, "Release
+# pipeline"): build(deps) for Go modules and for the digest-pinned image of
+# deploy/container/Dockerfile, whose literal FROM line the docker updates
+# move, which change what ships, so their merge releases a patch; ci(deps)
+# for actions, which ship in no artifact, so their merge releases nothing.
 # Dependabot words the rest of a title itself and cannot sign off, so the
 # DCO check (commitcheck dco) skips the commits it authors (doc 02, "DCO
 # sign-off").
