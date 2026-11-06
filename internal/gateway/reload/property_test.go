@@ -5,7 +5,10 @@ package reload
 
 import (
 	"errors"
+	"io/fs"
+	"maps"
 	"os"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -57,8 +60,6 @@ type property struct {
 	r         *rig       // the running process
 	activated map[revision.Digest]bool
 	failing   bool // a directory stands where candidate.json goes
-	// frozen is what lkg/ named when a process without the lock started.
-	frozen *[2]revision.Digest
 }
 
 func newProperty(t *testing.T) *property {
@@ -212,7 +213,6 @@ func (p *property) restart(i int, op byte) {
 	ld, srcDigest := bootLoad(i, op)
 	lastKnownGood := p.pointers()[1]
 	p.r = newRigOn(p.t, p.dir, p.lock, withSource(ld))
-	p.frozen = nil
 	p.boot(p.r)
 	want := srcDigest
 	if want.IsZero() {
@@ -227,11 +227,15 @@ func (p *property) restart(i int, op byte) {
 }
 
 // handover boots a successor beside the holder: it boots the holder's
-// candidate, or by the file-mode order without one, and writes nothing
-// before it holds the lock; then the holder exits and it takes over.
+// candidate, or by the file-mode order without one, and writes nothing to
+// lkg/ before it holds the lock, since only the lock holder writes
+// Last-Known-Good (foundation pack section 8.11); then the holder exits,
+// nothing writes lkg/ while no process holds the lock, and the successor
+// listens and takes over.
 func (p *property) handover(i int, op byte) {
 	p.t.Helper()
-	before := p.pointers()
+	before, was := p.pointers(), p.openLKG()
+	defer was.close()
 	_, candErr := p.files.Candidate()
 	ld, srcDigest := bootLoad(i, op)
 	s := newRigOn(p.t, p.dir, p.lock, withSuccessorBoot(), withSource(ld))
@@ -252,39 +256,109 @@ func (p *property) handover(i int, op byte) {
 	if got := s.l.Active(); got != want {
 		p.t.Fatalf("successor booted %s, want %s", got.Short(), want.Short())
 	}
-	if p.pointers() != before {
-		p.t.Fatal("a successor wrote lkg/ before it held the lock")
+	if w := p.changedSince(was); w != "" {
+		p.t.Fatalf("a successor wrote lkg/ before it held the lock: %s", w)
 	}
 	if !s.l.Active().IsZero() {
 		p.activated[s.l.Active()] = true
 	}
-	// The holder exits; the successor listens and takes the lock. Its loop
-	// then writes lkg/ when lkg/ names another Revision, which the step's
-	// settle waits for.
+	// The holder exits, and no process holds the lock until the successor,
+	// listening, takes it. Its loop then writes lkg/ when lkg/ names
+	// another Revision, which the step's settle waits for.
 	p.r.stop()
+	unheld := p.openLKG()
+	defer unheld.close()
 	if err := s.l.Bound().Listen(p.t.Context()); err != nil {
 		p.t.Fatal(err)
+	}
+	if w := p.changedSince(unheld); w != "" {
+		p.t.Fatalf("lkg/ changed while no process held the lock: %s", w)
 	}
 	s.held.Store(true)
 	s.l.TookLock()
 	p.r = s
 }
 
-// check asserts the invariants: lkg/ names only activated Revisions, and
-// never changes while no process holds the lock.
-func (p *property) check() {
+// lkgFiles holds every entry of lkg/ open, by name. A write to lkg/
+// creates an entry, replaces one by rename (nodedir.WriteFileAtomic) or
+// deletes one, so an entry that is no longer the same file (os.SameFile)
+// shows a write, a rewrite of the Revision a pointer names included,
+// which leaves both pointers' digests as they were. An open file keeps
+// its inode allocated, so no later file can take its identity.
+type lkgFiles map[string]*os.File
+
+// openLKG opens every entry of lkg/; close releases them.
+func (p *property) openLKG() lkgFiles {
 	p.t.Helper()
-	ptrs := p.pointers()
-	for i, d := range ptrs {
-		if !d.IsZero() && !p.activated[d] {
-			p.t.Fatalf("lkg/ pointer %d names %s, which never activated", i, d.Short())
+	list, err := os.ReadDir(p.dir.LKGPath())
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	files := make(lkgFiles, len(list))
+	for _, e := range list {
+		f, err := os.Open(p.files.Path(e.Name()))
+		if err != nil {
+			files.close()
+			p.t.Fatal(err)
+		}
+		files[e.Name()] = f
+	}
+	return files
+}
+
+// close closes every file.
+func (f lkgFiles) close() {
+	for _, file := range f {
+		_ = file.Close()
+	}
+}
+
+// changedSince names the first entry of lkg/, in name order, that a write
+// created, replaced or deleted since was was opened: "" when lkg/ holds
+// the same files.
+func (p *property) changedSince(was lkgFiles) string {
+	p.t.Helper()
+	list, err := os.ReadDir(p.dir.LKGPath())
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	names := make(map[string]bool, len(list)+len(was))
+	for n := range was {
+		names[n] = true
+	}
+	for _, e := range list {
+		names[e.Name()] = true
+	}
+	for _, n := range slices.Sorted(maps.Keys(names)) {
+		f, ok := was[n]
+		if !ok {
+			return n + " created"
+		}
+		now, err := os.Lstat(p.files.Path(n))
+		if errors.Is(err, fs.ErrNotExist) {
+			return n + " deleted"
+		}
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		then, err := f.Stat()
+		if err != nil {
+			p.t.Fatal(err)
+		}
+		if !os.SameFile(then, now) {
+			return n + " replaced"
 		}
 	}
-	if !p.r.held.Load() {
-		if p.frozen == nil {
-			p.frozen = &ptrs
-		} else if *p.frozen != ptrs {
-			p.t.Fatal("lkg/ changed while no process held the lock")
+	return ""
+}
+
+// check asserts that lkg/ names only activated Revisions; handover checks
+// that a process without the lock never writes it.
+func (p *property) check() {
+	p.t.Helper()
+	for i, d := range p.pointers() {
+		if !d.IsZero() && !p.activated[d] {
+			p.t.Fatalf("lkg/ pointer %d names %s, which never activated", i, d.Short())
 		}
 	}
 }
@@ -374,5 +448,75 @@ func TestSettleWaitsForADueLastKnownGoodRetry(t *testing.T) {
 	a := rev("A").Digest
 	if cand, last, err := r.store.Pointers(); err != nil || cand != a || last != a {
 		t.Fatalf("lkg/ names %s and %s (%v) once settled, want A for both", cand.Short(), last.Short(), err)
+	}
+}
+
+// TestHandoverSeesARewriteOfTheNamedRevision checks the oracle handover
+// applies to a successor's boot for "only the lock holder writes"
+// (foundation pack section 8.11): a successor that writes lkg/ before it
+// holds the lock is caught even when it rewrites the Revision lkg/
+// already names, as one booting the holder's candidate does, which leaves
+// both pointers' digests as they were.
+func TestHandoverSeesARewriteOfTheNamedRevision(t *testing.T) {
+	p := newProperty(t)
+	a := rev("A").Digest
+	if got := p.pointers(); got != [2]revision.Digest{a, a} {
+		t.Fatalf("lkg/ names %s and %s, want A for both", got[0].Short(), got[1].Short())
+	}
+	was := p.openLKG()
+	defer was.close()
+	// The successor's lock gate stays open while it boots, so activating
+	// the holder's candidate A writes A over A.
+	s := newRigOn(t, p.dir, p.lock, withSuccessorBoot())
+	s.start()
+	s.booted()
+	p.settle(s)
+	if got := s.l.Active(); got != a {
+		t.Fatalf("the successor booted %s, want the holder's candidate A", got.Short())
+	}
+	if got := p.pointers(); got != [2]revision.Digest{a, a} {
+		t.Fatalf("lkg/ names %s and %s after the rewrite, want A for both", got[0].Short(), got[1].Short())
+	}
+	if got, want := p.changedSince(was), lkg.CandidateFile+" replaced"; got != want {
+		t.Fatalf("changedSince = %q, want %q", got, want)
+	}
+}
+
+// TestChangedSinceNamesEveryWrite checks that the handover's oracle names
+// each kind of write to lkg/: an entry created, as an interrupted write's
+// unnamed content; replaced, here by the same bytes; or deleted; and
+// nothing when lkg/ is only read.
+func TestChangedSinceNamesEveryWrite(t *testing.T) {
+	a, b := rev("A"), rev("B")
+	for _, tc := range []struct {
+		name  string
+		write func(p *property) error
+		want  string
+	}{
+		{"read", func(p *property) error {
+			_, _, err := p.files.Pointers()
+			return err
+		}, ""},
+		{"created", func(p *property) error {
+			return os.WriteFile(p.files.Path(lkg.ContentName(b.Digest)), b.Content, 0o600)
+		}, lkg.ContentName(b.Digest) + " created"},
+		{"replaced", func(p *property) error {
+			return p.lock.WriteFile(nodedir.LKGDir+"/"+lkg.ContentName(a.Digest), a.Content)
+		}, lkg.ContentName(a.Digest) + " replaced"},
+		{"deleted", func(p *property) error {
+			return os.Remove(p.files.Path(lkg.LKGFile))
+		}, lkg.LKGFile + " deleted"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			p := newProperty(t)
+			was := p.openLKG()
+			defer was.close()
+			if err := tc.write(p); err != nil {
+				t.Fatal(err)
+			}
+			if got := p.changedSince(was); got != tc.want {
+				t.Errorf("changedSince = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
