@@ -143,7 +143,11 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 	if checker != nil {
 		checker.stop()
 	}
-	end := r.Inject("unfill", target.Name(), func() error {
+	// The deployment stays full until the unfill returns: the maxmemory
+	// Unpin restores can still sit under the memory in use, which refuses
+	// writes until the filler's deletes land. The recovery's windows start
+	// once it returned (Remove), not as it began.
+	end := r.Remove("unfill", target.Name(), func() error {
 		if limit > 0 {
 			if err := Unpin(ctx, target, limit); err != nil {
 				return err
@@ -200,10 +204,11 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 		)
 	}
 	if variant != "main-noeviction" {
-		// Every run's recovery: errors back to zero and no degraded
-		// reason left that the fill raised; main-noeviction checks its
-		// breakers too (RecoveryCriteria).
-		r.Add(Check("recovery errors", Functional, float64(ErrorsAfter(l, rec.Start, rec.End, STSCodes()...)), EQ, 0))
+		// Every run's recovery, from the unfill's return to the end of
+		// the recovery phase: errors back to zero and no degraded reason
+		// left that the fill raised; main-noeviction checks its breakers
+		// too (RecoveryCriteria).
+		r.Add(Check("recovery errors", Functional, float64(ErrorsAfter(l, end, rec.End, STSCodes()...)), EQ, 0))
 		r.StaleReasons(nodes, base.End, rec.End)
 	}
 	r.Add(FC13Criteria(policy, onCache, evicted-evictedBefore, len(r.Sampler.ReasonRaised(nodes, EvictionReason, base.Start, rec.End)))...)
