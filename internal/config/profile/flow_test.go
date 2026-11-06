@@ -77,10 +77,10 @@ func TestFlowColon(t *testing.T) {
 }
 
 // TestFlowEntryShape covers what a flow entry holds (YAML 1.2.2 section
-// 7.4): an optional '?', a node, a ':' and a node, entries separated by
-// ',', lines indented more than the block collection holding the flow
-// collection, and a plain scalar that spans lines; anything more is
-// RZ-CFG-001 at the first character past the entry.
+// 7.4): an optional '?', a node, a ':' and a node, either node possibly
+// empty, entries separated by ',', lines indented more than the block
+// collection holding the flow collection, and a plain scalar that spans
+// lines; anything more is RZ-CFG-001 at the first character past the entry.
 func TestFlowEntryShape(t *testing.T) {
 	checkFlowRows(t, []flowRow{
 		{"x: [\nk:\n k:\n  k: v\n]\n", "RZ-CFG-001@2:1", msgFlowIndent},
@@ -124,6 +124,41 @@ func TestFlowEntryShape(t *testing.T) {
 		{"x: [a,,b]\n", "RZ-CFG-001@1:7", msgFlowEmpty},
 		{"x: [,]\n", "RZ-CFG-001@1:5", msgFlowEmpty},
 		{"x: {,}\n", "RZ-CFG-001@1:5", msgFlowEmpty},
+		// Flow pairs (YAML 1.2.2 rules 143 to 153): an explicit or implicit
+		// key, a ':' and a value, the ':' optional after an explicit key
+		// (section 7.4.2) and the key and the value possibly empty.
+		{"x: [? ]\n", `{x:[{:n}]}`, ""},
+		{"x: [? , b]\n", `{x:[{:n},s:"b"]}`, ""},
+		{"x: [? :]\n", `{x:[{:n}]}`, ""},
+		{"x: [? : , b]\n", `{x:[{:n},s:"b"]}`, ""},
+		{"x: [? : a]\n", `{x:[{:s:"a"}]}`, ""},
+		{"x: [? : \"a\", b]\n", `{x:[{:s:"a"},s:"b"]}`, ""},
+		{"x: [? : [a]]\n", `{x:[{:[s:"a"]}]}`, ""},
+		{"x: [? # c\n  : a]\n", `{x:[{:s:"a"}]}`, ""},
+		{"x: [b, ? : a]\n", `{x:[s:"b",{:s:"a"}]}`, ""},
+		{"x: [? , : a]\n", `{x:[{:n},{:s:"a"}]}`, ""},
+		{"x: [? a]\n", `{x:[{a:n}]}`, ""},
+		{"x: [? a : b]\n", `{x:[{a:s:"b"}]}`, ""},
+		{"x: [? \"a\":b]\n", `{x:[{a:s:"b"}]}`, ""},
+		{"x: [? !!str : b]\n", `{x:[{:s:"b"}]}`, ""},
+		{"x: [: a]\n", `{x:[{:s:"a"}]}`, ""},
+		{"x: [:, b]\n", `{x:[{:n},s:"b"]}`, ""},
+		{"x: [a: b]\n", `{x:[{a:s:"b"}]}`, ""},
+		{"x: [\"a\":b]\n", `{x:[{a:s:"b"}]}`, ""},
+		// After a flow pair comes a ',' or the closing ']' (rule 138): a
+		// second ':' starts no node (rule 126), as in the nightly fuzz input
+		// "[? : : ]", which yaml.v3 reads as [{null: null}]; nor may an empty
+		// entry or a second ']' follow.
+		{"[? : : ]", "RZ-CFG-001@1:6", msgFlowSeqNext},
+		{"x: [? : : a]\n", "RZ-CFG-001@1:9", msgFlowSeqNext},
+		{"x: [? :\n  : a]\n", "RZ-CFG-001@2:3", msgFlowSeqNext},
+		{"x: [? # c\n  : : ]\n", "RZ-CFG-001@2:5", msgFlowSeqNext},
+		{"x: [b, ? : : ]\n", "RZ-CFG-001@1:12", msgFlowSeqNext},
+		{"x: [? a : : b]\n", "RZ-CFG-001@1:11", msgFlowSeqNext},
+		{"x: [: : a]\n", "RZ-CFG-001@1:7", msgFlowSeqNext},
+		{"x: [a: : b]\n", "RZ-CFG-001@1:8", msgFlowSeqNext},
+		{"x: [? , , b]\n", "RZ-CFG-001@1:9", msgFlowEmpty},
+		{"x: [? ]]\n", "RZ-CFG-001@1:8", msgAfterNode},
 	})
 }
 

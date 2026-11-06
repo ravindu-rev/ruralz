@@ -357,8 +357,8 @@ const (
 func deviationClasses() []deviation {
 	re := regexp.MustCompile
 	tabIndent := re(`(?m)^[ ]*\t|[-?:][ ]*\t`)
-	colonLine := re(`(?m)(^|[\[{,]|[-?][ \t])[ \t]*:([ \t,\]}]|$)`)
-	flowIndicator := re(`(^|[\s\[{,])[?:][^\s,\[\]{}]|:[?:]|[^\s,\[\]{}]\s*\?|:[,\[\]{}]|(^|[\s\[{,:])[-?][,\[\]{}]|\?(\s|#[^\n]*)*[,\[\]{}]`)
+	colonLine := re(`(?m)(^|[\[{,]|-[ \t])[ \t]*:([ \t,\]}]|$)`)
+	flowIndicator := re(`(^|[\s\[{,])[?:][^\s,\[\]{}]|:[?:]|[^\s,\[\]{}]\s*\?|:[,\[\]{}]|(^|[\s\[{,:])[-?][,\[\]{}]`)
 	commentAfterToken := re(`["'\[\]{},:]#|[|>][+\-1-9]{0,2}#`)
 	topBlockScalar := re(`(?m)^[ \t]*(---[ \t]+)?(![^\s]*[ \t]+)?([|>][^\n]*\n([ \t]*\n)*[^\s]|[|>][+-]?[1-9])`)
 	directive := re(`(?m)^%`)
@@ -474,9 +474,30 @@ func deviationClasses() []deviation {
 			witnesses: []string{"k:\n|\n x\n", "?\n>\n a\n", "k: !!map\n>+\n a\n", "- -\n  |\n"},
 		},
 		{
+			name: "flow-pair-empty-explicit-key",
+			why: "In a flow sequence libyaml drops the token after the '?' of an explicit key with nothing in " +
+				"it, as if that token were the key: the ':' before the pair's value, the ',' after the pair or " +
+				"the closing ']'. It so refuses [? : x], [? , x] and [ ? ], which YAML 1.2 reads as a pair with " +
+				"an empty key (YAML 1.2.2 section 7.4.2, rules 143, 146 and 150), reads [? , : x] as one pair " +
+				"where YAML 1.2 reads two, and accepts [? : : x], [? , , x] and [? ]], which YAML 1.2 refuses: " +
+				"after the pair comes a ':' that starts no node, an empty entry or a ']' that closes nothing " +
+				"(rules 126, 137 and 138). In a flow mapping libyaml keeps the token ({? : x}). With \"\" written " +
+				"as each such key, which libyaml reads as YAML 1.2 does, the two agree or differ as another " +
+				"class says",
+			matches: func(src, _ string) bool {
+				filled, ok := fillEmptyFlowKeys(src)
+				if !ok {
+					return false
+				}
+				d := diffYAML([]byte(filled))
+				return d == "" || deviationOf(filled, d) != ""
+			},
+			witnesses: []string{"[? : x]\n", "[? , x]\n", "[ ? ]\n", "[? , : x]\n", "[? : : x]\n", "[? , , x]\n", "[? ]]\n", "- [? #c\n  : : ]\n"},
+		},
+		{
 			name: "colon-line",
 			why: "libyaml refuses a ':' value indicator with no key before it on its line: an entry with an " +
-				"empty key at the start of a line, after '- ', '? ', '[', '{' or ',', and a flow mapping key " +
+				"empty key at the start of a line, after '- ', '[', '{' or ',', and a flow mapping key " +
 				"whose ':' is on a later line, which YAML 1.2 allows; the profile reads the empty key as \"\" " +
 				"(YAML Test Suite 2JQS, 4MUZ, CFD4, FRK4, NHX8, NKF9, S3PD, SM9W/01, UKK6/00, VJP3/01)",
 			matches: func(src, diff string) bool {
@@ -510,14 +531,12 @@ func deviationClasses() []deviation {
 				"ends a plain scalar at '?', while YAML 1.2 starts and continues a plain scalar with them before " +
 				"a character a plain scalar can hold ([?x], {x: :x}, {\"a\"::b}, {key: value?}); it keeps a ':' " +
 				"before a flow indicator in the scalar ([a:, b], {0000 :}), where YAML 1.2 reads a value indicator; and " +
-				"it reads '-' before a flow indicator ([-]) as the scalar \"-\", which YAML 1.2 refuses, " +
-				"and refuses an explicit key with nothing after it in a flow sequence ([ ? ]), which YAML 1.2 " +
-				"reads as a pair of empty nodes " +
+				"it reads '-' before a flow indicator ([-]) as the scalar \"-\", which YAML 1.2 refuses " +
 				"(YAML Test Suite 4ABK, 58MP, 5MUD, 5T43, 652Z, DBG4, G5U8, HM87, JR7V, K3WX, YJV2)",
 			matches: func(src, _ string) bool {
 				return strings.ContainsAny(src, "[{") && flowIndicator.MatchString(src)
 			},
-			witnesses: []string{"[?x]\n", "{x: :x}\n", "- {\"a\"::b}\n", "- {key: value?}\n", "[a:, b]\n", "{0000 :}\n", "[-]\n", "[ ? ]\n"},
+			witnesses: []string{"[?x]\n", "{x: :x}\n", "- {\"a\"::b}\n", "- {key: value?}\n", "[a:, b]\n", "{0000 :}\n", "[-]\n"},
 		},
 	}
 }
@@ -559,6 +578,217 @@ func innerColumn(line string, col int) int {
 	return col
 }
 
+// fillEmptyFlowKeys returns src with "" written as the key of each
+// explicit key with nothing in it that starts a flow sequence entry
+// (emptyFlowKeyEnds), and whether src holds one.
+func fillEmptyFlowKeys(src string) (string, bool) {
+	ends := emptyFlowKeyEnds(src)
+	if len(ends) == 0 {
+		return src, false
+	}
+	var b strings.Builder
+	last := 0
+	for _, e := range ends {
+		b.WriteString(src[last:e])
+		b.WriteString(`""`)
+		last = e
+	}
+	b.WriteString(src[last:])
+	return b.String(), true
+}
+
+// emptyFlowKeyEnds returns the offsets in src, a stream with LF line
+// breaks, of the token after each explicit key with nothing in it that
+// starts a flow sequence entry: a '?' followed by white space, then only
+// white space, line breaks and comments before a ':' value indicator, a ','
+// or the closing ']' (YAML 1.2.2 rules 138, 139 and 150). It reads src as
+// YAML 1.2 does as far as finding them needs: a quoted scalar, and in block
+// context a flow collection, starts only where a node can; comments, quoted
+// scalars, properties and the lines of a block scalar, those indented more
+// than its header's line, hold no flow collection; and a line indented more
+// than the line a block plain scalar starts on continues the scalar.
+func emptyFlowKeyEnds(src string) []int {
+	n := len(src)
+	blank := func(i int) bool { return i < 0 || i >= n || src[i] == ' ' || src[i] == '\t' || src[i] == '\n' }
+	flowAt := func(i int) bool { return i < n && strings.IndexByte(",[]{}", src[i]) >= 0 }
+	lineEnd := func(i int) int {
+		if k := strings.IndexByte(src[i:], '\n'); k >= 0 {
+			return i + k
+		}
+		return n
+	}
+	// sep returns the offset past the white space, line breaks and comments
+	// at i.
+	sep := func(i int) int {
+		for i < n {
+			switch {
+			case blank(i):
+				i++
+			case src[i] == '#' && blank(i-1):
+				i = lineEnd(i)
+			default:
+				return i
+			}
+		}
+		return n
+	}
+	// quoted returns the offset past the quoted scalar at i, or n.
+	quoted := func(i int) int {
+		q := src[i]
+		for j := i + 1; j < n; j++ {
+			switch {
+			case q == '"' && src[j] == '\\':
+				j++
+			case src[j] == q && q == '\'' && j+1 < n && src[j+1] == '\'':
+				j++
+			case src[j] == q:
+				return j + 1
+			}
+		}
+		return n
+	}
+	// property returns the offset past the tag, anchor or alias at i.
+	property := func(i int, inFlow bool) int {
+		i++
+		for i < n && !blank(i) && (!inFlow || !flowAt(i)) {
+			i++
+		}
+		return i
+	}
+	var ends []int
+	// flow reads the flow collection whose bracket is at i and returns the
+	// offset past its closing bracket, or n. A node can start after an
+	// opening bracket, a ',', an indicator or a property, and an entry of a
+	// flow sequence after its '[' or a ','; after a quoted scalar or a flow
+	// collection a ':' is an indicator whatever follows it (rule 149).
+	flow := func(i int) int {
+		open := []byte{src[i]}
+		node, entry, json := true, src[i] == '[', false
+		for i++; i < n && len(open) > 0; {
+			c := src[i]
+			switch {
+			case blank(i):
+				i++
+			case c == '#' && blank(i-1):
+				i = lineEnd(i)
+			case c == '[' || c == '{':
+				open = append(open, c)
+				node, entry, json = true, c == '[', false
+				i++
+			case c == ']' || c == '}':
+				open = open[:len(open)-1]
+				node, entry, json = false, false, true
+				i++
+			case c == ',':
+				node, entry, json = true, open[len(open)-1] == '[', false
+				i++
+			case c == '?' && node && blank(i+1):
+				j := sep(i + 1)
+				empty := j < n && (src[j] == ',' || src[j] == ']' || (src[j] == ':' && (blank(j+1) || flowAt(j+1))))
+				if entry && empty {
+					ends = append(ends, j)
+				}
+				node, entry, json = true, false, false
+				i++
+			case c == ':' && (json || blank(i+1) || flowAt(i+1)):
+				node, entry, json = true, false, false
+				i++
+			case (c == '"' || c == '\'') && node:
+				i = quoted(i)
+				node, entry, json = false, false, true
+			case (c == '!' || c == '&' || c == '*') && node:
+				i = property(i, true)
+				node, entry, json = c != '*', false, false
+			default:
+				// A plain scalar's character, or one that starts no node.
+				node, entry, json = false, false, false
+				i++
+			}
+		}
+		return i
+	}
+	// plain is the indentation of the line where the block plain scalar
+	// before the cursor starts, or -1.
+	plain := -1
+	for i := 0; i < n; {
+		e := lineEnd(i)
+		indent := 0
+		for i+indent < e && src[i+indent] == ' ' {
+			indent++
+		}
+		j := i + indent
+		for j < e && (src[j] == ' ' || src[j] == '\t') {
+			j++
+		}
+		switch {
+		case j == e:
+			// An empty line neither ends nor starts a node.
+			i = e + 1
+			continue
+		case src[j] == '#':
+			plain, i = -1, e+1
+			continue
+		}
+		node := plain < 0 || indent <= plain
+		if node {
+			plain = -1
+			switch {
+			case indent == 0 && (strings.HasPrefix(src[i:], "---") || strings.HasPrefix(src[i:], "...")) && blank(i+3):
+				j = i + 3
+			case indent == 0 && src[i] == '%':
+				// A directive.
+				i = e + 1
+				continue
+			}
+		}
+		for j < n && src[j] != '\n' {
+			c := src[j]
+			switch {
+			case c == ' ' || c == '\t':
+				j++
+			case c == '#' && blank(j-1):
+				j = lineEnd(j)
+			case c == ':' && blank(j+1):
+				node, plain = true, -1
+				j++
+			case !node:
+				j++
+			case (c == '-' || c == '?') && blank(j+1):
+				j++
+			case c == '[' || c == '{':
+				j, node = flow(j), false
+			case c == '"' || c == '\'':
+				j, node = quoted(j), false
+			case c == '|' || c == '>':
+				// A block scalar: the lines after its header that are empty
+				// or indented more than the header's line.
+				for j = lineEnd(j); j < n; {
+					k := j + 1
+					s := k
+					for s < n && src[s] == ' ' {
+						s++
+					}
+					w := s
+					for w < n && (src[w] == ' ' || src[w] == '\t') {
+						w++
+					}
+					if w < n && src[w] != '\n' && s-k <= indent {
+						break
+					}
+					j = lineEnd(k)
+				}
+			case c == '!' || c == '&' || c == '*':
+				j, node = property(j, false), c != '*'
+			default:
+				node, plain = false, indent
+				j++
+			}
+		}
+		i = j + 1
+	}
+	return ends
+}
+
 // deviationOf returns the name of the first class src belongs to, given
 // how the two differ on it, or "". The classes read src with every line
 // break as LF, as both parsers do.
@@ -589,6 +819,74 @@ func TestDeviationWitnesses(t *testing.T) {
 			if !c.matches(w, diff) {
 				t.Errorf("class %s does not match its witness %q (%s)", c.name, w, diff)
 			}
+		}
+	}
+}
+
+// TestFillEmptyFlowKeys covers the shape of the flow-pair-empty-explicit-key
+// class: "" goes before the ':', ',' or ']' after each explicit key with
+// nothing in it that starts a flow sequence entry, whatever separation comes
+// between, at any nesting and after any entry or block node; a key holding a
+// node, a tag or a quoted scalar, a '?' that indicates no explicit key, a
+// flow mapping's entry, block context, and text in a quoted scalar, a block
+// scalar, a plain scalar or a comment stay as they are. A filled stream
+// holds no such key.
+func TestFillEmptyFlowKeys(t *testing.T) {
+	tests := []struct{ src, want string }{
+		// Keys libyaml reads otherwise.
+		{"[? : x]\n", "[? \"\": x]\n"},
+		{"[? :]\n", "[? \"\":]\n"},
+		{"[? :, x]\n", "[? \"\":, x]\n"},
+		{"[? , x]\n", "[? \"\", x]\n"},
+		{"[ ? ]\n", "[ ? \"\"]\n"},
+		{"[? : : ]", "[? \"\": : ]"},
+		{"[?\t: x]\n", "[?\t\"\": x]\n"},
+		{"k: [?\n  : x]\n", "k: [?\n  \"\": x]\n"},
+		{"- [? # c\n  , x]\n", "- [? # c\n  \"\", x]\n"},
+		{"[a, ? ]\n", "[a, ? \"\"]\n"},
+		{"[[? ], ? , {k: [? : v]}]\n", "[[? \"\"], ? \"\", {k: [? \"\": v]}]\n"},
+		{"[{a: b}, ? : x]\n", "[{a: b}, ? \"\": x]\n"},
+		{"k: \"v\"\nl: [\"a\", ? : 'b''c', ? ]\n", "k: \"v\"\nl: [\"a\", ? \"\": 'b''c', ? \"\"]\n"},
+		{"k: |\n  x\nl: [? ]\n", "k: |\n  x\nl: [? \"\"]\n"},
+		{"k: a\nl: [? ]\n", "k: a\nl: [? \"\"]\n"},
+		{"--- [? ]\n", "--- [? \"\"]\n"},
+		{"!!seq [? ]\n", "!!seq [? \"\"]\n"},
+		{"\"k\": [? ]\n", "\"k\": [? \"\"]\n"},
+		// Left as they are.
+		{"[? a : x]\n", ""},
+		{"[? \"\" : x]\n", ""},
+		{"[? !!str : x]\n", ""},
+		{"[? :x]\n", ""},
+		{"[? [a] : x]\n", ""},
+		{"[?: x]\n", ""},
+		{"[?]\n", ""},
+		{"[a ? : x]\n", ""},
+		{"[!!str ? : x]\n", ""},
+		{"{? : x, ? , ? }\n", ""},
+		{"[{? : x}]\n", ""},
+		{"? : x\n", ""},
+		{"- ? \n  : x\n", ""},
+		{"k: \"[? : x]\"\n", ""},
+		{"k: '[a'', ? ]'\n", ""},
+		{"k: [\"a\\\", ? ]\"]\n", ""},
+		{"k: |\n  [? : x]\n", ""},
+		{"k: a [? : x]\n", ""},
+		{"k: a\n  [? : x]\n", ""},
+		{"# [? : x]\n", ""},
+		{"k: [a #, ? ]\n  ]\n", ""},
+	}
+	for _, tt := range tests {
+		want, wantOK := tt.want, tt.want != ""
+		if !wantOK {
+			want = tt.src
+		}
+		got, ok := fillEmptyFlowKeys(tt.src)
+		if got != want || ok != wantOK {
+			t.Errorf("fillEmptyFlowKeys(%q) = %q, %v, want %q, %v", tt.src, got, ok, want, wantOK)
+			continue
+		}
+		if again, ok := fillEmptyFlowKeys(got); ok {
+			t.Errorf("fillEmptyFlowKeys(%q) = %q, which still holds an empty key (%q)", tt.src, got, again)
 		}
 	}
 }

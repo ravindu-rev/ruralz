@@ -158,6 +158,15 @@ func hostileSeeds() []string {
 		"x: [a, !!str\n  \"k\": b]\n",
 		"x: [&a\n  : v]\n",
 		"x: [!!str\n  0, 0: !!str\n  v]\n",
+		// Flow sequence entries whose explicit key is empty, before a value,
+		// a ',', the closing ']', a second ':', an empty entry or a second
+		// ']'.
+		"x: [? : y, ? , z, ? ]\n",
+		"x: [? , : y]\n",
+		"x: [? : : y]\n",
+		"x: [? #c\n  : : ]\n",
+		"x: [a, ? , , b]\n",
+		"x: [? ]]\n",
 	}
 }
 
