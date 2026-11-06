@@ -32,7 +32,7 @@ From Git Bash, after all work is done:
 
 ```bash
 make hygiene lint generate build test supply-chain
-make floor FLOOR_GOTOOLCHAIN=go1.26.8
+make floor FLOOR_GOTOOLCHAIN=go1.26.10
 ```
 
 Add `make integration` when integration-tagged tests changed. Without make: `go run ./internal/tool/repocheck`, `go generate ./...` with no diff, `go build ./...`, `go vet ./...`, `CGO_ENABLED=0 go test -shuffle=on ./...`, `go mod verify`, `go run ./internal/tool/depgate`. Say which gates could not run and why. `make generate` fails until regenerated files are staged.

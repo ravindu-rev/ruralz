@@ -65,4 +65,4 @@ A new module needs, in the same change, a row in `docs/engineering/01-tech-stack
 
 ## Go version
 
-`go.mod` says `go 1.26.0` and a `toolchain` line. The floor job builds and tests on Go 1.26 with `GOEXPERIMENT=jsonv2`, so never use standard library APIs added in Go 1.27; `internal/buildinfo/floor_guard.go` breaks a Go 1.26 build without `GOEXPERIMENT=jsonv2` on purpose.
+`go.mod` says `go 1.26.10` and a `toolchain` line. The floor job builds and tests on Go 1.26 with `GOEXPERIMENT=jsonv2`, so never use standard library APIs added in Go 1.27; `internal/buildinfo/floor_guard.go` breaks a Go 1.26 build without `GOEXPERIMENT=jsonv2` on purpose.
