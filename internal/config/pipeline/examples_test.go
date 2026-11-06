@@ -23,7 +23,7 @@ const examplesDir = "../../../examples"
 // many workers, and canonical re-entry of the Revision to the same digest.
 func TestExampleBundlesRunEveryStage(t *testing.T) {
 	envs := loader.Source{Path: filepath.Join(examplesDir, "control", "environments.yaml")}
-	for _, name := range []string{"shop-bundle", "shop-rest-bundle", "quickstart"} {
+	for _, name := range []string{"shop-bundle", "shop-rest-bundle"} {
 		dir := filepath.Join(examplesDir, name)
 		if _, err := os.Stat(dir); err != nil {
 			t.Fatalf("example %s: %v", name, err)

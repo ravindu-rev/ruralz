@@ -7,7 +7,7 @@
 // string escaping (each byte escaped or literal).
 //
 // A canary is injected where a real secret would be (secretRef files and
-// environment variables, API keys, State Store passwords); the end-to-end
+// environment variables, API keys, State Store passwords); the process
 // harness then scans logs, admin responses, telemetry and error bodies with
 // Scan and fails the run on any Finding outside the designated destinations.
 package canary

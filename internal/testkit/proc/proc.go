@@ -77,26 +77,6 @@ type Spec struct {
 	ExtraFiles []*os.File
 }
 
-// Usage is one resource sample.
-type Usage struct {
-	UserCPU, SysCPU time.Duration
-	RSSBytes        int64
-	Threads         int
-	// Time is when the sample was taken.
-	Time time.Time
-}
-
-// CPUShare returns the CPU used between two samples as a share of one
-// CPU (1.0 = one core fully busy); 0 when no time passed.
-func CPUShare(prev, cur Usage) float64 {
-	wall := cur.Time.Sub(prev.Time)
-	if wall <= 0 {
-		return 0
-	}
-	used := (cur.UserCPU + cur.SysCPU) - (prev.UserCPU + prev.SysCPU)
-	return float64(used) / float64(wall)
-}
-
 // Process is a started process.
 type Process struct {
 	name           string

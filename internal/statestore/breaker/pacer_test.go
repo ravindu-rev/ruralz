@@ -116,7 +116,7 @@ func TestPacerResetOnSuccess(t *testing.T) {
 // failures belongs to the address that failed: the primary shard of a
 // sentinel deployment dials the replica the sentinels promote at once,
 // while the dead primary's dials keep backing off, and the per-second
-// limit stays the shard's (CE-5's reconnection bound, under sentinel).
+// limit stays the shard's.
 func TestPacerBackoffPerAddress(t *testing.T) {
 	clk := clocktest.New(start())
 	p := NewPacer(clk, DefaultPacerConfig(), fixed(5*time.Second))

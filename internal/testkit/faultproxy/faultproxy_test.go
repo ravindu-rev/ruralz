@@ -784,7 +784,7 @@ func TestStartRefusing(t *testing.T) {
 	mustEcho(t, dial(t, p.Addr()), "ok", "ok")
 }
 
-func TestSetUpstream(t *testing.T) { // Upstream switch (CE-5 failover)
+func TestSetUpstream(t *testing.T) { // Upstream switch (scripted failover)
 	a, b := startEcho(t, false), startEcho(t, true)
 	p := start(t, Config{Upstream: a.addr()})
 	first := dial(t, p.Addr())

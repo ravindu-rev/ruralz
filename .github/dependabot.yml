@@ -8,8 +8,8 @@
 # main. Security updates also target main and, since main is the default
 # branch, follow the commit-message options below too. Commit
 # titles take a Conventional Commits prefix: build(deps) for Go modules and
-# for the digest-pinned images of deploy/container/ and test/compose/, whose
-# literal FROM lines the docker updates move, ci(deps) for actions.
+# for the digest-pinned images of deploy/container/, whose literal FROM
+# lines the docker updates move, ci(deps) for actions.
 # Dependabot words the rest of a title itself and cannot sign off, so
 # commitcheck skips the title and DCO checks for commits it authors (doc
 # 02, "DCO sign-off").
@@ -59,7 +59,6 @@ updates:
   - package-ecosystem: docker
     directories:
       - /deploy/container
-      - /test/compose
     target-branch: main
     schedule:
       interval: weekly

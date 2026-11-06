@@ -22,9 +22,6 @@ func killGroup(pid int) {
 	}
 }
 
-// Sample reads the process's CPU time, RSS and thread count from /proc.
-func (p *Process) Sample() (Usage, error) { return SampleProc("/proc", p.PID()) }
-
 // Signaled returns the signal that ended the process, once Done is closed.
 func (p *Process) Signaled() (os.Signal, bool) {
 	st := p.State()

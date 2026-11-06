@@ -13,13 +13,8 @@
 // open now, so a test sees an exporter close its old connection. Spans,
 // log records and metrics are also kept flattened with their resource and
 // scope, and the span queries order a trace by start time (ties in
-// arrival order): Trace, SpanNames, Children, Roots and FormatTree answer
-// "which spans, in which order, under which parent".
-//
-// With Config.Fold the sink folds one duration attribute of one log event,
-// the access log's gateway_duration, into the windows AddWindow registers
-// as records arrive, instead of keeping those records: the benchmark
-// harness's internal histogram of a run (fold.go).
+// arrival order): Trace, SpanNames, Roots and FormatTree answer "which
+// spans, in which order, under which parent".
 //
 // Modes script collector failures for exporter tests: Accept records and
 // answers OK; Reject answers every export with a gRPC status; Stall
@@ -156,8 +151,6 @@ func validMode(m Mode) error {
 
 // Config configures a Sink.
 type Config struct {
-	// Listen is the listen address; default "127.0.0.1:0".
-	Listen string
 	// TLS, when set, serves gRPC over TLS with this configuration (from
 	// testkit/pki; set ClientAuth and ClientCAs for mutual TLS). When nil
 	// the sink serves h2c, gRPC over cleartext HTTP/2.
@@ -175,9 +168,6 @@ type Config struct {
 	MaxBytes int64
 	// Mode is the initial mode; default Accept.
 	Mode Mode
-	// Fold, when set, folds one duration attribute of one log event into
-	// the windows AddWindow registers instead of recording those records.
-	Fold *Fold
 }
 
 // Stats counts export requests.
@@ -207,7 +197,6 @@ type Sink struct {
 	codec  rawCodec
 	conns  *connStats // shared by the servers across Down
 	rec    *recorder
-	fold   *folder       // nil without Config.Fold
 	closed chan struct{} // closed by Close
 
 	// modeMu serializes SetMode and Close, which start and stop servers;
@@ -227,12 +216,9 @@ type Sink struct {
 	rejected, stalled atomic.Int64
 }
 
-// Start listens on c.Listen and serves the OTLP collector services until
-// Close is called or ctx ends.
+// Start listens on a free loopback port and serves the OTLP collector
+// services until Close is called or ctx ends.
 func Start(ctx context.Context, c Config) (*Sink, error) {
-	if c.Listen == "" {
-		c.Listen = "127.0.0.1:0"
-	}
 	if c.MaxRecvMsgSize <= 0 {
 		c.MaxRecvMsgSize = DefaultMaxRecvMsgSize
 	}
@@ -255,13 +241,7 @@ func Start(ctx context.Context, c Config) (*Sink, error) {
 	if err != nil {
 		return nil, err
 	}
-	var fold *folder
-	if c.Fold != nil {
-		if fold, err = newFolder(*c.Fold); err != nil {
-			return nil, err
-		}
-	}
-	ln, err := listen(ctx, c.Listen)
+	ln, err := listen(ctx, "127.0.0.1:0")
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +251,6 @@ func Start(ctx context.Context, c Config) (*Sink, error) {
 		codec:   codec,
 		conns:   &connStats{},
 		rec:     newRecorder(c.MaxRequests, c.MaxBytes),
-		fold:    fold,
 		closed:  make(chan struct{}),
 		mode:    c.Mode,
 		release: make(chan struct{}),
@@ -499,14 +478,6 @@ func (s *Sink) handle(ctx context.Context, sig Signal, msg any, raw []byte) erro
 		req.Metrics = m
 	case *collogs.ExportLogsServiceRequest:
 		req.Logs = m
-		if s.fold != nil {
-			// Folded records are never recorded; a request holding only
-			// them is counted and dropped.
-			if req.Logs = s.fold.fold(m); req.Logs == nil {
-				s.rec.count(Logs)
-				return nil
-			}
-		}
 	}
 	s.rec.add(req)
 	return nil

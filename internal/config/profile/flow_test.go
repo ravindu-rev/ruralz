@@ -146,7 +146,7 @@ func TestFlowEntryShape(t *testing.T) {
 		{"x: [a: b]\n", `{x:[{a:s:"b"}]}`, ""},
 		{"x: [\"a\":b]\n", `{x:[{a:s:"b"}]}`, ""},
 		// After a flow pair comes a ',' or the closing ']' (rule 138): a
-		// second ':' starts no node (rule 126), as in the nightly fuzz input
+		// second ':' starts no node (rule 126), as in a fuzz input
 		// "[? : : ]", which yaml.v3 reads as [{null: null}]; nor may an empty
 		// entry or a second ']' follow.
 		{"[? : : ]", "RZ-CFG-001@1:6", msgFlowSeqNext},
@@ -173,7 +173,7 @@ func TestFlowEntryShape(t *testing.T) {
 // lines.
 func TestFlowPairKeyOneLine(t *testing.T) {
 	checkFlowRows(t, []flowRow{
-		// The nightly fuzz crasher, which the profile read as [{0: null}].
+		// A fuzz crasher, which the profile read as [{0: null}].
 		{"{0: [!!str\n0: ]}", "RZ-CFG-001@2:2", msgMultiLineKey},
 		{"[!!str\n0: x]\n", "RZ-CFG-001@2:2", msgMultiLineKey},
 		{"[!!str\n  0 : x]\n", "RZ-CFG-001@2:5", msgMultiLineKey},

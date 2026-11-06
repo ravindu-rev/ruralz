@@ -175,12 +175,12 @@ func TestTypedAccessors(t *testing.T) {
 		}
 		return out
 	}
-	routes, ups, pols, cons := b.Routes(), b.Upstreams(), b.Policies(), b.Consumers()
+	routes, pols, cons := b.Routes(), b.Policies(), b.Consumers()
 	if got := names(len(routes), func(i int) string { return routes[i].Metadata.Name }); !slices.Equal(got, []string{"r1", "r2"}) {
 		t.Fatalf("Routes = %v", got)
 	}
-	if len(ups) != 1 || len(cons) != 1 {
-		t.Fatalf("Upstreams %d, Consumers %d", len(ups), len(cons))
+	if len(cons) != 1 {
+		t.Fatalf("Consumers %d", len(cons))
 	}
 	if got := names(len(pols), func(i int) string { return pols[i].Metadata.Name }); !slices.Equal(got, []string{"p0", "p1"}) {
 		t.Fatalf("Policies = %v", got)

@@ -165,11 +165,6 @@ func (b *Bundle) Plugin(name string) (*v1alpha1.Plugin, bool) {
 // Routes returns every Route in name order.
 func (b *Bundle) Routes() []*v1alpha1.Route { return all[v1alpha1.Route](b, v1alpha1.KindRoute) }
 
-// Upstreams returns every Upstream in name order.
-func (b *Bundle) Upstreams() []*v1alpha1.Upstream {
-	return all[v1alpha1.Upstream](b, v1alpha1.KindUpstream)
-}
-
 // Policies returns every Policy in name order.
 func (b *Bundle) Policies() []*v1alpha1.Policy { return all[v1alpha1.Policy](b, v1alpha1.KindPolicy) }
 

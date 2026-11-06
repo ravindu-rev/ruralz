@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 // Package mockidp is the mock identity provider of the test kit, for the
-// auth.jwt, JWKS and auth.upstream-oauth2 tests, the end-to-end harness,
-// the secret leak tests and the FC-16 failure row: one HTTP server, over
+// auth.jwt, JWKS and auth.upstream-oauth2 tests, the process harness and
+// the secret leak tests: one HTTP server, over
 // TLS when a configuration is passed in (from testkit/pki) or cleartext
 // for unit tests, serving
 //
@@ -79,8 +79,6 @@ type Config struct {
 	// cleartext HTTP (auth.jwt and auth.upstream-oauth2 require https
 	// URLs, RZ-CFG-037, so Node tests pass one).
 	TLS *tls.Config
-	// Issuer is the iss of minted tokens; default URL().
-	Issuer string
 	// Keys are the published keys in document order; the last key of
 	// each algorithm signs for it. Default: a generated RS256 key and a
 	// generated ES256 key.
@@ -99,8 +97,6 @@ type Config struct {
 	// iat. Start rejects other values; a missing or zero expires_in is
 	// scripted with SetTokenOverride instead.
 	TokenTTL time.Duration
-	// TokenAudience, when set, is the aud of issued access tokens.
-	TokenAudience string
 	// RotateEvery, when positive, rotates every algorithm's signing key
 	// on this period, keeping the previous key published (two per
 	// algorithm).
@@ -268,9 +264,6 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	if c.TLS != nil {
 		s.url = "https://" + s.addr
 	}
-	if s.cfg.Issuer == "" {
-		s.cfg.Issuer = s.url
-	}
 	s.rebuildLocked()
 	errorLog := c.ErrorLog
 	if errorLog == nil {
@@ -345,15 +338,12 @@ func (s *Server) Close() error {
 	return err
 }
 
-// Addr returns the listen address (host:port).
-func (s *Server) Addr() string { return s.addr }
-
 // URL returns the base URL, "https://<addr>" over TLS, else
 // "http://<addr>".
 func (s *Server) URL() string { return s.url }
 
-// Issuer returns the iss of minted tokens.
-func (s *Server) Issuer() string { return s.cfg.Issuer }
+// Issuer returns the iss of minted tokens, the base URL.
+func (s *Server) Issuer() string { return s.url }
 
 // JWKSURL returns the JWKS endpoint (an auth.jwt jwksUrl).
 func (s *Server) JWKSURL() string { return s.url + JWKSPath }
@@ -577,7 +567,7 @@ func (s *Server) Mint(alg Alg, claims map[string]any) (string, error) {
 func (s *Server) MintWith(k *Key, header, claims map[string]any) (string, error) {
 	now := s.cfg.Now()
 	full := map[string]any{
-		"iss": s.cfg.Issuer,
+		"iss": s.url,
 		"iat": now.Unix(),
 		"exp": now.Add(s.cfg.TokenTTL).Unix(),
 	}
@@ -828,9 +818,6 @@ func (s *Server) accessToken(clientID, scope string) (string, error) {
 		"sub":       clientID,
 		"client_id": clientID,
 		"jti":       hex.EncodeToString(jti[:]),
-	}
-	if s.cfg.TokenAudience != "" {
-		claims["aud"] = s.cfg.TokenAudience
 	}
 	if scope != "" {
 		claims["scope"] = strings.Join(strings.Fields(scope), " ")

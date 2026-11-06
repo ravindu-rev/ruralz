@@ -40,14 +40,13 @@ func idle(g *Generator, fk *clocktest.Fake) bool {
 	return p.Done == p.Scheduled && p.Next.After(fk.Now())
 }
 
-// drive moves fk on by step(i) until g's run ends, letting every due
-// request end before each step, so latencies depend on the steps alone.
-// Each step is a Jump: with Advance, the generator, woken by the timer of
-// its next request, could read any deadline inside a long step and send
-// some of the requests the step makes late on time.
-func drive(t *testing.T, g *Generator, fk *clocktest.Fake, step func(i int) time.Duration) *Result {
+// drive moves fk on by step until g's run ends, letting every due request
+// end before each step. Each step is a Jump: with Advance, the generator,
+// woken by the timer of its next request, could read any deadline inside
+// a long step and send some of the requests the step makes late on time.
+func drive(t *testing.T, g *Generator, fk *clocktest.Fake, step time.Duration) Stats {
 	t.Helper()
-	for i := 0; ; i++ {
+	for {
 		waitFor(t, "the generator to go idle", func() bool { return idle(g, fk) })
 		select {
 		case <-g.Done():
@@ -58,18 +57,16 @@ func drive(t *testing.T, g *Generator, fk *clocktest.Fake, step func(i int) time
 			return res
 		default:
 		}
-		fk.Jump(step(i))
+		fk.Jump(step)
 	}
 }
-
-func every(d time.Duration) func(int) time.Duration { return func(int) time.Duration { return d } }
 
 // ok is a target answering 200 at once.
 func ok() Target {
 	return TargetFunc(func(context.Context, Request) Response { return Response{Status: 200} })
 }
 
-// recorder collects requests a target saw.
+// seen collects the requests a target saw.
 type seen struct {
 	mu   sync.Mutex
 	reqs []Request

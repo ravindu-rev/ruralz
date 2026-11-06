@@ -68,9 +68,9 @@ func (t *Topology) Capture(source string, data []byte) {
 	}
 }
 
-// HTTPClient returns a client for requests to the Nodes, the balancers or
-// the mocks: it trusts the harness's CAs, follows no redirect and
-// captures every response body it reads for the teardown leak scan.
+// HTTPClient returns a client for requests to the Nodes or the mocks: it
+// trusts the harness's CAs, follows no redirect and captures every
+// response body it reads for the teardown leak scan.
 func (t *Topology) HTTPClient() *http.Client {
 	tr := &http.Transport{
 		TLSClientConfig:   t.ClientTLS(),

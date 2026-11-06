@@ -92,8 +92,7 @@ func TestProxySlowReplyDelaysOnlyMatchingReplies(t *testing.T) {
 }
 
 // TestProxySlowRepliesHeldSideBySide checks the slow reply fault through a
-// real connection as CE-16 holds the cache connection's script replies:
-// the proxy goes on reading while a reply is held, so each pipelined reply
+// real connection: the proxy goes on reading while a reply is held, so each pipelined reply
 // is held its own 4 s from when the proxy read it, side by side. A reply
 // read 1 s after the first reaches the client at 5 s; were the holds one
 // after another, it would wait for the first's to end and then 4 s more,
@@ -128,7 +127,7 @@ func TestProxySlowRepliesHeldSideBySide(t *testing.T) {
 }
 
 // TestProxyCountsPipelinedBatchOnce checks the counts through a real
-// connection, as CE-15's GCRA calls cross the proxy: a batch of 64
+// connection: a batch of 64
 // EVALSHA commands sent in one write counts 64 commands and 64 replies,
 // each logged once with its reply, with no reply delay and with every
 // EVALSHA reply held, the held replies released by a change of the delays.

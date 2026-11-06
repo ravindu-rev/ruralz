@@ -25,8 +25,8 @@ import (
 	"time"
 )
 
-// Server tests: JWKS endpoint with rotating keys and Cache-Control
-// (FC-16), the client-credentials token endpoint, overrides and recording.
+// Server tests: JWKS endpoint with rotating keys and Cache-Control, the
+// client-credentials token endpoint, overrides and recording.
 
 func serverTLS(t testing.TB) (*tls.Config, *x509.CertPool) {
 	t.Helper()
@@ -130,8 +130,8 @@ func TestJWKSEndpoint(t *testing.T) { // fetch shape and Cache-Control
 	if !strings.HasPrefix(s.JWKSURL(), "https://127.0.0.1:") || s.JWKSURL() != s.URL()+JWKSPath || s.TokenURL() != s.URL()+TokenPath {
 		t.Fatalf("URLs %s %s", s.JWKSURL(), s.TokenURL())
 	}
-	if s.Issuer() != s.URL() || s.Addr() == "" {
-		t.Fatalf("issuer %q addr %q", s.Issuer(), s.Addr())
+	if s.Issuer() != s.URL() {
+		t.Fatalf("issuer %q, want the base URL %q", s.Issuer(), s.URL())
 	}
 	c := httpClient(t, pool)
 	a := mustSend(t, c, http.MethodGet, s.JWKSURL(), "", http.Header{"Accept": {"application/jwk-set+json, application/json"}})
@@ -155,7 +155,7 @@ func TestJWKSEndpoint(t *testing.T) { // fetch shape and Cache-Control
 	if a := mustSend(t, c, http.MethodGet, s.URL()+"/other", "", nil); a.status != http.StatusNotFound {
 		t.Fatalf("other path %d", a.status)
 	}
-	// Cache-Control is programmable (the FC-16 clamp tests use max-age).
+	// Cache-Control is programmable (the JWKS cache tests use max-age).
 	for _, cc := range []string{"max-age=60", "no-cache", "no-store", "max-age=86400"} {
 		s.SetCacheControl(cc)
 		if got := mustSend(t, c, http.MethodGet, s.JWKSURL(), "", nil).header.Get("Cache-Control"); got != cc {
@@ -299,7 +299,7 @@ func TestPeriodicRotation(t *testing.T) { // rotating keys (Config.RotateEvery)
 	}
 }
 
-func TestJWKSOverride(t *testing.T) { // FC-16: 429 Retry-After, failed fetches, slow IdP
+func TestJWKSOverride(t *testing.T) { // 429 Retry-After, failed fetches, slow IdP
 	s := start(t, Config{})
 	c := httpClient(t, nil)
 	s.SetJWKSOverride(Override{Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"120"}}})
@@ -346,7 +346,7 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 		id     = "orders:svc%1"
 		secret = "rzcanary-0123:secret%" //nolint:gosec // G101: a test client secret for the mock IdP
 	)
-	s := start(t, Config{Clients: map[string]string{id: secret}, TokenTTL: 10 * time.Minute, TokenAudience: "orders-api"})
+	s := start(t, Config{Clients: map[string]string{id: secret}, TokenTTL: 10 * time.Minute})
 	c := httpClient(t, nil)
 	form := "application/x-www-form-urlencoded"
 	for _, tc := range []struct {
@@ -424,7 +424,7 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 			if h["alg"] != "RS256" || h["kid"] != rs.ID {
 				t.Fatalf("access token header %v", h)
 			}
-			if claims["sub"] != id || claims["client_id"] != id || claims["aud"] != "orders-api" || claims["iss"] != s.Issuer() || claims["jti"] == nil {
+			if claims["sub"] != id || claims["client_id"] != id || claims["aud"] != nil || claims["iss"] != s.Issuer() || claims["jti"] == nil {
 				t.Fatalf("claims %v", claims)
 			}
 			iat, _ := claims["iat"].(json.Number).Int64()
@@ -548,13 +548,13 @@ func TestTokenOverride(t *testing.T) { // 500 → 020, 302 not followed, missing
 
 func TestMintDefaults(t *testing.T) { // auth.jwt claim tests mint against a fixed clock
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	s := start(t, Config{Issuer: "https://idp.test", TokenTTL: 5 * time.Minute, Now: func() time.Time { return now }})
+	s := start(t, Config{TokenTTL: 5 * time.Minute, Now: func() time.Time { return now }})
 	tok, err := s.Mint(RS256, map[string]any{"aud": []string{"orders"}, "sub": "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	claims := verifyClaims(t, s, tok)
-	if claims["iss"] != "https://idp.test" || claims["iat"] != json.Number("1790424000") || claims["exp"] != json.Number("1790424300") {
+	if claims["iss"] != s.Issuer() || claims["iat"] != json.Number("1790424000") || claims["exp"] != json.Number("1790424300") {
 		t.Fatalf("claims %v", claims)
 	}
 	tok, err = s.Mint(ES256, map[string]any{"exp": nil, "iat": nil, "nbf": now.Add(time.Hour).Unix()})

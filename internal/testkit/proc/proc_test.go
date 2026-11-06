@@ -500,123 +500,6 @@ func TestRing(t *testing.T) {
 	}
 }
 
-func TestSampleLive(t *testing.T) { // /proc sampling
-	if runtime.GOOS != "linux" {
-		t.Skip("/proc sampling is Linux only")
-	}
-	p, err := Start(ctx(t), helper("spin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = p.Kill() }()
-	if _, err := p.WaitOutput(ctx(t), regexp.MustCompile("ready")); err != nil {
-		t.Fatal(err)
-	}
-	a, err := p.Sample()
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(300 * time.Millisecond)
-	b, err := p.Sample()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.RSSBytes <= 0 || b.Threads < 1 || b.UserCPU+b.SysCPU <= 0 {
-		t.Fatalf("sample = %+v", b)
-	}
-	if share := CPUShare(a, b); share <= 0.1 || share > float64(runtime.NumCPU())+0.5 {
-		t.Fatalf("CPU share of a spinning process = %.2f", share)
-	}
-	_ = p.Kill()
-	if _, err := p.Wait(ctx(t)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Sample(); err == nil {
-		t.Fatal("Sample after exit: want error")
-	}
-}
-
-func TestSampleProcFakeTree(t *testing.T) { // RSS from a fake /proc tree
-	root := t.TempDir()
-	dir := filepath.Join(root, "42")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	stat := "42 (ruralzd (x) y) S 1 42 42 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 9 0 12345 1000000 2000 18446744073709551615\n"
-	status := "Name:\truralzd\nVmPeak:\t  200000 kB\nVmRSS:\t   91136 kB\nThreads:\t9\n"
-	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	u, err := SampleProc(root, 42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if u.UserCPU != 2500*time.Millisecond || u.SysCPU != 500*time.Millisecond || u.RSSBytes != 91136*1024 || u.Threads != 9 {
-		t.Fatalf("Usage = %+v", u)
-	}
-	if _, err := SampleProc(root, 43); err == nil {
-		t.Fatal("missing pid: want error")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte("Name: x\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("status without Threads: want error")
-	}
-	if err := os.Remove(filepath.Join(dir, "status")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("missing status: want error")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte("42 (x) S 1"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("short stat: want error")
-	}
-}
-
-func TestParseProcFiles(t *testing.T) {
-	good := "1 (a) S " + strings.Repeat("0 ", 10) + "7 8 0 0 0 0 3 0\n"
-	if u, s, th, err := ParseStat([]byte(good)); err != nil || u != 7 || s != 8 || th != 3 {
-		t.Fatalf("ParseStat = %d %d %d %v", u, s, th, err)
-	}
-	statErrs := []string{
-		"no parens",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "x 8 0 0 0 0 3 0",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "7 x 0 0 0 0 3 0",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "7 8 0 0 0 0 x 0",
-	}
-	for _, s := range statErrs {
-		if _, _, _, err := ParseStat([]byte(s)); err == nil {
-			t.Errorf("ParseStat(%q): want error", s)
-		}
-	}
-	if rss, th, err := ParseStatus([]byte("State:\tZ (zombie)\nThreads:\t1\n")); err != nil || rss != 0 || th != 1 {
-		t.Fatalf("zombie status = %d %d %v", rss, th, err)
-	}
-	for _, s := range []string{"VmRSS:\tx kB\nThreads:\t1\n", "VmRSS:\t10 MB\nThreads:\t1\n", "Threads:\tx\n"} {
-		if _, _, err := ParseStatus([]byte(s)); err == nil {
-			t.Errorf("ParseStatus(%q): want error", s)
-		}
-	}
-	a := Usage{UserCPU: time.Second, Time: time.Unix(0, 0)}
-	b := Usage{UserCPU: 2 * time.Second, SysCPU: time.Second, Time: time.Unix(4, 0)}
-	if got := CPUShare(a, b); got != 0.5 {
-		t.Fatalf("CPUShare = %v", got)
-	}
-	if got := CPUShare(b, b); got != 0 {
-		t.Fatalf("CPUShare without elapsed time = %v", got)
-	}
-}
-
 func TestStartErrors(t *testing.T) {
 	if _, err := Start(ctx(t), Spec{}); err == nil {
 		t.Fatal("empty Path: want error")
@@ -795,7 +678,7 @@ func TestLineMatcherScansEachByteOnce(t *testing.T) { // cost follows the output
 	}
 }
 
-func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a chatty Node (GD-2)
+func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a chatty Node
 	const lines = 20000
 	p, err := Start(ctx(t), helper("chatty", fmt.Sprintf("CHATTY_LINES=%d", lines)))
 	if err != nil {

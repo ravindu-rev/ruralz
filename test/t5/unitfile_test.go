@@ -19,8 +19,8 @@ import (
 const toolTimeout = 2 * time.Minute
 
 // systemdTool returns the path of the systemd tool name, skipping t when
-// the host has none: the checks need systemd's own tools, which every CI
-// stage 8 leg has.
+// the host has none: the checks need systemd's own tools, which the Ubuntu
+// runner of the CI integration job has.
 func systemdTool(t *testing.T, name string) string {
 	t.Helper()
 	p, err := exec.LookPath(name)

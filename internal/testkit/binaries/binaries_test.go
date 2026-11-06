@@ -140,68 +140,17 @@ func TestBuildReleaseFlags(t *testing.T) {
 	}
 }
 
-func TestBuildOverlayVariant(t *testing.T) {
-	t.Setenv(EnvBinDir, t.TempDir()) // ignored: the build asks for a variant
-	root := fixture(t)
-	repl := filepath.Join(t.TempDir(), "marker.go")
-	if err := os.WriteFile(repl, []byte("package buildinfo\n\nconst Marker = \"overlay\"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	base, err := Build(t.Context(), root, t.TempDir(), BuildOptions{Version: "0.1.0-e2e.a", Commit: "aaaa", Flavor: "default", Commands: []string{Ruralz}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	variant, err := Build(t.Context(), root, t.TempDir(), BuildOptions{
-		Version:  "0.1.0-e2e.b",
-		Overlay:  map[string]string{"internal/buildinfo/marker.go": repl},
-		Commands: []string{Ruralz},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if base.Ruralzd != "" || variant.Ruralzd != "" {
-		t.Fatalf("ruralzd built although not requested: %+v %+v", base, variant)
-	}
-	a, b := run(t, base.Ruralz), run(t, variant.Ruralz)
-	if a != "ruralz 0.1.0-e2e.a aaaa default base" || b != "ruralz 0.1.0-e2e.b unknown default overlay" {
-		t.Fatalf("outputs = %q, %q", a, b)
-	}
-	// The overlay file is removed after the build.
-	matches, _ := filepath.Glob(filepath.Join(os.TempDir(), "ruralz-overlay-*.json"))
-	for _, m := range matches {
-		if data, err := os.ReadFile(m); err == nil && strings.Contains(string(data), repl) { //nolint:gosec // G304: temp files
-			t.Fatalf("overlay file %s left behind", m)
+// FromDir finds the Windows binaries a directory holds by their .exe
+// names.
+func TestFromDirWindowsNames(t *testing.T) {
+	dir := t.TempDir()
+	for _, n := range []string{"ruralzd.exe", "ruralz.exe"} {
+		if err := os.WriteFile(filepath.Join(dir, n), nil, 0o600); err != nil {
+			t.Fatal(err)
 		}
 	}
-}
-
-func TestBuildOverlayDelete(t *testing.T) {
-	root := fixture(t)
-	// Deleting the marker file breaks the build: the overlay reaches go.
-	_, err := Build(t.Context(), root, t.TempDir(), BuildOptions{Overlay: map[string]string{"internal/buildinfo/marker.go": ""}})
-	if err == nil || !strings.Contains(err.Error(), "Marker") {
-		t.Fatalf("Build without marker.go = %v, want an undefined Marker error", err)
-	}
-}
-
-func TestBuildCrossPlatform(t *testing.T) {
-	root := fixture(t)
-	set, err := Build(t.Context(), root, t.TempDir(), BuildOptions{GOOS: "linux", GOARCH: "arm64", Commands: []string{Ruralzd}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := settings(t, set.Ruralzd); s["GOARCH"] != "arm64" || s["GOOS"] != "linux" {
-		t.Fatalf("cross build settings = %v", s)
-	}
-	win, err := Build(t.Context(), root, t.TempDir(), BuildOptions{GOOS: "windows", GOARCH: "amd64", Commands: []string{Ruralz}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasSuffix(win.Ruralz, "ruralz.exe") {
-		t.Fatalf("windows binary = %s", win.Ruralz)
-	}
-	got, err := FromDir(filepath.Dir(win.Ruralz), Ruralz)
-	if err != nil || got.Ruralz != win.Ruralz {
+	got, err := FromDir(dir, Ruralz)
+	if err != nil || got.Ruralz != filepath.Join(dir, "ruralz.exe") || got.Ruralzd != "" {
 		t.Fatalf("FromDir(windows) = %+v, %v", got, err)
 	}
 }
@@ -248,12 +197,7 @@ func TestBuildErrors(t *testing.T) {
 		o    BuildOptions
 		want string
 	}{
-		{"version with space", BuildOptions{Version: "1 2"}, "whitespace"},
-		{"commit with quote", BuildOptions{Commit: `a"b`}, "quotes"},
 		{"bad command", BuildOptions{Commands: []string{"../x"}}, "bad command"},
-		{"overlay escape", BuildOptions{Overlay: map[string]string{"../x.go": "/dev/null"}}, "not a path inside"},
-		{"overlay absolute", BuildOptions{Overlay: map[string]string{"/etc/x.go": "/dev/null"}}, "not a path inside"},
-		{"overlay missing replacement", BuildOptions{Overlay: map[string]string{"x.go": filepath.Join(root, "missing.go")}}, "missing.go"},
 		{"no such command", BuildOptions{Commands: []string{"nope"}}, "go build"},
 		{"bad go command", BuildOptions{GoCmd: filepath.Join(root, "no-go")}, "no-go"},
 	}

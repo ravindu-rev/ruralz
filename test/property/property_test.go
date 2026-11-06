@@ -5,9 +5,8 @@
 // docs/engineering/03-testing-and-quality-strategy.md "Required
 // properties": one testing.F target per row of the Required properties
 // table due by the current milestone, each driving the real packages end
-// to end, with no property library. Plain go test runs the seeds, as
-// pr-fast does; the nightly Fuzz job fuzzes each target longer
-// (internal/tool/fuzzplan lists them).
+// to end, with no property library. Plain go test runs the seeds, and
+// go test -fuzz fuzzes one target longer.
 //
 // The configuration targets run the loader through the configuration
 // pipeline facade (internal/config/pipeline) to the Revision, with the

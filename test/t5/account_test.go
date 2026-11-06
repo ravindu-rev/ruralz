@@ -1,7 +1,7 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration || t5
+//go:build integration
 
 package t5
 
@@ -10,9 +10,9 @@ import (
 	"testing"
 )
 
-// TestCheckSystemUser checks the system user rule both suites apply: user
-// and group ruralz, system IDs, the group as the user's primary group, home
-// /var/lib/ruralz and no login shell.
+// TestCheckSystemUser checks the system user rule TestSysusersEntry
+// applies: user and group ruralz, system IDs, the group as the user's
+// primary group, home /var/lib/ruralz and no login shell.
 func TestCheckSystemUser(t *testing.T) {
 	const group = "root:x:0:\nruralz:x:999:\n"
 	for _, tc := range []struct {

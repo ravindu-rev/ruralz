@@ -54,8 +54,7 @@ type Command struct {
 	Args []string
 	Argc int64
 	Cut  bool
-	// At is when the Counter read the command, on its clock: a chaos run
-	// counts a key's calls per window by it.
+	// At is when the Counter read the command, on its clock.
 	At time.Time
 	// Reply is the reply, once read.
 	Reply Reply
