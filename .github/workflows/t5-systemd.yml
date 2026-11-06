@@ -10,16 +10,14 @@
 # linux ruralzd archive by the T5 install steps and drives the unit with
 # systemctl, beside the helper checks. Legs: ubuntu-24.04 and
 # ubuntu-24.04-arm, and ubuntu-22.04 while GitHub offers it, whose systemd
-# 249 is the nearest to the unit's 247 floor. It runs weekly (Wednesday
-# 04:43 UTC), on demand, when release.yml calls it, and on every push to
-# main that changes deploy/systemd/ or the handover, drain and sdnotify
-# packages; a failed scheduled or push run opens or updates a
-# nightly-failure issue, which blocks the next release.
+# 249 is the nearest to the unit's 247 floor. It runs on demand, when
+# release.yml calls it, and on every push to main that changes
+# deploy/systemd/ or the handover, drain and sdnotify packages; a failed
+# push run opens or updates a nightly-failure issue, which blocks the
+# next release.
 name: t5-systemd
 
 on:
-  schedule:
-    - cron: "43 4 * * 3"
   push:
     branches: [main]
     paths:
@@ -85,10 +83,10 @@ jobs:
   issues:
     name: T5 issues
     needs: t5
-    # Scheduled and push runs of this workflow only: under release.yml
+    # Push runs of this workflow only: under release.yml
     # (workflow_call) the github context, and so github.workflow, is the
     # caller's, and the release run reports its own failures.
-    if: failure() && github.workflow == 't5-systemd' && (github.event_name == 'schedule' || github.event_name == 'push')
+    if: failure() && github.workflow == 't5-systemd' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

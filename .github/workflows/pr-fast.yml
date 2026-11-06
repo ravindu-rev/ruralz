@@ -84,7 +84,7 @@ jobs:
             pull_request)
               echo "DCO_RANGE=$PR_BASE..$PR_HEAD" >>"$GITHUB_ENV" ;;
             merge_group)
-              # Check the queued pull request's own commits, not the queue's squash commit.
+              # Check the queued pull request's own commits, not the queue's merge commits.
               pr=$(sed -nE 's|.*/pr-([0-9]+)-[0-9a-f]+$|\1|p' <<<"$MG_HEAD_REF")
               git fetch --no-tags origin "+refs/pull/$pr/head:refs/remotes/pr/$pr"
               echo "DCO_RANGE=$(git merge-base "$MG_BASE" "pr/$pr")..pr/$pr" >>"$GITHUB_ENV" ;;

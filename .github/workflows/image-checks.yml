@@ -5,7 +5,7 @@
 # (docs/engineering/03-testing-and-quality-strategy.md "Compose suite" and
 # "Test pyramid"; make image-checks), on a linux/amd64 leg (ubuntu-latest)
 # and a linux/arm64 leg (ubuntu-24.04-arm), with the runner's Docker.
-#   - Daily, on every push to main that changes deploy/container/ or
+#   - On every push to main that changes deploy/container/ or
 #     test/compose/, and on demand without an image: it tests the image
 #     built from the commit's make release-dry-run, with the ruralz CLI the
 #     dry run built.
@@ -20,13 +20,11 @@
 # The upgrade starts from the previous release's image by digest, the
 # newest published vX.Y.Z below the version under test (the newest of all
 # outside a release run), or from the image under test while no release
-# exists. A failed scheduled or push run opens or updates a nightly-failure
-# issue, which blocks the next release.
+# exists. A failed push run opens or updates a nightly-failure issue,
+# which blocks the next release.
 name: image-checks
 
 on:
-  schedule:
-    - cron: "43 5 * * *"
   push:
     branches: [main]
     paths:
@@ -183,11 +181,11 @@ jobs:
   issues:
     name: Image checks issues
     needs: image-checks
-    # Scheduled and push runs of this workflow only: under release.yml
+    # Push runs of this workflow only: under release.yml
     # (workflow_call) the github context, and so github.workflow, is the
     # caller's, and the release run reports its own failures; an on-demand
     # run is watched by whoever started it.
-    if: failure() && github.workflow == 'image-checks' && (github.event_name == 'schedule' || github.event_name == 'push')
+    if: failure() && github.workflow == 'image-checks' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: read

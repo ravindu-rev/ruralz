@@ -139,6 +139,24 @@ func docSlugs(docs fs.FS) ([]string, error) {
 	return slugs, err
 }
 
+// checkTitles checks the title of every commit as checkTitle does: main
+// takes develop's commits through merge commits, so each subject becomes
+// a release-notes entry. Dependabot's commits are skipped: their titles
+// take the commit-message prefix .github/dependabot.yml configures, and
+// Dependabot words, and capitalizes, the rest itself.
+func checkTitles(commits []commit, docSlugs []string) []string {
+	var problems []string
+	for _, c := range commits {
+		if signoffExempt(c.authorName, c.authorEmail) {
+			continue
+		}
+		if err := checkTitle(c.subject, docSlugs); err != nil {
+			problems = append(problems, fmt.Sprintf("%.12s %q: %v", c.hash, c.subject, err))
+		}
+	}
+	return problems
+}
+
 // checkTitle validates "<type>(<scope>)!: <subject>". The scope is optional;
 // docs takes a document slug and chore and revert any scope.
 func checkTitle(title string, docSlugs []string) error {

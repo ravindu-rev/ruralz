@@ -4,6 +4,7 @@
 package benchhost
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -116,27 +117,61 @@ func TestReleaseBaselineWithRH1(t *testing.T) {
 	}
 }
 
-// TestChaosScaleWorkflow: chaos-scale.yml runs every Sunday at 07:17 UTC,
-// on demand and when release.yml calls it, runs `make chaos-scale` on the
-// RH-1 inventory, and opens or updates a nightly-failure issue only for a
-// failed scheduled run, from a GitHub-hosted runner.
+// TestChaosScaleWorkflow: chaos-scale.yml runs on demand and when
+// release.yml calls it and runs `make chaos-scale` on the RH-1 inventory;
+// its one job is the chaos job, since the run that started it, a
+// maintainer's dispatch or the release run, reports a failure.
 func TestChaosScaleWorkflow(t *testing.T) {
 	wf := workflow(t, "chaos-scale.yml")
 	for _, s := range []string{
-		"  schedule:\n    - cron: \"17 7 * * 0\"\n", "\n  workflow_dispatch:\n", "\n  workflow_call:\n",
+		"\n  workflow_dispatch:\n", "\n  workflow_call:\n",
 		"BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json", "run: make chaos-scale",
 	} {
 		if !strings.Contains(wf, s) {
 			t.Errorf("chaos-scale.yml lacks %q", s)
 		}
 	}
-	issues := jobs(t, wf)["issues"]
-	for _, s := range []string{
-		"needs: chaos", "runs-on: ubuntu-latest", "issues: write", "--label nightly-failure",
-		"if: failure() && github.workflow == 'chaos-scale' && github.event_name == 'schedule'",
+	if got := slices.Sorted(maps.Keys(jobs(t, wf))); !slices.Equal(got, []string{"chaos"}) {
+		t.Errorf("chaos-scale.yml jobs = %q, want only chaos", got)
+	}
+}
+
+// TestSchedules: release-verify.yml, the weekly re-verification of the
+// newest release of each supported line, is the only workflow on a
+// schedule. nightly.yml and chaos-scale.yml run on demand and in the
+// release run, and image-checks.yml and t5-systemd.yml also on the pushes
+// to main that change their inputs
+// (docs/engineering/02-repository-layout-and-conventions.md, "CI
+// stages").
+func TestSchedules(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("workflows: %v, %v", files, err)
+	}
+	var scheduled []string
+	for _, f := range files {
+		if strings.Contains(workflow(t, filepath.Base(f)), "\n  schedule:\n") {
+			scheduled = append(scheduled, filepath.Base(f))
+		}
+	}
+	if !slices.Equal(scheduled, []string{"release-verify.yml"}) {
+		t.Errorf("scheduled workflows = %q, want only release-verify.yml", scheduled)
+	}
+	for name, triggers := range map[string][]string{
+		"nightly.yml":      {"workflow_dispatch", "workflow_call"},
+		"chaos-scale.yml":  {"workflow_dispatch", "workflow_call"},
+		"image-checks.yml": {"push", "workflow_dispatch", "workflow_call"},
+		"t5-systemd.yml":   {"push", "workflow_dispatch", "workflow_call"},
 	} {
-		if !strings.Contains(issues, s) {
-			t.Errorf("chaos-scale.yml's issues job lacks %q", s)
+		wf := workflow(t, name)
+		for _, tr := range triggers {
+			if !strings.Contains(wf, "\n  "+tr+":\n") {
+				t.Errorf("%s lacks the %s trigger", name, tr)
+			}
 		}
 	}
 }

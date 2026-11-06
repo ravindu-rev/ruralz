@@ -48,6 +48,8 @@ type ghState struct {
 	AllowRebaseMerge         bool   `json:"allowRebaseMerge"`
 	SquashMergeCommitTitle   string `json:"squashMergeCommitTitle"`
 	SquashMergeCommitMessage string `json:"squashMergeCommitMessage"`
+	MergeCommitTitle         string `json:"mergeCommitTitle"`
+	MergeCommitMessage       string `json:"mergeCommitMessage"`
 	DeleteBranchOnMerge      bool   `json:"deleteBranchOnMerge"`
 	SecretScanning           string `json:"secretScanning"`
 	PushProtection           string `json:"pushProtection"`
@@ -443,8 +445,8 @@ func (f *fakeGitHub) repoJSON() map[string]any {
 		m["allow_auto_merge"] = false
 		m["squash_merge_commit_title"] = s.SquashMergeCommitTitle
 		m["squash_merge_commit_message"] = s.SquashMergeCommitMessage
-		m["merge_commit_title"] = "MERGE_MESSAGE"
-		m["merge_commit_message"] = "PR_TITLE"
+		m["merge_commit_title"] = s.MergeCommitTitle
+		m["merge_commit_message"] = s.MergeCommitMessage
 		m["delete_branch_on_merge"] = s.DeleteBranchOnMerge
 	}
 	if !f.faults.hideSecurity {
@@ -490,6 +492,8 @@ func (s *ghState) patchRepo(body []byte) error {
 		AllowRebaseMerge         *bool   `json:"allow_rebase_merge"`
 		SquashMergeCommitTitle   *string `json:"squash_merge_commit_title"`
 		SquashMergeCommitMessage *string `json:"squash_merge_commit_message"`
+		MergeCommitTitle         *string `json:"merge_commit_title"`
+		MergeCommitMessage       *string `json:"merge_commit_message"`
 		DeleteBranchOnMerge      *bool   `json:"delete_branch_on_merge"`
 		SecurityAndAnalysis      *struct {
 			SecretScanning               *status `json:"secret_scanning"`
@@ -513,6 +517,21 @@ func (s *ghState) patchRepo(body []byte) error {
 			return err
 		}
 		s.SquashMergeCommitMessage = *b.SquashMergeCommitMessage
+	}
+	if b.MergeCommitMessage != nil && b.MergeCommitTitle == nil {
+		return invalid("merge_commit_message needs merge_commit_title")
+	}
+	if b.MergeCommitTitle != nil {
+		if err := oneOf("merge_commit_title", *b.MergeCommitTitle, "PR_TITLE", "MERGE_MESSAGE"); err != nil {
+			return err
+		}
+		s.MergeCommitTitle = *b.MergeCommitTitle
+	}
+	if b.MergeCommitMessage != nil {
+		if err := oneOf("merge_commit_message", *b.MergeCommitMessage, "PR_BODY", "PR_TITLE", "BLANK"); err != nil {
+			return err
+		}
+		s.MergeCommitMessage = *b.MergeCommitMessage
 	}
 	for _, kv := range []struct {
 		from *bool

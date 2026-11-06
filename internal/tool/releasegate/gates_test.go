@@ -39,7 +39,7 @@ func releaseJobs() []workflowJob {
 		ok("nightly / 11. Chaos (experiments-1)"), ok("nightly / 11. Chaos (experiments-2)"), ok("nightly / 11. Chaos (rows)"), ok("nightly / 11. Chaos (drills)"),
 		ok("nightly / 11. Latency"), ok("nightly / 11. Benchmark records"), ok("nightly / 6. Supply chain rescan"), skipped("nightly / Nightly issues"),
 		ok("t5-systemd / T5 systemd (ubuntu-24.04)"), skipped("t5-systemd / T5 issues"),
-		ok("chaos-scale / Chaos at target scale"), skipped("chaos-scale / Chaos-scale issues"),
+		ok("chaos-scale / Chaos at target scale"),
 		ok("12. Soak"),
 	}
 }

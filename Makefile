@@ -203,12 +203,12 @@ $(SHELLCHECK): scripts/install-tools.sh
 $(PROMTOOL): scripts/install-tools.sh
 	bash scripts/install-tools.sh promtool
 
-hygiene: ## Stage 1: repocheck and the no-license-check scan; DCO_RANGE adds the sign-off, Deprecated footer and golden-corpus checks, PR_TITLE the title check
+hygiene: ## Stage 1: repocheck and the no-license-check scan; DCO_RANGE adds the sign-off, commit title, Deprecated footer and golden-corpus checks
 	go run ./internal/tool/repocheck
 	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck dco -range "$$DCO_RANGE"; fi
+	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck title -range "$$DCO_RANGE"; fi
 	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck deprecations -range "$$DCO_RANGE"; fi
 	if [[ -n "$${DCO_RANGE:-}" ]]; then go run ./internal/tool/commitcheck golden -range "$$DCO_RANGE"; fi
-	if [[ -n "$${PR_TITLE:-}" ]]; then go run ./internal/tool/commitcheck title; fi
 
 lint: $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) ## Stage 2: gofumpt, goimports, golangci-lint and actionlint, with the pinned shellcheck on the workflows' run steps
 	$(GOLANGCI_LINT) config verify

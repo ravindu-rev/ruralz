@@ -227,7 +227,7 @@ It installs the host's linux archive that a `make release-dry-run` in the job le
 - `systemctl stop` during a handover exiting 0 within 40 s (target), both processes gone and the unit's result `success`;
 - a SIGKILL restart booting Last-Known-Good under degraded reason `lkg_boot` once the source no longer renders a Revision.
 
-`t5-systemd.yml` runs weekly, on demand, when `release.yml` calls it, and on every push to `main` that changes `deploy/systemd/`, `internal/gateway/handover/`, `internal/gateway/drain/` or `internal/gateway/sdnotify/`; a failed scheduled or push run opens or updates a `nightly-failure` issue, which blocks the next release. It MUST pass before the `0.1.0` release candidate; until then the fallback is `systemctl stop` and `start`.
+`t5-systemd.yml` runs on demand, when `release.yml` calls it, and on every push to `main` that changes `deploy/systemd/`, `internal/gateway/handover/`, `internal/gateway/drain/` or `internal/gateway/sdnotify/`; a failed push run opens or updates a `nightly-failure` issue, which blocks the next release. It MUST pass before the `0.1.0` release candidate; until then the fallback is `systemctl stop` and `start`.
 
 ### Node count during upgrades
 

@@ -15,8 +15,9 @@
 #                                     written, so a second run writes
 #                                     nothing. A repository admin runs it,
 #                                     with gh logged in.
-#   scripts/repo-settings.sh --check  writes nothing; the weekly
-#                                     repo-settings.yml workflow runs it.
+#   scripts/repo-settings.sh --check  writes nothing and reports each
+#                                     setting that differs, as step 8 of
+#                                     the release runbook runs it.
 #
 # Both modes end with the steps no API covers: the public visibility and
 # the repository link of the ghcr.io/ravindu-rev/ruralzd package, set by
@@ -28,9 +29,9 @@
 # match it), 1 when --check found drift, 2 on an error: a usage error, gh
 # missing, a failed API call, a setting the response leaves out because
 # the token may not read it while applying, or a setting that still
-# differs after its write. --check, run with the weekly workflow's
-# read-only token, prints a "notice:" line for each setting the response
-# leaves out and checks the rest. The drift lines are printed even when
+# differs after its write. --check, run with a read-only token, prints a
+# "notice:" line for each setting the response leaves out and checks the
+# rest. The drift lines are printed even when
 # the run ends in an error. Errors go to standard error, everything else
 # to standard output.
 #
@@ -179,8 +180,8 @@ read_repo() {
     def row($a; $n; $v): [$a, $n, $v] | join("\t");
     def field($a; $n): if has($n) then row($a; $n; .[$n] | tojson) else row($a; $n; "unreadable") end;
     row("meta"; "owner"; "\(.owner.login) \(.owner.id) \(.owner.type)"),
-    (("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge", "squash_merge_commit_title",
-      "squash_merge_commit_message", "delete_branch_on_merge") as $n | field('"$(jq_string "$area_merging")"'; $n)),
+    (("allow_squash_merge", "allow_merge_commit", "allow_rebase_merge", "merge_commit_title",
+      "merge_commit_message", "delete_branch_on_merge") as $n | field('"$(jq_string "$area_merging")"'; $n)),
     (("secret_scanning", "secret_scanning_push_protection") as $n
       | if (.security_and_analysis | type) == "object" and (.security_and_analysis | has($n))
         then row('"$(jq_string "$area_secret_scanning")"'; $n; .security_and_analysis[$n].status | tojson)
@@ -350,14 +351,16 @@ want() { printf '%s\t%s\t%s\n' "$1" "$2" "$3" >>"$tmp/want"; }
 # required reviewer.
 wants() {
   local a
-  # Squash merging only, titled by the pull request title with the commit
-  # details as its message; head branches deleted after merge.
+  # Merge commits only, so each commit of a pull request reaches main
+  # with its own title and sign-off, titled by GitHub's merge message
+  # with the pull request title as its message; head branches deleted
+  # after merge.
   a=$area_merging
-  want "$a" allow_squash_merge true
-  want "$a" allow_merge_commit false
+  want "$a" allow_squash_merge false
+  want "$a" allow_merge_commit true
   want "$a" allow_rebase_merge false
-  want "$a" squash_merge_commit_title '"PR_TITLE"'
-  want "$a" squash_merge_commit_message '"COMMIT_MESSAGES"'
+  want "$a" merge_commit_title '"MERGE_MESSAGE"'
+  want "$a" merge_commit_message '"PR_TITLE"'
   want "$a" delete_branch_on_merge true
   a=$area_secret_scanning
   want "$a" secret_scanning '"enabled"'
@@ -380,9 +383,9 @@ wants() {
   want "$area_immutable" enabled true
   # main and release-*: the required checks from GitHub Actions on an
   # up-to-date branch, not required when a branch is created, so
-  # release-X.Y can be cut from a candidate commit on main, where
-  # pr-title never runs; squash only; no review requirement; no bypass
-  # actors; deletion and force pushes blocked.
+  # release-X.Y can be cut from a candidate commit on main, whose checks
+  # ran on its pull request; merge commits only; no review requirement;
+  # no bypass actors; deletion and force pushes blocked.
   a=$area_ruleset_branches
   want "$a" exists true
   want "$a" target '"branch"'
@@ -391,7 +394,7 @@ wants() {
   want "$a" exclude '[]'
   want "$a" bypass_actors '[]'
   want "$a" rules '["deletion","non_fast_forward","pull_request","required_status_checks"]'
-  want "$a" pull_request.allowed_merge_methods '["squash"]'
+  want "$a" pull_request.allowed_merge_methods '["merge"]'
   want "$a" pull_request.dismiss_stale_reviews_on_push false
   want "$a" pull_request.require_code_owner_review false
   want "$a" pull_request.require_last_push_approval false
@@ -399,7 +402,7 @@ wants() {
   want "$a" pull_request.required_review_thread_resolution false
   want "$a" required_status_checks.do_not_enforce_on_create true
   want "$a" required_status_checks.required_status_checks \
-    "[{\"context\":\"pr-fast\",\"integration_id\":$actions_app},{\"context\":\"pr-full\",\"integration_id\":$actions_app},{\"context\":\"pr-title\",\"integration_id\":$actions_app}]"
+    "[{\"context\":\"pr-fast\",\"integration_id\":$actions_app},{\"context\":\"pr-full\",\"integration_id\":$actions_app}]"
   want "$a" required_status_checks.strict_required_status_checks_policy true
   # v* tags: a ruleset's bypass list covers all its rules, so one ruleset
   # lets only admins create them and a second, without bypass actors,
@@ -474,7 +477,7 @@ describe() {
       missing) echo "drift: $area: missing" ;;
       drift) echo "drift: $area: $name is $live, want $wanted" ;;
       unreadable)
-        # The weekly check's read-only token cannot read every setting
+        # A read-only token cannot read every setting
         # (docs/engineering/02-repository-layout-and-conventions.md,
         # "Repository settings"): --check notes each one it skips; an
         # admin's apply reads them all.
@@ -494,7 +497,7 @@ describe() {
 
 write_merging() {
   api PATCH "repos/$repo" --silent --input - <<'EOF'
-{"allow_squash_merge":true,"allow_merge_commit":false,"allow_rebase_merge":false,"squash_merge_commit_title":"PR_TITLE","squash_merge_commit_message":"COMMIT_MESSAGES","delete_branch_on_merge":true}
+{"allow_squash_merge":false,"allow_merge_commit":true,"allow_rebase_merge":false,"merge_commit_title":"MERGE_MESSAGE","merge_commit_message":"PR_TITLE","delete_branch_on_merge":true}
 EOF
 }
 
@@ -546,12 +549,11 @@ ruleset_body() {
  "conditions":{"ref_name":{"include":["refs/heads/main","refs/heads/release-*"],"exclude":[]}},
  "bypass_actors":[],
  "rules":[{"type":"deletion"},{"type":"non_fast_forward"},
-  {"type":"pull_request","parameters":{"allowed_merge_methods":["squash"],"dismiss_stale_reviews_on_push":false,
+  {"type":"pull_request","parameters":{"allowed_merge_methods":["merge"],"dismiss_stale_reviews_on_push":false,
    "require_code_owner_review":false,"require_last_push_approval":false,"required_approving_review_count":0,
    "required_review_thread_resolution":false}},
   {"type":"required_status_checks","parameters":{"do_not_enforce_on_create":true,"strict_required_status_checks_policy":true,
-   "required_status_checks":[{"context":"pr-fast","integration_id":$actions_app},{"context":"pr-full","integration_id":$actions_app},
-    {"context":"pr-title","integration_id":$actions_app}]}}]}
+   "required_status_checks":[{"context":"pr-fast","integration_id":$actions_app},{"context":"pr-full","integration_id":$actions_app}]}}]}
 EOF
       ;;
     "$ruleset_tag_creation")

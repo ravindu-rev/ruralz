@@ -73,7 +73,7 @@ Each runner's job-started hook, `runner.sh admit`, runs before any step of the j
 
 ## Turning RH-1 on
 
-1. The repository secret `REPO_SETTINGS_TOKEN`, the fine-grained read-only token with Administration: read that `repo-settings.yml` uses, also lets nightly's RH-1 runner status job list the runners.
+1. Add the repository secret `REPO_SETTINGS_TOKEN`, a fine-grained read-only token of the owner with Administration: read on this repository alone, with which nightly's RH-1 runner status job lists the runners.
 2. Set the repository variable `RH1_PROVISIONED` to `true`. Nightly's Latency job, the release soak job and `chaos-scale.yml` then run on `rh-1`, one at a time in the `rh-1` concurrency group, and the runner status job opens or updates the "RH-1 runner offline" `nightly-failure` issue whenever no online runner carries the label.
 3. Run `nightly.yml` on demand from `main`: its Latency job checks every host before each scenario and fails with an "RH-1 host check failed" annotation when a host's frequency, throttle counters or round trip are off.
 4. `chaos-scale.yml` reads the same inventory and places its `target` profile's runs on the four hosts: the Nodes on RH-1, the mock Upstreams on RH-1U, the State Store on RH-1S and the load on RH-1L, which returns every request's record once the run's load has ended ([Scale profiles](../../docs/engineering/03-testing-and-quality-strategy.md#scale-profiles)).

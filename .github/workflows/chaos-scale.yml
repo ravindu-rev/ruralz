@@ -6,23 +6,22 @@
 # "Chaos testing" and "Scale profiles"): CE-3, CE-5 at 100 Nodes, CE-12 at
 # 1,000,000 calls per second, CE-15 at 100,000 new keys per second and
 # GD-2, every criterion gating, latency and CPU included, on the four RH-1
-# hosts of deploy/benchhost/rh-1.json (`make chaos-scale`). It runs every
-# Sunday at 07:17 UTC, on demand, and when release.yml calls it, on the
-# self-hosted rh-1 runner once the repository variable RH1_PROVISIONED=true
-# is set; until then it fails with an "RH-1 not provisioned" annotation.
-# It takes at most 180 minutes, in the rh-1 concurrency group it shares
-# with nightly's Latency job and the release soak job, which never cancels
-# a running job, and first refuses any ref that is not protected and any
-# pull-request event. It uploads the ruralz.chaos.v1 records (90 days) and,
-# on failure, the harness's evidence: as chaos-records and chaos-evidence,
-# or under release.yml, whose run also holds nightly's Chaos job, as
-# chaos-scale-records and chaos-scale-evidence. A failed scheduled run
-# opens or updates a nightly-failure issue, which blocks the next release.
+# hosts of deploy/benchhost/rh-1.json (`make chaos-scale`). It runs on
+# demand and when release.yml calls it, on the self-hosted rh-1 runner
+# once the repository variable RH1_PROVISIONED=true is set; until then
+# GitHub skips the job. It takes at most 180 minutes, in the rh-1
+# concurrency group it shares with nightly's Latency job and the release
+# soak job, which never cancels a running job, and first refuses any ref
+# that is not protected and any pull-request event. It uploads the
+# ruralz.chaos.v1 records (90 days) and, on failure, the harness's
+# evidence: as chaos-records and chaos-evidence, or under release.yml,
+# whose run also holds nightly's Chaos job, as chaos-scale-records and
+# chaos-scale-evidence. The run that started it reports a failure: the
+# maintainer's dispatch, or the release run, whose failed gate blocks the
+# release.
 name: chaos-scale
 
 on:
-  schedule:
-    - cron: "17 7 * * 0"
   workflow_dispatch:
     inputs:
       all:
@@ -57,7 +56,7 @@ jobs:
     steps:
       - name: Protected ref
         # The self-hosted RH-1 runner runs only jobs of protected branches
-        # and tags (scheduled, dispatched, or called by release.yml), never
+        # and tags (dispatched, or called by release.yml), never
         # pull-request code.
         env:
           EVENT: ${{ github.event_name }}
@@ -99,34 +98,3 @@ jobs:
           path: ${{ runner.temp }}/chaos-evidence/
           if-no-files-found: ignore
           retention-days: 14
-
-  issues:
-    name: Chaos-scale issues
-    needs: chaos
-    # Scheduled runs of this workflow only: under release.yml
-    # (workflow_call) the github context, and so github.workflow, is the
-    # caller's, and the release run reports its own failures.
-    if: failure() && github.workflow == 'chaos-scale' && github.event_name == 'schedule'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-    steps:
-      - name: Open or update the issue
-        env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          SHA: ${{ github.sha }}
-        run: |
-          gh label create nightly-failure --color B60205 --description "A nightly job failed; blocks the next release" --force
-          title="nightly failure: Chaos at target scale"
-          body="$RUNNER_TEMP/body.md"
-          printf 'The weekly chaos-scale job "Chaos at target scale" failed in %s (commit %s). A chaos-scale failure blocks the next release.\n' "$RUN_URL" "$SHA" >"$body"
-          n=$(gh issue list --label nightly-failure --state open --limit 200 --json number,title \
-            --jq ".[] | select(.title == \"$title\") | .number" | head -n 1)
-          if [[ -n "$n" ]]; then
-            gh issue comment "$n" --body-file "$body"
-          else
-            gh issue create --label nightly-failure --title "$title" --body-file "$body"
-          fi

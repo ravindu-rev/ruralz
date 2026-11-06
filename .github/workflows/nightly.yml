@@ -6,7 +6,7 @@
 # parallel jobs, the longest 3 hours (target):
 #   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
 #            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
-#            artifact and restored the next night.
+#            artifact and restored by the next run.
 #   Chaos    every M1 chaos experiment, failure row, lab gate and drill
 #            against at least 10 Nodes (CHAOS_SCALE=nightly), as root so
 #            each handover gets a network namespace of its own; it uploads
@@ -39,19 +39,17 @@
 #            queued, as GitHub does after 24 hours without a runner, counts
 #            as that failure too.
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
-# A failure opens a nightly-failure issue (a fuzz crasher opens a
-# fuzz-crasher issue with the failing input) and blocks the next release.
-# release.yml re-runs it on the tagged commit through workflow_call with
-# rotation-all and, once a release exists, the previous release's verified
-# linux/amd64 ruralzd (baseline-artifact, an artifact of the release run,
-# and baseline-version), and grants contents: write (the records job),
-# actions: read and issues: write; nightly has no path filters, so `all`
-# changes nothing.
+# It runs on demand, and release.yml runs it on the tagged commit through
+# workflow_call with rotation-all and, once a release exists, the previous
+# release's verified linux/amd64 ruralzd (baseline-artifact, an artifact of
+# the release run, and baseline-version), granting contents: write (the
+# records job), actions: read and issues: write. A failure opens a
+# nightly-failure issue (a fuzz crasher opens a fuzz-crasher issue with the
+# failing input) and blocks the next release. nightly has no path filters,
+# so `all` changes nothing.
 name: nightly
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       all:
@@ -150,7 +148,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Restore the corpus of the previous night
+      - name: Restore the corpus of the previous run
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -355,7 +353,7 @@ jobs:
     steps:
       - name: Protected ref
         # The self-hosted RH-1 runner runs only jobs of protected branches
-        # and tags (scheduled, dispatched, or called by release.yml), never
+        # and tags (dispatched, or called by release.yml), never
         # pull-request code.
         env:
           EVENT: ${{ github.event_name }}
@@ -614,7 +612,7 @@ jobs:
           # job list also holds pr-fast, pr-full and main jobs, and called
           # job names carry a "<caller job> / " prefix. Keep only this
           # workflow's jobs (stage 11 and the stage 6 rescan), named without
-          # the prefix, so issue titles match the scheduled runs.
+          # the prefix, so issue titles match the dispatched runs.
           gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
             while read -r name; do
               job=${name##* / }
