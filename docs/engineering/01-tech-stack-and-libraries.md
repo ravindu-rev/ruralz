@@ -311,6 +311,7 @@ A new direct dependency MUST get a catalog row in the same pull request. Transit
 | jwx/v4 | v4.5.0 | GHSA-4cf7-xm37-g63h ([source](https://github.com/lestrrat-go/jwx/releases/tag/v4.5.0)) |
 | raft-boltdb/v2 | v2.4.2 | v2.4.0 and v2.4.1 "should not be used" ([source](https://github.com/hashicorp/raft-boltdb/releases/tag/v2.4.2)) |
 | moby/go-archive (via testcontainers-go) | v0.3.0 | GO-2026-6253; testcontainers-go v0.44.0 pins v0.2.0 ([source](https://pkg.go.dev/vuln/GO-2026-6253)) |
+| klauspost/compress (via client_golang) | v1.20.2 | GO-2026-6865; client_golang v1.24.1 pins v1.19.1 ([source](https://pkg.go.dev/vuln/GO-2026-6865)) |
 
 Explicit `require` lines enforce floors over lower transitive pins.
 

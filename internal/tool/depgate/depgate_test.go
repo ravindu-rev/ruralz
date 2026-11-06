@@ -134,6 +134,7 @@ func TestAnalyze(t *testing.T) {
 		"github.com/quic-go/quic-go":          lic(mitText),
 		"example.com/replacement":             lic(mitText),
 		"github.com/hashicorp/raft-boltdb/v2": lic(mplText),
+		"github.com/klauspost/compress":       lic(bsdText),
 	})
 	pkgs := []goPackage{
 		{ImportPath: "fmt", Standard: true},
@@ -147,6 +148,7 @@ func TestAnalyze(t *testing.T) {
 		pkg("github.com/hashicorp/raft-boltdb/v2", mod("github.com/hashicorp/raft-boltdb/v2", "v2.4.1")),
 		pkg("github.com/eclipse/paho.golang/paho", mod("github.com/eclipse/paho.golang", "v0.23.0")),
 		pkg("github.com/gorilla/websocket", mod("github.com/gorilla/websocket", "v1.5.1")),
+		pkg("github.com/klauspost/compress/zstd", mod("github.com/klauspost/compress", "v1.19.1")),
 		pkg("example.com/crypto/sign", mod("example.com/crypto", "v1.0.0")),
 		pkg("golang.org/x/crypto/chacha20", mod("golang.org/x/crypto", "v0.40.0")),
 		pkg("github.com/quic-go/quic-go/internal/handshake/crypto", mod("github.com/quic-go/quic-go", "v0.63.0")),
@@ -165,6 +167,7 @@ func TestAnalyze(t *testing.T) {
 		"github.com/hashicorp/raft-boltdb/v2: ruralzd never links Raft",
 		"github.com/hashicorp/raft-boltdb/v2 v2.4.1 is below the advisory floor v2.4.2",
 		"github.com/gorilla/websocket v1.5.1 is below the advisory floor v1.5.3",
+		"github.com/klauspost/compress v1.19.1 is below the advisory floor v1.20.2",
 		"example.com/crypto/sign: cryptography outside Go crypto",
 		"golang.org/x/crypto/chacha20: golang.org/x/crypto package off the FIPS delegation allowlist",
 		"example.com/nodir: module source not downloaded",
@@ -204,8 +207,8 @@ func TestAnalyze(t *testing.T) {
 			}
 		}
 	}
-	if !slices.IsSorted(paths) || len(paths) != 14 {
-		t.Errorf("modules = %v, want 14 sorted paths", paths)
+	if !slices.IsSorted(paths) || len(paths) != 15 {
+		t.Errorf("modules = %v, want 15 sorted paths", paths)
 	}
 	// Raft is allowed outside ruralzd.
 	other, err := analyze(target{"ruralz-control", "linux", "amd64"}, pkgs[:8], read)
