@@ -178,7 +178,7 @@ type memBundle struct {
 // with the environments file envs (none when empty). A name that is not a
 // clean relative slash path is left out, as no Bundle can hold it.
 func newMemBundle(files []corpus.File, envs []byte) memBundle {
-	m := memBundle{fs: fstest.MapFS{}}
+	m := memBundle{fs: bundleRoot()}
 	for i, f := range files {
 		if i >= maxFiles {
 			break
@@ -195,10 +195,20 @@ func newMemBundle(files []corpus.File, envs []byte) memBundle {
 	return m
 }
 
+// bundleRoot returns a file system that holds the Bundle root as a
+// directory entry: fstest.MapFS has a directory only as an entry or as the
+// parent of one. So a Bundle left with no file is an empty directory, which
+// the loader refuses with RZ-CFG-016, never a missing source, which has no
+// diagnostic and fails the load (docs/architecture/02-configuration-model.md
+// "Discovery and base merge").
+func bundleRoot() fstest.MapFS {
+	return fstest.MapFS{bundleDir: &fstest.MapFile{Mode: fs.ModeDir | 0o700}}
+}
+
 // withFiles returns a Bundle of the given files, relative to the Bundle
 // root, with m's environments file.
 func (m memBundle) withFiles(files map[string][]byte) memBundle {
-	out := memBundle{fs: fstest.MapFS{}, hasEnvs: m.hasEnvs}
+	out := memBundle{fs: bundleRoot(), hasEnvs: m.hasEnvs}
 	for name, data := range files {
 		out.fs[bundleDir+"/"+name] = &fstest.MapFile{Data: data, Mode: 0o600}
 	}
@@ -296,9 +306,6 @@ func (tc *toolchain) parseSource(t testing.TB, m memBundle) ([]sourceFile, bool)
 	t.Helper()
 	b, err := tc.pipe.Parse(t.Context(), m.source())
 	if err != nil {
-		if errors.Is(err, loader.ErrSource) {
-			return nil, false
-		}
 		t.Fatalf("Parse: %v", err)
 	}
 	if b.Stopped() || b.Diagnostics().HasErrors() {

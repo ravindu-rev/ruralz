@@ -1,0 +1,2 @@
+go test fuzz v1
+[]byte("A\x90\x9000\x03#B\"F#0")
