@@ -33,7 +33,7 @@ func TestCE4StateStoreBlackholed(t *testing.T) {
 	base := r.Hold(l, PhaseBaseline, Baseline)
 	start := r.Inject("blackhole", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Blackhole{}) })
 	fault := r.Hold(l, PhaseFault, FaultPhase)
-	end := r.Inject("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
+	end := r.Remove("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
 	rec := r.Hold(l, PhaseRecovery, RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)

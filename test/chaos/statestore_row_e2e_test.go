@@ -76,7 +76,7 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 		return stopFn()
 	})
 	stopped := r.Hold(l, PhaseStopped, FaultPhase)
-	end := r.Inject("resume", "state-store", resume(r.Context(), r))
+	end := r.Remove("resume", "state-store", resume(r.Context(), r))
 	rec := r.Hold(l, PhaseRecovery, RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)
