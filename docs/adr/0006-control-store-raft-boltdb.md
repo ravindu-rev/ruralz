@@ -114,11 +114,10 @@ sequenceDiagram
 
 ### Confirmation
 
-- **License gate (G2)**, stage 6 of `pr-fast`, Planned (M0): fails on any MPL-2.0 module outside the exception table in each binary's `go list -deps -test=false` ([CI stages](../engineering/02-repository-layout-and-conventions.md#ci-stages)).
-- **Raft denylist**, same stage: `go list -deps ./cmd/ruralzd` never contains Raft (P2). **depguard** keeps `hashicorp/raft` inside `internal/controlstore/raft` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
+- **License gate (G2)**, in the PR pipeline's `ci` job, Planned (M0): fails on any MPL-2.0 module outside the exception table in each binary's `go list -deps -test=false` ([PR pipeline](../engineering/03-testing-and-quality-strategy.md#pr-pipeline)).
+- **Raft denylist**, same job: `go list -deps ./cmd/ruralzd` never contains Raft (P2). **depguard** keeps `hashicorp/raft` inside `internal/controlstore/raft` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
 - **Version floor**: a `require` holds `raft-boltdb/v2` at v2.4.2 or newer; `govulncheck` runs per pull request ([Version floors from advisories](../engineering/01-tech-stack-and-libraries.md#version-floors-from-advisories)).
 - **Container-free integration tests**, Planned (M2): three replicas over loopback mutual TLS, with backup then restore and a persisted commit index ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); 8092 MUST refuse Node certificates and certificate-less connections outside `Join`.
-- **Chaos tests**, Planned (M2): quorum loss and leader failover cause zero outage-caused errors (target) ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
 - **Fencing test**, Planned (M2): a deposed leader's entry at a taken sequence commits but is never accepted or delivered, and a new leader proposes only after Barrier; under `postgres`, Planned (M4), the transaction rejects it.
 - **Amendment trigger**: a pull request adding a consensus or storage library, or changing `internal/controlstore`, MUST amend this ADR.
 

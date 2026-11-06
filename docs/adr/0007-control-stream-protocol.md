@@ -129,10 +129,10 @@ flowchart TD
 
 ### Confirmation
 
-- **`buf lint` (stage 2) and `buf breaking` (stage 3) of `pr-fast`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the last tag of each supported line ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
+- **`buf lint` and `buf breaking`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the last tag of each supported line ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
 - **Dependency admission**: go-control-plane has no catalog row ([Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen)), so [banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) rejects it.
 - **Container-free integration tests**, Planned (M2): snapshot and delta delivery, ACK and NACK classification, promoted digests ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)), a stale-nonce `Ack` changing nothing, a mismatching `Delta` NACKed with RZ-CFG-027 then a `Snapshot` ACKed, a Node that missed an empty-`ops` re-sign `Delta` receiving it after reconnecting, and a Node still ACKed after the replica holding its forwarded `Ack` dies before the bitmap commit.
-- **Fuzzing and chaos**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)); after leader failover each reconnecting Node gets only its planned Revision ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
+- **Fuzzing**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **Amendment trigger**: a new message, field or RPC MUST update the owning document's message table; a grpc-go server or second channel to Nodes MUST amend this ADR.
 
 ## Pros and cons of the options

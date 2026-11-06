@@ -337,7 +337,7 @@ Dial attempts get HTTP retries and breakers, and `onResponse` sending 101 commit
 
 ### Backpressure and per-message Policies
 
-In direct mode each direction's goroutine reads, runs `onChunk` and writes one message at a time, so a blocked write stops reads and TCP pushes back. A write blocked past the 30 s deadline (target) closes the client with 1013 and the Upstream with 1001, then both connections after a 5 s close-frame deadline (target). An idle direct session costs about 96 KiB (hypothesis) in buffers and stacks ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)); compression is off by default.
+In direct mode each direction's goroutine reads, runs `onChunk` and writes one message at a time, so a blocked write stops reads and TCP pushes back. A write blocked past the 30 s deadline (target) closes the client with 1013 and the Upstream with 1001, then both connections after a 5 s close-frame deadline (target). An idle direct session costs about 96 KiB (hypothesis) in buffers and stacks; compression is off by default.
 
 Under `failureMode: closed` a failing Plugin closes both sides with 1011; under `open` the message passes (pack 8.10).
 

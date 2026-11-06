@@ -85,7 +85,7 @@ flowchart LR
 - Good, because a CEL evaluation's outcome depends on its inputs alone: one that finishes under the cost limit gives its result on any Node, at any load and past any deadline, so an `authz.cel` rule never denies for lack of time.
 - Bad, because the time a CEL evaluation takes rests on cel-go's linear cost tracking and on what one unit costs to run; a cel-go release that slowed either would leave evaluation bounded in cost but not in time, which the worst-case benchmarks watch.
 - Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.
-- Bad, because three evaluators must be secured and upgraded, and OPA counts against the `ruralzd` 160 MiB stripped binary budget (target).
+- Bad, because three evaluators must be secured and upgraded, and OPA grows the stripped `ruralzd` binary.
 - Bad, because cedar-go is idle since 2026-06-01 and lacks the schema validator ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)); its [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) fallback is "OPA only; fork".
 - Bad, because OPA v1 lacks G3 evidence (OQ-tech-stack-and-libraries-9), so the FIPS build, Planned (M5), may need a named exception.
 
@@ -94,7 +94,6 @@ flowchart LR
 - **Banned imports**, Planned (M0): depguard rejects `github.com/google/cel-go` and any Lua runtime ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
 - **Dependency admission**, Planned (M0): the G1 cross-build, license gate and `go list -deps` G3 check cover all three libraries.
 - **Runtime limit tests**, Planned (M1): a tracked program over a capped list fails at 1,000,000 units; a tracked comprehension fails there too, also as the left operand of `||`; every environment estimates and charges under cost model revision 1; and `accessLog.when` after a request that ran to its Route deadline runs to its result.
-- **Benchmarks**, Planned (M1) for CEL, Planned (M2) for the engines: microbenchmarks, with worst-case fixtures at the caps, report against the per-call budgets in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md); `authz.opa` throughput scales linearly from 1 to 32 GOMAXPROCS (target); a miss reopens this ADR. `split(",")` of a 64 KiB header with `exists` and `map`, and a 32 × 32 nested comprehension, end within 50 ms (target), finished or at the cost limit.
 - **Fuzzing**, Planned (M1): the "CEL compile and cost estimator" target checks that actual cost stays within the static estimate, and within the estimate at the caps for inputs within them ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **Configuration conformance suite**, Planned (M1): negative fixtures cover RZ-CFG-014, RZ-CFG-015 and RZ-CFG-029. Planned (M2) fixtures in all three binaries: Rego calling `http.send`, `net.lookup_ip_addr`, `time.now_ns`, `rand.intn` or `uuid.rfc4122` fails compilation, and a Bundle at the engine ceiling gets one verdict.
 - **Amendment trigger**: a pull request that adds an expression language, policy engine, CEL extension or allowlisted OPA built-in, or adopts another `cel-go` cost model revision, MUST amend this ADR.
@@ -131,4 +130,4 @@ flowchart LR
 - The root `opa/rego` package is rejected: it is deprecated and kept "for the lifetime of OPA v1.x" ([source](https://github.com/open-policy-agent/opa/blob/main/rego/rego.go)), so `authz.opa` imports `opa/v1/rego`.
 - Owners: [Security and identity](../architecture/08-security-and-identity.md#authorization) (engines, limits, `RZ-AUTH` codes) and [CEL expressions and allowed places](../architecture/02-configuration-model.md#cel-expressions-and-allowed-places) (CEL fields, variables, limits).
 - Related: [ADR-0003](0003-configuration-format.md), [ADR-0004](0004-wasm-runtime-wazero.md), [ADR-0005](0005-plugin-abi-v1.md) and [ADR-0014](0014-ai-api-surface.md).
-- Revisit when a `cel-go` release adds a cost model revision or slows its cost tracking, cedar-go hits its watch-list trigger, OPA fails the G3 check, or a per-call budget misses.
+- Revisit when a `cel-go` release adds a cost model revision or slows its cost tracking, cedar-go hits its watch-list trigger, or OPA fails the G3 check.

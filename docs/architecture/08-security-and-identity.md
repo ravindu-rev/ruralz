@@ -464,7 +464,7 @@ Ruralz Control delivers one signed revocation list to every Node of a Cluster, c
 |---|---|---|---|
 | A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (per Policy: `config.crl`) | Signed entry, REST API | 5 s or less at p99 with a fresh mark (target) | Planned (M2), pending OQ-security-and-identity-4 |
 | An API key, file mode | Removed; CI and Hot Reload | No Ruralz target | Planned (M1) |
-| An API key, Control mode | Removed; Rollout | 30 s or less at p95 for 100 Nodes, `all-at-once` (target) (SM-9) | Planned (M2) |
+| An API key, Control mode | Removed; Rollout | 30 s or less at p95 for 100 Nodes, `all-at-once` (target) | Planned (M2) |
 | An Enrollment identity | `ruralz node revoke` | 5 s or less at p99 (target) | Planned (M2) |
 | An operator session or token | Raft-replicated set | 1 s or less on connected replicas (target) | Planned (M2) |
 | A Plugin publisher | Trust policy change; RZ-CFG-033 | Next activation | Planned (M2) |

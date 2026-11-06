@@ -8,7 +8,7 @@ This document fixes where Ruralz runs: ten topologies with ports, bootstrap, sta
 
 In scope: the sections below and [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed). "Pack 8.4" names a section of the [foundation pack](../_meta/foundation-pack.md).
 
-Non-goals: kinds and fields ([Configuration model](../architecture/02-configuration-model.md)); control-plane internals ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md)); performance values ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)); sizing formulas ([Capacity planning](03-capacity-planning.md)); upgrades ([Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); runbooks ([HA and DR](04-high-availability-and-disaster-recovery.md)); and Ruralz Cloud beyond T10.
+Non-goals: kinds and fields ([Configuration model](../architecture/02-configuration-model.md)); control-plane internals ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md)); per-Node limits ([Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog)); sizing formulas ([Capacity planning](03-capacity-planning.md)); upgrades ([Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); runbooks ([HA and DR](04-high-availability-and-disaster-recovery.md)); and Ruralz Cloud beyond T10.
 
 ## Topology catalog
 
@@ -102,69 +102,6 @@ flowchart LR
     n1 --> ss
     n2 --> ss
 ```
-
-#### Quickstart
-
-The scripted quickstart, `examples/quickstart/quickstart.sh`, Planned (M1), measures SM-7: the time from download to the first proxied request, 10 minutes or less (target) on a clean machine ([Vision](../vision/01-vision-and-positioning.md#success-metrics)), M1 exit criterion 4. It runs T1's single Node without the CLI: one file-mode `ruralzd` from the release archive, the `memory` State Store and a local Upstream. Since it tests a shipped archive, it runs in real time and waits on conditions, never on fixed sleeps ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)). It needs bash 3.2 or newer, the bash of macOS, curl, tar, `sha256sum` or `shasum`, and python3 for the Upstream, so it runs on Linux and macOS, the platforms with a `ruralzd` archive; cosign is optional (step 2).
-
-Stage 10 runs `make quickstart` in one clean job per `ruralzd` archive: linux/amd64 (`ubuntu-latest`), linux/arm64 (`ubuntu-24.04-arm`), darwin/arm64 (`macos-latest`) and darwin/amd64 (`macos-15-intel`). Each job holds only that archive and its `SHA256SUMS`, from a `make release-dry-run` of the commit, plus a sparse checkout of `examples/quickstart/` and the `Makefile`, and removes `go` from `PATH`, so the script provably needs no Go; the macOS jobs run it with the system bash and make. After each publish, candidates included, `release.yml` runs the download path (`RURALZ_QUICKSTART_ARCHIVE` empty, `RURALZ_QUICKSTART_VERSION` set to the release) on the same four platforms, and a failure opens or updates a `nightly-failure` issue ([Release pipeline](../engineering/04-release-versioning-and-compatibility.md#release-pipeline)).
-
-| Step | What the script does |
-|---|---|
-| 1. Preflight | Checks that bash runs it, that curl, tar, `sha256sum` or `shasum` and python3 exist and that `python3` runs (the macOS stub that asks for the Command Line Tools does not), that the host is linux or darwin on amd64 or arm64, that ports 8080, 9000 and 9901 are free on 127.0.0.1, and that its inputs are valid: `RURALZ_QUICKSTART_KEEP` empty, `0` or `1`, `RURALZ_QUICKSTART_VERSION` a version, and `RURALZ_QUICKSTART_ARCHIVE` a file named `ruralzd_<version>_<os>_<arch>.tar.gz` for the host. A failure prints every problem found, such as the missing tool, the platform or the busy port, and exits 2 |
-| 2. Archive | Takes the archive `RURALZ_QUICKSTART_ARCHIVE` names and the `SHA256SUMS` beside it. When that variable is empty, it downloads `ruralzd_<version>_<os>_<arch>.tar.gz` for the host, `SHA256SUMS` and `SHA256SUMS.sigstore.json` from the GitHub release of `RURALZ_QUICKSTART_VERSION`, a version without its `v` such as `0.1.0` or `0.1.0-rc.1`, or, when that is empty too, from the repository's latest release, which is never a pre-release, over HTTPS only and within step 7's 600 s. When cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, is on `PATH` and `SHA256SUMS.sigstore.json` is present, it first verifies `SHA256SUMS` against the certificate identity of `release-build.yml` at `refs/tags/v<version>`, cosign 2.x with `--new-bundle-format` ([Packaging and audit](../engineering/04-release-versioning-and-compatibility.md#packaging-and-audit)); otherwise, as for stage 10's unsigned dry-run archives or an older cosign, it prints that only checksums are checked. It then checks the archive against its one `SHA256SUMS` line and unpacks `ruralzd` into a temporary directory; a failed download, signature or checksum check exits 1 |
-| 3. Upstream | Starts `python3 -m http.server` on 127.0.0.1:9000, serving a temporary directory whose `index.html` holds one known line |
-| 4. Node | Starts `ruralzd` with `RURALZ_CONFIG` set to the script's own directory, `examples/quickstart/`, when `ruralz.yaml` is beside the script, else to a temporary directory where it writes the quickstart Bundle it embeds, so a script fetched alone or piped (`curl … \| bash`) also works. It also sets a temporary `RURALZ_DATA_DIR`, `RURALZ_FETCH_ALLOW=127.0.0.1`, because a Node otherwise refuses loopback Endpoints ([Security and identity](../architecture/08-security-and-identity.md#secrets), rule 6), and `RURALZ_BIND_LOOPBACK=true`, so 8080 and 9901 listen on loopback only ([Process settings](../_meta/foundation-pack.md#2-canonical-names)). `RURALZ_LOG_LEVEL` passes through and every other `RURALZ_*` variable is removed, so a State Store URL, admin credential or secret root in the caller's environment cannot change the Node |
-| 5. Readiness | Polls `http://127.0.0.1:9901/readyz` every 0.5 s (target) until it answers 200 |
-| 6. Success | Sends `GET http://127.0.0.1:8080/` until the answer is 200 with the known line as its body and `x-quickstart: ruralz`, which only the Route's `headers` Policy adds, so the response passed the Filter Chain. It then prints `first proxied request after <seconds> s`, counted from its own start, which `make quickstart` holds against `QUICKSTART_MAX_SECONDS` (600 s, SM-7's 10 minutes), stops both processes and exits 0. It stops `ruralzd` as `ruralz dev run` does ([CLI](../reference/01-cli-and-api-surface.md#local-ruralzd-launched-by-the-cli)): a second SIGTERM once `/readyz` reports the Drain, which jumps it to its deadline, and SIGKILL past the 30 s exit bound (target). With `RURALZ_QUICKSTART_KEEP=1`, which CI and `make quickstart` never set, it instead leaves the Node and the Upstream running, prints a `curl http://127.0.0.1:8080/` command and how to stop them, and on SIGINT (Ctrl-C) or SIGTERM stops both and exits 0; a process that exits meanwhile ends the run as in step 7. SIGHUP, SIGINT or SIGTERM before the first proxied request stops both and exits 128 plus the signal number |
-| 7. Failure | When a process exits early or 600 s pass (target), prints the last `/readyz` answer and the `ruralzd` log, and the Upstream's log when the Upstream exited, stops both processes and exits 1 |
-
-`examples/quickstart/ruralz.yaml`, the quickstart Bundle, which uses only M1 features and no `stateStore`, so the Node runs `memory` with its startup warning:
-
-```yaml
-apiVersion: ruralz/v1alpha1
-kind: Gateway
-metadata:
-  name: quickstart
-spec:
-  listeners:
-    - name: http
-      protocol: http
-      port: 8080
----
-apiVersion: ruralz/v1alpha1
-kind: Upstream
-metadata:
-  name: hello
-spec:
-  protocol: http
-  endpoints:
-    - address: "127.0.0.1:9000"         # python3 -m http.server, started by quickstart.sh
----
-apiVersion: ruralz/v1alpha1
-kind: Policy
-metadata:
-  name: quickstart-header
-spec:
-  type: headers
-  config:
-    response:
-      set: [{name: x-quickstart, value: ruralz}]   # only the Filter Chain adds it
----
-apiVersion: ruralz/v1alpha1
-kind: Route
-metadata:
-  name: hello
-spec:
-  match:
-    path: {prefix: /}
-  policies:
-    - name: quickstart-header
-  upstreams:
-    - name: hello
-```
-
-A Go test keeps `examples/quickstart/ruralz.yaml` identical to this block, renders it with the other example Bundles, and checks what the script relies on: the one Endpoint 127.0.0.1:9000 and `quickstart-header` on every response of Route `hello` ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#generator-rules)). `test/quickstart` runs the script, beside that file, alone and piped, against stand-in curl, python3, cosign, uname, sleep and date and a stub `ruralzd`, with no network and a simulated clock: it checks every step's exits, messages and process settings, and that the copy of the Bundle the script writes when it runs alone equals that file.
 
 ### T3: Cluster of Nodes managed by Ruralz Control
 
@@ -313,7 +250,7 @@ flowchart TB
 | `ruralzd.sysusers` | The sysusers.d entry for `/etc/sysusers.d/ruralzd.conf`: `systemd-sysusers` creates the system user and group `ruralz`, with an automatic system ID, home `/var/lib/ruralz` and no login shell |
 | `ruralzd.env`, `99-ruralzd.conf` | Example `EnvironmentFile` for `/etc/ruralzd/ruralzd.env`, mode 0600: `RURALZ_CONFIG` and the optional M1 settings; sysctl `net.ipv4.tcp_migrate_req = 1` for `/etc/sysctl.d/` |
 
-The binary and the helper install as `/usr/local/bin/ruralzd` and `/usr/local/bin/ruralzd-handover`, `systemd-sysusers` creates the user from the sysusers.d entry, and the admin token file then takes the group `ruralz`. `systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). The T5 verification installs a linux archive exactly this way and checks what this table promises ([Handover under systemd](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd)).
+The binary and the helper install as `/usr/local/bin/ruralzd` and `/usr/local/bin/ruralzd-handover`, `systemd-sysusers` creates the user from the sysusers.d entry, and the admin token file then takes the group `ruralz`. `systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)).
 
 **T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
 
@@ -516,7 +453,7 @@ sequenceDiagram
 | T9 | As T3 or T4, against the home Region | As T3 or T4 | Also after a restore without a revocation list |
 | T10 | Customer `security-admin` or job, on the managed side | Customer disks | Also on exit |
 
-`Enroll` rate-limits each source and locks it out after 10 failures in 10 minutes (target); behind NAT (T10, many T4 clusters) Nodes share one source and lockout. The rate MUST cover the largest scale-out step per egress address, such as CE-9's 90 Enrolls in 2 minutes (target); mint tokens just in time and alert on RZ-CP-001 bursts (keying: OQ-deployment-topologies-15).
+`Enroll` rate-limits each source and locks it out after 10 failures in 10 minutes (target); behind NAT (T10, many T4 clusters) Nodes share one source and lockout. The rate MUST cover the largest scale-out step per egress address, such as a Cluster growing from 10 to 100 Nodes in 2 minutes, 90 Enrolls (target); mint tokens just in time and alert on RZ-CP-001 bursts (keying: OQ-deployment-topologies-15).
 
 ## Configuration delivery per topology
 
@@ -537,12 +474,12 @@ Rules:
 
 ## Sizing defaults
 
-Starting points; [Capacity planning](03-capacity-planning.md) replaces them with benchmark formulas (P10).
+Starting points; [Capacity planning](03-capacity-planning.md) replaces them with its formulas.
 
 | Item | Starting value | Owner |
 |---|---|---|
-| Node container | 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and default buffered-bytes and state-table budgets; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)). Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget); [Capacity planning](03-capacity-planning.md) |
-| S2 planning throughput | 16,000 rps per 4-vCPU Node at half saturation (target) | [Throughput targets](../architecture/12-performance-budgets-and-benchmarking.md#throughput-targets) |
+| Node container | 4 vCPU (target); 4 GiB (hypothesis) fits only idle TLS connections and the default buffered-bytes and state-table ceilings; the fixed ceilings' worst case, about 19 GiB plus snapshots, needs 32 GiB (hypothesis, [Bounded resources](../architecture/03-data-plane.md#bounded-resources)). Size memory by `GOMEMLIMIT` below; an L4 connection cap does not bound it (OQ-capacity-planning-5). Plugins add `limits.maxPluginMemoryBytes`, 2 GiB by default (target) | [Capacity planning](03-capacity-planning.md); [Data plane](../architecture/03-data-plane.md#bounded-resources) |
+| Planning throughput | 16,000 rps per 4-vCPU Node of HTTP/1.1 traffic with `auth.jwt` and `ratelimit`, at half saturation (target) | [Capacity planning](03-capacity-planning.md#coefficients) |
 | `GOMEMLIMIT` | At least max(M_node, M_flood), 90% of the container limit (target) | [Capacity planning](03-capacity-planning.md#formulas) |
 | Nodes per Cluster | At least three in two or more equal zones (target), scaling out at 40% CPU with two zones, 53% with three, 60% with four (target); unequal zones at 80% × (N − N_largest_zone) / N (target) | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) |
 | Nodes per Cell | 1,000 at most (target) | [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing) |
@@ -553,12 +490,12 @@ Starting points; [Capacity planning](03-capacity-planning.md) replaces them with
 | Ruralz Control replicas; relays per Region | ceil(N / 5,000) + 1 across zones, at least the voters, N counting relay-served Nodes; relays with N_region (hypothesis) | [Scaling Ruralz Control](../architecture/11-scalability-and-distributed-state.md#scaling-ruralz-control-and-the-state-store) |
 | Nodes per Ruralz Control deployment | 10,000, counting every Environment and relay-served Node (target) | [Heartbeat](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure) |
 | `${RURALZ_DATA_DIR}` volume | 1 GiB (hypothesis) | [Capacity planning](03-capacity-planning.md) |
-| Ruralz Control replica | 2 vCPU and 4 GiB (hypothesis) until F2 measures Snapshots in flight, send queues, Raft log and Revisions | Same |
+| Ruralz Control replica | 2 vCPU and 4 GiB (hypothesis) for Snapshots in flight, send queues, Raft log and Revisions | Same |
 
-A first-order example, one Cell at the three-zone threshold; S2 uses the `memory` driver, so `redis` rates await S5 and G1, and 5,000 calls per second per Node (hypothesis) suits only unknown mixes:
+A first-order example, one Cell at the three-zone threshold. The planning throughput counts no State Store round trip, so each blocking `redis` call adds Capacity planning's per-call CPU, and 5,000 calls per second per Node (hypothesis) suits only unknown mixes:
 
 ```text
-Peak                 60,000 rps of S2-like traffic, one ratelimit per request         (hypothesis)
+Peak                 60,000 rps of JWT and rate-limited traffic, one ratelimit per request (hypothesis)
 Per-Node capacity    32,000 rps × 0.53 ≈ 16,960 rps per 4-vCPU Node, upper bound       (hypothesis)
 With 30% headroom    60,000 × 1.3 = 78,000 rps → 78,000 / 16,960 ≈ 4.6                (hypothesis)
 Nodes                5, rounded up to 6 for two per zone                             (hypothesis)
@@ -568,7 +505,7 @@ Shards               ceil(78,000 / 50,000 at 50% of a shard) = 2, each with a re
 Ruralz Control       3 voters; ceil(6 / 5,000) + 1 = 2 replicas → 3                   (hypothesis)
 Node memory          20,000 × 96 KiB + 256 MiB = 2.2 GiB                              (target)
                      + 512 MiB maxBufferedBytes + about 475 MiB state tables ≈ 3.2 GiB (hypothesis)
-                     idle only; Performance budgets' informational run: 2.5 GiB (target)
+                     idle connections only
 GOMEMLIMIT           ≥ max(M_node, M_flood), M_flood holding 6,250 MiB of in-flight
                      units on every Node, so the container exceeds 4 GiB               (hypothesis)
 maxReplicas bound    ≤ shards × 50,000 / (per-Node rps × blocking calls per request)
