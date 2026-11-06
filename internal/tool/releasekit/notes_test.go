@@ -57,6 +57,15 @@ func TestFooters(t *testing.T) {
 	if got := footers("BREAKING CHANGES: not a token match\n", footerBreaking); len(got) != 0 {
 		t.Errorf("footers matched another token: %q", got)
 	}
+	// Release-As is read in any case, as Conventional Commits reads every
+	// footer token but BREAKING CHANGE; footers matches its keys exactly.
+	cased := "Release-As: 1.0.0\nrelease-as: 1.1.0\nRELEASE-AS: 1.2.0\nRelease-Ass: 9.0.0\n"
+	if got, want := footersFold(cased, footerReleaseAs), []string{"1.0.0", "1.1.0", "1.2.0"}; !slices.Equal(got, want) {
+		t.Errorf("footersFold = %q, want %q", got, want)
+	}
+	if got, want := footers(cased, footerReleaseAs), []string{"1.0.0"}; !slices.Equal(got, want) {
+		t.Errorf("footers = %q, want %q", got, want)
+	}
 }
 
 // TestClassifyCommits sorts commits into the notes sections.
@@ -144,7 +153,7 @@ func sampleNotes(version string) notesInput {
 
 // TestRenderNotes: every section of the Release notes row, in order and
 // nothing after the verification steps, which name the signer, the release
-// run on main, and the cosign floor.
+// run on main, and the oldest cosign releases it accepts.
 func TestRenderNotes(t *testing.T) {
 	got := renderNotes(sampleNotes("0.1.0"))
 	headings := []string{

@@ -40,7 +40,7 @@ func TestReleaseFromRepository(t *testing.T) {
 		t.Skip("builds release binaries")
 	}
 	if os.Getenv("GOEXPERIMENT") != "" {
-		t.Skip("GOEXPERIMENT is set (the floor job); release binaries never set one")
+		t.Skip("GOEXPERIMENT is set, as a Go 1.26 build needs; release binaries never set one")
 	}
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
