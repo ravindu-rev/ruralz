@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/topology"
 	"github.com/ravindu-rev/ruralz/test/chaos"
@@ -121,18 +122,19 @@ func gd5(t *testing.T, variant string) {
 	r.Inject("delete", primary.Name(), func() error { return primary.Kill(ctx) })
 	deleted := time.Now()
 	r.Hold(l, "gone", gd5Gone)
-	r.Inject("replace-at-the-same-url", primary.Name(), func() error { return primary.Restart(ctx) })
+	// The replacement takes connections, and charges, from some instant of
+	// its restart on, before the restart returns.
+	replacing := r.Inject("replace-at-the-same-url", primary.Name(), func() error { return primary.Restart(ctx) })
 	accepted := time.Now()
 	r.Hold(l, "replaced", gd5Serve)
 
 	// The replacement is lost too: the Nodes move to a second one.
 	second := r.Top.StartStateStore("second", gd5Store())
-	firstCounters, err := chaos.QuotaCounters(ctx, dep.Nodes())
-	if err != nil {
-		t.Fatal(err)
-	}
-	read := time.Now()
+	firstCounters := gd5Counters(ctx, t, dep)
 	reached := map[string]time.Time{} // when each Node could reach the second replacement
+	// opened is the earliest instant a Node could charge the second
+	// replacement: its first file rewritten, or its first restart begun.
+	var opened time.Time
 	moveStart := time.Now()
 	switch variant {
 	case gd5File:
@@ -140,6 +142,7 @@ func gd5(t *testing.T, variant string) {
 			if err := primary.Kill(ctx); err != nil {
 				return err
 			}
+			opened = time.Now()
 			return gd5Rotate(r, second.URL())
 		})
 		at := time.Now() // every file rotated, the first replacement gone
@@ -149,8 +152,12 @@ func gd5(t *testing.T, variant string) {
 	case gd5Env:
 		r.Inject("delete", primary.Name(), func() error { return primary.Kill(ctx) })
 		for _, zone := range gd5Zones() {
-			for n, at := range gd5Restart(ctx, t, r, l, zone, second.URL()) {
+			ready, started := gd5Restart(ctx, t, r, l, zone, second.URL())
+			for n, at := range ready {
 				reached[n] = at
+			}
+			if opened.IsZero() {
+				opened = started
 			}
 		}
 	}
@@ -164,10 +171,9 @@ func gd5(t *testing.T, variant string) {
 	}
 	logStreams(r, l)
 	r.Baseline(l, base)
-	secondCounters, err := chaos.QuotaCounters(ctx, second.Deployment().Nodes())
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Read once the load stopped: its requests sent after the recovery's
+	// end charged the second replacement too.
+	secondCounters := gd5Counters(ctx, t, second.Deployment())
 	node := nodeOf(r)
 	nodes := r.NodeNames()
 	closed := gd5Closed(l)
@@ -205,12 +211,15 @@ func gd5(t *testing.T, variant string) {
 	secondServing, served := gd5Serving(t, r, gd5Reached(variant), closed, node, reached)
 	r.Add(sameServing, secondServing)
 
-	// Counters start empty in each replacement.
+	// Counters start empty in each replacement: they hold no more than the
+	// admitted requests sent from the first instant a Node could charge it
+	// until its counters were read.
+	charging := gd5Charging(l)
 	r.Add(
 		chaos.Check("same-URL replacement's quota units above what was charged since it accepted connections", chaos.Functional,
-			float64(StartsEmpty(firstCounters, gd5Charged(l, accepted, read))), chaos.EQ, 0),
+			float64(StartsEmptySince(firstCounters, charging, replacing)), chaos.EQ, 0),
 		chaos.Check("second replacement's quota units above what was charged since the Nodes reached it", chaos.Functional,
-			float64(StartsEmpty(secondCounters, gd5Charged(l, gd5Earliest(reached), rec.End))), chaos.EQ, 0),
+			float64(StartsEmptySince(secondCounters, charging, opened)), chaos.EQ, 0),
 	)
 
 	// The dropped writes return to the baseline's rate, and no Node raises
@@ -301,35 +310,29 @@ func gd5OfNode(reqs []chaos.Request, node func(chaos.Request) string, n string) 
 	return out
 }
 
-// gd5Charged returns, per Consumer, the requests the /limited and
-// /limited-closed quotas could have charged a deployment between two
-// instants: the admitted ones sent then, the env run's gd5Fresh stream
-// included. Both Policies charge the Consumer's one chaos-requests quota.
-func gd5Charged(l *chaos.Load, from, to time.Time) map[string]int64 {
-	out := map[string]int64{}
+// gd5Charging returns the requests the /limited and /limited-closed
+// quotas could have charged a deployment with: those of their streams, the
+// env run's gd5Fresh included. Both Policies charge the Consumer's one
+// chaos-requests quota.
+func gd5Charging(l *chaos.Load) []chaos.Request {
+	var out []chaos.Request
 	for _, name := range []string{"limited", "closed", gd5Fresh} {
-		st := l.StreamNamed(name)
-		if st == nil {
-			continue
-		}
-		for _, q := range st.Requests() {
-			if !q.Sent.Before(from) && q.Sent.Before(to) && chaos.Admitted(q) {
-				out[q.Key]++
-			}
+		if st := l.StreamNamed(name); st != nil {
+			out = append(out, st.Requests()...)
 		}
 	}
 	return out
 }
 
-// gd5Earliest returns the earliest instant of at.
-func gd5Earliest(at map[string]time.Time) time.Time {
-	var out time.Time
-	for _, t := range at {
-		if out.IsZero() || t.Before(out) {
-			out = t
-		}
+// gd5Counters reads a deployment's quota counters, with the instant the
+// read returned.
+func gd5Counters(ctx context.Context, t *testing.T, dep *redisserver.Deployment) Counters {
+	t.Helper()
+	units, err := chaos.QuotaCounters(ctx, dep.Nodes())
+	if err != nil {
+		t.Fatal(err)
 	}
-	return out
+	return Counters{Units: units, Read: time.Now()}
 }
 
 // gd5Rotate rewrites every Node's file secret holding the main
@@ -356,14 +359,16 @@ func gd5Rotate(r *chaos.Run, url string) error {
 
 // gd5Restart Drains and restarts one zone's Nodes with the new URL in
 // their environment, as an env secret's value changes, and returns when
-// each was ready again, once the balancer has them all back and each gave
-// its first closed-Policy GCRA answer since, or gd5Await passed. Stop
+// each was ready again, and the instant before the first of them started,
+// from which it could charge the State Store the URL names, once the
+// balancer has them all back and each gave its first closed-Policy GCRA
+// answer since, or gd5Await passed. Stop
 // walks the one clock through a Drain in 1 s steps, so the next zone's
 // Drain inside the interval GD-5 bounds would count that walk, many times
 // faster than real time, as the Node's recovery; a returning Node takes
 // its first connections only as the balancer's slow start ramps it up.
 // An operator rolls the next zone once this one serves, too.
-func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, zone, url string) map[string]time.Time {
+func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, zone, url string) (map[string]time.Time, time.Time) {
 	t.Helper()
 	var ns []*topology.Node
 	for _, n := range r.Top.Nodes() {
@@ -375,6 +380,7 @@ func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, 
 		}
 	}
 	ready := map[string]time.Time{}
+	var started time.Time
 	var names []string
 	r.Inject("drain-and-restart", "zone-"+zone, func() error {
 		for _, n := range ns {
@@ -384,6 +390,7 @@ func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, 
 				t.Logf("gameday: %s: %s exited %d after its Drain", GD5, n.Name(), code)
 			}
 		}
+		started = time.Now()
 		for _, n := range ns {
 			if err := n.Start(ctx); err != nil {
 				return err
@@ -417,5 +424,5 @@ func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, 
 		case <-time.After(gd5AwaitPoll):
 		}
 	}
-	return ready
+	return ready, started
 }

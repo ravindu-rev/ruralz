@@ -211,6 +211,31 @@ func StartsEmpty(counters, chargedSince map[string]int64) int64 {
 	return UnderCharge(counters, chargedSince)
 }
 
+// Counters are a deployment's quota counters by Consumer (Units), as
+// chaos.QuotaCounters reads them, with the real instant the read returned
+// (Read): a request sent before then may have charged them, the requests
+// a load sends after the run's last phase until it stops included.
+type Counters struct {
+	Units map[string]int64
+	Read  time.Time
+}
+
+// StartsEmptySince is StartsEmpty over the counters c of a replacement
+// that a Node could first reach at from: the most the Nodes could have
+// charged it is one unit per admitted request of reqs sent from from
+// until c.Read, by its key, so a window that ends before the read, as at
+// the end of the run's last phase while the load still sends, would count
+// the charges of the requests sent since as restored ones.
+func StartsEmptySince(c Counters, reqs []chaos.Request, from time.Time) int64 {
+	charged := map[string]int64{}
+	for _, q := range reqs {
+		if !q.Sent.Before(from) && q.Sent.Before(c.Read) && chaos.Admitted(q) {
+			charged[q.Key]++
+		}
+	}
+	return StartsEmpty(c.Units, charged)
+}
+
 // RateForShare returns the rate at which the Nodes run at target CPU
 // share, from the share they ran at under rate, CPU taken as linear in
 // the offered rate; rate itself when share is not positive.

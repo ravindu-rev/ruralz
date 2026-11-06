@@ -155,6 +155,35 @@ func TestCounters(t *testing.T) {
 	}
 }
 
+// TestStartsEmptySince checks a replacement's check over its counters'
+// read: every admitted request sent from the first instant a Node could
+// reach the replacement until the counters were read may have charged
+// them, the load's requests after the run's last phase included, so
+// counters that hold just those charges start empty, one unit more is a
+// restored one, and requests sent before that instant or denied charge
+// nothing it counts.
+func TestStartsEmptySince(t *testing.T) {
+	sent := func(ms, status int, key string) chaos.Request {
+		return chaos.Request{Intended: drillAt(ms), Sent: drillAt(ms), Done: drillAt(ms + 5), Status: status, Key: key}
+	}
+	const reached, lastPhaseEnd, read = 1000, 9000, 9500
+	reqs := []chaos.Request{
+		sent(500, 200, "chaos-1"), // before any Node could reach it
+		sent(1500, 200, "chaos-1"),
+		sent(8000, 200, "chaos-2"),
+		sent(lastPhaseEnd+20, 200, "chaos-1"), // after the last phase, before the read
+		sent(lastPhaseEnd+30, 429, "chaos-2"), // denied: charges nothing
+	}
+	c := Counters{Units: map[string]int64{"chaos-1": 2, "chaos-2": 1}, Read: drillAt(read)}
+	if got := StartsEmptySince(c, reqs, drillAt(reached)); got != 0 {
+		t.Errorf("StartsEmptySince of counters holding each admitted request since the Nodes reached it = %d, want 0", got)
+	}
+	c.Units["chaos-1"] = 3
+	if got := StartsEmptySince(c, reqs, drillAt(reached)); got != 1 {
+		t.Errorf("StartsEmptySince of counters holding one unit more = %d, want 1", got)
+	}
+}
+
 // TestCPU checks GD-2's CPU arithmetic: the calibrated rate for the
 // three-zone threshold, and GOMAXPROCS read from a process environment.
 func TestCPU(t *testing.T) {
