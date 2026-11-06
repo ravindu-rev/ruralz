@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document fixes how Ruralz is versioned, released and kept compatible: one Semantic Versioning scheme for every binary and the Helm chart; own identifiers and change rules for the Bundle apiVersion, Plugin ABI v1 and the Control Stream; N and N-1 skew between Ruralz Control, Ruralz Gateway and the CLI, with a finalize step for Raft upgrades; an automatic release on every push to `main` that carries a feature, fix or breaking change, with support windows in months; security fixes by severity, public to everyone at once; and signed artifacts with SBOM and provenance. Contributors, operators and plugin authors should read it.
+This document fixes how Ruralz is versioned, released and kept compatible: one Semantic Versioning scheme for every binary and the Helm chart; own identifiers and change rules for the Bundle apiVersion, Plugin ABI v1 and the Control Stream; N and N-1 skew between Ruralz Control, Ruralz Gateway and the CLI, with a finalize step for Raft upgrades; an automatic release on every push to `main` that carries a feature, fix, dependency update or breaking change, with fixes for the newest release only; security fixes by severity, public to everyone at once; and signed artifacts with SBOM and provenance. Contributors, operators and plugin authors should read it.
 
 ## Scope and non-goals
 
@@ -18,7 +18,7 @@ Non-goals:
 
 ### One product version
 
-`ruralzd`, `ruralz-control`, the `ruralz` CLI, the Helm chart and the published JSON Schema share one product version, `MAJOR.MINOR.PATCH` in Semantic Versioning 2.0.0 syntax, tagged `vMAJOR.MINOR.PATCH` on `github.com/ravindu-rev/ruralz`; one tag builds every artifact. Binaries embed version, commit and build flavor through `-ldflags -X` ([Tech stack and libraries](01-tech-stack-and-libraries.md#static-builds)), printed by `ruralz version`. Milestones are feature sets, not versions; the first release is `0.1.0`, Planned (M1). The release pipeline derives every version from the Conventional Commits titles and footers of the commits it releases ([Release pipeline](#release-pipeline)), so a change the table below allows only from a minor release is a `feat` or a breaking change, and a patch carries only `fix` and `perf` changes besides commits that release nothing.
+`ruralzd`, `ruralz-control`, the `ruralz` CLI, the Helm chart and the published JSON Schema share one product version, `MAJOR.MINOR.PATCH` in Semantic Versioning 2.0.0 syntax, tagged `vMAJOR.MINOR.PATCH` on `github.com/ravindu-rev/ruralz`; one tag builds every artifact. Binaries embed version, commit and build flavor through `-ldflags -X` ([Tech stack and libraries](01-tech-stack-and-libraries.md#static-builds)), printed by `ruralz version`. Milestones are feature sets, not versions; the first release is `0.1.0`, Planned (M1). The release pipeline derives every version from the Conventional Commits titles and footers of the commits it releases ([Release pipeline](#release-pipeline)), so a change the table below allows only from a minor release is a `feat` or a breaking change, and a patch carries only `fix`, `perf` and `build(deps)` changes besides commits that release nothing; a `Release-As` footer can only raise the version those commits make.
 
 | Change | Patch `x.y.Z` | Minor `x.Y.0` | Major `X.0.0` |
 |---|---|---|---|
@@ -29,7 +29,7 @@ Non-goals:
 
 Every change that alters a digest, whether a default change or a render or canonicalization fix, is gated by a schema level or a format identifier, never shipped bare. In `ruralz/v1alpha1` it ships as a new schema level, so rendering at a level reproduces that level's output byte for byte. In `ruralz/v1beta1` and `ruralz/v1`, a fix that would change a digest ships only behind a new opt-in field or a new format identifier (for example `ruralz.canonical.v2`), per the [Configuration model](../architecture/02-configuration-model.md#canonical-form-and-revision); CI runs the golden corpus at every schema level inside the skew window. Whether the Configuration model's golden-corpus exception covers a `ruralz/v1alpha1` render fix, and not only a default change, is OQ-release-versioning-and-compatibility-13.
 
-Patches never raise a level or change a digest, so they never matter for skew. Stable surfaces are `ruralz/v1`, `ruralz.canonical.v1`, `ruralz.diff.v1`, a frozen `ruralz.plugin.v1`, `ruralz.control.v1`, `/api/v1/`, exit codes and error codes; `ruralz/v1alpha1`, `ruralz/v1beta1`, preview ABI levels and the rest retire by their windows. `1.0.0` needs `ruralz/v1` served, Plugin ABI v1 frozen and two consecutive minors without a stable-surface deprecation (OQ-release-versioning-and-compatibility-1).
+Patches never raise a level or change a digest, so they never matter for skew. Stable surfaces are `ruralz/v1`, `ruralz.canonical.v1`, `ruralz.diff.v1`, a frozen `ruralz.plugin.v1`, `ruralz.control.v1`, `/api/v1/`, exit codes and error codes; `ruralz/v1alpha1`, `ruralz/v1beta1`, preview ABI levels and the rest retire by their windows. `1.0.0` needs `ruralz/v1` served, Plugin ABI v1 frozen and two consecutive minors without a stable-surface deprecation (OQ-release-versioning-and-compatibility-1); a `Release-As: 1.0.0` footer cuts it ([Release pipeline](#release-pipeline)).
 
 ### Versioned surfaces
 
@@ -45,7 +45,7 @@ Patches never raise a level or change a digest, so they never matter for skew. S
 | REST API | `/api/v1/` | Additive; a `/api/v2/` runs beside it for 4 minor releases (target) | Control plane and GitOps |
 | CLI | Pack 9 registry, flags, exit codes | Flags and added verbs are deprecated for 2 minor releases before removal (target); pack 9 commands are fixed by the registry; exit codes never change | CLI and API surface |
 | Error codes, metrics | `RZ-<AREA>-<NNN>`, `ruralz_<component>_<name>_<unit>` | Codes never change meaning or get reused; a renamed metric keeps its old name for 2 minor releases (target) | Pack 8.6 registries; [Observability](../architecture/10-observability.md) |
-| Node handover and identity | `${RURALZ_DATA_DIR}` file lock, candidate, Unix-socket readiness message; under `${RURALZ_DATA_DIR}/identity/`, the persisted (`storeEpoch`, `assignmentSeq`) pair, last accepted `promotionSeq` and anchor-set `version` | Hand over from every supported line, and back within the [binary rollback limit](#binary-rollback-limit); format changes are additive or version-marked | [Data plane](../architecture/03-data-plane.md); [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas); Zero-downtime upgrades |
+| Node handover and identity | `${RURALZ_DATA_DIR}` file lock, candidate, Unix-socket readiness message; under `${RURALZ_DATA_DIR}/identity/`, the persisted (`storeEpoch`, `assignmentSeq`) pair, last accepted `promotionSeq` and anchor-set `version` | Hand over from N-1 and N, the minors of the skew window, and back within the [binary rollback limit](#binary-rollback-limit); format changes are additive or version-marked | [Data plane](../architecture/03-data-plane.md); [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas); Zero-downtime upgrades |
 
 ## apiVersion lifecycle and deprecation windows
 
@@ -53,9 +53,9 @@ The first served version is `ruralz/v1alpha1`, Planned (M0) ([ADR-0003](../adr/0
 
 | Stage | Promise (Configuration model) | Served after the successor ships | Planned |
 |---|---|---|---|
-| `ruralz/v1alpha1` | Fields and defaults may change with one milestone of notice, each a new schema level | At least 2 minor releases, about 6 months (target) | Planned (M0) |
-| `ruralz/v1beta1` | Deprecation, not removal; defaults never change | At least 3 minor releases, about 9 months (target) | Planned (M3) |
-| `ruralz/v1` | Additive only; defaults never change | Within a product major, always; a `ruralz/v2` serves it alongside for 4 minor releases, about 12 months (target) | OQ-release-versioning-and-compatibility-1 |
+| `ruralz/v1alpha1` | Fields and defaults may change with one milestone of notice, each a new schema level | At least 2 minor releases (target) | Planned (M0) |
+| `ruralz/v1beta1` | Deprecation, not removal; defaults never change | At least 3 minor releases (target) | Planned (M3) |
+| `ruralz/v1` | Additive only; defaults never change | Within a product major, always; a `ruralz/v2` serves it alongside for 4 minor releases (target) | OQ-release-versioning-and-compatibility-1 |
 
 Inside `ruralz/v1alpha1`, a change announced in minor N with a deprecation warning (OQ-release-versioning-and-compatibility-7) takes effect no earlier than the later of minor N+2 and the next milestone's first release. Deprecated fields work until their apiVersion stops being served; an unserved version fails with RZ-CFG-007.
 
@@ -104,11 +104,11 @@ Only new Host Functions count as additions ([WASM plugin system](../architecture
 
 Rules 1 and 2 propose option (c) for OQ-wasm-plugin-system-13, levels implied by reported product versions, and a missing-import NACK that pauses the Rollout instead of quarantining, since retries never succeed.
 
-A major creates the import namespace `ruralz.plugin.v2` and a new `abi` value; Nodes serve v1 and v2 for 4 minor releases, about 12 months (target), and `ruralz bundle validate` warns on v1 Plugins. The proxy-wasm compatibility adapter, Planned (M4), is identified per OQ-wasm-plugin-system-8.
+A major creates the import namespace `ruralz.plugin.v2` and a new `abi` value; Nodes serve v1 and v2 for 4 minor releases (target), and `ruralz bundle validate` warns on v1 Plugins. The proxy-wasm compatibility adapter, Planned (M4), is identified per OQ-wasm-plugin-system-8.
 
 ## Control Stream versioning
 
-The Control Stream is the gRPC package `ruralz.control.v1`, service `ControlStream`, RPCs `Enroll` and `Stream` ([ADR-0007](../adr/0007-control-stream-protocol.md)). From Planned (M2), `buf breaking` checks every pull request against the last tag of every supported line, covering the skew window. Revision content follows the apiVersion rules.
+The Control Stream is the gRPC package `ruralz.control.v1`, service `ControlStream`, RPCs `Enroll` and `Stream` ([ADR-0007](../adr/0007-control-stream-protocol.md)). From Planned (M2), `buf breaking` checks every pull request against the newest release tag of N-1 and of N, covering the skew window. Revision content follows the apiVersion rules.
 
 | Change | Within `ruralz.control.v1` | Needs `ruralz.control.v2` |
 |---|---|---|
@@ -119,7 +119,7 @@ The Control Stream is the gRPC package `ruralz.control.v1`, service `ControlStre
 
 Ruralz Control upgrades first and MUST NOT depend on an older Node understanding additions. Only `EnrollRequest` carries a binary `version` (`Hello` carries the anchor set's), which goes stale after an upgrade or rollback (OQ-release-versioning-and-compatibility-4). Until then Ruralz Control sends a new `oneof` member or enum value only to Nodes whose version it learned on the current stream, and treats others as the first `ruralz.control.v1` release, Planned (M2).
 
-A `ruralz.control.v2` uses distinct gRPC paths, so 8091 serves both for 4 minor releases, about 12 months (target); Nodes fall back on `Unimplemented`.
+A `ruralz.control.v2` uses distinct gRPC paths, so 8091 serves both for 4 minor releases (target); Nodes fall back on `Unimplemented`.
 
 ## Control plane and data plane version skew
 
@@ -134,7 +134,7 @@ Here N is the newest Ruralz Control binary minor; the Control Store version stay
 | `ruralz bundle push` to Ruralz Control | CLI at the Control Store version; one minor older only if N added no schema level | Other versions | Re-render mismatch: RZ-CFG-027 |
 | CLI and Nodes (`ruralz dev tap`, `ruralz node dump`, file-mode Revisions) | Oldest Node's minor or one newer | Two or more newer | File-mode Node: RZ-CFG-024; admin calls: the CLI warns on standard error from the Node's `ruralz-version` response header ([Admin API conventions](../reference/01-cli-and-api-surface.md#admin-api-conventions)) |
 | Nodes within one Cluster | Any mix of N and N-1 | N-2 or older; newer than the Control Store version | Rollouts with fields newer than the oldest Node are refused (RZ-CFG-024) |
-| `ruralzd` upgrade handover | From any supported line; back within the binary rollback limit | Unsupported lines | An unknown format marker refuses the handover; the old process keeps serving |
+| `ruralzd` upgrade handover | From N-1 or N; back within the binary rollback limit | From N-2 or older | An unknown format marker refuses the handover; the old process keeps serving |
 | Plugin and Node | ABI level at or below the Node's | Above it | RZ-CFG-028, or earlier refusal (rule 2 of [Plugin ABI versioning](#plugin-abi-versioning)) |
 | Last-Known-Good and Node | Written by N-1 or N, booted by N; written by N without newer fields, booted by N-1 | Newer field, booted by N-1 | RZ-CFG-024; the Node waits for the Control Stream or stays not ready (pack 8.2) |
 | Helm chart and CRDs | `ruralz-control` at the chart version; `ruralzd` at N or N-1; CRDs serve every apiVersion N-1 served; a newly served version appears only once every replica runs N, and becomes the storage version no earlier than the next minor | A served version that some replica's conversion webhook cannot convert; a storage version that N-1 cannot read | Separate image tags (OQ-release-versioning-and-compatibility-11); CRD order in [Release artifacts](#release-artifacts) |
@@ -231,65 +231,38 @@ PDK package names are [WASM plugin system](../architecture/05-wasm-plugin-system
 | C# PDK | `Ruralz.Pdk` | Own SemVer; major 1 targets `ruralz.plugin.v1` | Planned (M4) |
 | JSON Schema; OpenAPI for `/api/v1/` | One file per apiVersion and view; one description | Product version; `x-ruralz-since` marks levels | Schema published Planned (M0), attached to releases Planned (M1); OpenAPI Planned (M2) |
 
-- A PDK minor adds wrappers for a newer ABI level, never raising a Plugin's level by itself; the two newest PDK minors get fixes (target), tested against every supported line's ABI conformance suite.
+- A PDK minor adds wrappers for a newer ABI level, never raising a Plugin's level by itself; the two newest PDK minors get fixes (target), tested against the ABI conformance suites of N and N-1.
 - `pkg/` follows SemVer from `1.0.0`, `internal/` never. Since `pkg/` is in the root module, a product `2.0.0` also moves the module path to `github.com/ravindu-rev/ruralz/v2`. Generated REST clients are Not planned: users generate them from OpenAPI.
 
 ## Release cadence and support windows
 
-One cadence and support policy covers every artifact, Planned (M1) from `0.1.0`. No payment buys another line, a longer window or an earlier patch; commercial support buys help only, and the FIPS build gets the same windows (P1).
+One cadence and support policy covers every artifact, Planned (M1) from `0.1.0`. No payment buys support for an older release or an earlier fix; commercial support buys help only, and the FIPS build follows the same policy (P1).
 
-- A release ships on every push to `main` whose commits since the previous release include a feature, a fix, a performance change or a breaking change, at the version those commits make ([Release pipeline](#release-pipeline)): the first `feat` merged after a release ships the next minor, a `fix` or `perf` alone the next patch. A release follows its push at once, on no fixed date, and a push of only commits that release nothing, such as documentation, tests or Dependabot's dependency updates, ships nothing.
-- Release builds pin the newest Go patch through the `toolchain` directive ([ADR-0001](../adr/0001-implementation-language-go.md)). A Go or module security release reachable per `govulncheck` lands in a `fix` commit, which releases a patch per its severity row; any other toolchain or dependency update, such as Dependabot's `build(deps)` commits, rides the next release.
-- Fixes land on `main` and ship in its next release; embargoed security fixes merge to `main` at disclosure. `release.yml` releases from `main` only: how the N-1 and N-2 lines below receive their patch releases is OQ-release-versioning-and-compatibility-14.
+- A release ships on every push to `main` whose commits since the previous release include a feature, a fix, a performance change, a dependency update or a breaking change, at the version those commits make ([Release pipeline](#release-pipeline)): the first `feat` merged after a release ships the next minor, a `fix`, `perf` or `build(deps)` alone the next patch. A release follows its push at once, on no fixed date, and a push of only commits that release nothing, such as documentation, tests or Dependabot's action updates, ships nothing.
+- Release builds pin the newest Go patch through the `toolchain` directive ([ADR-0001](../adr/0001-implementation-language-go.md)). Every toolchain or dependency update is a `build(deps)` commit, Dependabot's included, and releases a patch, so a Go or module security release reachable per `govulncheck` ships as soon as its update merges, within the time of its severity row.
+- Only the newest release is supported. Every fix, security fixes included, lands on `main` and ships in its next release, and a deployment gets it by upgrading to that release; no older release receives a patch, so there are no release branches. Embargoed security fixes merge to `main` at disclosure.
 
-| Line | Receives | Duration from its release |
-|---|---|---|
-| N (newest minor) | Bug and security fixes | Full support for about 6 months, until N+2 ships (target) |
-| N-1 | Bug fixes; security fixes per the severity table | Inside the same 6 months (target) |
-| N-2 | Critical and high security fixes only | About 3 more months, until N+3 ships (target) |
-| N-3 and older | Nothing | Unsupported |
+| Release | Receives |
+|---|---|
+| The newest release, of the latest minor | Bug and security fixes, in the next release |
+| Every older release | Nothing: its fixes ship in newer releases only |
 
-*Figure 3: the support windows of four consecutive minor releases, drawn three months apart for illustration: about six months of full support, then three of critical and high fixes (target).*
-
-```mermaid
-gantt
-    title Support windows of four consecutive minor releases
-    dateFormat YYYY-MM-DD
-    axisFormat %b %Y
-    section Minor N
-    Release                      :milestone, rn, 2027-01-05, 0d
-    Full support                 :fn, 2027-01-05, 182d
-    Critical and high fixes only :sn, after fn, 91d
-    section Minor N+1
-    Release                      :milestone, ra, 2027-04-06, 0d
-    Full support                 :fa, 2027-04-06, 182d
-    Critical and high fixes only :sa, after fa, 91d
-    section Minor N+2
-    Release                      :milestone, rb, 2027-07-06, 0d
-    Full support                 :fb, 2027-07-06, 182d
-    Critical and high fixes only :sb, after fb, 91d
-    section Minor N+3
-    Release                      :milestone, rc, 2027-10-05, 0d
-    Full support                 :fc, 2027-10-05, 182d
-    Critical and high fixes only :sc, after fc, 91d
-```
-
-Staying supported means upgrading before the running line leaves its window. Ruralz Control moves one minor at a time, each step with its own 24-hour soak (target) and Node upgrades ([Upgrade order](#upgrade-order)), so the number of minors released since the running one sets how long an upgrade takes. A long-term line is OQ-release-versioning-and-compatibility-2.
+Staying supported means upgrading to the newest release. Ruralz Control moves one minor at a time, each step with its own 24-hour soak (target) and Node upgrades ([Upgrade order](#upgrade-order)), so the number of minors released since the running one sets how long an upgrade takes. A long-term line is OQ-release-versioning-and-compatibility-2.
 
 ## Security fix policy
 
 Open source releases receive security fixes immediately: every user gets a fix at once, through the public signed release, with no embargoed, private or paid early channel; severity sets how soon. Ruralz Cloud runs the public images with no private patches ([Managed cloud](../vision/01-vision-and-positioning.md#managed-cloud)), and commercial support MUST NOT deliver a private fix (P1).
 
 1. A reporter uses the private channel in `SECURITY.md`, Planned (M0); the security response team acknowledges within 2 business days (target).
-2. The team rates severity and privately prepares the fix, a regression test and patches for the lines the table names.
-3. At disclosure, the fix merges publicly to `main` with a `fix` title, whose push releases the patch with its signatures and SBOMs ([Release pipeline](#release-pipeline)), and an advisory with a CVE identifier, affected and fixed versions and workarounds publishes with that release the same day.
+2. The team rates severity and privately prepares the fix and a regression test, for the newest release only ([Release cadence and support windows](#release-cadence-and-support-windows)).
+3. At disclosure, the fix merges publicly to `main` with a `fix` title, whose push releases it with its signatures and SBOMs ([Release pipeline](#release-pipeline)), and an advisory with a CVE identifier, affected and fixed versions and workarounds publishes with that release the same day.
 
-| Severity | Examples | Fixed release | Lines |
-|---|---|---|---|
-| Critical | Plugin sandbox escape (default rating); authentication bypass; Revision or Plugin signature bypass | Within 7 days of triage (target) | N, N-1, N-2 |
-| High | Unauthenticated traffic crashing a Node; secret disclosure on the admin port | Within 30 days (target); SM-13 bounds a sandbox escape rated High to 30 days | N, N-1, N-2 |
-| Medium | Denial of service needing admin credentials; bounded information leaks | Next patch, within 90 days (target) | N, N-1 |
-| Low | Hardening gaps without a practical exploit | Next minor | N |
+| Severity | Examples | Fixed release |
+|---|---|---|
+| Critical | Plugin sandbox escape (default rating); authentication bypass; Revision or Plugin signature bypass | Within 7 days of triage (target) |
+| High | Unauthenticated traffic crashing a Node; secret disclosure on the admin port | Within 30 days (target); SM-13 bounds a sandbox escape rated High to 30 days |
+| Medium | Denial of service needing admin credentials; bounded information leaks | Within 90 days (target) |
+| Low | Hardening gaps without a practical exploit | Within 180 days (target) |
 
 Reachable `govulncheck` findings in linked modules or the Go toolchain follow the same table ([Tech stack and libraries](01-tech-stack-and-libraries.md#update-policy)); redistributor notice is OQ-release-versioning-and-compatibility-5. Whether EU Cyber Resilience Act reporting, from 2026-09-11 ([source](https://digital-strategy.ec.europa.eu/en/policies/cra-reporting)), binds Revington is OQ-vision-and-positioning-6.
 
@@ -347,8 +320,9 @@ Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd
 `release.yml`, Planned (M1), runs on every push to `main`, with no approval step. Its runs share the concurrency group `ruralz-release`, which never cancels a running release: a push while a release runs waits, and a newer push replaces a waiting one, whose commits the newer run then releases with its own. Each job holds only the permissions it needs, and only the tag and publish jobs hold `contents: write`. The workflow signs with cosign, generates SBOMs with Syft ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)) and attests provenance with GitHub artifact attestations.
 
 1. **Version.** `releasekit next` reads the Conventional Commits titles and footers of the non-merge commits that the pushed commit contains and the previous release does not; the previous release is the highest `vX.Y.Z` tag the pushed commit contains besides its own.
-   - A breaking change, a title with `!` or a `BREAKING CHANGE:` footer in a commit of any type, moves the minor while the major is 0 and the major from `1.0.0`; `feat` moves the minor; `fix` and `perf` move the patch. The highest change of the commits wins, and the first release, with no previous tag, is `0.1.0`. The computation never leaves major 0 by itself; how `1.0.0` is cut is OQ-release-versioning-and-compatibility-15.
-   - Any other commit releases nothing: `docs`, `test`, `ci`, `build`, `chore`, `refactor` and `revert` titles, Dependabot's `build(deps)` and `ci(deps)` updates, and a title that is no Conventional Commits title. Without a releasing commit the run ends here, successfully, with nothing released.
+   - A breaking change, a title with `!` or a `BREAKING CHANGE:` footer in a commit of any type, moves the minor while the major is 0 and the major from `1.0.0`; `feat` moves the minor; `fix`, `perf` and `build(deps)`, the dependency and toolchain updates that change what ships, Dependabot's included, move the patch. The highest change of the commits wins, and the first release, with no previous tag, is `0.1.0`.
+   - Any other commit releases nothing: `docs`, `test`, `ci`, `chore`, `refactor` and `revert` titles, `build` titles of any other scope, Dependabot's `ci(deps)` action updates, which ship in no artifact, and a title that is no Conventional Commits title. Without a releasing commit the run ends here, successfully, with nothing released.
+   - A `Release-As: X.Y.Z` footer in a non-merge commit raises the next version to `X.Y.Z` when that is above the version the commits make, or when they make none; of several footers the highest counts. A footer at or below the version the commits make sets nothing, so a release never carries a change its version does not allow. That is how `1.0.0` is cut, since the computation never leaves major 0 by itself. A footer whose value is no version `X.Y.Z`, or that is not above the previous release, stops the run with a finding, unless a later commit of the range carries a valid footer: merging such a commit replaces it.
    - A commit that a release tag already names, which a failed run left behind, resumes that release; a commit that a later release tag contains releases nothing; and a release tag of the version due that names any other commit stops the run, so no tag is ever created twice. The job reads the whole history and every tag, and refuses a shallow clone.
 2. **PR pipeline.** `release.yml` calls the PR pipeline, `pr.yml` ([Repository layout and conventions](02-repository-layout-and-conventions.md)), on the pushed commit through `workflow_call`; a failure stops the release before anything is built.
 3. **Build.** The reusable `release-build.yml` builds the pushed commit with `make build`'s flags, `-s -w` included. Its image job first gives the commit the tag `vX.Y.Z` in its own checkout, or finds the pushed one on a re-run, so Go stamps the tag as the module version.
@@ -356,7 +330,7 @@ Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd
    - Its package job then writes the deterministic archives (sorted entries, commit-time timestamps), the schema files and `release-manifest.json` with the image digests. It also generates every SBOM, the image's included, writes `NOTES.md` and `SHA256SUMS`, signs `SHA256SUMS`, and runs `releasekit verify` on the directory and the image before and after signing ([Packaging and audit](#packaging-and-audit)).
    - The image job signs the image digest with cosign, and the attest jobs attest provenance and SBOMs for every archive and for the image, pushing the image's attestations to the registry as OCI referrers.
    - The image and package jobs hold `id-token: write` for keyless signing, the image job adding `packages: write`; the attest jobs hold `id-token: write` and `attestations: write`, the image's attest job adding `packages: write` to push its attestations.
-4. **Tag.** Once the build passed, the tag job decides again from the tags as they are then and pushes the annotated, unsigned tag `vX.Y.Z` on the commit as GitHub Actions (`github-actions[bot]`, with the run's `GITHUB_TOKEN`), the one actor the `v* tag creation` ruleset admits ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)). Since no one may delete a `v*` tag, a commit whose build fails leaves none behind: its fix releases from the next push. A tag that an earlier attempt of the run pushed is kept; a decision that changed since the version job stops the run.
+4. **Tag.** Once the build passed, the tag job decides again from the tags as they are then and pushes the annotated, unsigned tag `vX.Y.Z` on the commit with the run's own `GITHUB_TOKEN`, as GitHub Actions (`github-actions[bot]`). Creating a `v*` tag needs no bypass; the `v* tag updates and deletion` ruleset, which nobody bypasses, the release workflow included, keeps every `v*` tag where it was pushed ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)). Since no tag can be deleted, a commit whose build fails leaves none behind: its fix releases from the next push. A tag that an earlier attempt of the run pushed is kept; a decision that changed since the version job stops the run.
 5. **Publish.** The publish job holds `contents: write` and `packages: write`.
    - It checks that the image's `X.Y.Z` tag is absent or already names the built digest, creates the GitHub Release as a draft, uploads every file of the release directory, checks the uploaded digests against `SHA256SUMS`, and publishes it with `NOTES.md` as its body, marked latest only when it is the highest published release, so a release that a re-run publishes after a higher one never becomes latest.
    - It then tags the image digest `X.Y.Z`, which is never pushed again, and `X.Y` when the release is the newest published release of its line.
@@ -368,11 +342,11 @@ A failed run is safe to re-run from its Actions page. Re-running its failed jobs
 
 A release needs no maintainer step besides merging to `main`; these rules keep it right:
 
-1. **Commit titles.** The version comes from the Conventional Commits titles and footers of the commits a pull request brings to `main` ([Conventional Commits](02-repository-layout-and-conventions.md#conventional-commits)), merged with a merge commit so each keeps its own title. A new behavior is `feat`, a bug fix `fix`, and a breaking change carries `!` or a `BREAKING CHANGE:` footer; a vulnerability fix, a toolchain or dependency bump included, is a `fix`, so its push releases a patch.
+1. **Commit titles.** The version comes from the Conventional Commits titles and footers of the commits a pull request brings to `main` ([Conventional Commits](02-repository-layout-and-conventions.md#conventional-commits)), merged with a merge commit so each keeps its own title. A new behavior is `feat`, a bug fix `fix`, a dependency or toolchain update `build(deps)`, and a breaking change carries `!` or a `BREAKING CHANGE:` footer; each of these releases. A `Release-As: X.Y.Z` footer raises the version to `X.Y.Z`, as for `1.0.0`.
 2. **Preconditions.**
    - A milestone's other exit criteria hold before the push to `main` that releases it ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
    - The `go.mod` `toolchain` line names the newest Go patch ([Release cadence and support windows](#release-cadence-and-support-windows)).
-   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `0.1.0`, `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest) and a status section, and `SECURITY.md`'s supported versions name `0.1` as line N.
+   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `0.1.0`, `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest) and a status section, and `SECURITY.md` names `0.1` as the supported minor.
 3. **First release.** `develop`, where the M1 work landed, merges into `main` by pull request, with a merge commit like every pull request, so the `0.1.0` notes list every M1 commit; that push releases `0.1.0`. `develop` stays, since its ruleset blocks its deletion ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)), and pull requests and Dependabot target `main`.
 4. **Failed run.** A run that fails before its tag is pushed is fixed by the next push to `main` when the cause is in the commit, or re-run when it is not; a run that fails after is re-run ([Release pipeline](#release-pipeline)).
 5. **Manual settings.** After the first release's image push, the maintainer makes the `ghcr.io/ravindu-rev/ruralzd` package public and links it to the repository, which no API covers ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
@@ -394,5 +368,3 @@ A release needs no maintainer step besides merging to `main`; these rules keep i
 | OQ-release-versioning-and-compatibility-11 | Does the Helm chart deploy Nodes, and how does it replace Ruralz Control replicas? | (a) Ruralz Control only; (b) Both, separate tags, two upgrades; either with partitioned or `OnDelete` replica updates | deployment-topologies | Yes, for Planned (M2) |
 | OQ-release-versioning-and-compatibility-12 | How does Ruralz Control render at pinned schema levels and defaults while replicas run mixed binaries? | (a) The renderer takes the Control Store version's levels as input; (b) Rendering pauses until finalize | configuration-model | Yes, for Planned (M2) |
 | OQ-release-versioning-and-compatibility-13 | Does the Configuration model's golden-corpus exception cover a digest-changing render or canonicalization fix shipped as a new `ruralz/v1alpha1` schema level, or only a default change? | (a) Amend it to cover any such level (proposed); (b) Keep it narrow: such a fix needs a new format identifier | configuration-model | Yes, for the first digest-changing fix |
-| OQ-release-versioning-and-compatibility-14 | With a release on every push to `main` that carries a feature or fix, how do the N-1 and N-2 lines get their patch releases, and do the windows counted in minor releases keep their month equivalents? | (a) `release.yml` also releases patches from `release-X.Y` branches, which take cherry-picked fixes, and a window lasts the longer of its minor count and its months (recommended); (b) Only the newest release line gets fixes, and windows count months; (c) Only the newest release line gets fixes, and windows count minor releases | release-versioning-and-compatibility | Yes, for the first patch of an older line |
-| OQ-release-versioning-and-compatibility-15 | How does the release pipeline cut `1.0.0`, which its computation never reaches from major 0? | (a) A `Release-As: X.Y.Z` footer that `releasekit next` honors when it is above the computed version (recommended); (b) A `workflow_dispatch` input of `release.yml` naming the version | release-versioning-and-compatibility | Yes, for `1.0.0` |

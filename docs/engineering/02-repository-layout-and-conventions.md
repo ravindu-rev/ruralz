@@ -328,7 +328,7 @@ breaking:
 |---|---|---|
 | Format | `buf format --diff --exit-code` | Canonical formatting |
 | Lint | `buf lint` | Directory matches package; versioned package suffix; enum zero values end in `_UNSPECIFIED`; every message, field and RPC has a comment (`COMMENTS`) |
-| Breaking | `buf breaking --against` the `main` branch and the last tag of each release line in support, as the Release document requires | No removed or renumbered field, no changed type, no renamed RPC within a `v1` package; a breaking change needs a new package (`v2`) and a Release document decision |
+| Breaking | `buf breaking --against` the `main` branch and the newest release tag of N-1 and of N, the minors of the skew window, as the Release document requires | No removed or renumbered field, no changed type, no renamed RPC within a `v1` package; a breaking change needs a new package (`v2`) and a Release document decision |
 | Generate | `buf generate` | Writes committed Go code under `internal/gen/proto/` and, per OQ-repository-layout-and-conventions-2, PDK constants under `sdk/`; generator plugins wait for OQ-tech-stack-and-libraries-14 |
 
 Proto style: files are `lower_snake_case.proto`, messages and services `PascalCase`, fields `lower_snake_case` (JSON mapping `lowerCamelCase`), and removed fields become `reserved` numbers and names. Compatibility windows belong to [Release, versioning and compatibility](04-release-versioning-and-compatibility.md).
@@ -477,7 +477,7 @@ Commit titles follow Conventional Commits: `<type>(<scope>): <subject>`, imperat
 | `build`, `ci` | Build system, CI workflows | `deps`, `tools`, `workflows` |
 | `chore`, `revert` | Maintenance, reverts | Any |
 
-A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
+A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. A `Release-As: X.Y.Z` footer raises the next release to `X.Y.Z` when its commits make a lower version, as for `1.0.0` ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)). Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
 A change that deprecates a surface adds one footer per surface, `Deprecated: <surface>; removed in MAJOR.MINOR.0`, naming the surface as users meet it (a CLI flag, a Bundle field, an apiVersion, a metric) and the first release without it, at least two minor releases after the one that ships the commit, as [Release, versioning and compatibility](04-release-versioning-and-compatibility.md#migration-tooling) sets out; the release notes list these footers.
 

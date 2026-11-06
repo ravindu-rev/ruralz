@@ -12,15 +12,15 @@ The security response team acknowledges every report within 2 business days (tar
 
 ## How a report is handled
 
-1. The team rates severity and privately prepares the fix, a regression test and patches for the release lines the table below names.
-2. At disclosure, the fix merges publicly, which releases the patch with its signatures and SBOMs, and an advisory with a CVE identifier, affected and fixed versions and workarounds publishes with that release the same day.
+1. The team rates severity and privately prepares the fix and a regression test, for the supported version below.
+2. At disclosure, the fix merges publicly, which releases it with its signatures and SBOMs, and an advisory with a CVE identifier, affected and fixed versions and workarounds publishes with that release the same day.
 
-| Severity | Examples | Fixed release | Release lines |
-|---|---|---|---|
-| Critical | Plugin sandbox escape (default rating); authentication bypass; Revision or Plugin signature bypass | Within 7 days of triage (target) | N, N-1, N-2 |
-| High | Unauthenticated traffic crashing a Node; secret disclosure on the admin port | Within 30 days (target) | N, N-1, N-2 |
-| Medium | Denial of service needing admin credentials; bounded information leaks | Next patch, within 90 days (target) | N, N-1 |
-| Low | Hardening gaps without a practical exploit | Next minor | N |
+| Severity | Examples | Fixed release |
+|---|---|---|
+| Critical | Plugin sandbox escape (default rating); authentication bypass; Revision or Plugin signature bypass | Within 7 days of triage (target) |
+| High | Unauthenticated traffic crashing a Node; secret disclosure on the admin port | Within 30 days (target) |
+| Medium | Denial of service needing admin credentials; bounded information leaks | Within 90 days (target) |
+| Low | Hardening gaps without a practical exploit | Within 180 days (target) |
 
 ## One fix for everyone
 
@@ -28,9 +28,9 @@ Every user gets a security fix at the same time, through the public signed relea
 
 ## Supported versions
 
-A release line is a minor version, such as `0.1`, with its patch releases. The [Release, versioning and compatibility](docs/engineering/04-release-versioning-and-compatibility.md#release-cadence-and-support-windows) policy, which owns this process, sets each line's support window, and the release lines of the table above are these:
+Only the latest minor version is supported. Every fix, security fixes included, ships in the next release, and a deployment gets it by upgrading to that release; older versions receive no patches. The [Release, versioning and compatibility](docs/engineering/04-release-versioning-and-compatibility.md#release-cadence-and-support-windows) policy owns this process.
 
-| Line | Version | Receives |
-|---|---|---|
-| N, the newest minor | `0.1`, from release `0.1.0` | Bug and security fixes, for about 6 months, until N+2 ships (target) |
-| N-1 and N-2 | None: `0.1` is the first line | Not applicable |
+| Version | Supported |
+|---|---|
+| `0.1`, from release `0.1.0`, the latest minor | Yes: bug and security fixes, in the next release |
+| Every older version | No |
