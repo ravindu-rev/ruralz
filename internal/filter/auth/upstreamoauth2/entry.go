@@ -100,8 +100,12 @@ type entry struct {
 }
 
 // newEntry returns the entry of k with its request body and its client:
-// bound to the tokenUrl origin, following no redirect, capped at
-// MaxResponseBytes and bounded by the timeout.
+// bound to the tokenUrl origin, following no redirect and capped at
+// MaxResponseBytes. The client has no deadline of its own: the fetch
+// context (startLocked) bounds each fetch by the timeout, and as the only
+// end of an exchange it is the one fetch checks a failure against. A
+// connect, which the transport runs apart from the request context, is
+// bounded by the timeout as well, and at most by egress.DefaultDialTimeout.
 func newEntry(r *Registry, k entryKey) *entry {
 	form := url.Values{"grant_type": {grantClientCredentials}}
 	if k.scope != "" {
@@ -114,7 +118,7 @@ func newEntry(r *Registry, k entryKey) *entry {
 		client: r.guard.Client(egress.ClientOptions{
 			TLS:          r.tls,
 			Destination:  k.origin,
-			Timeout:      k.timeout,
+			DialTimeout:  min(k.timeout, egress.DefaultDialTimeout),
 			MaxBodyBytes: MaxResponseBytes,
 		}),
 	}
