@@ -18,12 +18,12 @@ import (
 // probeLoop probes be at once, then every ProbeInterval on a fixed
 // schedule from its first probe, until ctx ends (be removed or the
 // balancer closed). A probe that overruns its slot is followed at the
-// next slot.
+// next slot. The prober arms a timer only for what it waits on, a probe's
+// timeout or the next slot, so while a probe is in flight its timeout is
+// the prober's only timer on the balancer's clock: a test on a fake clock
+// that sees one timer armed can move the clock past that timeout.
 func (b *Balancer) probeLoop(ctx context.Context, be *backend) {
 	defer b.wg.Done()
-	timer := b.clk.NewTimer(time.Hour)
-	timer.Stop()
-	defer timer.Stop()
 	interval := b.cfg.ProbeInterval
 	origin := b.clk.Since(b.base)
 	var slot int64
@@ -33,11 +33,12 @@ func (b *Balancer) probeLoop(ctx context.Context, be *backend) {
 		slot = max(slot+1, int64((now-origin)/interval)+1)
 		// The next probe is armed before the result is published, so a
 		// test that waits for this probe can move a fake clock at once.
-		timer.Reset(origin + time.Duration(slot)*interval - now)
+		next := b.clk.NewTimer(origin + time.Duration(slot)*interval - now)
 		b.record(be, r)
 		select {
-		case <-timer.C():
+		case <-next.C():
 		case <-ctx.Done():
+			next.Stop()
 			return
 		}
 	}
