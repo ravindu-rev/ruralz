@@ -16,8 +16,8 @@ import (
 
 // Differential tests against the standard library's strict tokenizer,
 // encoding/json/jsontext. Production code cannot import it under go 1.26.0,
-// so it serves only as this go1.27 test oracle; the Go 1.26 floor job skips
-// the file.
+// so it serves only as this go1.27 test oracle; a Go 1.26 build skips the
+// file.
 
 // oracleValid reports whether jsontext accepts data as one JSON value with
 // the given duplicate policy. Its nesting limit is fixed at MaxDepthLimit.

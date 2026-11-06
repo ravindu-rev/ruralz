@@ -360,7 +360,7 @@ func TestAnalyzeTestSupport(t *testing.T) {
 	denied := []goPackage{
 		inMain("internal/testkit/proc"),
 		inMain("internal/tool/depgate"),
-		inMain("test/e2e"),
+		inMain("test/conformance/config"),
 		inMain("internal/clock/clocktest"),
 		inMain("internal/statestore/statestoretest/redisserver"),
 		{ImportPath: "testing", Standard: true},

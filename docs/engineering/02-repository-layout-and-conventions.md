@@ -11,8 +11,8 @@ In scope: the subjects the Summary lists, plus the Ruralz Console source locatio
 Non-goals:
 
 - Library selection, license admission and version floors, owned by [Tech stack and libraries](01-tech-stack-and-libraries.md); this document names no linked library without a catalog row there, and no CI tool without a CI tooling row.
-- Test layers, thresholds and the pipelines `pr-fast`, `pr-full`, `main`, `nightly` and `release`, owned by [Testing and quality strategy](03-testing-and-quality-strategy.md).
-- Versions, release artifacts, signing and SBOMs, owned by [Release, versioning and compatibility](04-release-versioning-and-compatibility.md).
+- Test layers, thresholds and what the PR pipeline tests, owned by [Testing and quality strategy](03-testing-and-quality-strategy.md); this document owns the pipeline's workflow, jobs and `make` targets.
+- Versions, the release pipeline, release artifacts, signing and SBOMs, owned by [Release, versioning and compatibility](04-release-versioning-and-compatibility.md).
 - JSON Schema content (kinds, fields, defaults, `x-ruralz-*` values), owned by the [Configuration model](../architecture/02-configuration-model.md); this document owns the generation mechanism and paths.
 - The CLI surface, owned by [CLI and API surface](../reference/01-cli-and-api-surface.md), and Control Stream message semantics, owned by [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md).
 
@@ -89,13 +89,12 @@ github.com/ravindu-rev/ruralz
 │   └── openapi/                 REST API description for /api/v1/
 ├── sdk/                         Plugin PDKs: go/, rust/, typescript/, dotnet/
 ├── console/                     Ruralz Console TypeScript source
-├── deploy/                      container/, systemd/, grafana/, benchhost/; helm/ chart, crds/ (generated)
-├── test/                        conformance/, integration/, property/, e2e/, compose/, t5/, chaos/,
-│                                bench/, quickstart/, fixtures/
+├── deploy/                      container/, systemd/, grafana/; helm/ chart, crds/ (generated)
+├── test/                        conformance/, integration/, property/, t5/, fixtures/
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
-├── scripts/                     install-tools.sh and CI helper scripts
-├── .github/                     workflows/, CODEOWNERS, pull request template
+├── scripts/                     install-tools.sh (pinned CI tools), update-test-suites.sh (vendored suites)
+├── .github/                     workflows/, dependabot.yml, CODEOWNERS, pull request template
 ├── .gitattributes, .gitignore, .golangci.yml, buf.yaml, buf.gen.yaml
 ├── go.mod, go.sum, Makefile
 └── LICENSE, NOTICE, README.md, CONTRIBUTING.md, SECURITY.md, TRADEMARKS.md
@@ -113,7 +112,7 @@ github.com/ravindu-rev/ruralz
 | `api/` | Protos, generated JSON Schema, OpenAPI; the importable `api/schema` package has the same promise as `pkg/` | This document (layout); contract owners (content) | Planned (M0) schema; Planned (M2) protos |
 | `sdk/` | Plugin PDKs; the Go PDK is its own module, tagged `sdk/go/vX.Y.Z` on its own SemVer | [WASM plugin system](../architecture/05-wasm-plugin-system.md#sdk-matrix) | Planned (M2) Go and Rust; Planned (M3) TypeScript; Planned (M4) C# |
 | `console/` | Ruralz Console source, a React and TypeScript SPA | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) (content); this document (toolchain) | Planned (M2) |
-| `deploy/` | Dockerfile, systemd unit and helper, alert rules and Grafana dashboards, the benchmark hosts' setup in `deploy/benchhost` (setup scripts, the RH-1, RH-3 and loopback inventories and the runbook, [Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)); Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Deployment topologies](../operations/01-deployment-topologies.md) | Planned (M1); chart and CRDs Planned (M2) |
+| `deploy/` | Dockerfile, systemd unit and helper, alert rules and Grafana dashboards; Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Deployment topologies](../operations/01-deployment-topologies.md) | Planned (M1); chart and CRDs Planned (M2) |
 | `test/`, `examples/` | Suites needing built binaries or a State Store, fixtures; example Bundles | [Testing and quality strategy](03-testing-and-quality-strategy.md) | Planned (M1) |
 
 ### Where Go code goes
@@ -126,7 +125,7 @@ github.com/ravindu-rev/ruralz
 
 ### Ruralz Console assets
 
-`internal/console` embeds `all:dist` with `go:embed`. Only a placeholder `internal/console/dist/index.html` is committed, so `go build ./...` compiles on a fresh clone without Node.js and `ruralz-control` serves it at `/console`, stating that Ruralz Console was not built; stages 7 and 12 overwrite it before building `ruralz-control`. The root `.gitignore` MUST anchor `/dist/` and add `internal/console/dist/*` and `!internal/console/dist/index.html`. Planned (M2).
+`internal/console` embeds `all:dist` with `go:embed`. Only a placeholder `internal/console/dist/index.html` is committed, so `go build ./...` compiles on a fresh clone without Node.js and `ruralz-control` serves it at `/console`, stating that Ruralz Console was not built; the Ruralz Console production build overwrites it before `ruralz-control` is built. The root `.gitignore` MUST anchor `/dist/` and add `internal/console/dist/*` and `!internal/console/dist/index.html`. Planned (M2).
 
 ### Package layers
 
@@ -155,12 +154,11 @@ L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{d
       ulid    jsonval    httpfield    sfv    routematch    netaddr    pkg/config/v1alpha1    api/schema
 test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/handlertest
       statestore/statestoretest{,/redisserver,/respproxy}
-      testkit/{binaries,proc,pki,faultproxy,canary,promtext,benchrecord,corpus,allocs}
-      testkit/{mockup,mockidp,otlpsink,l4lb,loadgen,topology}
-      test/{conformance/config,conformance/protocol,property,e2e,chaos,chaos/gameday,compose,t5,quickstart}
-      test/integration/{cel,telemetry,security,statestore}    test/bench/{harness,scenarios,gen,functional,labhost}
-tool  tool/{repocheck,commitcheck,depgate,schemagen,telemetrygen,benchgate,sizegate,fuzzplan}
-      tool/{releasekit,releasegate}    tool/modpin (temporary module pins, removed within M1)
+      testkit/{binaries,proc,pki,faultproxy,canary,promtext,corpus,allocs}
+      testkit/{mockup,mockidp,otlpsink,loadgen,topology}
+      test/{conformance/config,conformance/protocol,property,t5}    test/integration/{cel,telemetry,security,statestore}
+tool  tool/{repocheck,commitcheck,depgate,schemagen,telemetrygen,releasekit}
+      tool/modpin (temporary module pins, removed within M1)
 ```
 
 Wiring injects what an import would climb for: the admin server's `/metrics`, `/config/dump` and `/debug/upstreams` handlers, the State Store drivers' openers, and the pipeline's offline Policy checks (`checks.Table()`) and CEL compiler.
@@ -171,17 +169,17 @@ Wiring injects what an import would climb for: the admin server's `/metrics`, `/
 
 | Rule | Reason | Enforced by |
 |---|---|---|
-| `internal/gateway/...` never imports `internal/control/...`, `internal/controlstore/...` or `internal/cli/...` | P2: the gateway stands alone ([Vision](../vision/01-vision-and-positioning.md#principles)); `ruralzd` never links Raft | depguard; the stage 6 Raft denylist over `go list -deps ./cmd/ruralzd` also catches transitive imports |
+| `internal/gateway/...` never imports `internal/control/...`, `internal/controlstore/...` or `internal/cli/...` | P2: the gateway stands alone ([Vision](../vision/01-vision-and-positioning.md#principles)); `ruralzd` never links Raft | depguard; depgate's Raft denylist over `go list -deps ./cmd/ruralzd` also catches transitive imports |
 | `internal/control/...` never imports `internal/gateway/...` | Ruralz Control is never on the request path | depguard |
 | `internal/config/...`, `internal/expr` and `internal/cel` never import `internal/gateway`, `internal/filter`, `internal/statestore` or `internal/cli` | Every binary runs one configuration pipeline; Policy checks are injected | depguard `config` |
 | `internal/filter/...`, `internal/identity` and `internal/statestore/...` never import `internal/gateway` or `internal/cli` | The gateway implements their contracts | depguard `filter` |
 | Only `ruralzd` imports `internal/secret/resolver` | Only Nodes resolve secret values | depguard `secretresolver` |
 | Leaf contracts (`phase`, `expr`, `clock`, `problem`, `adminapi`, `telemetry/{catalog,emit}`, `config/{diag,revision}`) import only the standard library, `pkg/config/v1alpha1`, `phase`, `errcode` and `telemetry/catalog` | Every layer builds on them | depguard `contracts` (strict) |
-| Production code never imports test support (`internal/testkit`, `*test` packages) or `internal/tool` | Nothing test-only ships | depguard `testsupport` and `tools`; stage 6 |
+| Production code never imports test support (`internal/testkit`, `*test` packages) or `internal/tool` | Nothing test-only ships | depguard `testsupport` and `tools`; depgate |
 | Every third-party import is on the admitted list, which mirrors the catalog rows | Admission ([tech stack](01-tech-stack-and-libraries.md#admission)) | depguard `admitted` (strict) |
 | `pkg/...` imports only the standard library and other `pkg/...` packages | No third-party or internal type leaks into public API (S7) | depguard; exported-API check in repocheck |
-| `sdk/...` never imports the root module | PDKs compile to WASM guests with their own toolchains and versions | Separate modules; stage 3 builds each |
-| No `import "C"` anywhere | `CGO_ENABLED=0` static binaries ([ADR-0001](../adr/0001-implementation-language-go.md)); a `CGO_ENABLED=0` build silently excludes such files | repocheck source scan; stage 4 cross-build |
+| `sdk/...` never imports the root module | PDKs compile to WASM guests with their own toolchains and versions | Separate modules |
+| No `import "C"` anywhere | `CGO_ENABLED=0` static binaries ([ADR-0001](../adr/0001-implementation-language-go.md)); a `CGO_ENABLED=0` build silently excludes such files | repocheck source scan |
 | `internal/cli/...` never imports `internal/gateway/...` or a State Store driver | `ruralz dev run` launches a local `ruralzd` (foundation pack section 9) | depguard `cli` |
 | No `plugin` standard package, no Lua | Custom code is a WASM Plugin or CEL (product non-goal 3) | depguard |
 
@@ -189,7 +187,7 @@ Wiring injects what an import would climb for: the admin server's `/metrics`, `/
 
 ### Toolchain and modules
 
-The root `go.mod` declares `go 1.26.10` and `toolchain go1.27.3`, as fixed by [ADR-0001](../adr/0001-implementation-language-go.md) and the [version floor](01-tech-stack-and-libraries.md#version-floor) rules; the floor job adds `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`. It runs `make floor`, which takes `FLOOR_GOTOOLCHAIN` (default `local`, `go1.26.8` or a newer 1.26 patch elsewhere) and refuses a Go release other than 1.26. The guard file is `internal/buildinfo/floor_guard.go`, whose undefined identifier `floorBuildRequires_GOEXPERIMENT_jsonv2_see_make_floor` names the fix; every binary imports the package.
+The root `go.mod` declares `go 1.26.10` and `toolchain go1.27.3`, as fixed by [ADR-0001](../adr/0001-implementation-language-go.md) and the [version floor](01-tech-stack-and-libraries.md#version-floor) rules. The `go` line keeps the code on Go 1.26 APIs: vet's `stdversion` check, which golangci-lint runs, reports any standard library API newer than it. A Go 1.26 build needs `GOEXPERIMENT=jsonv2`: the guard file `internal/buildinfo/floor_guard.go`, which every binary imports, fails one without it on the undefined identifier `floorBuildRequires_GOEXPERIMENT_jsonv2`, which names the fix.
 
 Binaries embed build metadata with `-ldflags -X` on three variables of `internal/buildinfo`: `version` (the tag without its `v`, default `0.0.0-dev`), `commit` (the full Git commit) and `flavor` (`default`; `fips` Planned (M5)). There is no build date, so a rebuilt tag reproduces identical binaries. Nested modules exist only under `sdk/`. The repository commits no `go.work` file, so CI builds each module the way its users consume it.
 
@@ -202,9 +200,9 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 | Packages | Lower-case, singular, no underscores (foundation pack section 12); no `util`, `common` or `misc` |
 | Files | Lower-case with underscores (`route_match.go`); tests beside code; golden files under `testdata/` |
 | License header | Every hand-written Go, proto and TypeScript file starts with `Copyright <creation year> <copyright holder>` (Revington for Revington's work) and `SPDX-License-Identifier: Apache-2.0` ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) |
-| Generated files | First line `// Code generated by <tool>. DO NOT EDIT.`; no license header; excluded from lint; diffed in stage 3 |
+| Generated files | First line `// Code generated by <tool>. DO NOT EDIT.`; no license header; excluded from lint; regenerated by `make generate`, and the unit tests fail on a stale copy |
 | Line endings | `.gitattributes` pins LF on every OS |
-| Build constraints | Platform, Go version and `goexperiment` constraints (such as the floor guard file), plus test-only tags `integration` (stage 8), `e2e` (stage 10), `t5` (the live T5 suite of `t5-systemd.yml`) and `compose` (the Compose suite of `image-checks.yml`) on `_test.go` files, and the test-only build tag `ruralz_testclock`, which `internal/testkit/binaries` sets for the controllable-clock `ruralzd` build, on the pair of `internal/clock` files that pick the process clock ([Hermetic rule scope](03-testing-and-quality-strategy.md#hermetic-rule-scope)). No feature tags (P1) |
+| Build constraints | Platform, Go version and `goexperiment` constraints (such as the floor guard file), plus the test-only tag `integration` (the integration tests) on `_test.go` files, and the test-only build tag `ruralz_testclock`, which `internal/testkit/binaries` sets for the controllable-clock `ruralzd` build, on the pair of `internal/clock` files that pick the process clock ([Hermetic rule scope](03-testing-and-quality-strategy.md#hermetic-rule-scope)). No feature tags (P1) |
 | Context | First parameter of any function that blocks or calls the network or the State Store; never stored in a struct |
 | Goroutines | Each has an owner that cancels and waits for it; every channel, queue and pool is bounded (System overview) |
 | Errors | Wrap with `%w`; client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode`, map to a status through it and leave through `problem.Write` (RFC 9457) |
@@ -216,7 +214,7 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 
 ### golangci-lint linter set
 
-golangci-lint v2.15.x ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0)), a binary built with Go 1.27 or newer, runs every linter below in stage 2, Planned (M0). A finding blocks merge. A suppression MUST name the linter and give a reason (`//nolint:gosec // reason`).
+golangci-lint v2.15.x ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0)), a binary built with Go 1.27 or newer, runs every linter below in `make lint`, which the PR pipeline's `ci` job runs, Planned (M0). A finding blocks merge. A suppression MUST name the linter and give a reason (`//nolint:gosec // reason`).
 
 | Linter | Purpose in Ruralz |
 |---|---|
@@ -241,7 +239,7 @@ Formatters are `gofumpt` and `goimports`, with `github.com/ravindu-rev/ruralz` a
 version: "2"
 run:
   go: "1.26"
-  build-tags: [integration, e2e, t5, compose]
+  build-tags: [integration]
 linters:
   default: standard
   enable: [bodyclose, contextcheck, depguard, errorlint, exhaustive, forbidigo,
@@ -290,9 +288,9 @@ formatters:
 
 ### Ruralz-specific checks
 
-`internal/tool/repocheck`, a standard-library Go program run in stage 1, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
+`internal/tool/repocheck`, a standard-library Go program whose `TestRepositoryIsClean` runs it on the repository in the unit tests, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
 
-Other standard-library programs: `internal/tool/commitcheck` checks DCO sign-off, the Conventional Commits title and `Deprecated:` footers on every non-merge commit of a range, and fails a range that changes or deletes a golden-corpus file the newest release tag holds ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)); `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist, the `ruralz` jwx denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and writes each artifact's `THIRD_PARTY_LICENSES` and `NOTICE` (`-notices`); `telemetrygen` generates alert rules and Grafana dashboards (stage 3 drift); `benchgate` and `sizegate` gate stage 9, `fuzzplan` shards nightly fuzzing, and `releasekit` and `releasegate` package and gate stage 12.
+Other standard-library programs: `internal/tool/commitcheck` checks the DCO sign-off of every non-merge commit of a range (`make dco`); `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist, the `ruralz` jwx denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and writes each artifact's `THIRD_PARTY_LICENSES` and `NOTICE` (`-notices`); `telemetrygen` generates alert rules and Grafana dashboards, whose unit tests fail on stale committed output; and `releasekit` builds and audits the release ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)).
 
 ## API and protobuf definitions
 
@@ -362,7 +360,7 @@ flowchart LR
   bins["ruralzd, ruralz-control, ruralz"]
   eds["Editors and YAML language servers"]
   crd["deploy/crds, Planned (M2)"]
-  drift["Stage 3: regenerate and diff"]
+  drift["Unit tests: regenerate and diff"]
   types --> gen
   gen --> auth
   gen --> rend
@@ -452,21 +450,21 @@ type PolicySpec struct {
 ### Generator rules
 
 - `schemagen` uses only the standard library (`reflect` for structure, `go/parser` and `go/doc` for comments and markers). Adopting a third-party generator needs a catalog row first (foundation pack section 7).
-- Output is deterministic: keys sorted, two-space indentation, LF line endings, a trailing newline, no timestamps. Regenerating on any OS yields identical bytes, and stage 3 fails on any diff.
-- A Go test in `internal/config/schemaview` meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6`, Planned (M1). The example Bundle tests of the configuration conformance suite, in `test/conformance/config` ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)), validate `examples/` through the configuration pipeline facade with `checks.Table()` and the CEL compiler, so every stage runs: every document of a Bundle or of `examples/control/` against the authoring view, and every Bundle rendered without `--env` and for each Environment of `examples/control/` with no diagnostic, warnings included. `examples/shop-bundle/` and `examples/control/` hold the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle), `examples/shop-rest-bundle/` its [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle) and `examples/quickstart/` the [quickstart](../operations/01-deployment-topologies.md#quickstart) Bundle, each byte for byte, and the test fails when a file differs from its document or a configuration file is in none; it also checks that an M1 Node serves the REST example and quickstart Bundles.
+- Output is deterministic: keys sorted, two-space indentation, LF line endings, a trailing newline, no timestamps. Regenerating on any OS yields identical bytes, and `TestCommittedSchemaIsCurrent` and `TestCommittedPlannedIsCurrent` fail on any diff from the committed files.
+- A Go test in `internal/config/schemaview` meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6`, Planned (M1). The example Bundle tests of the configuration conformance suite, in `test/conformance/config` ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)), validate `examples/` through the configuration pipeline facade with `checks.Table()` and the CEL compiler, so every stage runs: every document of a Bundle or of `examples/control/` against the authoring view, and every Bundle rendered without `--env` and for each Environment of `examples/control/` with no diagnostic, warnings included. `examples/shop-bundle/` and `examples/control/` hold the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle), `examples/shop-rest-bundle/` its [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle), each byte for byte, and the test fails when a file differs from its document or a configuration file is in none; it also checks that an M1 Node serves the REST example Bundle.
 - A Plugin `configSchema` is authored by the Plugin publisher and never generated.
 
 ## Commits and pull requests
 
 ### DCO sign-off
 
-Ruralz uses the Developer Certificate of Origin, not a CLA ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)). Every commit MUST carry a `Signed-off-by:` trailer whose name and email match the commit author, which certifies DCO 1.1 ([source](https://developercertificate.org/)). `git commit -s` adds the trailer; `git rebase --signoff` repairs a branch. Stage 1 rejects a pull request with any commit lacking a matching sign-off. Dependabot, the weekly update bot ([Update policy](01-tech-stack-and-libraries.md#update-policy)), cannot sign off and words its titles itself after the configured `build(deps)` or `ci(deps)` prefix, so the sign-off and title checks skip commits it authors.
+Ruralz uses the Developer Certificate of Origin, not a CLA ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)). Every commit MUST carry a `Signed-off-by:` trailer whose name and email match the commit author, which certifies DCO 1.1 ([source](https://developercertificate.org/)). `git commit -s` adds the trailer; `git rebase --signoff` repairs a branch. The PR pipeline's `ci` job (`make dco`) rejects a pull request with any non-merge commit of its own lacking a matching sign-off. Dependabot, the weekly update bot ([Update policy](01-tech-stack-and-libraries.md#update-policy)), cannot sign off, so the check skips commits it authors.
 
 The DCO keeps contributor paperwork low ([source](https://helm.sh/blog/helm-dco/)) but is not what keeps Ruralz free: Apache-2.0 lets a redistributor ship later derivative works under other terms ([source](https://www.apache.org/licenses/LICENSE-2.0)), so that commitment comes from P1 and ADR-0002. The DCO check is Planned (M0).
 
 ### Conventional Commits
 
-Commit titles follow Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, lower-case subject, no trailing period. Stage 1 checks the title of every non-merge commit of a pull request.
+Commit titles follow Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, lower-case subject, no trailing period. No check enforces them, but the release reads them: the types and footers of the non-merge commits a merge brings to `main` decide whether it releases and which version, and the titles become the release notes ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)).
 
 | Type | Use | Scope values |
 |---|---|---|
@@ -474,16 +472,16 @@ Commit titles follow Conventional Commits: `<type>(<scope>): <subject>`, imperat
 | `fix` | Bug fix | Same as `feat` |
 | `perf` | Performance change with benchmark evidence (P10) | Same as `feat` |
 | `refactor` | No behavior change | Same as `feat` |
-| `test` | Tests only | `feat` scopes, `e2e`, `conformance` |
+| `test` | Tests only | `feat` scopes, `conformance` |
 | `docs` | Documentation only | Document slug, for example `docs(data-plane)` |
 | `build`, `ci` | Build system, CI workflows | `deps`, `tools`, `workflows` |
 | `chore`, `revert` | Maintenance, reverts | Any |
 
 A breaking change adds `!` after the scope and a `BREAKING CHANGE:` footer. Footers also carry `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` when a change implements a decision.
 
-A change that deprecates a surface adds one footer per surface, `Deprecated: <surface>; removed in MAJOR.MINOR.0`, naming the surface as users meet it (a CLI flag, a Bundle field, an apiVersion, a metric) and the first release without it; the release notes list these footers. Stage 1 runs `commitcheck deprecations` over the pull request's commits: the token is spelled `Deprecated`, the value has that form, and the removing release lies at least two minor releases after the one that ships the commit, as [Release, versioning and compatibility](04-release-versioning-and-compatibility.md#migration-tooling) sets out.
+A change that deprecates a surface adds one footer per surface, `Deprecated: <surface>; removed in MAJOR.MINOR.0`, naming the surface as users meet it (a CLI flag, a Bundle field, an apiVersion, a metric) and the first release without it, at least two minor releases after the one that ships the commit, as [Release, versioning and compatibility](04-release-versioning-and-compatibility.md#migration-tooling) sets out; the release notes list these footers.
 
-A change spanning several scopes omits the scope. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`. Stage 1 checks `docs` scopes against the files in `docs/`.
+A change spanning several scopes omits the scope. A document slug is the file name of a Markdown document under `docs/`, lower-cased, without its extension and numeric prefix: `docs/architecture/03-data-plane.md` is `data-plane` and `docs/glossary.md` is `glossary`.
 
 ```text
 fix(statestore): skip remaining calls once the request deadline expires
@@ -498,12 +496,12 @@ Signed-off-by: Jane Doe <jane@example.com>
 
 | Rule | Detail |
 |---|---|
-| Merge method | Merge commits only: every commit of a pull request reaches `main` with its own Conventional Commits title, which the release notes read, and its own `Signed-off-by:`; the merge commit's title is GitHub's merge message and its message the pull request title |
+| Merge method | Merge commits only: every commit of a pull request reaches `main` with its own Conventional Commits title, which the release reads, and its own `Signed-off-by:`; the merge commit's title is GitHub's merge message and its message the pull request title |
 | Same-PR duties | Tests, regenerated files, documentation, and a catalog row for any new dependency |
 | Size | SHOULD stay under 400 changed lines, excluding generated files (target) |
-| Up to date | A pull request merges only when its branch is up to date with `main`, so `pr-fast` and `pr-full` ran on the combined change |
-| Target branch | Pull requests, Dependabot's included, target `main`; `release-X.Y` branches take cherry-picks of merged fixes by pull request ([Release cadence and support windows](04-release-versioning-and-compatibility.md#release-cadence-and-support-windows)) |
-| Approvals | None required, and nobody, admins included, bypasses the rules; the required checks are `pr-fast` and `pr-full` |
+| Up to date | A pull request merges only when its branch is up to date with `main`, so the PR pipeline ran on the combined change |
+| Target branch | Pull requests, Dependabot's included, target `main`, from which every release ships ([Release cadence and support windows](04-release-versioning-and-compatibility.md#release-cadence-and-support-windows)) |
+| Approvals | None required, and nobody, admins included, bypasses the rules; the one required check is `pr`, the PR pipeline's last job ([CI stages](#ci-stages)) |
 
 ### Repository settings
 
@@ -512,79 +510,27 @@ An admin sets the repository's GitHub settings below in GitHub itself; no code i
 | Area | Setting |
 |---|---|
 | Merging | Merge commits only, titled by GitHub's merge message with the pull request title as their message; squash and rebase merging off; head branches deleted after merge |
-| `main` and `release-*` | One ruleset, `main and release-*`: required status checks `pr-fast` and `pr-full` from GitHub Actions, not required when a branch is created, so `release-X.Y` can be cut from a candidate commit on `main`, whose checks ran on its pull request; branches up to date before merging; merge commits only; 0 approvals and no other review requirement; no bypass actors; deletion and force pushes blocked |
+| `main` | One ruleset, `main`: required status check `pr` from GitHub Actions; branches up to date before merging; merge commits only; 0 approvals and no other review requirement; no bypass actors; deletion and force pushes blocked |
 | `develop` | One ruleset, `develop`: deletion blocked, with no bypass actors, so `develop` outlives the merge of its pull requests into `main`, which deletes head branches |
-| `v*` tags | Two tag rulesets, since a ruleset's bypass list covers all its rules: `v* tag creation`, which only admins bypass, so only they create `v*` tags, and `v* tag updates and deletion`, without bypass actors, so nobody updates or deletes them; release tags are signed annotated tags ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
-| Actions | Only actions pinned to a full commit SHA; a read-only default `GITHUB_TOKEN`; Actions cannot create or approve pull requests; fork pull-request workflows of every outside contributor wait for approval; the `rh-1` runner admits no pull-request job either way ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)) |
+| `v*` tags | One tag ruleset, `v* tag updates and deletion`, without bypass actors, so nobody, the release workflow included, moves or deletes a `v*` tag. Creation is not restricted, so that `release.yml` creates each release tag, an unsigned annotated tag, as GitHub Actions ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
+| Actions | Only actions pinned to a full commit SHA; a read-only default `GITHUB_TOKEN`; Actions cannot create or approve pull requests; fork pull-request workflows of every outside contributor wait for approval |
 | Security | Private vulnerability reporting, which `SECURITY.md` names; Dependabot alerts and security updates; secret scanning with push protection |
 | Releases | Immutable releases: a published release's assets and tag never change |
-| Environment | `release`: deployments from `v*` tags only; the owner as its one required reviewer, who may approve the runs of the tags they push; no wait timer ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
-| Variables | `RH1_PROVISIONED`, set to `true` in M6, once the `rh-1` runner is registered ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)), until which GitHub skips the `rh-1` jobs; the owner sets it with the RH-1 runbook in `deploy/benchhost` |
 | No API | The public visibility and repository link of the `ghcr.io/ravindu-rev/ruralzd` package, set by hand after the first release's image push ([Release runbook](04-release-versioning-and-compatibility.md#release-runbook)) |
 
 ## CI stages
 
-The numbered stages are jobs inside the pipelines that [Testing and quality strategy](03-testing-and-quality-strategy.md#test-pyramid) owns: `pr-fast` on every pull request, within 10 minutes (target); `pr-full` on Go, proto, schema, `examples/`, `test/` or `deploy/` changes, within 30 minutes (target); then `main`, `nightly` and `release`. Stages 1 to 11 each call one `make` target, runnable locally; stage 12 also needs signing credentials. The `pr-fast` workflow ends in a job named `pr-fast` that passes only when each stage passed or was skipped by its path filter; that job and the `pr-full` job, which aggregates stages 8 and 9 the same way, are the required status checks ([Repository settings](#repository-settings)). Path filters skip stages whose inputs did not change; a pass-through job computes the changed paths itself and MUST report success for each skipped required check. *Go changes* means any `*.go` file, `go.mod`, `go.sum`, `.golangci.yml`, `Makefile` or `scripts/` file; any change under `.github/workflows/` runs every `pr-fast` and `pr-full` stage.
+`.github/workflows/pr.yml`, the PR pipeline, runs on every pull request to `main`, with no path filters, in three stages; each is a job that starts once the one before it passed, and each runs `make` targets a contributor runs locally. [Testing and quality strategy](03-testing-and-quality-strategy.md#pr-pipeline) owns what the tests cover.
 
-| Stage | Pipeline | What runs | Make target | Trigger | Blocks merge | Milestone |
-|---|---|---|---|---|---|---|
-| 1. Commit hygiene | `pr-fast` | DCO sign-off, Conventional Commits titles and `Deprecated:` footers on the pull request's own commits; no change to a golden-corpus file the newest release tag holds; repocheck with the no-license-check scan | `make hygiene` | Every pull request | Yes | Planned (M0); `Deprecated:` footers and the golden-corpus check Planned (M1) |
-| 2. Format and lint | `pr-fast` | `gofumpt`, `goimports`, golangci-lint, actionlint with the pinned shellcheck, `buf format`, `buf lint` | `make lint` | Go or proto changes | Yes | Planned (M0) |
-| 3. Generated code drift | `pr-fast` | `go generate ./...` (schema and served-feature table, telemetrygen alert rules and Grafana dashboards, the benchmark record schema `test/bench/record.schema.json`) and `buf generate`, then `git diff --exit-code`; `buf breaking`; builds and license-gates each `sdk/` module's lockfile (G2) | `make generate` | Changes under `pkg/`, `api/`, `internal/gen/`, `internal/tool/`, `internal/telemetry/catalog/`, `internal/testkit/benchrecord/`, `sdk/`, `deploy/crds/` or `deploy/grafana/`, or to `test/bench/record.schema.json`, `buf.yaml`, `buf.gen.yaml` or `go.mod` | Yes | Planned (M0) schema; Planned (M1) telemetrygen; Planned (M2) protos and PDKs |
-| 4. Build | `pr-fast` | Three binaries for linux/amd64 and linux/arm64 with `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` metadata (G1) and, from M1, `-s -w`; CLI for darwin/arm64, darwin/amd64 and windows/amd64; floor job; FIPS job with `GOFIPS140` | `make build` | Go changes | Yes | Planned (M0); FIPS job Planned (M5) |
-| 5. Unit tests | `pr-fast` | `go test -race -shuffle=on ./...` with cgo and `netgo,osusergo`, plus the same tests under `CGO_ENABLED=0` without `-race`, in the release and floor jobs, with identical JSON golden files; CLI unit and golden tests, plus the untagged configuration conformance suite, also on darwin/arm64, darwin/amd64 and windows/amd64, with identical digests | `make test` | Go changes, `examples/`, `test/conformance/config/`, `test/bench/` (the scenario Bundles and their pinned digests), or the documents the tests read: the [Configuration model](../architecture/02-configuration-model.md), [Deployment topologies](../operations/01-deployment-topologies.md) and [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md), whose S2 Bundle block `test/bench/scenarios/s2` equals | Yes | Planned (M0) |
-| 6. Supply chain | `pr-fast` | `go mod verify`, govulncheck, license gate (G2) over `go list -deps -test=false` per binary, crypto denylist (G3), `ruralzd` Raft denylist, `ruralz` jwx denylist | `make supply-chain` | Every pull request; nightly rescan | Yes | Planned (M0); jwx denylist Planned (M1) |
-| 7. Ruralz Console | `pr-fast` | Type check, lint, unit tests, lockfile license gate (G2, ADR-0002), production build into `internal/console/dist`, then a `ruralz-control` build | `make console` | Changes under `console/` or `internal/console/` | Yes | Planned (M2) |
-| 8. Integration and conformance | `pr-full` | `go test -race -tags integration ./...`: the three conformance suites; YAML Test Suite and JSON-Schema-Test-Suite (ADR-0003); State Store and Node integration suites; the benchmark scenario smoke run; `ruralz bundle validate` on `examples/`; `test/t5`'s `systemd-analyze verify` of the unit and `systemd-sysusers` check of its sysusers.d entry; promtool alert rule checks; Dockerfile check; `ruralz plugin test` on each PDK scaffold. Legs: linux/amd64 and native linux/arm64 with a local `redis-server`; a linux/amd64 container leg on testcontainers-go v0.44.x ([source](https://github.com/testcontainers/testcontainers-go)); a linux/amd64 floor leg that builds and runs `./test/conformance/protocol/...` on Go 1.26 (`GOTOOLCHAIN` at the floor toolchain, `GOEXPERIMENT=jsonv2`), since floor and release builds run different HTTP/2 code ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)) | `make integration` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes | Yes | Planned (M1) State Store matrix; Planned (M2) Plugin ABI suite and scaffolds; Planned (M4) Kafka, NATS and MQTT |
-| 9. Regression gates | `pr-full` | alloc/op gate; `ruralzd` size and idle RSS gate on both architectures, at the testing document's thresholds | `make gates` | Go changes, or `test/bench/allocgate.json` | Yes | Planned (M1) |
-| 10. End-to-end | `main` | `go test -tags e2e ./test/e2e/...` on the process harness, as root, kind from M2; secret leak tests; the quickstart on one clean runner per `ruralzd` archive ([Quickstart](../operations/01-deployment-topologies.md#quickstart)); on failure the job uploads the `RURALZ_TEST_ARTIFACT_DIR` evidence ([Process harness](03-testing-and-quality-strategy.md#process-harness)) | `make e2e` | Every merge to `main` | No; blocks the next release | Planned (M1); kind Planned (M2) |
-| 11. Nightly | `nightly` | Fuzz, chaos, functional and latency jobs (`NIGHTLY_JOB=fuzz`, `chaos`, `functional` or `latency`), the benchmark records job committing to the `bench-records` branch, scale from M2; the Chaos jobs, the CE experiments in two halves, the failure rows and lab gates, and the drills, run as root and upload the `RURALZ_TEST_ARTIFACT_DIR` evidence on failure; the RH-1 runner status check; supply chain rescan | `make nightly` | Every merge to `main`; on demand; `release` | No; opens an issue and blocks the next release | Planned (M1), including the M1 chaos experiments; control-plane chaos and scale jobs Planned (M2); the latency and benchmark records jobs and the RH-1 runner status check Planned (M6) |
-| 12. Release | `release` | Re-runs every other stage, then release gates, then build, sign, audit and air-gapped start, then publish ([Release](04-release-versioning-and-compatibility.md#release-pipeline)) | `make release` | Release candidate or release tag | Not applicable | Planned (M1) |
+| Job | What runs | Make targets |
+|---|---|---|
+| `ci` | golangci-lint with `.golangci.yml` and its formatters; actionlint with the pinned shellcheck on the workflows; the [DCO sign-off](#dco-sign-off) of the pull request's own non-merge commits, Dependabot's aside; `go mod verify`, govulncheck and depgate | `make lint`, `make dco`, `make supply-chain` |
+| `unit` | `go test -race -shuffle=on ./...` with cgo and the `netgo,osusergo` tags, then `CGO_ENABLED=0 go test -shuffle=on ./...`, the shipped configuration: the unit tests, the property tests, every fuzz target's seed corpus, and the repository's own tests (repocheck, depgate, the generated files against their sources, the error codes against the documents) | `make test` |
+| `integration` | `go test -race -shuffle=on -tags integration ./...` on `ubuntu-24.04`, with a local `redis-server` and, under `RURALZ_TEST_STATESTORE=container`, the runner's Docker for the testcontainers cases: the conformance suites and the State Store, CLI and Node integration tests | `make integration` |
 
-Stage 5 never passes `integration` or `e2e`, so it skips suites needing a State Store, Docker or built binaries. Race jobs enable cgo for test binaries only; the `CGO_ENABLED=0` job tests the shipped configuration. Shipped binaries come only from stage 12, with stage 4's flags, so the size gate measures them. `pr-fast`, `pr-full`, `main` and `nightly` accept `workflow_call` with `all: true`, disabling path filters; `t5-systemd.yml` (systemd as PID 1) and `image-checks.yml` (Docker: the Compose suite and the air-gapped image start) run on demand and on the pushes to `main` that change their inputs, and `chaos-scale.yml` (`rh-1`, in the `rh-1` concurrency group it shares with nightly's Latency job, never cancelling a running job) on demand; stage 12 calls all three, and a failed push run of `t5-systemd.yml` or `image-checks.yml` opens or updates a `nightly-failure` issue ([Test pyramid](03-testing-and-quality-strategy.md#test-pyramid)). `make release-dry-run` also builds the `ruralzd` image when Docker is present, and `make image-checks` tests that image ([Packaging and audit](04-release-versioning-and-compatibility.md#packaging-and-audit)). Before opening a pull request, run `make hygiene lint generate build test supply-chain`, plus `make integration` with a local `redis-server`.
+A last job, `pr`, needs all three and passes only when each of them passed. It is the one required status check ([Repository settings](#repository-settings)), so neither a failed job nor one skipped after a failure lets a pull request merge.
 
-Stages 8 and 9 run their linux/arm64 legs on native `ubuntu-24.04-arm` runners; while those runners are unavailable, the arm64 legs run natively in `nightly` only.
-
-*Figure 3: CI stages by pipeline; stages 1 to 9 start in parallel.*
-
-```mermaid
-flowchart LR
-  pr["Pull request opened or updated"]
-  s1["1 Commit hygiene and repocheck, pr-fast"]
-  s2["2 Format and lint, pr-fast"]
-  s3["3 Generated code drift, pr-fast"]
-  s4["4 Build: CGO_ENABLED=0, floor job, pr-fast"]
-  s5["5 Unit tests, pr-fast"]
-  s6["6 Supply chain, pr-fast"]
-  s7["7 Ruralz Console build, pr-fast"]
-  s8["8 Integration and conformance, pr-full"]
-  s9["9 Regression gates: alloc/op, size, pr-full"]
-  up["Merge once the branch is up to date with main"]
-  s10["10 End-to-end on the process harness, main"]
-  s11["11 Nightly: fuzz, chaos, latency, image checks"]
-  s12["12 Release on candidate tag"]
-  pr --> s1
-  pr --> s2
-  pr --> s3
-  pr --> s4
-  pr --> s5
-  pr --> s6
-  pr --> s7
-  pr --> s8
-  pr --> s9
-  s1 --> up
-  s2 --> up
-  s3 --> up
-  s4 --> up
-  s5 --> up
-  s6 --> up
-  s7 --> up
-  s8 --> up
-  s9 --> up
-  up --> s10
-  s10 -.-> s11
-  s11 -.-> s12
-```
+`.github/workflows/release.yml` runs on every push to `main`: when the commits since the previous release call for a release, it runs `pr.yml` again on the pushed commit through `workflow_call`, then releases that commit ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)). Before opening a pull request, run `make lint dco supply-chain test integration`; `make integration` needs a local `redis-server`, and Docker for the State Store container kinds.
 
 ## Docs as code
 
@@ -597,7 +543,7 @@ Documentation lives in `docs/` and changes in the same pull requests as code: `R
 - The [style guide](../_meta/style-guide.md) holds the writing rules; the [foundation pack](../_meta/foundation-pack.md) fixes canonical names, kinds, registries and shared system rules.
 - Diagrams are Mermaid source, never images, so diffs stay readable.
 - Every vendor or library claim cites its source inline as `([source](https://...))`.
-- Every `RZ-<AREA>-<NNN>` code a document names MUST be registered in `internal/errcode`, and every registered code MUST appear in a document; `TestMatchesDocs` fails otherwise. CI skips stage 5 on a docs-only change, so the local `make test` run before the pull request covers it.
+- Every `RZ-<AREA>-<NNN>` code a document names MUST be registered in `internal/errcode`, and every registered code MUST appear in a document; `TestMatchesDocs`, which the `unit` job runs on every pull request, documentation-only ones included, fails otherwise.
 
 ## Open questions
 

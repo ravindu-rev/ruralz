@@ -1,26 +1,14 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Command commitcheck enforces the commit rules of CI stage 1
-// (docs/engineering/02-repository-layout-and-conventions.md):
+// Command commitcheck checks the DCO sign-off of the commits a change adds
+// (docs/engineering/02-repository-layout-and-conventions.md, "DCO
+// sign-off"), the check of `make dco` and the PR pipeline's ci job:
 //
-//	commitcheck dco -range BASE..HEAD   every non-merge commit carries a
-//	                                     Signed-off-by matching its author (DCO 1.1)
-//	commitcheck title -range BASE..HEAD | -title TITLE
-//	                                     every non-merge commit title of the range, or
-//	                                     TITLE, follows Conventional Commits; a docs
-//	                                     scope must be a document slug under -docs
-//	                                     (default docs). Dependabot's commits, titled
-//	                                     by its configured prefix, are skipped
-//	commitcheck deprecations -range BASE..HEAD
-//	                                     every Deprecated footer reads
-//	                                     "<surface>; removed in MAJOR.MINOR.0", at least
-//	                                     two minor releases after the minor that ships it
-//	commitcheck golden -range BASE..HEAD
-//	                                     the range, from its merge base, changes or
-//	                                     deletes no file of the golden corpus
-//	                                     (test/conformance/config) that the newest
-//	                                     release tag holds
+//	commitcheck dco -range BASE..HEAD   every non-merge commit of the range
+//	                                     carries a Signed-off-by matching its
+//	                                     author (DCO 1.1); Dependabot's
+//	                                     commits are exempt
 //
 // Exit status: 0 pass, 1 findings, 2 usage or git error.
 package main
@@ -42,136 +30,33 @@ func main() {
 
 func run(ctx context.Context, args []string) int {
 	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD | commitcheck title -range BASE..HEAD | -title TITLE | commitcheck deprecations -range BASE..HEAD | commitcheck golden -range BASE..HEAD")
+		fmt.Fprintln(os.Stderr, "usage: commitcheck dco -range BASE..HEAD [-C DIR]")
 		return 2
 	}
-	fs := flag.NewFlagSet("commitcheck "+args[0], flag.ContinueOnError)
-	switch args[0] {
-	case "dco":
-		rng := fs.String("range", "", "git revision range, such as origin/main..HEAD")
-		dir := fs.String("C", ".", "git repository directory")
-		if err := fs.Parse(args[1:]); err != nil || *rng == "" {
-			fmt.Fprintln(os.Stderr, "commitcheck dco: -range is required")
-			return 2
-		}
-		commits, err := gitCommits(ctx, *dir, *rng)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "commitcheck dco:", err)
-			return 2
-		}
-		problems := checkDCO(commits)
-		for _, p := range problems {
-			fmt.Fprintln(os.Stderr, p)
-		}
-		if len(problems) > 0 {
-			fmt.Fprintln(os.Stderr, "Sign off with `git commit -s`; repair a branch with `git rebase --signoff`.")
-			return 1
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "commitcheck dco: %d commit(s) signed off\n", len(commits))
-		return 0
-	case "title":
-		title := fs.String("title", "", "one commit title to check")
-		rng := fs.String("range", "", "git revision range whose commit titles to check, such as origin/main..HEAD")
-		dir := fs.String("C", ".", "git repository directory")
-		docs := fs.String("docs", "docs", "documents directory whose file names are the docs scopes")
-		if err := fs.Parse(args[1:]); err != nil || (*title == "") == (*rng == "") {
-			fmt.Fprintln(os.Stderr, "commitcheck title: one of -range and -title is required")
-			return 2
-		}
-		slugs, err := docSlugs(os.DirFS(*docs))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "commitcheck title: reading %s: %v\n", *docs, err)
-			return 2
-		}
-		if *title != "" {
-			if err := checkTitle(*title, slugs); err != nil {
-				fmt.Fprintf(os.Stderr, "commitcheck title: %q: %v\n", *title, err)
-				return 1
-			}
-			return 0
-		}
-		commits, err := gitCommits(ctx, *dir, *rng)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "commitcheck title:", err)
-			return 2
-		}
-		problems := checkTitles(commits, slugs)
-		for _, p := range problems {
-			fmt.Fprintln(os.Stderr, p)
-		}
-		if len(problems) > 0 {
-			fmt.Fprintln(os.Stderr, "Reword each such commit's title, then push the branch again.")
-			return 1
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "commitcheck title: %d commit title(s) checked\n", len(commits))
-		return 0
-	case "deprecations":
-		rng := fs.String("range", "", "git revision range, such as origin/main..HEAD")
-		dir := fs.String("C", ".", "git repository directory")
-		if err := fs.Parse(args[1:]); err != nil || *rng == "" {
-			fmt.Fprintln(os.Stderr, "commitcheck deprecations: -range is required")
-			return 2
-		}
-		commits, err := gitCommits(ctx, *dir, *rng)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "commitcheck deprecations:", err)
-			return 2
-		}
-		problems, err := checkDeprecations(ctx, *dir, commits, gitReleaseTag)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "commitcheck deprecations:", err)
-			return 2
-		}
-		for _, p := range problems {
-			fmt.Fprintln(os.Stderr, p)
-		}
-		if len(problems) > 0 {
-			fmt.Fprintf(os.Stderr, "Announce each deprecated surface with \"%s: <surface>; removed in MAJOR.MINOR.0\", %d minor releases or more after the release that ships it.\n", deprecatedToken, deprecationWindow)
-			return 1
-		}
-		_, _ = fmt.Fprintf(os.Stdout, "commitcheck deprecations: %d commit(s) checked\n", len(commits))
-		return 0
-	case "golden":
-		return runGolden(ctx, fs, args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "commitcheck: unknown command %q\n", args[0])
+	if args[0] != "dco" {
+		fmt.Fprintf(os.Stderr, "commitcheck: unknown command %q; want dco\n", args[0])
 		return 2
 	}
-}
-
-// runGolden runs commitcheck golden: it fails a range that changes or
-// deletes a golden-corpus file the newest release tag holds
-// (docs/engineering/03-testing-and-quality-strategy.md "Golden tests").
-func runGolden(ctx context.Context, fs *flag.FlagSet, args []string) int {
+	fs := flag.NewFlagSet("commitcheck dco", flag.ContinueOnError)
 	rng := fs.String("range", "", "git revision range, such as origin/main..HEAD")
 	dir := fs.String("C", ".", "git repository directory")
-	if err := fs.Parse(args); err != nil || *rng == "" {
-		fmt.Fprintln(os.Stderr, "commitcheck golden: -range is required")
+	if err := fs.Parse(args[1:]); err != nil || *rng == "" {
+		fmt.Fprintln(os.Stderr, "commitcheck dco: -range is required")
 		return 2
 	}
-	base, head, err := splitRange(*rng)
+	commits, err := gitCommits(ctx, *dir, *rng)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
+		fmt.Fprintln(os.Stderr, "commitcheck dco:", err)
 		return 2
 	}
-	tag, held, err := gitHeld(ctx, *dir)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
-		return 2
-	}
-	changes, err := gitCorpusChanges(ctx, *dir, base, head)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "commitcheck golden:", err)
-		return 2
-	}
-	problems := checkGolden(tag, held, changes)
+	problems := checkDCO(commits)
 	for _, p := range problems {
 		fmt.Fprintln(os.Stderr, p)
 	}
 	if len(problems) > 0 {
-		fmt.Fprintln(os.Stderr, "Golden entries are append-only: restore these files and add an entry or a schema level with go test ./test/conformance/config -run Golden -update.")
+		fmt.Fprintln(os.Stderr, "Sign off with `git commit -s`; repair a branch with `git rebase --signoff`.")
 		return 1
 	}
-	_, _ = fmt.Fprintf(os.Stdout, "commitcheck golden: %d corpus file(s) changed, none that a release holds\n", len(changes))
+	_, _ = fmt.Fprintf(os.Stdout, "commitcheck dco: %d commit(s) signed off\n", len(commits))
 	return 0
 }

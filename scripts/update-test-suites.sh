@@ -2,8 +2,9 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# Refreshes the vendored upstream conformance suites of CI stage 8 at
-# their pinned versions (ADR-0003 "Confirmation" upstream suites):
+# Refreshes the vendored upstream conformance suites that the integration
+# tests run at their pinned versions (ADR-0003 "Confirmation" upstream
+# suites):
 #
 #   scripts/update-test-suites.sh [yaml] [json-schema]   (default: both)
 #   scripts/update-test-suites.sh --digest URL COMMIT    (prints a new pin)

@@ -1,9 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Command depgate runs the dependency gates of CI stage 6 over the packages
-// each binary links, per shipped platform (`go list -deps -test=false` with
-// CGO_ENABLED=0), as docs/engineering/01-tech-stack-and-libraries.md fixes:
+// Command depgate runs the dependency gates of `make supply-chain`, which
+// the PR pipeline's ci job runs, over the packages each binary links, per
+// shipped platform (`go list -deps -test=false` with CGO_ENABLED=0), as
+// docs/engineering/01-tech-stack-and-libraries.md fixes:
 //
 //		depgate [-C DIR] [-notices DIR]
 //
