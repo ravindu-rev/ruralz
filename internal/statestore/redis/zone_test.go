@@ -249,13 +249,18 @@ func TestZoneClusterPseudoShards(t *testing.T) {
 
 // TestZoneSentinelFollowsSwitchMaster checks the sentinel topology: calls
 // take the zone of the primary the sentinels name, and a +switch-master
-// answer moves the next call to the new primary's zone at once.
+// answer moves the next call to the new primary's zone at once. The switch
+// waits for the first maintenance pass, whose warm-up opens the pipelined
+// connections: a warm-up dial of the old primary that lands after the
+// switch's dial records the old host, which the passes correct two passes
+// later, as they correct any dial that races a switch.
 func TestZoneSentinelFollowsSwitchMaster(t *testing.T) {
 	f := newFixture(t, fixtureOptions{
 		sentinel: 2, hosts: []string{"127.0.0.1", "127.0.0.2"}, limits: quietLimits(),
 		zone: "lab-a", zones: statestore.Zones{"127.0.0.1": "lab-a", "127.0.0.2": "lab-b"},
 	})
 	f.ready()
+	f.awaitIdle()
 	if c := gcraCall(statestore.DigestOf("k"), oneLimit()); f.consume(c) == 0 || c.Err != nil {
 		t.Fatalf("first call: Err %v", c.Err)
 	}
