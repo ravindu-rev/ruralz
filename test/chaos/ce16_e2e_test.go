@@ -21,20 +21,31 @@ import (
 // CE-16's load: cacheable 64 KiB responses on fresh URIs, so every
 // request stores an entry, beside invalidating POSTs and quota-charged
 // requests to /refunded, each refunded at onLog; and the cache State
-// Store's script replies held 1 s while it lasts, so its stores drain
-// slower than they arrive. The cache Policy's stateStoreTimeout outlasts
-// the hold, so a held write is late, never failed. The cache State Store
-// holds ce16MaxMemory under volatile-ttl, a policy the cache connection
-// allows, which evicts the entries nearest expiry: the run's stores, GBs
-// over its phases, then never outgrow the host or the leak scan's
-// keyspace read.
+// Store's script replies held 4 s while it lasts. The cache Policy's
+// stateStoreTimeout outlasts the hold, so a held write is late, never
+// failed. Held that long, a Node's ce16Writers writers send at most
+// ce16Batch writes each per hold, 128 per second, and the stores offer 1.5
+// times that per Node, ce16StoresPerNode, so the stores class, 64 MiB of
+// 64 KiB entries per Node, fills in about 15 s of the fault whatever S is,
+// while the refunds and invalidations, which drain first, keep being
+// written; a share of S would carry hundreds of MB of bodies a second
+// through one runner. The cache State Store holds ce16MaxMemory under
+// volatile-ttl, a policy the cache connection allows, which evicts the
+// entries nearest expiry: the run's stores, GBs over its phases, then
+// never outgrow the host or the leak scan's keyspace read.
 const (
-	ce16Body        = 64 << 10
-	ce16Hold        = time.Second
-	ce16Timeout     = 5 * time.Second
-	ce16Invalidates = 50.0
-	ce16Refunds     = 50.0
-	ce16MaxMemory   = "128mb"
+	ce16Body    = 64 << 10
+	ce16Hold    = 4 * time.Second
+	ce16Timeout = 5 * time.Second
+	// ce16Writers and ce16Batch are a Node's post-commit writers and the
+	// writes of one batch (docs/architecture/11-scalability-and-distributed-state.md
+	// "Post-commit write queue").
+	ce16Writers       = 8
+	ce16Batch         = 64
+	ce16StoresPerNode = 1.5 * ce16Writers * ce16Batch / float64(ce16Hold/time.Second)
+	ce16Invalidates   = 50.0
+	ce16Refunds       = 50.0
+	ce16MaxMemory     = "128mb"
 )
 
 // TestCE16QueueSaturated is CE-16: cache stores saturate the post-commit
@@ -46,8 +57,6 @@ const (
 // "Chaos experiments" and "Post-commit write queue"). Plugin writes join
 // in M2.
 func TestCE16QueueSaturated(t *testing.T) {
-	s := saturation(t)
-	rate := suite.Profile.LoadShare * s
 	r := suite.Start(t, Spec{
 		Name: CE16, SampleEvery: 250 * time.Millisecond,
 		CacheStore: &topology.StateStoreOptions{RESPProxy: true, Config: []string{"maxmemory " + ce16MaxMemory, "maxmemory-policy volatile-ttl"}},
@@ -59,7 +68,7 @@ func TestCE16QueueSaturated(t *testing.T) {
 	fresh := func(q *http.Request, seq uint64) { q.URL.Path = PathCached + "/fresh-" + strconv.FormatUint(seq, 10) }
 	invalidate := func(q *http.Request, seq uint64) { q.URL.Path = PathCached + "/hot-" + strconv.FormatUint(seq%64, 10) }
 	l := r.StartLoad(LoadSpec{Duration: Baseline + FaultPhase + RecoveryTime, Streams: []StreamSpec{
-		{Name: "stores", Path: PathCached, Protocol: loadgen.H2C, Rate: max(1, rate-ce16Invalidates-ce16Refunds), Prepare: fresh},
+		{Name: "stores", Path: PathCached, Protocol: loadgen.H2C, Rate: ce16StoresPerNode * float64(r.Nodes), Prepare: fresh},
 		{Name: "invalidations", Path: PathCached, Method: http.MethodPost, Protocol: loadgen.H2C, Rate: ce16Invalidates, Prepare: invalidate},
 		{
 			Name: "refunds", Path: PathRefunded, Method: http.MethodPost, Body: []byte(`{}`), Protocol: loadgen.H2C, Rate: ce16Refunds,
