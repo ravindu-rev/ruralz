@@ -13,17 +13,18 @@ import (
 	"strings"
 	"sync"
 	"testing"
-	"time"
 )
 
 // replicaFake is a fresh cluster node for attach tests: it answers MEET,
 // refuses REPLICATE with "Unknown node" until it has been asked
-// learnAfter times, then reports a synced replica.
+// learnAfter times, then reports a synced replica. asked, when set,
+// receives each REPLICATE it answers while it has room.
 type replicaFake struct {
 	mu         sync.Mutex
 	asks       int
 	learnAfter int
 	replicaOf  string
+	asked      chan struct{}
 }
 
 func (r *replicaFake) handle(_ *session, args []string) string {
@@ -38,6 +39,12 @@ func (r *replicaFake) handle(_ *session, args []string) string {
 	case args[0] != "CLUSTER":
 		return "-ERR unexpected\r\n"
 	case args[1] == "REPLICATE":
+		if r.asked != nil {
+			select {
+			case r.asked <- struct{}{}:
+			default:
+			}
+		}
 		if r.asks++; r.asks <= r.learnAfter {
 			return "-ERR Unknown node " + args[2] + "\r\n"
 		}
@@ -129,11 +136,29 @@ func TestAttachReplicas(t *testing.T) {
 
 // TestAttachReplicasRefused checks that a replica that never learns its
 // primary ends the attach with the last refusal once the context ends.
+// The context ends once the replica was asked twice: the attach asks
+// again only after it read the first refusal, so that refusal is its
+// last answer whatever the second attempt returns, where a wall-clock
+// budget could end before any answer arrived.
 func TestAttachReplicasRefused(t *testing.T) {
 	p := startFake(t, nil, func(*session, []string) string { return bulk(strings.Repeat("a", 40)) })
-	r := startFake(t, nil, (&replicaFake{learnAfter: 1 << 30}).handle)
-	ctx, cancel := context.WithTimeout(t.Context(), 200*time.Millisecond)
+	fake := &replicaFake{learnAfter: 1 << 30, asked: make(chan struct{}, 2)}
+	r := startFake(t, nil, fake.handle)
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
+	asked := make(chan struct{})
+	go func() {
+		defer close(asked)
+		defer cancel()
+		for range 2 {
+			select {
+			case <-fake.asked:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	defer func() { <-asked }()
 	err := attachReplicas(ctx,
 		[]clusterNode{{srv: p.server("primary", access{scheme: "redis"}), host: "10.0.0.1", port: 7000, busPort: 17000}},
 		[]clusterNode{{srv: r.server("replica", access{scheme: "redis"}), host: "10.0.0.2", port: 7001, busPort: 17001}})

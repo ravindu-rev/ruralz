@@ -272,18 +272,25 @@ func waitServing(ctx context.Context, s *Server, k Kind) error {
 }
 
 // waitUntil polls cond until it returns nil or ctx ends; the error then
-// names what was awaited and cond's last error.
+// names what was awaited and the last error of an attempt that ended
+// before ctx did. An attempt the end of ctx cuts short, such as a dial
+// that times out with ctx, says nothing about what was awaited, so it
+// names the wait's last state only when no attempt ended before.
 func waitUntil(ctx context.Context, what string, cond func(context.Context) error) error {
+	var last error
 	for {
 		err := cond(ctx)
 		if err == nil {
 			return nil
 		}
+		if last == nil || ctx.Err() == nil {
+			last = err
+		}
 		t := time.NewTimer(pollInterval)
 		select {
 		case <-ctx.Done():
 			t.Stop()
-			return fmt.Errorf("redisserver: waiting for %s: %w (last: %w)", what, ctx.Err(), err)
+			return fmt.Errorf("redisserver: waiting for %s: %w (last: %w)", what, ctx.Err(), last)
 		case <-t.C:
 		}
 	}
