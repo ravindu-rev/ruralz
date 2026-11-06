@@ -154,12 +154,33 @@ func (r *wrig) nextPoll() Trigger {
 	}
 }
 
+// armed waits until a timer due one poll interval from now is armed: Run's
+// poll timer, or the settle timer Load arms after it discards a load. Each
+// load arms its deadline timer on the same clock while the pipeline runs,
+// so a count of armed timers cannot tell them apart, and an advance taken
+// on the deadline timer moves the clock before the poll or settle timer
+// is armed, whose interval then never passes.
+func (r *wrig) armed(ctx context.Context) error {
+	return r.clk.BlockUntilDue(ctx, r.clk.Now().Add(PollInterval))
+}
+
+// advance advances the clock one poll interval once the timer due then is
+// armed.
+func (r *wrig) advance() {
+	r.t.Helper()
+	ctx, cancel := context.WithTimeout(r.t.Context(), bound)
+	defer cancel()
+	if err := r.armed(ctx); err != nil {
+		r.t.Fatalf("no poll or settle timer armed: %v", err)
+	}
+	r.clk.Advance(PollInterval)
+}
+
 // tick advances the clock one poll interval and returns that poll's
 // trigger.
 func (r *wrig) tick() Trigger {
 	r.t.Helper()
-	waitFor(r.t, "Run to wait for its poll timer", func() bool { return r.clk.Pending() > 0 })
-	r.clk.Advance(PollInterval)
+	r.advance()
 	return r.nextPoll()
 }
 
@@ -629,8 +650,60 @@ func TestLoadRetriesAChangingTree(t *testing.T) {
 	go func() { done <- r.w.Load(t.Context()) }()
 	// The first load is discarded; Load waits one interval for the tree
 	// to settle, then loads again.
-	waitFor(t, "the settle wait", func() bool { return r.clk.Pending() > 0 && r.pipe.count() == 1 })
-	r.clk.Advance(PollInterval)
+	r.advance()
+	select {
+	case ld := <-done:
+		if ld.Err != nil {
+			t.Fatalf("Load = %+v", ld)
+		}
+	case <-time.After(bound):
+		t.Fatal("Load did not return")
+	}
+	if n := r.pipe.count(); n != 2 {
+		t.Fatalf("pipeline ran %d times, want 2", n)
+	}
+}
+
+// TestAdvanceWaitsForTheSettleTimer: while Load's first load runs, the
+// pipeline has run once and the load's deadline timer is the only armed
+// timer, and advance waits past it for the settle timer Load arms once it
+// discards that load. Taking the deadline timer for it moved the clock
+// before Load armed the settle timer, which then waited for an interval
+// that never passed ("Load did not return").
+func TestAdvanceWaitsForTheSettleTimer(t *testing.T) {
+	r := newRig(t)
+	held, release := make(chan struct{}), make(chan struct{})
+	r.pipe.set(func(ctx context.Context, run int) (*pipeline.Result, error) {
+		if run == 1 {
+			r.file("routes.yaml", "changed")
+			close(held)
+			select {
+			case <-release:
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
+		}
+		return &pipeline.Result{}, nil
+	})
+	done := make(chan Load, 1)
+	go func() { done <- r.w.Load(t.Context()) }()
+	select {
+	case <-held:
+	case <-time.After(bound):
+		t.Fatal("the first load did not run")
+	}
+	if n, runs := r.clk.Pending(), r.pipe.count(); n != 1 || runs != 1 {
+		t.Fatalf("during the first load %d timers armed after %d runs, want the deadline timer alone after 1", n, runs)
+	}
+	// Nothing arms or stops a timer while the load is held, so a probe
+	// whose context is already canceled reports what is armed now.
+	probe, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := r.armed(probe); !errors.Is(err, context.Canceled) {
+		t.Fatalf("armed during the first load = %v, want %v", err, context.Canceled)
+	}
+	close(release)
+	r.advance()
 	select {
 	case ld := <-done:
 		if ld.Err != nil {
