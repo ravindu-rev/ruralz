@@ -124,8 +124,7 @@ type imagePlan struct {
 	Target     string `json:"target"`
 	// Platforms are the image's platforms.
 	Platforms []string `json:"platforms"`
-	// Tags are the tags to push; empty for a version that is neither a
-	// release nor a release candidate.
+	// Tags are the tags to push; empty for a version that is no release.
 	Tags []string `json:"tags"`
 	// SBOM names the image SBOM, one CycloneDX document whose subject is
 	// the image index.
@@ -179,17 +178,11 @@ func (p imagePlan) withDigests(index string, manifests []platformManifest) image
 	return p
 }
 
-// benchArchiveName is the benchmark records archive of a release:
-// ruralz_<version>_bench.tar.gz
-// (docs/architecture/12-performance-budgets-and-benchmarking.md,
-// "Publication").
-func benchArchiveName(version string) string { return "ruralz_" + version + "_bench.tar.gz" }
-
-// Version kinds.
+// Version kinds: a release X.Y.Z, which the release pipeline tags and
+// publishes, or any other build, a development build.
 const (
-	kindRelease   = "release"
-	kindCandidate = "candidate"
-	kindDev       = "development"
+	kindRelease = "release"
+	kindDev     = "development"
 )
 
 // semver matches a Semantic Versioning 2.0.0 version without a leading "v"
@@ -200,7 +193,7 @@ func semver() *regexp.Regexp {
 }
 
 // checkVersion validates a product version as the Makefile derives it from
-// `git describe`: X.Y.Z, X.Y.Z-rc.N, or a development version such as
+// `git describe`: X.Y.Z on a release tag, or a development version such as
 // 0.0.0-dev or 0.1.0-3-gabcdef1-dirty.
 func checkVersion(v string) error {
 	if strings.HasPrefix(v, "v") {
@@ -212,33 +205,25 @@ func checkVersion(v string) error {
 	return nil
 }
 
-// versionKind classifies a valid version: a release X.Y.Z, a release
-// candidate X.Y.Z-rc.N (N from 1), or any other development build.
+// versionKind classifies a valid version: a release X.Y.Z, or a
+// development build for any other version, a pre-release included.
 func versionKind(v string) string {
-	switch {
-	case regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(v):
+	if regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(v) {
 		return kindRelease
-	case regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+-rc\.[1-9][0-9]*$`).MatchString(v):
-		return kindCandidate
-	default:
-		return kindDev
 	}
+	return kindDev
 }
 
 // imageTags are the tags of a version's images: X.Y.Z and X.Y for a
-// release, X.Y.Z-rc.N for a candidate, none for a development build, and
-// never latest. A pushed X.Y.Z or X.Y.Z-rc.N tag is never pushed again;
-// X.Y moves to the newest patch of its line.
+// release, none for a development build, and never latest. A pushed X.Y.Z
+// tag is never pushed again; X.Y names the newest published release of its
+// line (releasekit tag-image).
 func imageTags(v string) []string {
-	switch versionKind(v) {
-	case kindRelease:
-		parts := strings.SplitN(v, ".", 3)
-		return []string{v, parts[0] + "." + parts[1]}
-	case kindCandidate:
-		return []string{v}
-	default:
+	if versionKind(v) != kindRelease {
 		return []string{}
 	}
+	parts := strings.SplitN(v, ".", 3)
+	return []string{v, parts[0] + "." + parts[1]}
 }
 
 // checkCommit validates a full Git commit: SHA-1 or SHA-256 in lower-case

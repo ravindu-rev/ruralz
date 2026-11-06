@@ -5,11 +5,18 @@ package main
 
 import (
 	"bytes"
+	"net/http"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// testEnv is an environment of fixed variables whose HTTP client is
+// client.
+func testEnv(vars map[string]string, client *http.Client) environ {
+	return environ{getenv: func(k string) string { return vars[k] }, client: client}
+}
 
 // TestRunUsage: a missing or unknown command, a missing required flag, an
 // unknown flag or an extra argument is a usage error (exit 2).
@@ -18,21 +25,30 @@ func TestRunUsage(t *testing.T) {
 		args []string
 		want string
 	}{
-		{nil, "usage: releasekit image|package|sbom|notes|checksums|verify"},
+		{nil, "usage: releasekit next|image|package|sbom|notes|checksums|verify|latest|tag-image"},
 		{[]string{"publish"}, `unknown command "publish"`},
+		{[]string{"next", "extra"}, "unexpected arguments"},
+		{[]string{"next", "-bogus"}, "flag provided but not defined: -bogus"},
 		{[]string{"image"}, "releasekit image: -dir is required"},
 		{[]string{"sbom", "-manifest", "m"}, "releasekit sbom: -scans is required"},
 		{[]string{"package", "-dist", "d"}, "releasekit package: -notices is required"},
 		{[]string{"package", "-dist", "d", "-notices", "n", "-out", "o", "-version", "0.1.0"}, "-commit is required"},
+		{[]string{"package", "-bench", "b"}, "flag provided but not defined: -bench"},
 		{[]string{"checksums"}, "releasekit checksums: -dir is required"},
 		{[]string{"notes", "-version", "0.1.0", "-from", "root", "-to", "HEAD"}, "releasekit notes: -out is required"},
+		{[]string{"notes", "-skipped", "s"}, "flag provided but not defined: -skipped"},
 		{[]string{"verify"}, "releasekit verify: -manifest is required"},
 		{[]string{"verify", "-manifest", "m", "extra"}, "unexpected arguments"},
 		{[]string{"verify", "-bogus"}, "flag provided but not defined: -bogus"},
+		{[]string{"latest"}, "releasekit latest: -version is required"},
+		{[]string{"latest", "-version", "0.1.0-rc.1"}, `version "0.1.0-rc.1" is not a release X.Y.Z`},
+		{[]string{"latest", "-version", "0.1.0", "-repo", "not a repo"}, `repository "not a repo" is not owner/name`},
+		{[]string{"tag-image", "-version", "0.1.0"}, "releasekit tag-image: -digest is required"},
+		{[]string{"tag-image", "-version", "0.1.0", "-digest", "sha256:abc", "-check"}, `digest "sha256:abc" is not sha256:<64 hex>`},
 	}
 	for _, c := range cases {
 		var stdout, stderr bytes.Buffer
-		if code := run(t.Context(), c.args, &stdout, &stderr); code != 2 || !strings.Contains(stderr.String(), c.want) {
+		if code := run(t.Context(), c.args, &stdout, &stderr, testEnv(map[string]string{"GH_TOKEN": "t"}, nil)); code != 2 || !strings.Contains(stderr.String(), c.want) {
 			t.Errorf("run(%q) = %d, %q; want 2 and %q", c.args, code, stderr.String(), c.want)
 		}
 	}
@@ -41,6 +57,7 @@ func TestRunUsage(t *testing.T) {
 // TestRunExitCodes: findings exit 1, input errors 2, success 0, through
 // the real build information reader and git.
 func TestRunExitCodes(t *testing.T) {
+	env := testEnv(nil, nil)
 	fx := newFixture(t, "0.1.0")
 	fx.release(t)
 	manifestPath := filepath.Join(fx.out, manifestName)
@@ -59,7 +76,7 @@ func TestRunExitCodes(t *testing.T) {
 	}
 	for _, c := range cases {
 		var stdout, stderr bytes.Buffer
-		code := run(t.Context(), c.args, &stdout, &stderr)
+		code := run(t.Context(), c.args, &stdout, &stderr, env)
 		if code != c.code || !strings.Contains(stderr.String(), c.want) {
 			t.Errorf("%s: exit %d, stderr %q; want %d and %q", c.name, code, stderr.String(), c.code, c.want)
 		}
@@ -68,12 +85,12 @@ func TestRunExitCodes(t *testing.T) {
 	// image prints the layout's index digest; sbom writes the image SBOM.
 	digest := fx.writeImage(t, nil)
 	var stdout, stderr bytes.Buffer
-	if code := run(t.Context(), []string{"image", "-dir", fx.image}, &stdout, &stderr); code != 0 || strings.TrimSpace(stdout.String()) != digest {
+	if code := run(t.Context(), []string{"image", "-dir", fx.image}, &stdout, &stderr, env); code != 0 || strings.TrimSpace(stdout.String()) != digest {
 		t.Errorf("image: exit %d, stdout %q, stderr %q; want 0 and %s", code, stdout.String(), stderr.String(), digest)
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(t.Context(), []string{"image", "-dir", t.TempDir()}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "image layout") {
+	if code := run(t.Context(), []string{"image", "-dir", t.TempDir()}, &stdout, &stderr, env); code != 1 || !strings.Contains(stderr.String(), "image layout") {
 		t.Errorf("image of an empty directory: exit %d, stderr %q; want 1", code, stderr.String())
 	}
 	m, err := readManifest(manifestPath)
@@ -83,12 +100,12 @@ func TestRunExitCodes(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	scans := fx.writeScans(t, m)
-	if code := run(t.Context(), []string{"sbom", "-manifest", manifestPath, "-scans", scans}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "ruralzd_0.1.0_image.cdx.json") {
+	if code := run(t.Context(), []string{"sbom", "-manifest", manifestPath, "-scans", scans}, &stdout, &stderr, env); code != 0 || !strings.Contains(stdout.String(), "ruralzd_0.1.0_image.cdx.json") {
 		t.Errorf("sbom: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	if code := run(t.Context(), []string{"sbom", "-manifest", manifestPath, "-scans", t.TempDir()}, &stdout, &stderr); code != 1 || !strings.Contains(stderr.String(), "no scan of the linux/amd64 image") {
+	if code := run(t.Context(), []string{"sbom", "-manifest", manifestPath, "-scans", t.TempDir()}, &stdout, &stderr, env); code != 1 || !strings.Contains(stderr.String(), "no scan of the linux/amd64 image") {
 		t.Errorf("sbom without scans: exit %d, stderr %q; want 1", code, stderr.String())
 	}
 
@@ -106,21 +123,21 @@ func TestRunExitCodes(t *testing.T) {
 	stderr.Reset()
 	code := run(t.Context(), []string{
 		"package", "-C", pf.root, "-dist", pf.dist, "-notices", pf.notices, "-out", pf.out, "-version", "0.1.0", "-commit", commit,
-		"-image", pf.image, "-bench", pf.bench,
-	}, &stdout, &stderr)
+		"-image", pf.image,
+	}, &stdout, &stderr, env)
 	if code != 1 || !strings.Contains(stderr.String(), "ruralzd_linux_amd64: not a Go binary") {
 		t.Errorf("package: exit %d, stderr %q; want 1 and the findings", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
-	code = run(t.Context(), []string{"package", "-C", pf.root, "-dist", pf.dist, "-notices", pf.notices, "-out", filepath.Join(t.TempDir(), "out"), "-version", "0.1.0", "-commit", commit}, &stdout, &stderr)
+	code = run(t.Context(), []string{"package", "-C", pf.root, "-dist", pf.dist, "-notices", pf.notices, "-out", filepath.Join(t.TempDir(), "out"), "-version", "0.1.0", "-commit", commit}, &stdout, &stderr, env)
 	if code != 1 || !strings.Contains(stderr.String(), "the release 0.1.0 has no image") {
 		t.Errorf("package of a release without an image: exit %d, stderr %q; want 1", code, stderr.String())
 	}
 	stdout.Reset()
 	stderr.Reset()
 	notes := filepath.Join(t.TempDir(), "NOTES.md")
-	if code := run(t.Context(), []string{"notes", "-C", pf.root, "-version", "0.1.0", "-from", "root", "-to", "HEAD", "-out", notes}, &stdout, &stderr); code != 0 || !strings.Contains(stdout.String(), "wrote the release notes") {
+	if code := run(t.Context(), []string{"notes", "-C", pf.root, "-version", "0.1.0", "-from", "root", "-to", "HEAD", "-out", notes}, &stdout, &stderr, env); code != 0 || !strings.Contains(stdout.String(), "wrote the release notes") {
 		t.Errorf("notes: exit %d, stdout %q, stderr %q", code, stdout.String(), stderr.String())
 	}
 }
