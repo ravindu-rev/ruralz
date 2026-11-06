@@ -91,7 +91,7 @@ github.com/ravindu-rev/ruralz
 ├── console/                     Ruralz Console TypeScript source
 ├── deploy/                      container/, systemd/, grafana/, benchhost/; helm/ chart, crds/ (generated)
 ├── test/                        conformance/, integration/, property/, e2e/, compose/, t5/, chaos/,
-│                                bench/, quickstart/, reposettings/, fixtures/
+│                                bench/, quickstart/, fixtures/
 ├── examples/                    example Bundles, validated in CI
 ├── docs/                        documentation (see Docs as code)
 ├── scripts/                     install-tools.sh and CI helper scripts
@@ -507,7 +507,7 @@ Signed-off-by: Jane Doe <jane@example.com>
 
 ### Repository settings
 
-`scripts/repo-settings.sh`, Planned (M1), applies the repository's GitHub settings through the GitHub CLI, idempotently; an admin runs it. It reads each area of the table below, finding the rulesets by the names it gives, writes only an area that differs and reads that area back, so a second run writes nothing and a write that does not take effect is an error. With `--check`, it compares the live settings with the table, writes nothing, prints a `drift:` line per setting that differs, and exits 1 on any drift and 2 on an error. A setting the response leaves out, as GitHub does for a token without the permission to read it, is never a match: an error when applying. `--check` prints a `notice:` line for each setting a response leaves out, as GitHub does with the merge settings for a read-only token, and checks the rest; an admin's apply reads them all. `test/reposettings` runs the script in both modes through the real GitHub CLI against a fake GitHub REST API.
+An admin sets the repository's GitHub settings below in GitHub itself; no code in the repository reads or writes them.
 
 | Area | Setting |
 |---|---|
@@ -519,8 +519,8 @@ Signed-off-by: Jane Doe <jane@example.com>
 | Security | Private vulnerability reporting, which `SECURITY.md` names; Dependabot alerts and security updates; secret scanning with push protection |
 | Releases | Immutable releases: a published release's assets and tag never change |
 | Environment | `release`: deployments from `v*` tags only; the owner as its one required reviewer, who may approve the runs of the tags they push; no wait timer ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)) |
-| Variables | `RH1_PROVISIONED`, set to `true` in M6, once the `rh-1` runner is registered ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)), until which GitHub skips the `rh-1` jobs; the script neither reads nor writes it: the owner sets it with the RH-1 runbook in `deploy/benchhost` |
-| No API | The public visibility and repository link of the `ghcr.io/ravindu-rev/ruralzd` package, which the script prints as steps for after the first release's image push and neither reads nor writes ([Release runbook](04-release-versioning-and-compatibility.md#release-runbook)) |
+| Variables | `RH1_PROVISIONED`, set to `true` in M6, once the `rh-1` runner is registered ([Reference hardware](../architecture/12-performance-budgets-and-benchmarking.md#reference-hardware)), until which GitHub skips the `rh-1` jobs; the owner sets it with the RH-1 runbook in `deploy/benchhost` |
+| No API | The public visibility and repository link of the `ghcr.io/ravindu-rev/ruralzd` package, set by hand after the first release's image push ([Release runbook](04-release-versioning-and-compatibility.md#release-runbook)) |
 
 ## CI stages
 

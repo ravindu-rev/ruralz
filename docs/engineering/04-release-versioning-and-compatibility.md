@@ -392,7 +392,7 @@ A maintainer cuts a release in this order:
 5. **Approve.** The owner reads the run summary and `NOTES.md`, then approves the publish job in the `release` Environment.
 6. **Window.** A candidate stays published at least 14 days (target) before `vX.Y.0` is tagged on its commit; a fix means a new candidate and a new window. `v0.1.0` has neither.
 7. **Release.** `vX.Y.0` is tagged the same way on the last candidate's commit, and the pipeline runs again in full. A patch `vX.Y.Z` is tagged on `release-X.Y` after its cherry-picks, without a candidate.
-8. **Manual settings.** After the first release's image push, the maintainer applies the steps `scripts/repo-settings.sh` prints because no API covers them: the `ghcr.io/ravindu-rev/ruralzd` package made public and linked to the repository. `scripts/repo-settings.sh --check` then reports no drift.
+8. **Manual settings.** After the first release's image push, the maintainer makes the `ghcr.io/ravindu-rev/ruralzd` package public and links it to the repository, which no API covers ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
 9. **Milestone exit.** Once the release that exits a milestone ships, one pass removes that milestone's `Planned (Mx)` tags from the documents: a shipped capability carries no tag, and its design text states it. The [Feature Catalog](../features/01-feature-catalog.md#how-to-read-this-catalog) records the release that shipped each capability ([style guide](../_meta/style-guide.md) section 4). The roadmap deletes the milestone's section and fills the steps table for the next milestone.
 
 ## Open questions
