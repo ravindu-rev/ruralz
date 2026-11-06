@@ -88,7 +88,7 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 	limited, closed := l.StreamNamed("limited"), l.StreamNamed("closed")
 	nodes := r.NodeNames()
 	r.Add(
-		Check("baseline RZ-STS responses", Functional, float64(CodesIn(closed, base.Start, base.End, STSCodes()...)), EQ, 0),
+		Check("baseline RZ-STS-002 responses", Functional, float64(CodesIn(closed, base.Start, base.End, ErrorReplyCodes()...)), EQ, 0),
 		Check("requests waiting a second State Store deadline", Functional, r.RequestsOver(slowAt, stopped.End, 2*StateStoreTimeout, "limited", "limited-closed"), EQ, 0),
 		Check("Nodes whose breaker opened while the State Store was slow", Functional, float64(len(r.Sampler.ReasonRaised(nodes, BreakerReason, slowAt, slow.End))), EQ, float64(len(nodes))),
 		Check("Nodes whose breaker was open while the State Store was stopped", Functional, float64(len(r.Sampler.ReasonRaised(nodes, BreakerReason, stopAt, stopped.End))), EQ, float64(len(nodes))),
@@ -96,6 +96,7 @@ func stateStoreRow(t *testing.T, variant string, stop func(context.Context, *Run
 		Check("closed-Policy RZ-STS responses during the fault", Functional, float64(CodesIn(closed, slowAt, stopped.End, STSCodes()...)), GT, 0),
 		Check("closed-Policy admissions after the first RZ-STS", Functional, float64(AdmittedAfter(closed, slowAt, stopped.End, STSCodes()...)), EQ, 0),
 	)
+	r.RecordExpiries("baseline", base.Start, base.End, closed.Requests())
 	for _, route := range []string{"limited", "limited-closed"} {
 		r.Breakdown("over_two_deadlines_baseline_"+route, r.RequestsOver(base.Start, base.End, 2*StateStoreTimeout, route))
 		r.Breakdown("over_two_deadlines_slow_"+route, r.RequestsOver(slowAt, slow.End, 2*StateStoreTimeout, route))

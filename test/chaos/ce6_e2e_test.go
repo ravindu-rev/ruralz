@@ -183,9 +183,19 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 			Check("stores skipped for memory", Functional, skipped(base.Start, rec.End), EQ, 0),
 			Check("refused stores counted as call errors", Functional, r.SumIncrease("ruralz_state_calls_total", promtext.L("op", "cache_set", "result", "error"), fullAt, fault.End), GT, 0),
 			Check("failed requests", Functional, float64(LoadStats(l, base.Start, rec.End).Failed), EQ, 0),
-			Check("main-connection RZ-STS responses", Functional, float64(CodesIn(closed, base.Start, rec.End, STSCodes()...)), EQ, 0),
-			Check("main-connection fail-open decisions", Functional, r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("result", "fail_open"), base.Start, rec.End), EQ, 0),
+			Check("main-connection RZ-STS-002 responses", Functional, float64(CodesIn(closed, base.Start, rec.End, ErrorReplyCodes()...)), EQ, 0),
+			Check("main-connection calls answered with an error reply", Functional, r.ConsumptiveCalls("error", base.Start, rec.End), EQ, 0),
 		)
+		// The fill can refuse the main connection's calls only by error
+		// replies; its expiries, and the fail-open decisions and skips they
+		// leave, are the runner's real-time latency, recorded ungated
+		// (ErrorReplyCodes).
+		r.RecordExpiries("main_connection", base.Start, rec.End, closed.Requests())
+		r.Breakdown("main_connection_call_timeouts", r.ConsumptiveCalls("timeout", base.Start, rec.End))
+		r.Breakdown("main_connection_call_skips", r.ConsumptiveCalls("skipped", base.Start, rec.End))
+		r.Breakdown("main_connection_fail_open_decisions",
+			r.SumIncrease("ruralz_ratelimit_decisions_total", promtext.L("result", "fail_open"), base.Start, rec.End)+
+				r.SumIncrease("ruralz_quota_decisions_total", promtext.L("result", "fail_open"), base.Start, rec.End))
 	case "main-allkeys-lru", "cache-allkeys-lru":
 		r.Add(Check("Nodes raising state_store_eviction_policy", Functional, float64(len(r.Sampler.ReasonRaised(nodes, EvictionReason, base.Start, rec.End))), EQ, float64(len(nodes))))
 	case "cache-volatile-ttl":
@@ -207,9 +217,21 @@ func ce6(t *testing.T, variant string, onCache bool, policy string) {
 		// Every run's recovery, from the unfill's return to the end of
 		// the recovery phase: errors back to zero and no degraded reason
 		// left that the fill raised; main-noeviction checks its breakers
-		// too (RecoveryCriteria).
-		r.Add(Check("recovery errors", Functional, float64(ErrorsAfter(l, end, rec.End, STSCodes()...)), EQ, 0))
+		// too (RecoveryCriteria). The unfilled deployments no longer
+		// touch the main connection, so its expiries are recorded, not
+		// counted (ErrorReplyCodes).
+		r.Add(Check("recovery errors", Functional, float64(ErrorsAfter(l, end, rec.End, ErrorReplyCodes()...)), EQ, 0))
+		r.RecordExpiries("recovery", end, rec.End, l.streamRequests()...)
 		r.StaleReasons(nodes, base.End, rec.End)
+	}
+	if onCache {
+		// A cache Policy on a stateStore.cache connection writes nothing
+		// to the main deployment.
+		n, err := CountKeys(ctx, r.Primaries(), keys.PrefixCache+"*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r.Add(Check("Response Cache keys on the main deployment", Functional, float64(n), EQ, 0))
 	}
 	r.Add(FC13Criteria(policy, onCache, evicted-evictedBefore, len(r.Sampler.ReasonRaised(nodes, EvictionReason, base.Start, rec.End)))...)
 	r.Finish()

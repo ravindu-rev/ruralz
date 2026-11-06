@@ -33,7 +33,7 @@ const (
 // file-mode fail-open rows of the cut-off Nodes alone, and the connected
 // Nodes' within the healthy GCRA row, 2 × requests in one window; for
 // FC-11 the cut-off Nodes' closed Policies answer RZ-STS and admit
-// nothing after it while the connected Nodes' answer none, and the
+// nothing after it while the connected Nodes' answer no RZ-STS-002, and the
 // breaker state differs across Nodes: every cut-off Node raises
 // state_store_breaker_open in each part of the partition, no connected
 // Node does.
@@ -77,19 +77,17 @@ func TestGD4StateStorePartition(t *testing.T) {
 	r.Add(admissions("connected Nodes' admissions per key and window without a ceiling, healthy GCRA", connUndeclared, 2*int64(plan.UndeclaredRequests))...)
 
 	// The closed Policies: RZ-STS on cut-off Nodes only, and no admission
-	// on a cut-off Node after its first RZ-STS.
+	// on a cut-off Node after its first RZ-STS. The partition does not
+	// touch the connected Nodes' connections, so their criterion counts
+	// error replies and records their expiries (chaos.ErrorReplyCodes).
 	cutClosed, connClosed := ByNode(l.StreamNamed("closed").Requests(), node, cut)
 	sts, admittedAfter := gd4ClosedAfterSTS(cutClosed, node, start, rf.End)
-	var connSTS int64
-	for _, q := range connClosed {
-		if !q.Intended.Before(start) && q.Intended.Before(rf.End) && slices.Contains(chaos.STSCodes(), q.Code) {
-			connSTS++
-		}
-	}
+	connErrors := chaos.CodesAmong(connClosed, start, rf.End, chaos.ErrorReplyCodes()...)
+	r.RecordExpiries("connected", start, rf.End, connClosed)
 	r.Add(
 		chaos.Check(FC11+": cut-off Nodes answering RZ-STS on closed Policies", chaos.Functional, float64(sts), chaos.EQ, float64(len(cut))),
 		chaos.Check(FC11+": cut-off Nodes' closed-Policy admissions after their first RZ-STS", chaos.Functional, float64(admittedAfter), chaos.EQ, 0),
-		chaos.Check(FC11+": connected Nodes' RZ-STS answers", chaos.Functional, float64(connSTS), chaos.EQ, 0),
+		chaos.Check(FC11+": connected Nodes' RZ-STS-002 answers", chaos.Functional, float64(connErrors), chaos.EQ, 0),
 	)
 	// Detection: the breaker state differs across Nodes in each part.
 	for _, p := range []chaos.Phase{bh, rf} {

@@ -12,6 +12,7 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
+	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
@@ -35,6 +36,55 @@ const (
 // Store fails.
 func STSCodes() []string {
 	return []string{CodeSTSTimeout, CodeSTSError, CodeSTSOpen, CodeSTSSkipped}
+}
+
+// ErrorReplyCodes returns the State Store codes a gated zero-failure
+// criterion counts on a connection the run's fault does not touch:
+// RZ-STS-002, an error reply or a connection error. A stateStoreTimeout
+// expiry there is a round trip slower than the timeout through
+// redis-server and the harness's fault proxies, which run in real time on
+// the runner, so the run records it, with the skips expiries leave, as
+// breakdowns instead (ExpiryCodes;
+// docs/engineering/03-testing-and-quality-strategy.md "Chaos testing").
+func ErrorReplyCodes() []string { return []string{CodeSTSError} }
+
+// ExpiryCodes returns the State Store codes a criterion on a connection
+// the run's fault does not touch records rather than counts: RZ-STS-001,
+// an expiry, and the RZ-STS-003 and RZ-STS-004 skips expiries leave, a
+// breaker they opened and a per-request deadline they spent.
+func ExpiryCodes() []string { return []string{CodeSTSTimeout, CodeSTSOpen, CodeSTSSkipped} }
+
+// RecordExpiries records, as ungated breakdowns named
+// <name>_<code>_responses, such as baseline_rz_sts_001_responses, how many
+// requests of reqs due in [from, to) carried each of ExpiryCodes: what a
+// criterion on a connection the run's fault does not touch leaves out
+// (ErrorReplyCodes).
+func (r *Run) RecordExpiries(name string, from, to time.Time, reqs ...[]Request) {
+	for _, c := range ExpiryCodes() {
+		var n int64
+		for _, rs := range reqs {
+			n += CodesAmong(rs, from, to, c)
+		}
+		r.Breakdown(name+"_"+strings.ToLower(strings.ReplaceAll(c, "-", "_"))+"_responses", float64(n))
+	}
+}
+
+// ConsumptiveOps returns the ops of ruralz_state_calls_total that only the
+// main connection carries: the consumptive calls of ratelimit and quota
+// Policies, gcra and quota, and script_multi, one round trip of several
+// in one slot.
+func ConsumptiveOps() []string { return []string{"gcra", "quota", "script_multi"} }
+
+// ConsumptiveCalls returns how much ruralz_state_calls_total grew over
+// (from, to] on every Node together for the consumptive ops' result, such
+// as error: the main connection's error replies, which a fault on another
+// connection must never cause.
+func (r *Run) ConsumptiveCalls(result string, from, to time.Time) float64 {
+	total := 0.0
+	for _, op := range ConsumptiveOps() {
+		total += r.SumIncrease(catalog.StateCallsTotal, promtext.L("op", op, "result", result), from, to)
+	}
+	return total
 }
 
 // SetStoreMode sets the fault proxies every Node reaches the State Store
@@ -128,13 +178,28 @@ func (r *Run) AdmissionCheck(name string, st *Stream, window time.Duration, from
 // CodesIn counts the responses of st due in [from, to) carrying one of
 // codes.
 func CodesIn(st *Stream, from, to time.Time, codes ...string) int64 {
+	return CodesAmong(st.Requests(), from, to, codes...)
+}
+
+// CodesAmong counts the requests of reqs due in [from, to) carrying one of
+// codes, as those a stream's requests of one Node are.
+func CodesAmong(reqs []Request, from, to time.Time, codes ...string) int64 {
 	var n int64
-	for _, q := range st.Requests() {
+	for _, q := range reqs {
 		if !q.Intended.Before(from) && q.Intended.Before(to) && slices.Contains(codes, q.Code) {
 			n++
 		}
 	}
 	return n
+}
+
+// streamRequests returns the requests of each of l's streams.
+func (l *Load) streamRequests() [][]Request {
+	out := make([][]Request, 0, len(l.Streams))
+	for _, st := range l.Streams {
+		out = append(out, st.Requests())
+	}
+	return out
 }
 
 // CodeOrder returns the codes among codes that responses of st due in
@@ -308,13 +373,20 @@ func ErrorSpan(l *Load, from, to time.Time, codes ...string) (first, last time.T
 // RecoveryCriteria adds the recovery rules of a State Store fault that
 // ended at real instant end: every Node's breaker closes within the
 // recovery phase rec, after which no request of l fails or gets a State
-// Store code, and no degraded reason raised since the baseline base is
-// left (docs/architecture/11-scalability-and-distributed-state.md "Chaos
-// experiments": every degraded reason the fault raised clears and errors
-// return to zero).
+// Store error reply, and no degraded reason raised since the baseline base
+// is left (docs/architecture/11-scalability-and-distributed-state.md
+// "Chaos experiments": every degraded reason the fault raised clears and
+// errors return to zero). Once the breakers closed the fault no longer
+// touches the connection, so its expiries and the skips they leave are
+// recorded as breakdowns, not counted (ErrorReplyCodes).
 func (r *Run) RecoveryCriteria(l *Load, base, rec Phase, end time.Time) {
 	r.T.Helper()
-	nodes := r.NodeNames()
+	r.recoveryCriteria(r.NodeNames(), l, base, rec, end)
+}
+
+// recoveryCriteria is RecoveryCriteria over the serving Nodes nodes.
+func (r *Run) recoveryCriteria(nodes []string, l *Load, base, rec Phase, end time.Time) {
+	r.T.Helper()
 	if kinds := ErrorKinds(l, base.Start, base.End, STSCodes()...); len(kinds) > 0 {
 		r.T.Logf("chaos: baseline errors and State Store codes: %v", kinds)
 	}
@@ -326,11 +398,12 @@ func (r *Run) RecoveryCriteria(l *Load, base, rec Phase, end time.Time) {
 		r.Breakdown("breakers_closed_after_fault_s", closedAt.Sub(end).Seconds())
 		if kinds := ErrorKinds(l, closedAt, rec.End, STSCodes()...); len(kinds) > 0 {
 			first, last := ErrorSpan(l, closedAt, rec.End, STSCodes()...)
-			r.T.Logf("chaos: recovery errors after the breakers closed: %v, %v to %v after they closed", kinds, first.Sub(closedAt), last.Sub(closedAt))
+			r.T.Logf("chaos: errors and State Store codes after the breakers closed: %v, %v to %v after they closed", kinds, first.Sub(closedAt), last.Sub(closedAt))
 		}
+		r.RecordExpiries("recovery", closedAt, rec.End, l.streamRequests()...)
 		r.Add(
 			Holds("breakers closed within the recovery", k, true),
-			Check("recovery errors after the breakers closed", k, float64(ErrorsAfter(l, closedAt, rec.End, STSCodes()...)), EQ, 0),
+			Check("recovery errors after the breakers closed", k, float64(ErrorsAfter(l, closedAt, rec.End, ErrorReplyCodes()...)), EQ, 0),
 		)
 	}
 	r.StaleReasons(nodes, base.End, rec.End)
