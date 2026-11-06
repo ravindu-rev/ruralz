@@ -28,14 +28,13 @@ Read only the sections the task needs.
 
 ## Gates
 
-From Git Bash, after all work is done:
+From Git Bash, after all work is done, run what the PR pipeline runs (`docs/engineering/02-repository-layout-and-conventions.md` "CI stages"):
 
 ```bash
-make hygiene lint generate build test supply-chain
-make floor FLOOR_GOTOOLCHAIN=go1.26.10
+make lint dco supply-chain test integration
 ```
 
-Add `make integration` when integration-tagged tests changed. Without make: `go run ./internal/tool/repocheck`, `go generate ./...` with no diff, `go build ./...`, `go vet ./...`, `CGO_ENABLED=0 go test -shuffle=on ./...`, `go mod verify`, `go run ./internal/tool/depgate`. Say which gates could not run and why. `make generate` fails until regenerated files are staged.
+`make integration` needs a local `redis-server`, and Docker for the State Store container kinds (`RURALZ_TEST_STATESTORE=container`). Without make: `bin/golangci-lint fmt --diff ./...` and `bin/golangci-lint run ./...`, `bin/actionlint`, `go run ./internal/tool/commitcheck dco -range origin/main..HEAD`, `go mod verify`, `bin/govulncheck ./...`, `go run ./internal/tool/depgate`, `go test -race -shuffle=on ./...` and `CGO_ENABLED=0 go test -shuffle=on ./...`, then `go test -race -tags integration ./...`. Say which gates could not run and why. After a change to the Go types of `pkg/config/v1alpha1` or to the telemetry catalog, `make generate` regenerates their output; it fails until regenerated files are staged.
 
 ## Hard rules (CI fails otherwise)
 
@@ -47,8 +46,8 @@ Add `make integration` when integration-tagged tests changed. Without make: `go 
 - **Banned:** `log` (use `log/slog` through `internal/telemetry`), the `plugin` package, Lua runtimes, `valyala/fasthttp`, `github.com/google/cel-go` (use `cel.dev/cel-go`), `golang.org/x/net/http2` `Server` and `Transport`, `goccy/go-yaml`, `go.yaml.in/yaml/v4` and `gopkg.in/yaml` (`internal/config/profile` is the YAML parser), `fmt.Print*` outside `internal/cli` (write to an `io.Writer`), `init()`.
 - **Suppressions** name the linter and a reason, only where it reports: `//nolint:gosec // reason`.
 - **Generated schema.** Never hand-edit `api/schema/ruralz/v1alpha1/*.schema.json`: change `pkg/config/v1alpha1`, run `go generate ./pkg/config/v1alpha1`, commit both.
-- **Go 1.26 floor.** The code builds and tests on Go 1.26 with `GOEXPERIMENT=jsonv2`: no standard library API newer than Go 1.26.
-- **Tests** pass under `-race -shuffle=on` with cgo and with `CGO_ENABLED=0`, and never depend on wall-clock time, order, randomness or the network. Suites that drive a built `ruralzd` meet the clock rule through the controllable-clock test build (`ruralz_testclock`); `docs/engineering/03-testing-and-quality-strategy.md` "Hermetic rule scope" names the suites that measure real time. `internal/cli`, `internal/buildinfo` and `pkg/` tests also run on Windows and macOS.
+- **Go 1.26 floor.** `go.mod` says `go 1.26.10`: no standard library API newer than Go 1.26, which vet's `stdversion` check in `make lint` reports.
+- **Tests** pass under `-race -shuffle=on` with cgo and with `CGO_ENABLED=0`, and never depend on wall-clock time, order, randomness or the network. Suites that drive a built `ruralzd` meet the clock rule through the controllable-clock test build (`ruralz_testclock`, `docs/engineering/03-testing-and-quality-strategy.md` "Hermetic rule scope"). `internal/cli`, `internal/buildinfo` and `pkg/` tests also pass on Windows and macOS, where the CLI ships; no CI job runs them there.
 - **No mutable package-level variables**, except sentinel errors, `go:embed` variables, the linker-set `internal/buildinfo` variables, tests and generated code.
 - **Line endings** are LF everywhere.
 
@@ -56,11 +55,12 @@ Add `make integration` when integration-tagged tests changed. Without make: `go 
 
 - Every commit carries `Signed-off-by: <author name> <author email>` equal to the commit author (`git commit -s`).
 - Title `<type>(<scope>)!: <subject>`, matching `^([a-z]+)(?:\(([a-z0-9][a-z0-9-]*)\))?(!)?: (.+)$`: imperative mood, lower-case first word, no trailing period. Omit the scope when a change spans several; a breaking change adds `!` and a `BREAKING CHANGE:` footer.
+- No check reads the titles, but the release does: a merge to `main` releases a new version when its commits hold a breaking change, a `feat`, a `fix` or a `perf`, and nothing otherwise (`docs/engineering/04-release-versioning-and-compatibility.md` "Release pipeline").
 
 | Type | Scopes |
 |---|---|
 | `feat`, `fix`, `perf`, `refactor` | `gateway`, `control`, `cli`, `config`, `filter`, `plugin`, `ai`, `statestore`, `controlstream`, `console`, `sdk`, `api`, `deploy` |
-| `test` | The scopes above, `e2e`, `conformance` |
+| `test` | The scopes above, `conformance` |
 | `docs` | A document slug: the file name under `docs/` without numeric prefix and `.md`, such as `data-plane` |
 | `build`, `ci` | `deps`, `tools`, `workflows` (changes to `internal/tool` are `build(tools)`) |
 | `chore`, `revert` | Any; changes to `AGENTS.md`, `CLAUDE.md` and `.claude/` use `chore:` |
