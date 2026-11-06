@@ -21,12 +21,20 @@ import (
 // CE-16's load: cacheable 64 KiB responses on fresh URIs, so every
 // request stores an entry, beside invalidating POSTs and quota-charged
 // requests to /refunded, each refunded at onLog; and the cache State
-// Store's script replies held 4 s while it lasts. The cache Policy's
-// stateStoreTimeout outlasts the hold, so a held write is late, never
-// failed. Held that long, a Node's ce16Writers writers send at most
-// ce16Batch writes each per hold, 128 per second, and the stores offer 1.5
-// times that per Node, ce16StoresPerNode, so the stores class, 64 MiB of
-// 64 KiB entries per Node, fills in about 15 s of the fault whatever S is,
+// Store's script replies held ce16Hold, 2 s, while it lasts, each from the
+// moment its proxy read it. A store's two scripts are held one after the
+// other, so a batch of stores waits ce16StoreBatchHeld, 4 s, and a batch
+// of invalidations 2 s, both under the cache Policy's 5 s
+// stateStoreTimeout, which bounds a batch's round trips together: a held
+// write is late, never failed. A lookup, which the State client pipelines
+// on the connections whose replies are held, waits behind them at most
+// 2 s, so the stores stream keeps about 2 s of its requests in flight,
+// under 4,000 on 10 Nodes, within the load generator's 4,096 per stream
+// (loadgen.DefaultMaxInFlight). A Node's ce16Writers writers drain at most
+// ce16Batch stores each per ce16StoreBatchHeld, 128 per second, and the
+// stores offer 1.5 times that per Node, ce16StoresPerNode, so the stores
+// class, 64 MiB of 64 KiB entries per Node, fills within about 16 s of the
+// fault whatever S is,
 // while the refunds and invalidations, which drain first, keep being
 // written; a share of S would carry hundreds of MB of bodies a second
 // through one runner. The cache State Store holds ce16MaxMemory under
@@ -35,14 +43,25 @@ import (
 // never outgrow the host or the leak scan's keyspace read.
 const (
 	ce16Body    = 64 << 10
-	ce16Hold    = 4 * time.Second
+	ce16Hold    = 2 * time.Second
 	ce16Timeout = 5 * time.Second
+	// ce16StoreScripts are the scripts of one store, its generation step
+	// and then its partition step (docs/architecture/11-scalability-and-distributed-state.md
+	// "State client and RZ-STS error codes"), whose replies the hold
+	// delays one after the other; ce16StoreBatchHeld is how long a batch
+	// of stores is held, under ce16Timeout, the bound of the batch's round
+	// trips together.
+	ce16StoreScripts   = 2
+	ce16StoreBatchHeld = ce16StoreScripts * ce16Hold
 	// ce16Writers and ce16Batch are a Node's post-commit writers and the
 	// writes of one batch (docs/architecture/11-scalability-and-distributed-state.md
 	// "Post-commit write queue").
-	ce16Writers       = 8
-	ce16Batch         = 64
-	ce16StoresPerNode = 1.5 * ce16Writers * ce16Batch / float64(ce16Hold/time.Second)
+	ce16Writers = 8
+	ce16Batch   = 64
+	// ce16StoresPerNode is the stores a Node is offered a second: 1.5 times
+	// the most its writers drain, ce16Batch each per ce16StoreBatchHeld,
+	// 192.
+	ce16StoresPerNode = 1.5 * ce16Writers * ce16Batch / float64(ce16StoreBatchHeld/time.Second)
 	ce16Invalidates   = 50.0
 	ce16Refunds       = 50.0
 	ce16MaxMemory     = "128mb"
