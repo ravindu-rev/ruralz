@@ -398,6 +398,41 @@ func TestAnalyzeTestSupport(t *testing.T) {
 	}
 }
 
+// TestTestingLinkedThroughItsLinkers checks the one exception to the
+// standard library test support denial: testing linked because only
+// packages of a testingLinkers module, go-abnf, import it passes, and the
+// same package imported by any other package too is denied.
+func TestTestingLinkedThroughItsLinkers(t *testing.T) {
+	read := fakeFS(map[string][]legalText{
+		"github.com/pandatix/go-abnf": lic(mitText),
+		"example.com/other":           lic(mitText),
+	})
+	abnf := pkg("github.com/pandatix/go-abnf", mod("github.com/pandatix/go-abnf", "v0.5.3"))
+	abnf.Imports = []string{"testing"}
+	other := pkg("example.com/other", mod("example.com/other", "v1.0.0"))
+	other.Imports = []string{"testing"}
+	std := goPackage{ImportPath: "testing", Standard: true}
+	cases := []struct {
+		name   string
+		pkgs   []goPackage
+		denied bool
+	}{
+		{"only go-abnf imports testing", []goPackage{abnf, std}, false},
+		{"another module imports testing too", []goPackage{abnf, other, std}, true},
+		{"only another module imports testing", []goPackage{other, std}, true},
+	}
+	for _, c := range cases {
+		got, err := analyze(target{"ruralzd", "linux", "amd64"}, c.pkgs, read)
+		if err != nil {
+			t.Fatal(err)
+		}
+		denied := slices.ContainsFunc(got.findings, func(f string) bool { return strings.Contains(f, "testing: standard library test support") })
+		if denied != c.denied {
+			t.Errorf("%s: findings %q, want the testing denial %v", c.name, got.findings, c.denied)
+		}
+	}
+}
+
 func TestIsTestSupport(t *testing.T) {
 	cases := map[string]bool{
 		"internal/testkit":                     true,

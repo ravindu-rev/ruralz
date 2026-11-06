@@ -120,6 +120,15 @@ func testOnlyStandard() []string {
 	return []string{"testing", "net/http/httptest"}
 }
 
+// testingLinkers are the third-party modules whose non-test packages
+// import the standard library's testing package, which a binary may link
+// through them alone: go-abnf's exported fuzz helpers do, and
+// prometheus/common's expfmt links go-abnf from v0.73
+// (docs/engineering/01-tech-stack-and-libraries.md "Dependency graph").
+func testingLinkers() []string {
+	return []string{"github.com/pandatix/go-abnf"}
+}
+
 // testOnlyModules are third-party modules admitted for tests only (the
 // Library catalog row "Test tooling (not shipped)"); a path covers the
 // modules below it. go.yaml.in/yaml/v3 is not one: cel-go's common/env

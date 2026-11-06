@@ -164,6 +164,7 @@ func deniedModules() []string {
 		"github.com/redis/rueidis",
 		"go.opentelemetry.io/",
 		"github.com/prometheus/",
+		"github.com/pandatix/go-abnf", // through prometheus/common's expfmt
 		"google.golang.org/grpc",
 		"github.com/quic-go/quic-go",
 		"connectrpc.com/connect",
