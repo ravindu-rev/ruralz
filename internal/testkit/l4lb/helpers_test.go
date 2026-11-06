@@ -20,16 +20,20 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
+	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 )
 
 func epoch() time.Time { return time.Date(2026, 3, 4, 5, 6, 7, 0, time.UTC) }
 
-// waitFor polls a state condition; the 10 s guard only catches hangs, so
-// no outcome depends on wall-clock time.
+// hangGuard bounds the tests' waits; it only catches hangs, so no outcome
+// depends on wall-clock time.
+const hangGuard = 10 * time.Second
+
+// waitFor polls a state condition within hangGuard.
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	deadline := time.After(10 * time.Second)
+	deadline := time.After(hangGuard)
 	for !cond() {
 		select {
 		case <-deadline:
@@ -163,14 +167,98 @@ func startLB(t *testing.T, c Config) *Balancer {
 	return b
 }
 
-// probed waits until every named backend has completed n probes.
+// probed waits until every named backend has completed n probes, within
+// hangGuard.
 func probed(t *testing.T, b *Balancer, n int64, names ...string) {
 	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), hangGuard)
+	defer cancel()
 	for _, name := range names {
-		if err := b.WaitProbes(t.Context(), name, n); err != nil {
+		if err := b.WaitProbes(ctx, name, n); err != nil {
 			t.Fatalf("WaitProbes(%s, %d) = %v", name, n, err)
 		}
 	}
+}
+
+// armedAt waits until a timer due at at is armed on fk. A test names the
+// timer it advances the clock to fire by that timer's deadline, so no
+// other timer armed meanwhile stands in for it.
+func armedAt(t *testing.T, fk *clocktest.Fake, at time.Time) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), hangGuard)
+	defer cancel()
+	if err := fk.BlockUntilDue(ctx, at); err != nil {
+		t.Fatalf("no timer armed for %v after the start: %v", at.Sub(epoch()), err)
+	}
+}
+
+// holdClock is a balancer's clock that holds the goroutine arming the
+// first timer right after it arms it, until release. The test then sees
+// the clock as a test that polls it can see it at that instant, before
+// the goroutine goes on.
+type holdClock struct {
+	*clocktest.Fake
+	held     atomic.Bool
+	armed    chan time.Time // receives the first timer's deadline
+	resume   chan struct{}  // closed by release
+	released sync.Once
+}
+
+// holdFirstTimer returns a holdClock over fk.
+func holdFirstTimer(fk *clocktest.Fake) *holdClock {
+	return &holdClock{Fake: fk, armed: make(chan time.Time, 1), resume: make(chan struct{})}
+}
+
+// hold reports the first timer's deadline and waits for release; every
+// later timer passes.
+func (c *holdClock) hold(due time.Time) {
+	if c.held.CompareAndSwap(false, true) {
+		c.armed <- due
+		<-c.resume
+	}
+}
+
+// release lets the held goroutine go on; it is idempotent.
+func (c *holdClock) release() { c.released.Do(func() { close(c.resume) }) }
+
+// first waits until the first timer is armed and returns its deadline.
+func (c *holdClock) first(t *testing.T) time.Time {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(t.Context(), hangGuard)
+	defer cancel()
+	select {
+	case due := <-c.armed:
+		return due
+	case <-ctx.Done():
+		t.Fatalf("no timer armed: %v", context.Cause(ctx))
+		return time.Time{}
+	}
+}
+
+func (c *holdClock) NewTimer(d time.Duration) clock.Timer {
+	due := c.Now().Add(d)
+	tm := c.Fake.NewTimer(d)
+	c.hold(due)
+	return tm
+}
+
+func (c *holdClock) AfterFunc(d time.Duration, fn func()) clock.Timer {
+	due := c.Now().Add(d)
+	tm := c.Fake.AfterFunc(d, fn)
+	c.hold(due)
+	return tm
+}
+
+func (c *holdClock) NewTimerAt(at time.Time) clock.Timer {
+	tm := c.Fake.NewTimerAt(at)
+	c.hold(at)
+	return tm
+}
+
+func (c *holdClock) AfterFuncAt(at time.Time, fn func()) clock.Timer {
+	tm := c.Fake.AfterFuncAt(at, fn)
+	c.hold(at)
+	return tm
 }
 
 // tick advances the clock one probe interval and waits for the probes it

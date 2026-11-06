@@ -107,8 +107,24 @@ func knownErrorCodes() []string {
 
 // fetch runs one client credentials grant for e with the secret table of
 // h; start is the Registry clock's time of sending, the start of the
-// token's lifetime.
+// token's lifetime. A grant that fails once ctx ended (the end of Run, the
+// last Close, config.timeout) fails with ctx's cause, whatever the token
+// endpoint answered: the transport hands back an answer that races the end
+// of ctx, and the endpoint may have written it in reply to the connection
+// teardown instead of to the grant, such as the empty 200 of a server
+// whose handler returns when its client goes away. An error that carries
+// the cause already, the transport's own, is kept.
 func (e *entry) fetch(ctx context.Context, h *holder, start time.Time) (*token, error) {
+	tok, err := e.grant(ctx, h, start)
+	if err != nil && ctx.Err() != nil && !errors.Is(err, context.Cause(ctx)) {
+		return nil, fmt.Errorf("token request: %w", context.Cause(ctx))
+	}
+	return tok, err
+}
+
+// grant sends the token request of e with the secret of h and turns the
+// answer into a token whose lifetime starts at start.
+func (e *entry) grant(ctx context.Context, h *holder, start time.Time) (*token, error) {
 	v, ok := h.secrets.Get(e.key.ref)
 	if !ok {
 		return nil, errNoSecret

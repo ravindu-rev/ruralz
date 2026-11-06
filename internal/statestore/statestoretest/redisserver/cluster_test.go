@@ -146,6 +146,26 @@ func TestWaitUntilReportsLastState(t *testing.T) {
 	}
 }
 
+// TestWaitUntilSkipsAnAttemptTheEndCut checks that the wait's error names
+// the last attempt that ended before the context, not one the context's
+// end cut short: a replica's refusal, not the dial that timed out with
+// the context.
+func TestWaitUntilSkipsAnAttemptTheEndCut(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	calls := 0
+	cut := errors.New("dial tcp 127.0.0.1:7001: i/o timeout")
+	err := waitUntil(ctx, "the replica to replicate", func(context.Context) error {
+		if calls++; calls == 1 {
+			return errors.New("ERR Unknown node 0123")
+		}
+		cancel()
+		return cut
+	})
+	if err == nil || !errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "Unknown node") || errors.Is(err, cut) || calls != 2 {
+		t.Errorf("waitUntil = %v after %d calls, want the refusal of the first", err, calls)
+	}
+}
+
 // TestWaitReplica checks that the replica wait ends once the link to the
 // primary is up.
 func TestWaitReplica(t *testing.T) {

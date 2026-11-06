@@ -22,17 +22,21 @@ import (
 
 // procFixture is a Processor with counters and a recording exporter.
 type procFixture struct {
-	p    *Processor
-	c    testCounters
-	exp  *recordExporter
-	fake *clocktest.Fake
-	mu   sync.Mutex
-	errs []error
+	p        *Processor
+	c        testCounters
+	exp      *recordExporter
+	fake     *clocktest.Fake
+	interval time.Duration
+	mu       sync.Mutex
+	errs     []error
 }
 
 func newProcFixture(t *testing.T, o ProcessorOptions) *procFixture {
 	t.Helper()
-	f := &procFixture{exp: newRecordExporter(), fake: clocktest.New(time.Unix(1_700_000_000, 0))}
+	f := &procFixture{
+		exp: newRecordExporter(), fake: clocktest.New(time.Unix(1_700_000_000, 0)),
+		interval: positiveDuration(o.BatchInterval, DefaultBatchInterval),
+	}
 	o.Clock = f.fake
 	o.Spans, o.DroppedQueueFull, o.DroppedExportError = &f.c.spans, &f.c.full, &f.c.export
 	o.OnExport = func(_ int, err error) {
@@ -65,18 +69,25 @@ func (f *procFixture) end(spans []sdktrace.ReadOnlySpan) {
 	}
 }
 
-// tick advances the fake clock by d once the worker's batch timer is
-// armed (the worker re-arms it after each tick).
-func (f *procFixture) tick(t *testing.T, d time.Duration) {
+// tick advances the fake clock by the batch interval once the worker's
+// batch timer is armed (the worker re-arms it after each tick).
+func (f *procFixture) tick(t *testing.T) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for f.fake.Pending() == 0 {
-		if time.Now().After(deadline) {
-			t.Fatal("batch timer never re-armed")
-		}
-		time.Sleep(time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	if err := f.batchTimerArmed(ctx); err != nil {
+		t.Fatalf("batch timer never re-armed: %v", err)
 	}
-	f.fake.Advance(d)
+	f.fake.Advance(f.interval)
+}
+
+// batchTimerArmed waits until a timer due one batch interval from now is
+// armed: the batch timer. An export arms its bound on the same clock, so a
+// count of armed timers cannot tell the two apart, and a tick taken on
+// the bound moves the clock before the worker re-arms the batch timer,
+// whose interval then never passes.
+func (f *procFixture) batchTimerArmed(ctx context.Context) error {
+	return f.fake.BlockUntilDue(ctx, f.fake.Now().Add(f.interval))
 }
 
 func (f *procFixture) flush(t *testing.T) {
@@ -104,7 +115,7 @@ func TestProcessorBatchSize(t *testing.T) {
 		t.Fatalf("partial batch of %d exported before the interval", n)
 	case <-time.After(50 * time.Millisecond):
 	}
-	f.tick(t, DefaultBatchInterval)
+	f.tick(t)
 	if n := f.exp.waitExported(t); n != 1 {
 		t.Fatalf("interval batch %d, want 1", n)
 	}
@@ -117,18 +128,48 @@ func TestProcessorBatchSize(t *testing.T) {
 func TestProcessorInterval(t *testing.T) {
 	f := newProcFixture(t, ProcessorOptions{BatchSize: 512, BatchInterval: time.Second})
 	f.end(ended(3, "a"))
-	f.tick(t, time.Second)
+	f.tick(t)
 	if n := f.exp.waitExported(t); n != 3 {
 		t.Fatalf("batch %d, want 3", n)
 	}
 	f.end(ended(2, "b"))
-	f.tick(t, time.Second)
+	f.tick(t)
 	if n := f.exp.waitExported(t); n != 2 {
 		t.Fatalf("batch %d, want 2", n)
 	}
 	_, names := f.exp.got()
 	if !slices.Equal(names, []string{"a", "a", "a", "b", "b"}) {
 		t.Fatalf("export order %v", names)
+	}
+}
+
+// TestProcessorTickWaitsForTheBatchTimer: while an export runs, its bound
+// is the only armed timer, and the fixture's tick waits for the batch
+// timer the worker re-arms after the export. Taking the bound for it
+// moved the clock first, and the next batch then waited for an interval
+// that never passed ("no export within 10 s").
+func TestProcessorTickWaitsForTheBatchTimer(t *testing.T) {
+	f := newProcFixture(t, ProcessorOptions{BatchSize: 512, BatchInterval: time.Second})
+	f.exp.hold = make(chan struct{})
+	f.end(ended(1, "a"))
+	f.tick(t)
+	if n := f.exp.waitExported(t); n != 1 {
+		t.Fatalf("batch %d, want 1", n)
+	}
+	if got := f.fake.Pending(); got != 1 {
+		t.Fatalf("%d timers armed during the export, want its bound alone", got)
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
+	err := f.batchTimerArmed(ctx)
+	cancel()
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("batchTimerArmed during the export = %v, want %v", err, context.DeadlineExceeded)
+	}
+	close(f.exp.hold)
+	f.end(ended(2, "b"))
+	f.tick(t)
+	if n := f.exp.waitExported(t); n != 2 {
+		t.Fatalf("batch %d, want 2", n)
 	}
 }
 

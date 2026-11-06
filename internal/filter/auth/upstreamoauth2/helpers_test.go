@@ -257,8 +257,10 @@ func newGate(t *testing.T) *gate {
 
 func (g *gate) open() { g.once.Do(func() { close(g.ch) }) }
 
-// held answers with next once g opens; a request whose client went away
-// first gets nothing.
+// held answers with next once g opens. A request whose client went away
+// first gets no token: the handler returns without writing, so net/http
+// answers it with an empty 200, which the client can still read while it
+// tears the connection down.
 func held(g *gate, next responder) responder {
 	return func(n int, w http.ResponseWriter, r *http.Request) {
 		select {

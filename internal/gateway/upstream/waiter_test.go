@@ -53,7 +53,7 @@ func TestLegWaiterSlotAtDeadline(t *testing.T) {
 	defer close(release)
 	srv := newServer(t, blocking(release))
 	f := newFixture(t)
-	gc := &gatedClock{Fake: f.clk}
+	gc := &gatedClock{Fake: f.clk.Fake}
 	f.m = NewManager(Options{Clock: gc, Rand: lowSource{}, Dial: f.dial.dial, Status: f.status, Tracer: f.tracer})
 	u := newUpstream("orders", srv.addr)
 	u.Spec.Retries = &v1alpha1.Retries{Attempts: ptr[int32](0), PerTryTimeout: dur(time.Second)}

@@ -204,13 +204,14 @@ func TestDrainDetectedWithinAcceptWindow(t *testing.T) {
 }
 
 // A probe that gets no answer within ProbeTimeout fails, on the injected
-// clock.
+// clock. The test moves the clock once the probe's timeout is armed,
+// known by its deadline.
 func TestProbeTimeoutFails(t *testing.T) {
 	fk := fake()
 	a := newNode(t, "a", 200)
 	a.hang.Store(true)
 	lb := startLB(t, Config{Backends: []Backend{a.backend()}, Clock: fk, ProbeTimeout: 500 * time.Millisecond})
-	waitFor(t, "the probe and its timeout in flight", func() bool { return fk.Pending() == 1 })
+	armedAt(t, fk, epoch().Add(500*time.Millisecond))
 	fk.Advance(500*time.Millisecond - 1)
 	if s, _ := lb.Backend("a"); s.Probes != 0 {
 		t.Fatal("the probe ended before its timeout")
@@ -220,6 +221,34 @@ func TestProbeTimeoutFails(t *testing.T) {
 	s, _ := lb.Backend("a")
 	if !errors.Is(s.LastProbe.Err, ErrProbeTimeout) || s.State != Initial || s.ProbeFailures != 1 {
 		t.Errorf("timed-out probe: %+v", s)
+	}
+}
+
+// While a probe is in flight its timeout is the only timer its prober has
+// armed on the balancer's clock, the first probe included, so a test that
+// moves a fake clock once one timer is armed, as clocktest's BlockUntil
+// lets it, moves it past that timeout. The prober is held right after it
+// arms its first timer, the instant at which such a test can look while
+// the prober runs on.
+func TestProbeInFlightArmsOnlyItsTimeout(t *testing.T) {
+	const timeout = 500 * time.Millisecond
+	fk := fake()
+	hc := holdFirstTimer(fk)
+	defer hc.release() // before the balancer's Close in t.Cleanup, which waits for the prober
+	a := newNode(t, "a", 200)
+	a.hang.Store(true)
+	lb := startLB(t, Config{Backends: []Backend{a.backend()}, Clock: hc, ProbeTimeout: timeout})
+	due := hc.first(t)
+	if n := fk.Pending(); n != 1 || !due.Equal(epoch().Add(timeout)) {
+		t.Fatalf("the prober's first timer is due %v after the start, %d armed; want its probe's timeout, due %v after, alone",
+			due.Sub(epoch()), n, timeout)
+	}
+	fk.Advance(timeout - 1)
+	hc.release()
+	fk.Advance(1)
+	probed(t, lb, 1, "a")
+	if s, _ := lb.Backend("a"); !errors.Is(s.LastProbe.Err, ErrProbeTimeout) || s.ProbeFailures != 1 {
+		t.Errorf("probe once the clock passed its timeout: %+v", s)
 	}
 }
 

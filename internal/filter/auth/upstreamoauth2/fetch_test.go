@@ -359,3 +359,96 @@ func TestFetchTimeout(t *testing.T) {
 		t.Errorf("error = %v, want a timeout", r.Err)
 	}
 }
+
+// lateAnswer is a token client transport that answers each request only
+// once its context ended, with the empty 200 net/http writes for a token
+// endpoint handler that returned without writing when its client went
+// away: the answer to the connection teardown that net/http's transport
+// hands back when it races the end of the request context. waiting
+// receives a value as a request starts to wait.
+type lateAnswer struct{ waiting chan struct{} }
+
+// RoundTrip implements http.RoundTripper.
+func (a lateAnswer) RoundTrip(req *http.Request) (*http.Response, error) {
+	if req.Body != nil {
+		_ = req.Body.Close()
+	}
+	select {
+	case a.waiting <- struct{}{}:
+	default:
+	}
+	<-req.Context().Done()
+	return &http.Response{
+		Status:     "200 OK",
+		StatusCode: http.StatusOK,
+		Proto:      "HTTP/1.1",
+		ProtoMajor: 1,
+		ProtoMinor: 1,
+		Header:     http.Header{"Content-Length": {"0"}},
+		Body:       http.NoBody,
+		Request:    req,
+	}, nil
+}
+
+// TestEndedFetchFailsWithCause checks that a fetch that fails once its
+// context ended, canceled by the end of Run or the last Close or past
+// config.timeout, fails with that cause, never with the answer the
+// transport hands back after it: here the empty 200 of a token endpoint
+// that saw the client tear the connection down. The token client has no
+// deadline of its own, so the fetch context is the only end of the
+// exchange. A canceled fetch counts and logs no failure; a timed-out one
+// counts one and logs the deadline.
+func TestEndedFetchFailsWithCause(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		timeout time.Duration
+		// end ends the fetch while it waits for its answer; nil leaves
+		// that to the timeout.
+		end  func(t *testing.T, h *harness, b built)
+		want error
+		// failed reports a fetch that counts and logs its failure.
+		failed bool
+	}{
+		{"end of Run", time.Hour, func(t *testing.T, h *harness, _ built) {
+			if err := h.stop(); err != nil {
+				t.Fatalf("Run = %v, want nil", err)
+			}
+		}, context.Canceled, false},
+		{"last Close", time.Hour, func(_ *testing.T, _ *harness, b built) { _ = b.Close() }, context.Canceled, false},
+		{"timeout", time.Millisecond, nil, context.DeadlineExceeded, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := running(t, issue(300))
+			b := h.build(testPolicy, h.config(func(c *v1alpha1.AuthUpstreamOAuth2Config) { c.Timeout = duration(tc.timeout) }))
+			if d := b.e.client.Timeout; d != 0 {
+				t.Fatalf("token client deadline = %v, want none beside the fetch context", d)
+			}
+			late := lateAnswer{waiting: make(chan struct{}, 1)}
+			b.e.client = &http.Client{Transport: late}
+			ch := handleAsync(t.Context(), b)
+			if tc.end != nil {
+				select {
+				case <-late.waiting:
+				case <-time.After(waitLimit):
+					t.Fatal("the token request was never sent")
+				}
+				tc.end(t, h, b)
+			}
+			res := await(t, ch, "request waiting for the ended fetch")
+			wantUndecided(t, res.r, tc.want)
+			// A fetch counts its failure after its waiters are released.
+			h.waitFetches(1)
+			wantN, wantW := uint64(0), 0
+			if tc.failed {
+				wantN, wantW = 1, 1
+			}
+			logs := string(h.logs.Bytes())
+			if n, w := b.failures.n.Load(), strings.Count(logs, msgFetchFailed); n != wantN || w != wantW {
+				t.Errorf("refresh failures = %d with %d warnings, want %d", n, w, wantW)
+			}
+			if strings.Contains(logs, errMalformed.Error()) || (tc.failed && !strings.Contains(logs, tc.want.Error())) {
+				t.Errorf("logs = %s, want the cause and never the late answer", logs)
+			}
+		})
+	}
+}

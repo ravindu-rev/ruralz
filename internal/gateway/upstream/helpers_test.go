@@ -411,7 +411,7 @@ func (d *failingDial) count(address string) int {
 // fixture is a Manager on a fake clock with recording telemetry.
 type fixture struct {
 	t      *testing.T
-	clk    *clocktest.Fake
+	clk    *sleepClock
 	status *fakeStatus
 	tracer *fakeTracer
 	dial   *failingDial
@@ -423,9 +423,38 @@ type fixture struct {
 // connection refused.
 func newFixture(t *testing.T, refused ...string) *fixture {
 	t.Helper()
-	f := &fixture{t: t, clk: clocktest.New(epoch()), status: newStatus(), tracer: &fakeTracer{}, dial: newDial(refused...)}
+	f := &fixture{t: t, clk: &sleepClock{Fake: clocktest.New(epoch())}, status: newStatus(), tracer: &fakeTracer{}, dial: newDial(refused...)}
 	f.m = NewManager(Options{Clock: f.clk, Rand: lowSource{}, Dial: f.dial.dial, Status: f.status, Tracer: f.tracer})
 	return f
+}
+
+// sleepClock is a fake clock that counts the goroutines sleeping on it. A
+// leg sleeps on its clock only for a retry delay, while its attempts arm
+// timers there (the attempt deadline, the stall timer, the dial's connect
+// timeout), so the count tells a leg in its retry delay from one in an
+// attempt, which a count of armed timers cannot (inRetryDelay).
+type sleepClock struct {
+	*clocktest.Fake
+	sleepers atomic.Int32
+}
+
+// Sleep is clocktest.Fake's Sleep that counts its caller from the moment
+// the timer it waits on is armed, so a test that saw the count may advance
+// the clock past the delay.
+func (c *sleepClock) Sleep(ctx context.Context, d time.Duration) error {
+	if d <= 0 {
+		return ctx.Err()
+	}
+	t := c.NewTimer(d)
+	defer t.Stop()
+	c.sleepers.Add(1)
+	defer c.sleepers.Add(-1)
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C():
+		return nil
+	}
 }
 
 // compile compiles and activates the configs; the Set closes at cleanup.

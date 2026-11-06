@@ -12,6 +12,7 @@ import (
 	debugbuildinfo "debug/buildinfo"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -137,23 +138,24 @@ func commandSocket(t *testing.T) (*nodeClock, *os.File) {
 }
 
 // advance moves the child's clock by d and waits for its answer, under a
-// real-time deadline; a child that has exited answers nothing, which ends
+// real-time deadline, and reports whether the child answered, the proof
+// that its clock moved; a child that has exited answers nothing, which ends
 // the clock for good.
-func (c *nodeClock) advance(t *testing.T, d time.Duration) {
+func (c *nodeClock) advance(t *testing.T, d time.Duration) bool {
 	t.Helper()
 	if c.gone {
-		return
+		return false
 	}
 	_ = c.conn.SetDeadline(time.Now().Add(30 * time.Second))
 	if _, err := io.WriteString(c.conn, clock.CommandAdvance+" "+d.String()+"\n"); err != nil {
 		c.gone = true
-		return
+		return false
 	}
 	if !c.started {
 		line, err := c.r.ReadString('\n')
 		if err != nil {
 			c.gone = true
-			return
+			return false
 		}
 		if strings.HasPrefix(line, clock.AnswerError) {
 			t.Fatalf("the child's clock refused its start: %s", line)
@@ -163,11 +165,12 @@ func (c *nodeClock) advance(t *testing.T, d time.Duration) {
 	line, err := c.r.ReadString('\n')
 	if err != nil {
 		c.gone = true
-		return
+		return false
 	}
 	if strings.HasPrefix(line, clock.AnswerError) {
 		t.Fatalf("the child's clock refused advance %v: %s", d, line)
 	}
+	return true
 }
 
 // devRun is one ruralz dev run with the real ruralzd.
@@ -213,6 +216,17 @@ func startDevRun(t *testing.T, mutate func(*Options), args ...string) *devRun {
 // step is how far one drive step moves both clocks.
 const step = 100 * time.Millisecond
 
+// The Drain of ruralzd (docs/operations/02-zero-downtime-upgrades-and-hot-reload.md
+// "Drain timeline defaults").
+const (
+	// oneSignalDeadline is the Drain deadline of one SIGTERM, counted from
+	// it: the 5 s accept window, then 20 s from the stop of accepting.
+	oneSignalDeadline = 25 * time.Second
+	// jumpRecord is the message of the record ruralzd logs once a second
+	// stop signal has jumped its Drain to its deadline.
+	jumpRecord = "drain jumped to its deadline"
+)
+
 // drive advances the CLI's clock and the child's in steps until cond
 // holds, under a real-time deadline.
 func (d *devRun) drive(what string, cond func() bool) {
@@ -229,20 +243,56 @@ func (d *devRun) drive(what string, cond func() bool) {
 }
 
 // driveNode advances the child's clock alone, 1 s at a time, until cond
-// holds, under a real-time deadline, and returns how far it moved it.
+// holds, under a real-time deadline, and returns how far it moved it: the
+// advances the child answered, so once the child has exited, the polls
+// that wait for the command to end add nothing. The child answers every
+// advance while it works in real time, so the result can exceed the clock
+// the child needed; driveNodeBelow bounds that need from above.
 func (d *devRun) driveNode(what string, cond func() bool) time.Duration {
+	d.t.Helper()
+	return d.driveNodeBelow(what, math.MaxInt64, cond)
+}
+
+// driveNodeBelow is driveNode with the child's clock held short of limit:
+// once the next step would reach limit, it waits for cond in real time
+// without moving the clock. cond holding then shows that the child needed
+// less than limit of its clock, however long its real-time work took; a
+// child that needs limit fails the test at the real-time deadline.
+func (d *devRun) driveNodeBelow(what string, limit time.Duration, cond func() bool) time.Duration {
 	d.t.Helper()
 	deadline := time.Now().Add(60 * time.Second)
 	var moved time.Duration
 	for !cond() {
 		if time.Now().After(deadline) {
-			d.t.Fatalf("timed out waiting for %s\n--- stdout ---\n%s\n--- stderr ---\n%s", what, d.inv.stdout, d.inv.stderr)
+			d.t.Fatalf("timed out waiting for %s, the child's clock moved %v\n--- stdout ---\n%s\n--- stderr ---\n%s",
+				what, moved, d.inv.stdout, d.inv.stderr)
 		}
-		d.node.advance(d.t, time.Second)
-		moved += time.Second
+		if moved+time.Second < limit && d.node.advance(d.t, time.Second) {
+			moved += time.Second
+		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	return moved
+}
+
+// awaitLog waits in real time, moving neither clock, until the child logs
+// a line holding text, which the CLI copies to its standard error; the
+// command's end fails the test first.
+func (d *devRun) awaitLog(what, text string) {
+	d.t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		// Read the end first: a command that has ended wrote all its
+		// output, so a line missing then never comes.
+		ended := d.exited()
+		if strings.Contains(d.inv.stderr.String(), text) {
+			return
+		}
+		if ended || time.Now().After(deadline) {
+			d.t.Fatalf("the child did not log %s\n--- stdout ---\n%s\n--- stderr ---\n%s", what, d.inv.stdout, d.inv.stderr)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // waitServing waits in real time, moving neither clock, until the child
@@ -637,21 +687,28 @@ func TestRunMemoryStateStore(t *testing.T) {
 
 // TestRunSecondSignal: a second Ctrl-C sends a second SIGTERM, which jumps
 // ruralzd's Drain to its deadline, so it exits long before the deadline
-// of one SIGTERM.
+// of one SIGTERM. Each SIGTERM reaches ruralzd through the CLI and the
+// kernel in real time, and ruralzd shuts down in real time after the jump,
+// answering every advance meanwhile, so how far a drive moves its clock
+// until the exit measures real time. Its clock therefore stays where the
+// Drain started until it logs the jump, then moves short of the deadline
+// of one SIGTERM and holds there, where only the jump lets it exit.
 func TestRunSecondSignal(t *testing.T) {
 	src := writeFile(t, t.TempDir(), "bundle.yaml", devBundle(upstream(t), "one"))
 	d := startDevRun(t, nil, src, "--ephemeral-ports")
 	r := d.readyBlock()
 	d.signal(os.Interrupt)
 	client := &http.Client{Timeout: 10 * time.Second}
+	// /readyz answers 503 from the Drain's start: ruralzd has received the
+	// first SIGTERM, which the second can no longer merge with as a pending
+	// signal. A failed request shows nothing.
 	waitFor(t, "the Drain to start", func() bool {
 		code, _, _ := get(t, client, r.admin+"/readyz")
-		return code != http.StatusOK
+		return code == http.StatusServiceUnavailable
 	})
 	d.signal(os.Interrupt)
-	if took := d.driveNode("the Drain", d.exited); took >= 20*time.Second {
-		t.Errorf("two SIGTERMs ended ruralzd after %v of its clock, not at its Drain deadline", took)
-	}
+	d.awaitLog("the jump", jumpRecord)
+	d.driveNodeBelow("two SIGTERMs to end ruralzd before its Drain deadline", oneSignalDeadline, d.exited)
 	if code := d.inv.wait(t); code != command.ExitInterrupted {
 		t.Errorf("dev run = exit %d, want 130", code)
 	}
@@ -726,4 +783,87 @@ func TestTapRealNode(t *testing.T) {
 	d.signal(os.Interrupt)
 	d.driveNode("the Drain", d.exited)
 	d.inv.wait(t)
+}
+
+// commandedChild returns a devRun without a command whose child is the
+// commanded clock a controllable-clock ruralzd runs (clock.OpenCommanded),
+// here in the test process on the child's end of a command socket. Unless
+// exitAt is zero, the socket shuts down once an advance reaches exitAt,
+// before that advance is answered, as when the child exits then.
+func commandedChild(t *testing.T, exitAt time.Duration) (*devRun, *clock.Commanded) {
+	t.Helper()
+	node, child := commandSocket(t)
+	raw, err := child.SyscallConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fd int
+	var dupErr error
+	syscall.ForkLock.RLock()
+	err = raw.Control(func(f uintptr) {
+		if fd, dupErr = syscall.Dup(int(f)); dupErr == nil {
+			syscall.CloseOnExec(fd)
+		}
+	})
+	syscall.ForkLock.RUnlock()
+	if err == nil {
+		err = dupErr
+	}
+	// The clock holds its own copy from now on, as a launched child does.
+	_ = child.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := clock.OpenCommanded(uintptr(fd))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if exitAt > 0 {
+		c.AfterFunc(exitAt, func() { _ = syscall.Shutdown(fd, syscall.SHUT_RDWR) })
+	}
+	inv := &invocation{stdout: &syncBuffer{}, stderr: &syncBuffer{}, done: make(chan int, 1)}
+	return &devRun{t: t, node: node, inv: inv}, c
+}
+
+// TestDriveNodeCountsAnsweredAdvances: driveNode counts the advances the
+// child answered. Here the child exits as its clock reaches 3 s, leaving
+// that advance unanswered, and the command ends five polls after the
+// child's clock stopped, as the CLI reaps ruralzd and removes its private
+// directory in real time: the result is 2 s, not a second more per poll.
+func TestDriveNodeCountsAnsweredAdvances(t *testing.T) {
+	d, c := commandedChild(t, 3*time.Second)
+	polls := 0
+	took := d.driveNode("the command's end", func() bool {
+		select {
+		case <-c.Done():
+			polls++
+		default:
+		}
+		return polls >= 5
+	})
+	if took != 2*time.Second {
+		t.Errorf("driveNode = %v, want 2s, the advances the child answered", took)
+	}
+}
+
+// TestDriveNodeBelowHoldsClock: driveNodeBelow moves the child's clock
+// short of its limit and holds it there while it waits. Here the child
+// answers every advance and the command ends five polls after its clock
+// reached 4 s, as ruralzd shutting down in real time after a jump does:
+// the clock stops at 4 s, short of the 5 s limit, not a second more per
+// poll.
+func TestDriveNodeBelowHoldsClock(t *testing.T) {
+	d, c := commandedChild(t, 0)
+	start := c.Now()
+	polls := 0
+	took := d.driveNodeBelow("the command's end", 5*time.Second, func() bool {
+		if c.Since(start) >= 4*time.Second {
+			polls++
+		}
+		return polls >= 5
+	})
+	if moved := c.Since(start); took != 4*time.Second || moved != 4*time.Second {
+		t.Errorf("driveNodeBelow = %v and the child's clock moved %v, want 4s, short of the 5s limit", took, moved)
+	}
 }

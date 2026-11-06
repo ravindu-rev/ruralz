@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/resilience"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
@@ -288,12 +289,18 @@ func TestLegCanceledIsNoUpstreamFailure(t *testing.T) {
 	}
 }
 
-// sleeping waits until the leg sleeps its retry delay on the fake clock:
-// the only timer armed.
+// sleeping waits until the one leg in flight sleeps its retry delay
+// (inRetryDelay).
 func sleeping(t *testing.T, f *fixture) {
 	t.Helper()
-	waitFor(t, "the retry delay", func() bool { return f.clk.Pending() == 1 })
+	waitFor(t, "the retry delay", func() bool { return inRetryDelay(f) })
 }
+
+// inRetryDelay reports whether the one leg in flight sleeps its retry
+// delay: it is the fixture clock's one sleeper (sleepClock), never told by
+// the timers armed, since an attempt can hold its bulkhead slot with its
+// deadline the one timer armed (TestSleepingWaitsForTheRetryDelay).
+func inRetryDelay(f *fixture) bool { return f.clk.sleepers.Load() == 1 }
 
 // TestLegRetryAfter checks the Upstream's Retry-After: over 10 s the
 // retry is refused and the response returns; within it, the retry waits
@@ -368,10 +375,11 @@ func TestLegRetryBudget(t *testing.T) {
 func TestLegReturnsParkedResponse(t *testing.T) {
 	release := make(chan struct{})
 	defer close(release)
-	var n int
+	// The two requests arrive on two connections, so two server
+	// goroutines count them.
+	var n atomic.Int32
 	srv := newServer(t, func(w http.ResponseWriter, r *http.Request) {
-		n++
-		if n == 1 {
+		if n.Add(1) == 1 {
 			w.Header().Set("Retry-After", "1")
 			w.WriteHeader(http.StatusServiceUnavailable)
 			_, _ = io.WriteString(w, "first")
@@ -399,6 +407,65 @@ func TestLegReturnsParkedResponse(t *testing.T) {
 	}
 	cancel()
 	await(t, other)
+}
+
+// TestSleepingWaitsForTheRetryDelay checks the wait the retry tests take
+// for a leg's retry delay before they advance the clock or start another
+// leg. An attempt arms its deadline timer before it takes its bulkhead
+// slot and its stall timer only after onUpstreamRequest, so an attempt
+// held there holds the slot with one timer armed, as a leg sleeping its
+// delay does, and gives the slot back only when its retry is decided
+// (docs/architecture/09-traffic-management-and-resilience.md "Retries").
+// Taken for the delay, it let TestLegReturnsParkedResponse start its other
+// leg while the slot was held, which maxPendingRequests 0 refuses at once
+// with 503 RZ-UP-006: no second request reached the Upstream ("timed out
+// waiting for the other leg").
+func TestSleepingWaitsForTheRetryDelay(t *testing.T) {
+	var n atomic.Int32
+	srv := newServer(t, func(w http.ResponseWriter, _ *http.Request) {
+		if n.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+	f := newFixture(t)
+	u := newUpstream("orders", srv.addr)
+	u.Spec.CircuitBreaker = &v1alpha1.CircuitBreaker{MaxConnections: ptr[int32](1), MaxPendingRequests: ptr[int32](0)}
+	s := f.compile(nil, Config{Upstream: u})
+	up := f.upstream(s, "orders")
+	hold := make(chan struct{})
+	h := &hooks{onRequest: func(*filter.Leg) *filter.Response {
+		<-hold
+		return nil
+	}}
+	ch := goLeg(t.Context(), up, outbound(exchange(http.MethodGet, "/"), h))
+	// begin, then request 1: the first attempt waits in onUpstreamRequest.
+	waitFor(t, "the first attempt's onUpstreamRequest", func() bool { return len(h.list()) == 2 })
+	if armed, held := f.clk.Pending(), up.rt.res.Bulkhead().InFlight(); armed != 1 || held != 1 {
+		t.Errorf("in onUpstreamRequest: %d timers armed, %d slots held; want the attempt deadline alone and its slot", armed, held)
+	}
+	if inRetryDelay(f) {
+		t.Error("an attempt in onUpstreamRequest counts as its leg's retry delay")
+	}
+	if _, err := up.Leg(t.Context(), outbound(exchange(http.MethodGet, "/"), nil), Target{}); codeOf(err) != "RZ-UP-006" || srv.hits.Load() != 0 {
+		t.Errorf("Leg while the attempt holds the slot = %v after %d requests, want RZ-UP-006 after 0", err, srv.hits.Load())
+	}
+	close(hold)
+	sleeping(t, f)
+	if held := up.rt.res.Bulkhead().InFlight(); held != 0 {
+		t.Errorf("slots held in the retry delay = %d, want 0", held)
+	}
+	f.clk.Advance(time.Second)
+	res := await(t, ch)
+	if res.err != nil {
+		t.Fatalf("Leg: %v", res.err)
+	}
+	readAll(t, res.r)
+	if res.r.Status != http.StatusOK || res.r.Attempts != 2 {
+		t.Errorf("Leg = %d after %d attempts, want 200 after 2: the advance ends the delay", res.r.Status, res.r.Attempts)
+	}
 }
 
 // TestLegTLS checks a TLS Upstream: the server is verified against

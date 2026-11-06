@@ -41,7 +41,11 @@
 // ruralzd supervisor runs before the first activation, starts each one on
 // a goroutine it owns, at most one per entry, and at shutdown cancels them
 // and returns after they exit. A miss before Run starts waits for it; a
-// miss after Run returned fails at once.
+// miss after Run returned fails at once. A fetch that fails once it was
+// canceled, by the end of Run or the last Close, or timed out fails with
+// that cause, whatever the token endpoint answered meanwhile: an answer
+// that races the cancellation may reply to the connection teardown rather
+// than to the grant.
 //
 // # The token endpoint hop
 //

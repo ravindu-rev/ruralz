@@ -86,13 +86,15 @@ func (discardExporter) ExportSpans(context.Context, []sdktrace.ReadOnlySpan) err
 func (discardExporter) Shutdown(context.Context) error                             { return nil }
 
 // recordExporter records batch sizes and fails while fail is set; block,
-// when set, holds ExportSpans until it is closed or ctx ends.
+// when set, holds ExportSpans until it is closed or ctx ends, and hold,
+// when set, holds it the same way after it records and reports a batch.
 type recordExporter struct {
 	mu       sync.Mutex
 	batches  []int
 	names    []string
 	fail     atomic.Bool
 	block    chan struct{}
+	hold     chan struct{}
 	exported chan int
 	shut     atomic.Int32
 }
@@ -118,6 +120,13 @@ func (e *recordExporter) ExportSpans(ctx context.Context, spans []sdktrace.ReadO
 	}
 	e.mu.Unlock()
 	e.exported <- len(spans)
+	if e.hold != nil {
+		select {
+		case <-e.hold:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 	if e.fail.Load() {
 		return errExport
 	}
