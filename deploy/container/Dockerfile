@@ -5,7 +5,7 @@
 # (docs/engineering/04-release-versioning-and-compatibility.md, "Release
 # artifacts" and "Packaging and audit"): the released linux ruralzd binary
 # on an empty base, with only the CA bundle taken from a digest-pinned
-# golang:1.27.1-bookworm stage (docs/engineering/01-tech-stack-and-libraries.md,
+# golang:1.27.2-bookworm stage (docs/engineering/01-tech-stack-and-libraries.md,
 # "Static builds" and "CI tooling"), whose literal FROM line Dependabot's
 # docker updates move. `make release-dry-run` builds it from the
 # repository root once it has left dist/linux_<arch>/ruralzd and
@@ -41,7 +41,7 @@
 
 # The CA bundle, its notice, the directories and the data directory are the
 # same on every platform, so this stage runs on the build platform.
-FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS certs
+FROM --platform=$BUILDPLATFORM golang:1.27.2-bookworm@sha256:5cf287a799e6b94384bad13d16b14904c531f51ba65792237e122ce42b392f61 AS certs
 ARG TARGETARCH
 COPY dist/notices/ruralzd_linux_${TARGETARCH}/THIRD_PARTY_LICENSES /work/THIRD_PARTY_LICENSES.binary
 RUN set -eu; \

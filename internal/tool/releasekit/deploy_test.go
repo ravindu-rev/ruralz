@@ -345,7 +345,7 @@ func parseCopy(t *testing.T, args string) dockerCopy {
 }
 
 // TestDockerfile: an empty final base running the released binary as user
-// 65532; from the digest-pinned golang:1.27.1-bookworm stage of the tech
+// 65532; from the digest-pinned golang:1.27.2-bookworm stage of the tech
 // stack's CI tooling row, named on a literal FROM line that Dependabot's
 // docker updates move, only the CA bundle, the composed
 // THIRD_PARTY_LICENSES and the empty data directory enter the image; the
