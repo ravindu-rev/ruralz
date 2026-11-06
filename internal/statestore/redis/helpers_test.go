@@ -192,8 +192,9 @@ type fixtureOptions struct {
 	// urlFor returns the driver's URL from the fake server's.
 	urlFor func(s *fakeServer) string
 	// cluster starts that many fake primaries splitting the slots evenly,
-	// with topology cluster and every primary a seed.
-	cluster int
+	// with topology cluster and every primary a seed, or the first seeds
+	// primaries when seeds is set.
+	cluster, seeds int
 	// sentinel starts that many fake servers and a fake sentinel naming
 	// the first as master set main's primary, with topology sentinel;
 	// sentinelTLS serves the sentinel over TLS, sentinelUser and
@@ -243,6 +244,9 @@ func newFixture(t *testing.T, o fixtureOptions) *fixture {
 		}
 		f.srv = f.nodes[0]
 		o.topology = statestore.TopologyCluster
+		if o.seeds > 0 {
+			seeds = seeds[:o.seeds]
+		}
 		url = "redis://" + seeds[0]
 		if len(seeds) > 1 {
 			url += "?addr=" + strings.Join(seeds[1:], "&addr=")

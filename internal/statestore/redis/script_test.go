@@ -482,6 +482,9 @@ func TestLuaLintCatchesMistakes(t *testing.T) {
 func TestScriptReloadIsSingleFlight(t *testing.T) {
 	f := newFixture(t, fixtureOptions{})
 	f.ready()
+	// The first maintenance pass opens the second pipelined connection,
+	// whose SCRIPT LOAD the held fault would otherwise catch.
+	f.awaitIdle()
 	hold := f.srv.inject(&fault{cmd: "SCRIPT LOAD", hold: make(chan struct{})})
 	loads := f.srv.count("SCRIPT LOAD")
 	f.d.requestScripts(context.Background(), f.d.single)
