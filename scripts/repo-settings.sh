@@ -21,7 +21,7 @@
 #
 # Both modes end with the steps no API covers: the public visibility and
 # the repository link of the ghcr.io/ravindu-rev/ruralzd package, set by
-# hand after the first candidate's image push
+# hand after the first release's image push
 # (docs/engineering/04-release-versioning-and-compatibility.md, "Release
 # runbook", step 8). The script neither reads nor writes them.
 #
@@ -646,7 +646,7 @@ write_area() {
 no_api_steps() {
   local owner=${repo%%/*}
   cat <<EOF
-Steps no API covers, applied by hand after the first candidate's image push
+Steps no API covers, applied by hand after the first release's image push
 (docs/engineering/04-release-versioning-and-compatibility.md, "Release runbook", step 8);
 $prog neither reads nor writes them:
   1. Make the package ghcr.io/$owner/$package public: in its settings,

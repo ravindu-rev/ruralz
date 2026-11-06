@@ -32,7 +32,7 @@ A defect found in a higher layer MUST add a regression test at the lowest layer 
 | `pr-fast` | Every pull request | 10 minutes (target) |
 | `pr-full` | Go, proto, schema, `examples/`, `test/` or `deploy/` changes | 30 minutes (target) |
 | `main` | Every merge | 45 minutes (target) |
-| `nightly` | On demand and in `release`, parallel jobs | Longest job 3 hours (target) |
+| `nightly` | Every merge to `main`, on demand and in `release`, parallel jobs | Longest job 3 hours (target) |
 | `release` | A release candidate or release tag | Not bounded |
 
 `nightly` keeps noisy work off the latency machine:
@@ -533,7 +533,7 @@ Fixtures follow provider documentation; unconfirmed placements and live checks a
 
 A release candidate becomes a release only when every gate below passes on its exact commit, where the `release` stage re-runs every other stage and `nightly` job; `internal/tool/releasegate` decides each gate from the evidence in the second table. A maintainer (repository role admin or maintain), the author included, may skip a gate with a release-notes entry, as a maintainer applies the `perf-override` label in `pr-full` ([Regression policy and gates](../architecture/12-performance-budgets-and-benchmarking.md#regression-policy-and-gates)):
 
-- Each tag has a tracking issue titled with the tag, such as `v0.1.0-rc.1`, which releasegate opens when it is absent and updates on every run with each gate's outcome.
+- Each tag has a tracking issue titled with the tag, such as `v0.1.0`, which releasegate opens when it is absent and updates on every run with each gate's outcome.
 - To skip a gate, a maintainer applies the label `skip-gate:<gate>`, such as `skip-gate:Benchmarks`, and comments `skip-gate:<gate>: <reason>` on that issue.
 - releasegate reads the label events and the comments through the GitHub API and checks the actor's repository role as `scripts/ci-approvals.sh` does; it counts a skip only when a maintainer both applied the label and wrote the reason.
 - It writes each skip, with the gate, login, role and reason, into the `ruralz.skippedgates.v1` file of the release notes ([Packaging and audit](04-release-versioning-and-compatibility.md#packaging-and-audit)); re-running the gates job applies a skip added after a failure.

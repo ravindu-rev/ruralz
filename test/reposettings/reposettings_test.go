@@ -58,7 +58,7 @@ func areas() []string {
 }
 
 // noAPISteps is what both modes print last: the steps no API covers.
-const noAPISteps = `Steps no API covers, applied by hand after the first candidate's image push
+const noAPISteps = `Steps no API covers, applied by hand after the first release's image push
 (docs/engineering/04-release-versioning-and-compatibility.md, "Release runbook", step 8);
 repo-settings neither reads nor writes them:
   1. Make the package ghcr.io/ravindu-rev/ruralzd public: in its settings,

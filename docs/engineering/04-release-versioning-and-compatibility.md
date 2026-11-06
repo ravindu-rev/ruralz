@@ -240,7 +240,7 @@ One cadence and support policy covers every artifact, Planned (M1) from `0.1.0`.
 
 - A minor ships every 3 months (target), after a signed release candidate `vX.Y.0-rc.N` at least 2 weeks earlier (target); patches ship as needed, at least monthly while a line has unreleased fixes (target). `internal/tool/releasegate` refuses `vX.Y.0` unless a `vX.Y.0-rc.N` tag names the same commit, its release run passed and it was published at least 14 days earlier (target), the "Release candidate" gate, which a maintainer may skip ([Release gates](03-testing-and-quality-strategy.md#release-gates)); a patch needs no candidate.
 - Release builds pin the newest Go patch through the `toolchain` directive ([ADR-0001](../adr/0001-implementation-language-go.md)); a Go security release reachable per `govulncheck` triggers patches per its severity row, otherwise it rides the next patch.
-- Fixes land on `main`, then are cherry-picked by pull request to `release-X.Y` branches, which the `main` ruleset also protects ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)); embargoed security fixes instead merge to every named branch at disclosure. `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed, and later candidates, `vX.Y.0` and its patches are tagged on it.
+- Fixes land on `main`, then are cherry-picked by pull request to `release-X.Y` branches, which the `main` ruleset also protects ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)); embargoed security fixes instead merge to every named branch at disclosure. `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed, and later candidates, `vX.Y.0` and its patches are tagged on it; `release-0.1` is cut from the commit of `v0.1.0`, which has no candidate.
 
 | Line | Receives | Duration from its release |
 |---|---|---|
@@ -379,20 +379,20 @@ Step 2 builds the image from `deploy/container/Dockerfile`, final stage `ruralzd
 A maintainer cuts a release in this order:
 
 1. **Preconditions.**
-   - A milestone's other exit criteria hold before its release's first candidate: `v0.1.0-rc.1` is tagged only once M1 exit criteria 2 to 5 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
+   - A milestone's other exit criteria hold before its release's first tag: `v0.1.0`, which has no candidate, is tagged only once M1 exit criteria 2 to 5 hold and `t5-systemd.yml` has passed ([M1 exit criteria](../roadmap/01-roadmap-and-milestones.md#m1-exit-criteria)).
    - The `go.mod` `toolchain` line names the newest Go patch ([Release cadence and support windows](#release-cadence-and-support-windows)).
-   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `v0.1.0-rc.1`:
+   - `README.md`, which every archive ships byte for byte, and `SECURITY.md` describe the release. Before `v0.1.0`:
      - `README.md` gains an Install section (the archive with its `SHA256SUMS` and cosign check, the image by digest), a Quickstart section (`examples/quickstart/quickstart.sh`) and a status section;
      - `SECURITY.md`'s supported versions name `0.1` as line N.
 2. **Branches.**
-   - Before `v0.1.0-rc.1` only: `develop`, where the M1 work landed, merges into `main` by pull request, with a merge commit like every pull request, so the `0.1.0` notes list every M1 commit. `develop` stays, since its ruleset blocks its deletion ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)), and pull requests and Dependabot target `main`.
-   - `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed.
-3. **Tag.** `git tag -s` creates a signed annotated `vX.Y.0-rc.N` on `release-X.Y`; only admins may create `v*` tags ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
-4. **Run.** `release.yml` runs the [pipeline](#release-pipeline). On a failed gate, the tag's tracking issue lists the failures. A maintainer either fixes them in a new candidate, or skips a gate there with a reason and re-runs the gates job ([Release gates](03-testing-and-quality-strategy.md#release-gates)).
+   - Before `v0.1.0` only: `develop`, where the M1 work landed, merges into `main` by pull request, with a merge commit like every pull request, so the `0.1.0` notes list every M1 commit. `develop` stays, since its ruleset blocks its deletion ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)), and pull requests and Dependabot target `main`.
+   - `release-X.Y` is cut from the candidate commit when `vX.Y.0-rc.1` is pushed; `release-0.1` from the commit of `v0.1.0` when it is pushed.
+3. **Tag.** `git tag -s` creates a signed annotated `vX.Y.0-rc.N`, or `v0.1.0`, on `release-X.Y`; only admins may create `v*` tags ([Repository settings](02-repository-layout-and-conventions.md#repository-settings)).
+4. **Run.** `release.yml` runs the [pipeline](#release-pipeline). On a failed gate, the tag's tracking issue lists the failures. A maintainer either fixes them in a new candidate, or skips a gate there with a reason and re-runs the gates job ([Release gates](03-testing-and-quality-strategy.md#release-gates)); `v0.1.0`, which has no candidate, has its Release candidate gate skipped that way.
 5. **Approve.** The owner reads the run summary and `NOTES.md`, then approves the publish job in the `release` Environment.
-6. **Window.** A candidate stays published at least 14 days (target) before `vX.Y.0` is tagged on its commit; a fix means a new candidate and a new window.
+6. **Window.** A candidate stays published at least 14 days (target) before `vX.Y.0` is tagged on its commit; a fix means a new candidate and a new window. `v0.1.0` has neither.
 7. **Release.** `vX.Y.0` is tagged the same way on the last candidate's commit, and the pipeline runs again in full. A patch `vX.Y.Z` is tagged on `release-X.Y` after its cherry-picks, without a candidate.
-8. **Manual settings.** After the first candidate's image push, the maintainer applies the steps `scripts/repo-settings.sh` prints because no API covers them: the `ghcr.io/ravindu-rev/ruralzd` package made public and linked to the repository. `scripts/repo-settings.sh --check` then reports no drift.
+8. **Manual settings.** After the first release's image push, the maintainer applies the steps `scripts/repo-settings.sh` prints because no API covers them: the `ghcr.io/ravindu-rev/ruralzd` package made public and linked to the repository. `scripts/repo-settings.sh --check` then reports no drift.
 9. **Milestone exit.** Once the release that exits a milestone ships, one pass removes that milestone's `Planned (Mx)` tags from the documents: a shipped capability carries no tag, and its design text states it. The [Feature Catalog](../features/01-feature-catalog.md#how-to-read-this-catalog) records the release that shipped each capability ([style guide](../_meta/style-guide.md) section 4). The roadmap deletes the milestone's section and fills the steps table for the next milestone.
 
 ## Open questions
