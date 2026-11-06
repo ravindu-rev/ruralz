@@ -30,6 +30,14 @@ const (
 	// AdmissionWindow is the body read and response write deadline a
 	// request gets at admission, until its Route timeout replaces it.
 	AdmissionWindow = 10 * time.Second
+	// RouteGrace is how far past the Route deadline the body read and
+	// response write deadlines lie, the pre-routing write deadline: the
+	// Route deadline alone ends the request, with the 504 it produces,
+	// RZ-RT-007 or RZ-UP-003, which a socket deadline at that instant
+	// would reset or, through net/http's background read of an HTTP/1.1
+	// connection, end as a request whose client left; a stalled body read
+	// or response write still ends that much later.
+	RouteGrace = admission.PreRoutingWriteTimeout
 	// MaxFieldLines caps the field lines of a request header block,
 	// pseudo-header fields excluded and a joined Cookie counted once
 	// (431 RZ-RT-002).
