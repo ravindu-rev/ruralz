@@ -109,8 +109,11 @@ func TestCE16QueueSaturated(t *testing.T) {
 		return r.SumIncrease("ruralz_state_writes_dropped_total", promtext.L("kind", kind), start, rec.End)
 	}
 	r.Breakdown("cache_invalidate_writes", r.SumIncrease("ruralz_state_ops_total", promtext.L("kind", "cache_invalidate"), start, fault.End))
+	r.Breakdown("cache_set_drops", dropped("cache_set"))
 	r.Add(
-		Check("cache_set drops while the queue saturates", Functional, dropped("cache_set"), GT, 0),
+		// The stores class saturates: its drops of its own, not those of
+		// stores the State client skipped for an open breaker.
+		Check("cache_set drops of the full class", Functional, r.Sampler.QueueDrops("cache_set", start, rec.End), GT, 0),
 		Check("cache_invalidate drops", Functional, dropped("cache_invalidate"), EQ, 0),
 		Check("refunds written while the queue saturates", Functional, r.SumIncrease("ruralz_state_ops_total", promtext.L("kind", "refund"), start, fault.End), GT, 0),
 		Check("refund drops", Functional, dropped("refund"), EQ, 0),

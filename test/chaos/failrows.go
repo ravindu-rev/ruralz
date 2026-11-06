@@ -50,6 +50,24 @@ func (r *Run) SumIncrease(name string, match promtext.Labels, from, to time.Time
 	return total
 }
 
+// QueueDrops returns the post-commit writes of kind, such as cache_set,
+// that every Node's queue dropped over (from, to] for a reason of its own:
+// a full class, a closed queue or Target, the Drain flush, an invalidation
+// failed twice. The writes the State client skipped without a call, for an
+// open breaker or as not attempted, which the queue drops at once too
+// (docs/architecture/11-scalability-and-distributed-state.md "Post-commit
+// write queue") and the client counts in ruralz_state_calls_total with
+// result skipped under the write's op, are left out, so a breaker that
+// opened never passes for a full class.
+func (s *Sampler) QueueDrops(kind string, from, to time.Time) float64 {
+	total := 0.0
+	for _, n := range s.Nodes() {
+		total += Increase(s.Trace(n, catalog.StateWritesDroppedTotal, promtext.L("kind", kind)), from, to)
+		total -= Increase(s.Trace(n, catalog.StateCallsTotal, promtext.L("op", kind, "result", "skipped")), from, to)
+	}
+	return total
+}
+
 // RequestsOver returns how many requests of the Routes named routes the
 // Nodes timed above d over (from, to], by their request duration
 // histogram on the Nodes' clock: d is one of its bucket bounds.

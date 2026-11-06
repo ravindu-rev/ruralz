@@ -183,15 +183,15 @@ func TestPassAndTaps(t *testing.T) { // Pass
 			_, _ = tapped[d].Write(b)
 			mu.Unlock()
 		},
-		ConnTap: func(ci ConnInfo) TapFunc {
+		ConnTap: func(ci ConnInfo) ConnHooks {
 			if ci.Upstream != e.addr() || ci.ID == 0 || ci.Client == "" {
 				t.Errorf("ConnTap info = %+v", ci)
 			}
-			return func(_ Direction, b []byte) {
+			return ConnHooks{Tap: func(_ Direction, b []byte) {
 				mu.Lock()
 				perConn[ci.ID] += len(b)
 				mu.Unlock()
-			}
+			}}
 		},
 	})
 	if p.Mode() != (Pass{}) || p.Upstream() != e.addr() || !strings.HasPrefix(p.Addr(), "127.0.0.1:") {
@@ -215,6 +215,185 @@ func TestPassAndTaps(t *testing.T) { // Pass
 	conns := p.Conns()
 	if len(conns) != 1 || conns[0].ID != 1 || conns[0].Upstream != e.addr() || conns[0].Client != c.LocalAddr().String() {
 		t.Fatalf("Conns = %+v", conns)
+	}
+}
+
+// holdUpper is a ConnTap whose Hold holds every one-byte chunk of dir that
+// is an upper-case letter, keeping its release in releases, and records
+// the chunks Hold saw and the chunks the Tap saw forwarded.
+type holdUpper struct {
+	dir Direction
+
+	mu       sync.Mutex
+	seen     []byte
+	tapped   []byte
+	releases map[byte]func()
+}
+
+func (h *holdUpper) hooks(ConnInfo) ConnHooks {
+	return ConnHooks{
+		Tap: func(d Direction, b []byte) {
+			if d == h.dir {
+				h.mu.Lock()
+				h.tapped = append(h.tapped, b...)
+				h.mu.Unlock()
+			}
+		},
+		Hold: func(d Direction, b []byte, release func()) bool {
+			if d != h.dir {
+				return false
+			}
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			h.seen = append(h.seen, b...)
+			if len(b) != 1 || b[0] < 'A' || b[0] > 'Z' {
+				return false
+			}
+			if h.releases == nil {
+				h.releases = map[byte]func(){}
+			}
+			h.releases[b[0]] = release
+			return true
+		},
+	}
+}
+
+// saw reports whether Hold saw s last.
+func (h *holdUpper) saw(s string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return bytes.HasSuffix(h.seen, []byte(s))
+}
+
+// forwarded returns the chunks the Tap saw.
+func (h *holdUpper) forwarded() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return string(h.tapped)
+}
+
+// release calls the release of the held chunk k.
+func (h *holdUpper) release(t *testing.T, k byte) {
+	t.Helper()
+	h.mu.Lock()
+	r := h.releases[k]
+	h.mu.Unlock()
+	if r == nil {
+		t.Fatalf("no held chunk %q", k)
+	}
+	r()
+}
+
+// TestHoldKeepsReadingAndOrder checks a connection's Hold: the pump goes on
+// reading while a chunk is held, so Hold sees the chunks behind it at once
+// and holds of its own run beside the first; every chunk behind a held one,
+// held or not, waits for it, so the chunks reach the peer in the order
+// read whatever the order of the releases; a second release, or one after
+// the connection ended, does nothing.
+func TestHoldKeepsReadingAndOrder(t *testing.T) {
+	e := startEcho(t, false)
+	h := &holdUpper{dir: Down}
+	p := start(t, Config{Upstream: e.addr(), ConnTap: h.hooks})
+	c := dial(t, p.Addr())
+	send := func(s string) {
+		t.Helper()
+		if _, err := c.Write([]byte(s)); err != nil {
+			t.Fatal(err)
+		}
+		waitFor(t, "Hold to see "+s, func() bool { return h.saw(s) })
+	}
+	send("A") // held
+	send("b") // read while A is held: it waits behind A
+	send("C") // read only because the pump went on reading: held too
+	// The pump handled b before it read C, so a b sent past the held A
+	// would show by now.
+	if got := h.forwarded(); got != "" {
+		t.Fatalf("forwarded %q while A was held", got)
+	}
+	if st := p.Stats(); st.BytesDown != 0 {
+		t.Fatalf("BytesDown = %d while A was held", st.BytesDown)
+	}
+	h.release(t, 'C') // released first, but behind A
+	send("d")
+	h.release(t, 'A')
+	h.release(t, 'A')
+	got := make([]byte, 4)
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	if _, err := io.ReadFull(c, got); err != nil || string(got) != "AbCd" {
+		t.Fatalf("peer read %q, %v; want AbCd, the order read", got, err)
+	}
+	if got := h.forwarded(); got != "AbCd" {
+		t.Errorf("Tap saw %q, want AbCd", got)
+	}
+	send("E") // held when the proxy closes
+	if err := p.Close(); err != nil {
+		t.Fatal(err)
+	}
+	h.release(t, 'E')
+	h.release(t, 'C')
+}
+
+// TestHoldDroppedByBlackhole checks that Blackhole drops a held chunk, which
+// its later release never forwards: after Pass, the upstream sees only what
+// the client sent since.
+func TestHoldDroppedByBlackhole(t *testing.T) {
+	e := startEcho(t, false)
+	h := &holdUpper{dir: Up}
+	p := start(t, Config{Upstream: e.addr(), ConnTap: h.hooks})
+	c := dial(t, p.Addr())
+	if _, err := c.Write([]byte("H")); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the held chunk queued", func() bool { return h.saw("H") && p.queuedUp.Load() == 1 })
+	if err := p.SetMode(Blackhole{}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "Blackhole to drop the held chunk", func() bool { return p.queuedUp.Load() == 0 })
+	h.release(t, 'H')
+	if err := p.SetMode(Pass{}); err != nil {
+		t.Fatal(err)
+	}
+	mustEcho(t, c, "x", "x")
+	if got := h.forwarded(); got != "x" {
+		t.Errorf("forwarded %q upstream, want only x", got)
+	}
+}
+
+// TestHoldBeforeHalfClose checks that a chunk held when its source ends is
+// forwarded once released, and the end follows it.
+func TestHoldBeforeHalfClose(t *testing.T) {
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	closed := make(chan struct{})
+	go func() {
+		defer close(closed)
+		uc, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = uc.Close() }()
+		if _, err := io.ReadAll(uc); err != nil {
+			return
+		}
+		_, _ = uc.Write([]byte("H"))
+		_ = uc.(*net.TCPConn).CloseWrite()
+	}()
+	h := &holdUpper{dir: Down}
+	p := start(t, Config{Upstream: ln.Addr().String(), ConnTap: h.hooks})
+	c := dial(t, p.Addr())
+	if err := c.CloseWrite(); err != nil {
+		t.Fatal(err)
+	}
+	<-closed
+	waitFor(t, "the held chunk", func() bool { return h.saw("H") })
+	h.release(t, 'H')
+	_ = c.SetReadDeadline(time.Now().Add(10 * time.Second))
+	got, err := io.ReadAll(c)
+	if err != nil || string(got) != "H" {
+		t.Fatalf("read %q, %v; want the held chunk, then the end", got, err)
 	}
 }
 

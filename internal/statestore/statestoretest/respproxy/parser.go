@@ -103,9 +103,6 @@ func newParser(replies bool, s sink) *parser {
 	return &parser{replies: replies, sink: s}
 }
 
-// replyOpen reports whether a reply has started and not ended.
-func (p *parser) replyOpen() bool { return p.top != 0 && p.top != '>' }
-
 // feed parses b.
 func (p *parser) feed(b []byte) {
 	for len(b) > 0 && p.err == nil {

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,27 +16,71 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
 )
 
-// conn drives one connection's tap the way the fault proxy's pumps do.
+// conn drives one connection's hooks the way the fault proxy's pumps do:
+// each chunk read goes to Hold first, then to Tap once every chunk read
+// before it went and its own hold, if Hold took one, was released.
 type conn struct {
-	tap faultproxy.TapFunc
+	h faultproxy.ConnHooks
+
+	mu        sync.Mutex
+	queue     []*chunk // chunks read down, not yet forwarded
+	forwarded []string // chunks forwarded down, in order
 }
 
-func newConn(c *Counter, id uint64) conn { return conn{c.ConnTap(faultproxy.ConnInfo{ID: id})} }
+// chunk is one chunk read down: held until released.
+type chunk struct {
+	b        string
+	released bool
+}
 
-func (cn conn) up(s string)   { cn.tap(faultproxy.Up, []byte(s)) }
-func (cn conn) down(s string) { cn.tap(faultproxy.Down, []byte(s)) }
+func newConn(c *Counter, id uint64) *conn { return &conn{h: c.ConnTap(faultproxy.ConnInfo{ID: id})} }
 
-// downAsync runs down on its own goroutine, as a held reply blocks its
-// pump, and returns a channel closed once the tap returned.
-func (cn conn) downAsync(t *testing.T, s string) <-chan struct{} {
+func (cn *conn) up(s string) {
+	if cn.h.Hold(faultproxy.Up, []byte(s), func() {}) {
+		panic("respproxy: a command chunk was held")
+	}
+	cn.h.Tap(faultproxy.Up, []byte(s))
+}
+
+// down reads s from the server: it is forwarded at once unless Hold holds
+// it or a chunk read before it still waits.
+func (cn *conn) down(s string) {
+	ch := &chunk{b: s}
+	cn.mu.Lock()
+	cn.queue = append(cn.queue, ch)
+	cn.mu.Unlock()
+	if !cn.h.Hold(faultproxy.Down, []byte(s), func() { cn.release(ch) }) {
+		cn.release(ch)
+	}
+}
+
+// release ends ch's hold and forwards every chunk it no longer blocks.
+func (cn *conn) release(ch *chunk) {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+	ch.released = true
+	for len(cn.queue) > 0 && cn.queue[0].released {
+		next := cn.queue[0]
+		cn.queue = cn.queue[1:]
+		cn.h.Tap(faultproxy.Down, []byte(next.b))
+		cn.forwarded = append(cn.forwarded, next.b)
+	}
+}
+
+// sent returns the chunks forwarded down and how many still wait.
+func (cn *conn) sent() ([]string, int) {
+	cn.mu.Lock()
+	defer cn.mu.Unlock()
+	return slices.Clone(cn.forwarded), len(cn.queue)
+}
+
+// expectSent fails t unless the chunks forwarded down are want and wait
+// chunks still wait.
+func (cn *conn) expectSent(t *testing.T, when string, want []string, wait int) {
 	t.Helper()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		cn.down(s)
-	}()
-	t.Cleanup(func() { <-done })
-	return done
+	if got, n := cn.sent(); !slices.Equal(got, want) || n != wait {
+		t.Fatalf("%s: forwarded %q with %d waiting, want %q with %d", when, got, n, want, wait)
+	}
 }
 
 func names(log []Command) []string {
@@ -281,25 +326,6 @@ func TestCommandName(t *testing.T) {
 	}
 }
 
-// startHeld sends command on cn, then its reply on a goroutine, and
-// waits until the Counter holds that reply.
-func startHeld(t *testing.T, c *Counter, cn conn, command, reply string) <-chan struct{} {
-	t.Helper()
-	cn.up(command)
-	done := cn.downAsync(t, reply)
-	waitFor(t, "a held reply", func() bool { return c.Snapshot().Held == 1 })
-	return done
-}
-
-func isDone(ch <-chan struct{}) bool {
-	select {
-	case <-ch:
-		return true
-	default:
-		return false
-	}
-}
-
 // TestReplyDelayHoldsMatchingReplies checks the slow reply fault: a reply
 // to the named command is held for its delay on the injected clock and
 // counted only once released, while replies to other commands pass.
@@ -311,19 +337,60 @@ func TestReplyDelayHoldsMatchingReplies(t *testing.T) {
 	}
 	cn := newConn(c, 1)
 	cn.up(cmd("GET", "k"))
-	cn.down("$-1\r\n") // not held: this goroutine would block
-	done := startHeld(t, c, cn, cmd("EVALSHA", "s", "0"), ":1\r\n")
+	cn.down("$-1\r\n")
+	cn.expectSent(t, "the GET reply", []string{"$-1\r\n"}, 0)
+	cn.up(cmd("EVALSHA", "s", "0"))
+	cn.down(":1\r\n")
+	if s := c.Snapshot(); s.Held != 1 || s.Replies != 1 {
+		t.Fatalf("Snapshot = %+v with the EVALSHA reply read, want it held and 1 reply", s)
+	}
 	clk.Advance(199 * time.Millisecond)
-	if isDone(done) {
-		t.Fatal("reply released before its delay")
-	}
-	if s := c.Snapshot(); s.Replies != 1 {
-		t.Fatalf("Replies = %d while held, want 1", s.Replies)
-	}
+	cn.expectSent(t, "before the delay", []string{"$-1\r\n"}, 1)
 	clk.Advance(time.Millisecond)
-	<-done
+	cn.expectSent(t, "after the delay", []string{"$-1\r\n", ":1\r\n"}, 0)
 	if s := c.Snapshot(); s.Replies != 2 || s.Held != 0 {
 		t.Fatalf("Snapshot = %+v after the delay, want 2 replies, none held", s)
+	}
+}
+
+// TestReplyDelayHoldsEachReplyFromItsRead checks that the slow reply fault
+// holds each reply its delay from the moment the proxy read it, as a
+// server answering that much late would (CE-16 holds the script replies
+// of the connections its post-commit writers and lookups share): replies
+// to pipelined commands read 1 s apart and held 4 s are forwarded at 4 s
+// and 5 s, side by side, not at 4 s and 8 s, one hold after the other; a
+// reply read between them that no delay matches waits behind the first,
+// the order read, and for no delay of its own.
+func TestReplyDelayHoldsEachReplyFromItsRead(t *testing.T) {
+	clk := clocktest.New(time.Unix(0, 0))
+	c := NewCounter(CounterConfig{Clock: clk})
+	if err := c.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: 4 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	cn := newConn(c, 1)
+	cn.up(cmd("EVALSHA", "a", "0") + cmd("GET", "k") + cmd("EVALSHA", "b", "0"))
+	cn.down(":1\r\n") // read at 0 s: held until 4 s
+	clk.Advance(500 * time.Millisecond)
+	cn.down("$-1\r\n") // read at 0.5 s: waits behind the first
+	clk.Advance(500 * time.Millisecond)
+	cn.down(":0\r\n") // read at 1 s: held until 5 s
+	if s := c.Snapshot(); s.Held != 2 || s.Replies != 0 {
+		t.Fatalf("Snapshot = %+v with every reply read, want both EVALSHA replies held and none counted", s)
+	}
+	clk.Advance(3 * time.Second)
+	cn.expectSent(t, "at 4 s", []string{":1\r\n", "$-1\r\n"}, 1)
+	if s := c.Snapshot(); s.Held != 1 || s.Replies != 2 {
+		t.Fatalf("Snapshot = %+v at 4 s, want the second EVALSHA reply held and 2 replies", s)
+	}
+	clk.Advance(time.Second)
+	cn.expectSent(t, "at 5 s", []string{":1\r\n", "$-1\r\n", ":0\r\n"}, 0)
+	if s := c.Snapshot(); s.Held != 0 || s.Replies != 3 {
+		t.Fatalf("Snapshot = %+v at 5 s, want none held and 3 replies", s)
+	}
+	for i, e := range c.Log() {
+		if e.Reply.Kind == 0 {
+			t.Errorf("log[%d] %s has no reply once every reply was forwarded", i, e.Name)
+		}
 	}
 }
 
@@ -336,21 +403,23 @@ func TestReplyDelayEveryReplyAndLongest(t *testing.T) {
 		t.Fatal(err)
 	}
 	cn := newConn(c, 1)
-	done := startHeld(t, c, cn, cmd("PING"), "+PONG\r\n")
+	cn.up(cmd("PING"))
+	cn.down("+PONG\r\n")
+	cn.expectSent(t, "with the PING reply read", nil, 1)
 	clk.Advance(100 * time.Millisecond)
-	<-done
-	done = startHeld(t, c, cn, cmd("GET", "k"), "$-1\r\n")
+	cn.expectSent(t, "after the PING delay", []string{"+PONG\r\n"}, 0)
+	cn.up(cmd("GET", "k"))
+	cn.down("$-1\r\n")
 	clk.Advance(299 * time.Millisecond)
-	if isDone(done) {
-		t.Fatal("GET reply released before the longest delay")
-	}
+	cn.expectSent(t, "before the longest delay", []string{"+PONG\r\n"}, 1)
 	clk.Advance(time.Millisecond)
-	<-done
+	cn.expectSent(t, "after the longest delay", []string{"+PONG\r\n", "$-1\r\n"}, 0)
 }
 
 // TestReplyDelayMatchesAcrossChunks checks that a reply starting in a
 // chunk that also ends an earlier reply is matched to its own command,
-// not the earlier one.
+// not the earlier one, and that a chunk carrying only the rest of a reply
+// waits for the chunk that started it.
 func TestReplyDelayMatchesAcrossChunks(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	c := NewCounter(CounterConfig{Clock: clk})
@@ -358,21 +427,25 @@ func TestReplyDelayMatchesAcrossChunks(t *testing.T) {
 		t.Fatal(err)
 	}
 	cn := newConn(c, 1)
-	cn.up(cmd("GET", "k") + cmd("EVALSHA", "s", "0"))
-	cn.down("$5\r\nhel") // GET's reply starts: not held
-	done := cn.downAsync(t, "lo\r\n:1\r\n")
-	waitFor(t, "the EVALSHA reply held", func() bool { return c.Snapshot().Held == 1 })
+	cn.up(cmd("GET", "k") + cmd("EVALSHA", "s", "0") + cmd("GET", "j"))
+	cn.down("$5\r\nhel") // the first GET reply starts: not held
+	cn.down("lo\r\n:1\r\n$2\r\nh")
+	cn.down("i\r\n") // the rest of the second GET reply
+	if s := c.Snapshot(); s.Held != 1 {
+		t.Fatalf("Held = %d, want the chunk starting the EVALSHA reply held", s.Held)
+	}
+	cn.expectSent(t, "while the EVALSHA reply is held", []string{"$5\r\nhel"}, 2)
 	clk.Advance(time.Second)
-	<-done
-	if s := c.Snapshot(); s.Replies != 2 {
-		t.Fatalf("Replies = %d, want 2", s.Replies)
+	cn.expectSent(t, "after its delay", []string{"$5\r\nhel", "lo\r\n:1\r\n$2\r\nh", "i\r\n"}, 0)
+	if s := c.Snapshot(); s.Replies != 3 {
+		t.Fatalf("Replies = %d, want 3", s.Replies)
 	}
 }
 
 // TestReplyDelayReleasedOnChangeAndClose checks that replacing the
-// delays and closing the Counter release held replies at once, that a
-// closed Counter holds nothing and refuses new delays, and that negative
-// delays are refused.
+// delays and closing the Counter release held replies at once and stop
+// their timers, that a closed Counter holds nothing and refuses new
+// delays, and that negative delays are refused.
 func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	c := NewCounter(CounterConfig{Clock: clk})
@@ -380,23 +453,32 @@ func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 		t.Fatal(err)
 	}
 	cn := newConn(c, 1)
-	done := startHeld(t, c, cn, cmd("PING"), "+PONG\r\n")
+	cn.up(cmd("PING"))
+	cn.down("+PONG\r\n")
+	cn.expectSent(t, "held for an hour", nil, 1)
 	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
-	<-done // released by the change, not by the clock
+	// Released by the change, not by the clock.
+	cn.expectSent(t, "after the change", []string{"+PONG\r\n"}, 0)
 
-	done = startHeld(t, c, cn, cmd("PING"), "+PONG\r\n")
+	cn.up(cmd("PING"))
+	cn.down("+PONG\r\n")
+	cn.expectSent(t, "held under the new delays", []string{"+PONG\r\n"}, 1)
 	c.Close()
-	<-done
+	cn.expectSent(t, "after Close", []string{"+PONG\r\n", "+PONG\r\n"}, 0)
 	c.Close() // idempotent
 	cn.up(cmd("PING"))
-	cn.down("+PONG\r\n") // not held: this goroutine would block
+	cn.down("+PONG\r\n")
+	cn.expectSent(t, "on a closed Counter", []string{"+PONG\r\n", "+PONG\r\n", "+PONG\r\n"}, 0)
 	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); !errors.Is(err, ErrClosed) {
 		t.Errorf("SetReplyDelays after Close = %v, want ErrClosed", err)
 	}
 	if s := c.Snapshot(); s.Replies != 3 || s.Held != 0 {
 		t.Errorf("Snapshot = %+v, want 3 replies, none held", s)
+	}
+	if n := clk.Pending(); n != 0 {
+		t.Errorf("%d hold timers armed after Close, want none", n)
 	}
 
 	d := NewCounter(CounterConfig{Clock: clk})
@@ -405,7 +487,30 @@ func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 	}
 	cn = newConn(d, 1)
 	cn.up(cmd("GET", "k"))
-	cn.down("$-1\r\n") // the refused delay set nothing
+	cn.down("$-1\r\n")
+	cn.expectSent(t, "after the refused delay", []string{"$-1\r\n"}, 0)
+}
+
+// TestReplyDelayDecidedUnderReplacedDelays checks that a hold decided
+// under delays replaced before it was armed is never armed: a chunk read
+// as the delays change is released at once, as the replies the change
+// releases are.
+func TestReplyDelayDecidedUnderReplacedDelays(t *testing.T) {
+	clk := clocktest.New(time.Unix(0, 0))
+	c := NewCounter(CounterConfig{Clock: clk})
+	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); err != nil {
+		t.Fatal(err)
+	}
+	_, gen := c.rulesNow()
+	if err := c.SetReplyDelays(); err != nil {
+		t.Fatal(err)
+	}
+	if c.arm(time.Hour, gen, func() { t.Error("released a hold that was never armed") }) {
+		t.Fatal("armed a hold decided under replaced delays")
+	}
+	if s := c.Snapshot(); s.Held != 0 || clk.Pending() != 0 {
+		t.Errorf("Held = %d with %d timers armed, want none", s.Held, clk.Pending())
+	}
 }
 
 // TestCommandAt checks that each logged command carries the time the
