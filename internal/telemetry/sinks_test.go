@@ -166,8 +166,19 @@ func TestOTLPQueueFullCountsOnlyTheOTLPSink(t *testing.T) {
 	if err := sink.SetMode(otlpsink.Stall{}); err != nil {
 		t.Fatal(err)
 	}
+	// The first full batch wakes the exporter, which takes it from the
+	// queue and holds it in the stalled export; only then does the queue
+	// take logQueueRecords more. Queuing them all at once raced the
+	// exporter: a queue filled before it took the batch dropped that
+	// batch's 512 records too.
+	for range logBatch {
+		submitAccess(r, "orders")
+	}
+	if !eventually(waitCtx(t), func() bool { return sink.Stats().Stalled == 1 }) {
+		t.Fatalf("the first batch never reached the stalled collector: %+v", sink.Stats())
+	}
 	const extra = 100
-	for range logQueueRecords + logBatch + extra {
+	for range logQueueRecords + extra {
 		submitAccess(r, "orders")
 	}
 	if got := dropped(t, r, "access", "otlp", "queue_full"); got != extra {
