@@ -285,13 +285,6 @@ func (r *recorder) add(req Request) {
 	r.changedLocked()
 }
 
-// count counts an answered request of sig that is not recorded.
-func (r *recorder) count(sig Signal) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.answered[sig-1]++
-}
-
 func (r *recorder) changedLocked() {
 	close(r.notify)
 	r.notify = make(chan struct{})
@@ -404,12 +397,6 @@ func (s *Sink) SpanNames(traceID string) []string {
 		out[i] = sp.Name()
 	}
 	return out
-}
-
-// Children returns the spans of the trace whose parent is parentSpanID
-// (hex), ordered by start time, ties in arrival order.
-func (s *Sink) Children(traceID, parentSpanID string) []Span {
-	return slices.DeleteFunc(s.Trace(traceID), func(sp Span) bool { return sp.ParentSpanID() != parentSpanID })
 }
 
 // Roots returns the spans of the trace without a parent among the

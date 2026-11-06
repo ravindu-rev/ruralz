@@ -12,7 +12,6 @@ import (
 	"io"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -24,17 +23,10 @@ const (
 	EnvInNetNS = "RURALZ_TEST_IN_NETNS"
 	// EnvNetNSSysctls carries the requested sysctls as a JSON object.
 	EnvNetNSSysctls = "RURALZ_TEST_NETNS_SYSCTLS"
-	// EnvNetNSResolvConf carries NetNSOptions.ResolvConf; empty without
-	// one.
-	EnvNetNSResolvConf = "RURALZ_TEST_NETNS_RESOLV_CONF"
 	// EnvNetNSUser is "1" in a child started with NetNSOptions.User and
 	// empty otherwise.
 	EnvNetNSUser = "RURALZ_TEST_NETNS_USER"
 )
-
-// ResolvConfPath is the resolver configuration NetNSOptions.ResolvConf
-// replaces in the child.
-const ResolvConfPath = "/etc/resolv.conf"
 
 // ErrChildFailed reports that the InNetNS child test failed, ran no test
 // or reported no result.
@@ -85,30 +77,6 @@ type NetNSOptions struct {
 	// where the kernel admits unprivileged user namespaces. Such a child
 	// cannot write every sysctl a root caller can.
 	User bool
-	// ResolvConf, when set, is the absolute path of a regular file the
-	// child sees at ResolvConfPath: the child also gets a new mount
-	// namespace (CLONE_NEWNS), in which NetNSChild makes every mount
-	// private, so nothing propagates back, and bind-mounts the file there.
-	// The child and every process it starts then resolve names with the
-	// nameservers the file lists, as the Nodes of the FC-19 drill ask the
-	// harness DNS server.
-	ResolvConf string
-}
-
-// checkResolvConf refuses a NetNSOptions.ResolvConf that is not the
-// absolute path of a regular file.
-func checkResolvConf(path string) error {
-	if !filepath.IsAbs(path) {
-		return fmt.Errorf("proc: ResolvConf %q is not an absolute path", path)
-	}
-	fi, err := os.Stat(path)
-	if err != nil {
-		return fmt.Errorf("proc: ResolvConf: %w", err)
-	}
-	if !fi.Mode().IsRegular() {
-		return fmt.Errorf("proc: ResolvConf %s is not a regular file", path)
-	}
-	return nil
 }
 
 // InNetNS re-executes the running test binary with -test.run matching
@@ -140,9 +108,7 @@ func InNetNS(ctx context.Context, testName string, sysctls map[string]string) (i
 
 // NetNSChild reports whether this process is an InNetNS child. In the
 // child it brings the loopback interface up, applies the parent's sysctls
-// (idempotent) and, with NetNSOptions.ResolvConf, bind-mounts that file
-// over ResolvConfPath in its own mount namespace, failing t when any of
-// it fails. A child in a user namespace whose root holds no capability
+// (idempotent), failing t when either fails. A child in a user namespace whose root holds no capability
 // over the network namespace, as Ubuntu's AppArmor leaves every
 // unprivileged one (kernel.apparmor_restrict_unprivileged_userns=1),
 // skips with ErrNamespace in its reason: it could not have the
@@ -161,11 +127,6 @@ func NetNSChild(t testing.TB) bool {
 			t.Skipf("%v: the user namespace grants no capability over the network namespace: %v", ErrNamespace, err)
 		}
 		t.Fatalf("proc: network namespace setup: %v", err)
-	}
-	if p := os.Getenv(EnvNetNSResolvConf); p != "" {
-		if err := bindResolvConf(p); err != nil {
-			t.Fatalf("proc: mount namespace setup: %v", err)
-		}
 	}
 	return true
 }

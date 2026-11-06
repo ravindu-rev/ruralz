@@ -147,8 +147,7 @@ func TestCounterCountsCommandsAndReplies(t *testing.T) {
 // some of them or none: the read-time scan that decides the holds counts
 // nothing. The batch is fed whole, a byte at a time and in uneven chunks,
 // with no delay, a delay on EVALSHA and a delay on every reply; a RESP3
-// push between the replies answers no command. CE-15 cross-checks the
-// Nodes' GCRA calls against these counts.
+// push between the replies answers no command.
 func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
 	var batch strings.Builder
 	for i := range 5 {
@@ -453,8 +452,7 @@ func TestReplyDelayHoldsMatchingReplies(t *testing.T) {
 
 // TestReplyDelayHoldsEachReplyFromItsRead checks that the slow reply fault
 // holds each reply its delay from the moment the proxy read it, as a
-// server answering that much late would (CE-16 holds the script replies
-// of the connections its post-commit writers and lookups share): replies
+// server answering that much late would: replies
 // to pipelined commands read 1 s apart and held 4 s are forwarded at 4 s
 // and 5 s, side by side, not at 4 s and 8 s, one hold after the other; a
 // reply read between them that no delay matches waits behind the first,

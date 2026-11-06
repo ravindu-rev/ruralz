@@ -141,7 +141,7 @@ func TestBuiltNodeUnderTopology(t *testing.T) {
 		t.Fatalf("the swapped render did not activate: %v", err)
 	}
 
-	p, err := n.Handover(ctx, topology.HandoverOptions{})
+	p, err := n.Handover(ctx)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,11 +1,11 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package promtext scrapes and parses the Prometheus text exposition format
-// (version 0.0.4, plus the OpenMetrics 1.0 additions a scrape may meet:
-// "# UNIT", "# EOF", exemplars, _created samples and quoted UTF-8 names)
-// so integration, end-to-end and chaos tests can assert counters, gauges
-// and histogram quantiles of a Node's /metrics.
+// Package promtext parses the Prometheus text exposition format (version
+// 0.0.4, plus the OpenMetrics 1.0 additions a scrape may meet: "# UNIT",
+// "# EOF", exemplars, _created samples and quoted UTF-8 names) so unit and
+// integration tests can assert counters, gauges and histogram quantiles of
+// a Node's /metrics.
 //
 // The package is standard library only: /metrics exposition belongs to
 // internal/telemetry, and the parser is the independent reader tests use
@@ -15,17 +15,14 @@ package promtext
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Metric types as written after "# TYPE".
@@ -40,9 +37,6 @@ const (
 	TypeStateSet       = "stateset"
 	TypeGaugeHistogram = "gaugehistogram"
 )
-
-// MaxScrapeBytes bounds a scraped body.
-const MaxScrapeBytes = 64 << 20
 
 // Labels is a label set. Matching a sample against Labels requires every
 // given name to have the given value; a value "" matches an absent label.
@@ -148,46 +142,6 @@ func Parse(r io.Reader) (Set, error) {
 
 // ParseBytes parses an exposition held in memory.
 func ParseBytes(b []byte) (Set, error) { return Parse(bytes.NewReader(b)) }
-
-// Scrape fetches url with GET and parses the body. header is added to the
-// request (for example Authorization for the admin metrics token); the
-// request asks for text format 0.0.4. A nil client uses a client with a
-// 10 s timeout.
-func Scrape(ctx context.Context, client *http.Client, url string, header http.Header) (Set, error) {
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	for k, vs := range header {
-		for _, v := range vs {
-			req.Header.Add(k, v)
-		}
-	}
-	req.Header.Set("Accept", "text/plain;version=0.0.4;q=1,*/*;q=0.1")
-	resp, err := client.Do(req)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxScrapeBytes+1))
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return Set{}, fmt.Errorf("promtext: scrape %s: status %d: %s", url, resp.StatusCode, bytes.TrimSpace(body[:min(len(body), 512)]))
-	}
-	if len(body) > MaxScrapeBytes {
-		return Set{}, fmt.Errorf("promtext: scrape %s: body exceeds %d bytes", url, MaxScrapeBytes)
-	}
-	set, err := ParseBytes(body)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	return set, nil
-}
 
 // Names returns every family name, sorted.
 func (s Set) Names() []string {

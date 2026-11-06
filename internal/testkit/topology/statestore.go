@@ -43,12 +43,6 @@ type StateStoreOptions struct {
 	// every Node (Proxies), so the commands a cluster's slot map and
 	// redirects send to the servers directly cross one too.
 	RESPProxy bool
-	// Host, when set, runs the servers of a process kind on that host
-	// rather than this machine (redisserver.StartOn), as the target chaos
-	// profile places its State Store on RH-1S; the Nodes' proxies stay on
-	// this machine. A process cluster on a host takes no RESPProxy, whose
-	// announced proxies its replicas would reach from the host.
-	Host redisserver.Host
 }
 
 // StateStore is a State Store of the topology and the proxies its Nodes
@@ -80,8 +74,7 @@ type storeLink struct {
 
 // StartStateStore starts the State Store name for t's test, with TLS and
 // an ACL user whose password is a canary unless Config.Transport says
-// otherwise, on this machine or on StateStoreOptions.Host. Like
-// redisserver.Start, it skips the test when the kind cannot run here and
+// otherwise. Like redisserver.Start, it skips the test when the kind cannot run here and
 // its flavor is not selected, and fails it on a broken setup. Start State
 // Stores before the Nodes that use them: a Node trusts the CAs the harness
 // knew when it started.
@@ -109,12 +102,7 @@ func (t *Topology) StartStateStore(name string, o StateStoreOptions) *StateStore
 			ro.Announce = s.announce
 		}
 	}
-	var dep *redisserver.Deployment
-	if o.Host != nil {
-		dep = redisserver.StartOn(t.t, o.Host, o.Kind, ro)
-	} else {
-		dep = redisserver.Start(t.t, o.Kind, ro)
-	}
+	dep := redisserver.Start(t.t, o.Kind, ro)
 	// redisserver stops its servers in cleanups of its own; the teardown
 	// must run before them to scan the keyspace.
 	t.armTeardown()
@@ -183,8 +171,8 @@ func (s *StateStore) Proxies() []*respproxy.Proxy {
 // Name returns the State Store's name.
 func (s *StateStore) Name() string { return s.name }
 
-// Deployment returns the running servers, for faults from redis commands,
-// kills and restarts.
+// Deployment returns the running servers, for faults from redis commands
+// and kills.
 func (s *StateStore) Deployment() *redisserver.Deployment { return s.dep }
 
 // URL returns the State Store URL that reaches the servers directly, with

@@ -35,7 +35,7 @@ func (t *Topology) tearDown() {
 	}
 	slices.SortFunc(stores, func(a, b *StateStore) int { return strings.Compare(a.name, b.name) })
 	mocks, idps, sinks := slices.Clone(t.mocks), slices.Clone(t.idps), slices.Clone(t.sinks)
-	balancers, transports := slices.Clone(t.balancers), slices.Clone(t.transports)
+	transports := slices.Clone(t.transports)
 	held := slices.Clone(t.held)
 	t.mu.Unlock()
 	ctx := t.ctx
@@ -78,14 +78,13 @@ func (t *Topology) tearDown() {
 		}
 		if artifacts == "" {
 			t.t.Logf("topology: %s is unset: no failure evidence kept", ArtifactDirEnv)
-		} else if dir, err := t.writeEvidence(artifacts, nodes, sinks, balancers); err != nil {
+		} else if dir, err := t.writeEvidence(artifacts, nodes, sinks); err != nil {
 			t.t.Errorf("topology: failure evidence: %v", err)
 		} else {
 			t.t.Logf("topology: failure evidence in %s", dir)
 		}
 	}
 
-	closeAll(balancers)
 	for _, s := range stores {
 		s.closeLinks()
 	}
@@ -98,7 +97,7 @@ func (t *Topology) tearDown() {
 	t.clock.close()
 	t.cancel()
 	t.watchers.Wait()
-	// Every Node has exited: no restart binds the held ports any more.
+	// Every Node has exited: nothing binds the held ports any more.
 	closeAll(held)
 	if err := os.RemoveAll(t.root); err != nil {
 		t.t.Errorf("topology: %v", err)
@@ -175,9 +174,9 @@ func (t *Topology) scan(nodes []*Node) ([]canary.Finding, []error) {
 
 // writeEvidence copies a failed test's evidence into a directory named
 // after the test under dir and returns it: each process's logs, a listing
-// of each RURALZ_DATA_DIR, each Node's /debug/snapshots, the OTLP records
-// and each balancer's transition log.
-func (t *Topology) writeEvidence(dir string, nodes []*Node, sinks []*otlpsink.Sink, balancers []*Balancer) (string, error) {
+// of each RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP
+// records.
+func (t *Topology) writeEvidence(dir string, nodes []*Node, sinks []*otlpsink.Sink) (string, error) {
 	base := filepath.Join(dir, fileName(t.t.Name()))
 	if err := os.MkdirAll(base, 0o750); err != nil { //nolint:gosec // G703: the artifact directory the test run names
 		return "", err
@@ -213,14 +212,6 @@ func (t *Topology) writeEvidence(dir string, nodes []*Node, sinks []*otlpsink.Si
 			fmt.Fprintf(&summary, "metric %s\n", name)
 		}
 		errs = append(errs, writeEvidenceFile(filepath.Join(sd, "summary.txt"), summary.Bytes()))
-	}
-	for _, b := range balancers {
-		var log bytes.Buffer
-		for _, tr := range b.Transitions() {
-			fmt.Fprintf(&log, "%s %s %s -> %s status %d reason %q err %v\n",
-				tr.At.Format("2006-01-02T15:04:05.000000Z07:00"), tr.Backend, tr.From, tr.To, tr.Probe.Status, tr.Probe.Reason, tr.Probe.Err)
-		}
-		errs = append(errs, writeEvidenceFile(filepath.Join(base, "balancer-"+fileName(b.listener)+".txt"), log.Bytes()))
 	}
 	return base, errors.Join(errs...)
 }

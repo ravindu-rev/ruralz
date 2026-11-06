@@ -48,8 +48,7 @@ import (
 // the ruralzd wiring builds (internal/gateway buildParts), its snapshot
 // compiled from the S1 Bundle by the snapshot compiler; only net/http is
 // replaced: no server parses the request, the canned transport answers the
-// leg, and the discard writer takes the response. test/bench/allocgate.json
-// caps BenchmarkS1Request at 30 and keeps it under the 3% rule.
+// leg, and the discard writer takes the response.
 
 // pb8MaxAllocs is PB-8's cap.
 const pb8MaxAllocs = 30
@@ -313,8 +312,8 @@ func TestS1RequestAllocations(t *testing.T) {
 	}
 }
 
-// BenchmarkS1Request is PB-8's benchmark, which the alloc/op gate runs
-// (test/bench/allocgate.json).
+// BenchmarkS1Request measures the time and allocations of one whole S1
+// request.
 func BenchmarkS1Request(b *testing.B) {
 	n := newS1Node(b)
 	for range 200 {

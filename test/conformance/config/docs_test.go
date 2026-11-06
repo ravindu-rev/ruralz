@@ -17,8 +17,7 @@ import (
 // "## Complete annotated example Bundle" and "## REST example Bundle", the
 // five-cell effective tables of those sections and of "### Worked
 // example", the text and json blocks of "### Diagnostics and source map"
-// and those of "### Diff semantics"; and the captioned blocks of
-// "#### Quickstart" in Deployment topologies.
+// and those of "### Diff semantics".
 
 // docSection returns the text below the heading line heading of the
 // document at rel (a repository path), such as "### Worked example", up to

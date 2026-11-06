@@ -6,7 +6,7 @@
 // properties": one testing.F target per row of the Required properties
 // table due by the current milestone, each driving the real packages end
 // to end, with no property library. Plain go test runs the seeds, as the
-// PR pipeline's unit job does.
+// PR pipeline's unit job does, and go test -fuzz fuzzes one target longer.
 //
 // The configuration targets run the loader through the configuration
 // pipeline facade (internal/config/pipeline) to the Revision, with the

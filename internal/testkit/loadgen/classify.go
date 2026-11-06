@@ -17,8 +17,8 @@ import (
 // Classify maps a request error to its Outcome: Timeout for ErrTimeout and
 // deadlines, Canceled for a canceled context, Refused, Reset, TLSError,
 // Closed for a connection closed early, Other for the rest; nil is
-// Success. Errors that net/http does not expose as types, such as HTTP/2
-// stream resets and lost connections, are matched by their text.
+// Success. Errors that net/http does not expose as types are matched by
+// their text.
 func Classify(err error) Outcome {
 	switch {
 	case err == nil:
@@ -64,15 +64,13 @@ func classifyText(msg string) Outcome {
 	case strings.Contains(m, "connection refused"), strings.Contains(m, "actively refused"):
 		return Refused
 	case strings.Contains(m, "connection reset"), strings.Contains(m, "forcibly closed"),
-		strings.Contains(m, "broken pipe"), strings.Contains(m, "stream error"),
-		strings.Contains(m, "connection was aborted"):
+		strings.Contains(m, "broken pipe"), strings.Contains(m, "connection was aborted"):
 		return Reset
 	case strings.Contains(m, "tls:"), strings.Contains(m, "x509:"):
 		return TLSError
 	case strings.Contains(m, "timeout"), strings.Contains(m, "deadline exceeded"):
 		return Timeout
 	case strings.Contains(m, "eof"), strings.Contains(m, "server closed"),
-		strings.Contains(m, "connection lost"), strings.Contains(m, "goaway"),
 		strings.Contains(m, "use of closed network connection"):
 		return Closed
 	}

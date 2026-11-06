@@ -4,9 +4,7 @@
 // Package binaries builds the Ruralz binaries under test: once per test
 // binary, from TestMain, with the release flags (CGO_ENABLED=0, -trimpath
 // and -ldflags "-s -w -X ..."; the shipped binary is the stripped one), or
-// taken prebuilt from RURALZ_TEST_BIN_DIR. Variants for Zero-Downtime
-// Upgrade refusal and rollback tests are built with go build -overlay,
-// replacing single source files.
+// taken prebuilt from RURALZ_TEST_BIN_DIR.
 //
 // BuildOptions.TestClock builds ruralzd as the controllable-clock test
 // build the correctness suites drive
@@ -33,7 +31,6 @@ package binaries
 import (
 	"context"
 	"debug/buildinfo"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -48,11 +45,10 @@ import (
 const Module = "github.com/ravindu-rev/ruralz"
 
 // EnvBinDir names a directory holding prebuilt ruralzd and ruralz binaries
-// (for example dist/linux_amd64); Build uses them instead of building when
-// no variant is requested.
+// (for example dist/linux_amd64); Build uses them instead of building.
 const EnvBinDir = "RURALZ_TEST_BIN_DIR"
 
-// Build metadata defaults.
+// The build metadata Build sets.
 const (
 	DefaultVersion = "0.0.0-test"
 	DefaultCommit  = "unknown"
@@ -82,37 +78,17 @@ type Set struct {
 
 // BuildOptions selects a build.
 type BuildOptions struct {
-	// Version, Commit and Flavor are set with -X in internal/buildinfo;
-	// defaults DefaultVersion, DefaultCommit and DefaultFlavor.
-	Version, Commit, Flavor string
-	// Overlay replaces source files for go build -overlay: repository
-	// relative file (slash-separated) to replacement path; an empty
-	// replacement deletes the file from the build.
-	Overlay map[string]string
-	// GOOS and GOARCH default to the host.
-	GOOS, GOARCH string
 	// Commands lists the cmd/ directories to build; default ruralzd and
 	// ruralz.
 	Commands []string
 	// GoCmd is the go command; default $GOROOT/bin/go when GOROOT is set,
 	// else "go" from PATH.
 	GoCmd string
-	// Env is appended to the build environment.
-	Env []string
 	// TestClock builds ruralzd as the controllable-clock test build, with
 	// the build tag TestClockTag; ruralz is built without it. With
 	// RURALZ_TEST_BIN_DIR set, the prebuilt binaries are used whatever
 	// their kind, and Set.TestClock reports it.
 	TestClock bool
-}
-
-// variant reports whether o asks for anything a prebuilt release binary
-// cannot provide. TestClock is not one: RURALZ_TEST_BIN_DIR names the
-// build under test, and Set.TestClock says whether it is the
-// controllable-clock build.
-func (o BuildOptions) variant() bool {
-	return len(o.Overlay) > 0 || o.Version != "" || o.Commit != "" || o.Flavor != "" ||
-		(o.GOOS != "" && o.GOOS != runtime.GOOS) || (o.GOARCH != "" && o.GOARCH != runtime.GOARCH)
 }
 
 // LDFlags returns the release -ldflags value: stripped (-s -w) with the
@@ -123,24 +99,18 @@ func LDFlags(version, commit, flavor string) string {
 	return "-s -w -X " + bi + "version=" + version + " -X " + bi + "commit=" + commit + " -X " + bi + "flavor=" + flavor
 }
 
-// Build compiles the commands under repoRoot/cmd into dir with
-// CGO_ENABLED=0, -trimpath and LDFlags, and ruralzd also with the tag
-// TestClockTag when o.TestClock is set. When RURALZ_TEST_BIN_DIR is set
-// and o asks for no variant (no Overlay, no build metadata, host
-// platform), the prebuilt binaries there are returned instead.
+// Build compiles the commands under repoRoot/cmd into dir for the host
+// platform with CGO_ENABLED=0, -trimpath and LDFlags of DefaultVersion,
+// DefaultCommit and DefaultFlavor, and ruralzd also with the tag
+// TestClockTag when o.TestClock is set. When RURALZ_TEST_BIN_DIR is set,
+// the prebuilt binaries there are returned instead.
 func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, error) {
 	cmds := o.Commands
 	if len(cmds) == 0 {
 		cmds = []string{Ruralzd, Ruralz}
 	}
-	if d := os.Getenv(EnvBinDir); d != "" && !o.variant() {
+	if d := os.Getenv(EnvBinDir); d != "" {
 		return FromDir(d, cmds...)
-	}
-	version, commit, flavor := orDefault(o.Version, DefaultVersion), orDefault(o.Commit, DefaultCommit), orDefault(o.Flavor, DefaultFlavor)
-	for name, v := range map[string]string{"Version": version, "Commit": commit, "Flavor": flavor} {
-		if strings.ContainsAny(v, " \t\n'\"`\\") {
-			return Set{}, fmt.Errorf("binaries: %s %q contains whitespace or quotes", name, v)
-		}
 	}
 	for _, c := range cmds {
 		if c == "" || strings.ContainsAny(c, `/\`) || c == "." || c == ".." {
@@ -158,16 +128,7 @@ func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, erro
 	if err := os.MkdirAll(out, 0o750); err != nil {
 		return Set{}, fmt.Errorf("binaries: %w", err)
 	}
-	goos, goarch := orDefault(o.GOOS, runtime.GOOS), orDefault(o.GOARCH, runtime.GOARCH)
-	base := []string{"build", "-trimpath", "-ldflags", LDFlags(version, commit, flavor), "-o", out + string(filepath.Separator)}
-	if len(o.Overlay) > 0 {
-		path, err := writeOverlay(root, o.Overlay)
-		if err != nil {
-			return Set{}, err
-		}
-		defer func() { _ = os.Remove(path) }()
-		base = append(base, "-overlay", path)
-	}
+	base := []string{"build", "-trimpath", "-ldflags", LDFlags(DefaultVersion, DefaultCommit, DefaultFlavor), "-o", out + string(filepath.Separator)}
 	goCmd, err := goCommand(o.GoCmd)
 	if err != nil {
 		return Set{}, err
@@ -198,13 +159,12 @@ func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, erro
 		}
 		cmd := exec.CommandContext(ctx, goCmd, args...) //nolint:gosec // G204: the go command with arguments built above
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+goos, "GOARCH="+goarch)
-		cmd.Env = append(cmd.Env, o.Env...)
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0", "GOOS="+runtime.GOOS, "GOARCH="+runtime.GOARCH)
 		if outb, err := cmd.CombinedOutput(); err != nil {
 			return Set{}, fmt.Errorf("binaries: go %s: %w\n%s", strings.Join(args, " "), err, outb)
 		}
 	}
-	set, err := collect(out, goos, cmds)
+	set, err := collect(out, runtime.GOOS, cmds)
 	if err != nil {
 		return Set{}, err
 	}
@@ -295,52 +255,6 @@ func (s Set) Path(name string) string {
 	return ""
 }
 
-// writeOverlay writes the go build -overlay JSON file and returns its path.
-func writeOverlay(root string, overlay map[string]string) (string, error) {
-	replace := map[string]string{}
-	keys := make([]string, 0, len(overlay))
-	for k := range overlay {
-		keys = append(keys, k)
-	}
-	slices.Sort(keys)
-	for _, rel := range keys {
-		local := filepath.FromSlash(rel)
-		if rel == "" || filepath.IsAbs(local) || !filepath.IsLocal(local) {
-			return "", fmt.Errorf("binaries: overlay key %q is not a path inside the repository", rel)
-		}
-		repl := overlay[rel]
-		if repl != "" {
-			abs, err := filepath.Abs(repl)
-			if err != nil {
-				return "", fmt.Errorf("binaries: overlay %q: %w", rel, err)
-			}
-			if _, err := os.Stat(abs); err != nil {
-				return "", fmt.Errorf("binaries: overlay %q: %w", rel, err)
-			}
-			repl = abs
-		}
-		replace[filepath.Join(root, local)] = repl
-	}
-	b, err := json.Marshal(map[string]any{"Replace": replace})
-	if err != nil {
-		return "", fmt.Errorf("binaries: overlay: %w", err)
-	}
-	f, err := os.CreateTemp("", "ruralz-overlay-*.json")
-	if err != nil {
-		return "", fmt.Errorf("binaries: overlay: %w", err)
-	}
-	if _, err := f.Write(b); err != nil {
-		_ = f.Close()
-		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("binaries: overlay: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("binaries: overlay: %w", err)
-	}
-	return f.Name(), nil
-}
-
 // goCommand resolves the go command.
 func goCommand(explicit string) (string, error) {
 	if explicit != "" {
@@ -390,11 +304,4 @@ func modulePath(gomod []byte) string {
 		}
 	}
 	return ""
-}
-
-func orDefault(v, def string) string {
-	if v == "" {
-		return def
-	}
-	return v
 }

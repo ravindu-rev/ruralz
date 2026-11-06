@@ -1,11 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package faultproxy is the protocol-agnostic TCP fault proxy of the chaos
-// and integration harness (docs/engineering/03-testing-and-quality-strategy.md,
-// "Chaos testing"): it sits between a client (a Node) and an upstream (a
-// State Store, an Upstream Endpoint, a Node behind the balancer) and injects
-// faults on live and new connections:
+// Package faultproxy is the protocol-agnostic TCP fault proxy of the
+// integration harness (docs/engineering/03-testing-and-quality-strategy.md,
+// "Process harness"): it sits between a client (a Node) and an upstream
+// (a State Store) and injects faults on live and new connections:
 //
 //   - Pass forwards bytes unchanged.
 //   - Delay holds every chunk, per direction, for a normally distributed
@@ -19,7 +18,7 @@
 //     resets live ones; the next other mode reopens the same address.
 //
 // SetUpstream switches new connections to another upstream (scripted State
-// Store failover, CE-5). A Tap sees every forwarded byte synchronously
+// Store failover). A Tap sees every forwarded byte synchronously
 // (the State Store's RESP counting proxy is a Tap). A connection's Hold
 // may hold the chunks it reads, as the counting proxy holds the replies to
 // named commands: reading continues while chunks are held and every chunk

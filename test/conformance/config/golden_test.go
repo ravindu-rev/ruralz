@@ -512,9 +512,9 @@ func exampleBundles(t testing.TB, s *suite) []string {
 
 // exampleFiles returns what an example entry holds for example x: bundle/
 // the Bundle's files of examples/x, its configuration and .ruralzignore
-// files (isExampleFile), so a file beside them such as the quickstart's
-// quickstart.sh is no input; environments.yaml that of examples/control;
-// and for the example Bundle its JSON twin.
+// files (isExampleFile), so no other file beside them is an input;
+// environments.yaml that of examples/control; and for the example Bundle
+// its JSON twin.
 func exampleFiles(t *testing.T, s *suite, x string) map[string][]byte {
 	t.Helper()
 	out := map[string][]byte{}

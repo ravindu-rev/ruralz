@@ -1,11 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package topology is the process harness of the end-to-end, chaos, Node
-// integration, conformance and in-process benchmark suites
-// (docs/engineering/03-testing-and-quality-strategy.md "Process harness"):
-// it runs Nodes, ruralzd processes in file mode on one loopback host, and
-// their dependencies, for one test.
+// Package topology is the process harness of the Node integration and
+// conformance suites (docs/engineering/03-testing-and-quality-strategy.md
+// "Process harness"): it runs Nodes, ruralzd processes in file mode on one
+// loopback host, and their dependencies, for one test.
 //
 // # Nodes
 //
@@ -15,8 +14,7 @@
 // is rewritten to a free loopback port, kept across re-renders while an
 // added listener gets a new one, which on Linux the topology holds until
 // its teardown with sockets bound to it that never listen, so no other
-// socket takes it before the Node binds it or while the Node restarts,
-// and every secretRef, a SecretValue's or a Consumer API key's, becomes a
+// socket takes it before the Node binds it, and every secretRef, a SecretValue's or a Consumer API key's, becomes a
 // file reference under the Node's own RURALZ_SECRET_ROOT that keeps its
 // key, but those NodeOptions.AuthoredSecrets keeps as authored for a case
 // that supplies their values itself, such as the env provider and secret
@@ -37,20 +35,14 @@
 // # Runtime
 //
 // With more than one Node, each runs with GOMAXPROCS max(1, CPUs / Nodes).
-// With Config.CPUs, as the target chaos profile's Nodes share RH-1's
-// gateway cpuset, each Node process, a handover successor included,
-// starts in a systemd-run scope of the user manager with AllowedCPUs set
-// to that cpuset, which executes the Node in place, so the process the
-// harness signals, samples and passes its clock socket to is the Node's;
-// CPUs then counts the cpuset's.
 // The harness waits up to ReadyTimeout (30 s) of real time for /readyz, as
 // ruralz dev run --ready-timeout does. Stop sends SIGTERM, advances a
 // controllable-clock Node through its Drain in DrainStep steps, and sends
 // SIGKILL to a Node still running KillAfter (40 s) of real time later, as
-// systemd's TimeoutStopSec does; Config overrides each. Restart, Kill,
-// Signal, Reload (an atomic replacement of the test render) and Handover
-// (a successor process on the same directory, ports and clock) serve the
-// Hot Reload, Last-Known-Good, Drain and Zero-Downtime Upgrade scenarios.
+// systemd's TimeoutStopSec does; Config overrides each. Signal, Reload (an
+// atomic replacement of the test render) and Handover (a successor process
+// on the same directory, ports and clock) serve the Hot Reload, Drain and
+// Zero-Downtime Upgrade cases.
 //
 // # Clock
 //
@@ -65,16 +57,14 @@
 // clock leads real time, as after a walk, reads no earlier time and arms
 // no timer from one. A Node stopped with Signal(SIGSTOP)
 // misses advances and catches up when Signal(SIGCONT) resumes it. External
-// processes (the State Store, the balancer, the mocks) run in real time;
+// processes (the State Store, the mocks) run in real time;
 // the harness waits for them, and for Nodes to act on what a timer
 // started, with condition polls under real-time deadlines.
 //
 // # State Store, transport and mocks
 //
 // StartStateStore runs any internal/statestore/statestoretest/redisserver
-// kind, a standalone redis-server process by default, a process kind also
-// on another host (StateStoreOptions.Host), as the target chaos profile's
-// on RH-1S. Each Node reaches it
+// kind, a standalone redis-server process by default. Each Node reaches it
 // through its own fault proxy, or counting RESP proxy, one per endpoint of
 // the URL (the server, a cluster's seeds or the sentinels), and the harness
 // writes the URL through those proxies into the secret that
@@ -90,9 +80,7 @@
 // an ACL user, an https OTLP sink, and admin TLS through
 // RURALZ_ADMIN_TLS_DIR with operator and metrics tokens. Transport turns
 // each off; cleartext elsewhere appears only where the Bundle declares it.
-// StartMockUpstream, StartIDP and StartOTLPSink run the in-process mocks,
-// and StartBalancer runs the L4 balancer over the Nodes' listener of one
-// name, probing /readyz, with PROXY protocol v2 on request.
+// StartMockUpstream, StartIDP and StartOTLPSink run the in-process mocks.
 //
 // # Secret leaks
 //
@@ -112,15 +100,14 @@
 // # Failure evidence
 //
 // When a test fails, the harness copies each process's logs, a listing of
-// each RURALZ_DATA_DIR, each Node's /debug/snapshots, the OTLP records and
-// each balancer's transition log into a directory named after the test
-// under RURALZ_TEST_ARTIFACT_DIR (Config.ArtifactDir overrides it).
+// each RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP records
+// into a directory named after the test under RURALZ_TEST_ARTIFACT_DIR
+// (Config.ArtifactDir overrides it).
 //
 // # Teardown
 //
 // Everything a Topology starts ends with its test. At cleanup it fetches
 // each running Node's /debug/snapshots, stops every Node together through
 // one Drain, scans for canaries, writes the evidence of a failed test, then
-// closes the balancers, proxies, mocks and State Stores and removes its
-// directory.
+// closes the proxies, mocks and State Stores and removes its directory.
 package topology

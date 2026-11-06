@@ -27,10 +27,9 @@
 //
 // # Faults
 //
-// The embedded faultproxy.Proxy injects the TCP faults of the chaos
-// experiments (docs/architecture/11-scalability-and-distributed-state.md
-// "Chaos experiments"): latency (Delay), drops and partitions (Blackhole,
-// Refuse), resets (Reset) and a scripted failover (SetUpstream). Reply
+// The embedded faultproxy.Proxy injects TCP faults: latency (Delay), drops
+// and partitions (Blackhole, Refuse), resets (Reset) and a scripted
+// failover (SetUpstream). Reply
 // delays add slow replies: the replies to a named command, or to every
 // command, are held before they reach the client, each for its delay
 // from the moment the proxy read it, on a clock the test may fake. The

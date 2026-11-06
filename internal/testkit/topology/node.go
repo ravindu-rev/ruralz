@@ -10,9 +10,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -54,10 +54,6 @@ type NodeOptions struct {
 	// a JSON object of the keyed references' values. A reference without a
 	// value gets a fresh canary, which SecretValue returns.
 	Secrets map[string][]byte
-	// MissingSecrets lists references whose value the harness leaves out,
-	// a "provider:name" file or one key of it, so the Node cannot resolve
-	// them (RZ-CFG-026).
-	MissingSecrets []string
 	// AuthoredSecrets lists references the test render keeps as authored,
 	// "provider:name#key" for one reference or "provider:name" for every
 	// key of a name: the harness neither rewrites them to files under
@@ -76,9 +72,6 @@ type NodeOptions struct {
 	MACKey []byte
 	// Env is added to the Node process's environment after Config.Env.
 	Env []string
-	// GOMAXPROCS overrides max(1, CPUs / Nodes), CPUs being the
-	// Config.CPUs cpuset's when set; 0 keeps the rule.
-	GOMAXPROCS int
 	// NoWait returns once the process started, without waiting for
 	// /readyz.
 	NoWait bool
@@ -112,10 +105,8 @@ type Node struct {
 
 // AddNodes adds n Nodes on the same options, named node-1, node-2 and so
 // on in creation order, starts them and, unless o.NoWait, waits until each
-// is ready. Nodes added after a balancer started join it. With more than
-// one Node in the topology, each new Node runs with GOMAXPROCS
-// max(1, CPUs / Nodes), CPUs being those of the Config.CPUs cpuset when
-// set, unless o.GOMAXPROCS overrides it.
+// is ready. With more than one Node in the topology, each new Node runs
+// with GOMAXPROCS max(1, CPUs / Nodes).
 func (t *Topology) AddNodes(ctx context.Context, n int, o NodeOptions) ([]*Node, error) {
 	if n < 1 {
 		return nil, fmt.Errorf("topology: AddNodes(%d)", n)
@@ -146,9 +137,8 @@ func (t *Topology) AddNodes(ctx context.Context, n int, o NodeOptions) ([]*Node,
 	count := len(t.nodes)
 	t.mu.Unlock()
 	for _, node := range nodes {
-		node.gomaxprocs = o.GOMAXPROCS
-		if node.gomaxprocs == 0 && count > 1 {
-			node.gomaxprocs = max(1, t.cpuCount()/count)
+		if count > 1 {
+			node.gomaxprocs = max(1, runtime.NumCPU()/count)
 		}
 		if err := node.prepare(ctx); err != nil {
 			return nil, err
@@ -160,13 +150,6 @@ func (t *Topology) AddNodes(ctx context.Context, n int, o NodeOptions) ([]*Node,
 	if !o.NoWait {
 		for _, node := range nodes {
 			if err := node.WaitReady(ctx); err != nil {
-				return nil, err
-			}
-		}
-	}
-	for _, b := range t.balancersCopy() {
-		for _, node := range nodes {
-			if err := b.add(ctx, node); err != nil {
 				return nil, err
 			}
 		}
@@ -288,46 +271,12 @@ func (n *Node) env() []string {
 	return append(env, extra...)
 }
 
-// Setenv sets the variable key to value in the environment the Node's
-// next process starts with (NodeOptions.Env, after Config.Env), replacing
-// an earlier value, as an operator changes a Node's setting before a
-// restart: a running process keeps the environment it started with, so a
-// value read from the environment, such as a State Store URL from an env
-// secret, changes only with a restart. A secret variable's value must
-// carry a canary, as in NodeOptions.Env.
-func (n *Node) Setenv(key, value string) error {
-	if key == "" || strings.ContainsRune(key, '=') {
-		return fmt.Errorf("topology: %s: variable name %q", n.name, key)
-	}
-	kv := key + "=" + value
-	if err := n.t.checkSecretEnv([]string{kv}); err != nil {
-		return err
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	env := slices.DeleteFunc(slices.Clone(n.opts.Env), func(e string) bool {
-		k, _, _ := strings.Cut(e, "=")
-		return k == key
-	})
-	env = append(env, kv)
-	n.opts.Env = env
-	return nil
-}
-
-// startProcess starts one process of the Node from binary, in a scope on
-// Config.CPUs when set, passes it its clock command socket on a
-// controllable-clock topology and attaches it to the topology's clock.
+// startProcess starts one process of the Node from binary, passes it its
+// clock command socket on a controllable-clock topology and attaches it to
+// the topology's clock.
 func (n *Node) startProcess(ctx context.Context, binary, name string) (*proc.Process, error) {
 	t := n.t
 	spec := proc.Spec{Name: name, Path: binary, Args: t.cfg.Args, Env: n.env(), LogDir: n.logDir}
-	if sc := t.scope; sc != nil {
-		// systemd-run executes the Node in place, so the process proc
-		// starts, signals and samples is the Node's, file descriptor 3
-		// included; the Node's own settings follow the user manager's
-		// variables, so they win.
-		spec.Path, spec.Args = sc.run, ScopeArgs(t.cfg.CPUs, append([]string{binary}, t.cfg.Args...)...)
-		spec.Env = append(slices.Clone(sc.env), spec.Env...)
-	}
 	var conn net.Conn
 	var child *os.File
 	if t.cfg.TestClock {
@@ -370,15 +319,8 @@ func (n *Node) startProcess(ctx context.Context, binary, name string) (*proc.Pro
 	return p, nil
 }
 
-// start starts the Node's serving process under the Node's name, whose
-// log files a restart appends to.
+// start starts the Node's serving process under the Node's name.
 func (n *Node) start(ctx context.Context) error {
-	n.mu.Lock()
-	running := n.cur != nil && n.cur.State() == nil
-	n.mu.Unlock()
-	if running {
-		return fmt.Errorf("topology: %s is already running", n.name)
-	}
 	p, err := n.startProcess(ctx, n.t.cfg.Binary, n.name)
 	if err != nil {
 		return err
@@ -387,27 +329,6 @@ func (n *Node) start(ctx context.Context) error {
 	n.cur = p
 	n.mu.Unlock()
 	return nil
-}
-
-// Start starts the Node again after Stop or Kill, on the same directory,
-// ports and test render, so it boots its Last-Known-Good as a restarted
-// Node does, and waits until it is ready unless NodeOptions.NoWait.
-func (n *Node) Start(ctx context.Context) error {
-	if err := n.start(ctx); err != nil {
-		return err
-	}
-	if n.opts.NoWait {
-		return nil
-	}
-	return n.WaitReady(ctx)
-}
-
-// Restart stops the Node (Stop) and starts it again (Start).
-func (n *Node) Restart(ctx context.Context) error {
-	if _, err := n.Stop(ctx); err != nil && !errors.Is(err, ErrNotRunning) {
-		return err
-	}
-	return n.Start(ctx)
 }
 
 // Stop ends the Node's serving process as a process manager does: SIGTERM,
@@ -424,22 +345,6 @@ func (n *Node) Stop(ctx context.Context) (int, error) {
 	}
 	n.t.drain(ctx, []*proc.Process{p})
 	return p.State().ExitCode(), nil
-}
-
-// Kill sends SIGKILL to the Node's serving process and waits for its end.
-func (n *Node) Kill(ctx context.Context) error {
-	p := n.Process()
-	if p == nil {
-		return ErrNotRunning
-	}
-	if err := p.Kill(); err != nil {
-		return fmt.Errorf("topology: %w", err)
-	}
-	if _, err := p.Wait(ctx); err != nil {
-		return fmt.Errorf("topology: %w", err)
-	}
-	n.t.clock.detach(p)
-	return nil
 }
 
 // Signal sends sig to the Node's serving process. SIGSTOP and SIGCONT keep
@@ -525,30 +430,18 @@ func waitDone(ctx context.Context, ps []*proc.Process, deadline time.Time) {
 	}
 }
 
-// HandoverOptions configure a handover successor.
-type HandoverOptions struct {
-	// Binary is the successor's executable, such as an N-1 variant from
-	// internal/testkit/binaries; default Config.Binary. On a
-	// controllable-clock topology it must follow the clock commands too.
-	Binary string
-}
-
 // Handover starts a successor process of the Node, as an in-place
-// Zero-Downtime Upgrade does: the same binary unless o.Binary, the same
-// environment, directory, ports and test render, and the topology's clock.
-// It returns once the process started; the processes then hand over
-// between themselves, the test advancing the clock through the linger and
-// the Drain and waiting with WaitHolder and the old process's Wait.
-func (n *Node) Handover(ctx context.Context, o HandoverOptions) (*proc.Process, error) {
-	binary := o.Binary
-	if binary == "" {
-		binary = n.t.cfg.Binary
-	}
+// Zero-Downtime Upgrade does: the same binary, environment, directory,
+// ports and test render, and the topology's clock. It returns once the
+// process started; the processes then hand over between themselves, the
+// test advancing the clock through the linger and the Drain and waiting
+// with WaitHolder and the old process's Wait.
+func (n *Node) Handover(ctx context.Context) (*proc.Process, error) {
 	n.mu.Lock()
 	n.successors++
 	name := n.name + "-successor-" + strconv.Itoa(n.successors)
 	n.mu.Unlock()
-	return n.startProcess(ctx, binary, name)
+	return n.startProcess(ctx, n.t.cfg.Binary, name)
 }
 
 // WaitHolder waits, within Config.ReadyTimeout, until p holds the Node's
@@ -577,9 +470,6 @@ func (n *Node) WaitHolder(ctx context.Context, p *proc.Process) error {
 		}
 	}
 }
-
-// Holder reads the Node's holder.json.
-func (n *Node) Holder() (nodedir.Holder, error) { return nodedir.ReadHolderAt(n.dataDir) }
 
 // Reload re-renders the Node's test render from rendered, keeping each
 // listener's port and adding ports for new listeners, writes any new
@@ -615,12 +505,6 @@ func (n *Node) Name() string { return n.name }
 // Dir returns the Node's private directory.
 func (n *Node) Dir() string { return n.dir }
 
-// ConfigPath returns RURALZ_CONFIG, the test render's path.
-func (n *Node) ConfigPath() string { return n.configPath }
-
-// DataDir returns RURALZ_DATA_DIR.
-func (n *Node) DataDir() string { return n.dataDir }
-
 // SecretRoot returns RURALZ_SECRET_ROOT.
 func (n *Node) SecretRoot() string { return n.secretRoot }
 
@@ -633,9 +517,6 @@ func (n *Node) Render() *Render {
 	defer n.mu.Unlock()
 	return n.render
 }
-
-// Revision returns the current Revision digest, of the unmodified render.
-func (n *Node) Revision() string { return n.Render().Revision }
 
 // TestDigest returns the current test render's digest, which the Node
 // reports.
@@ -763,8 +644,8 @@ func (n *Node) Process() *proc.Process {
 	return n.cur
 }
 
-// Processes returns every process the Node started, restarts and
-// handover successors included, in start order.
+// Processes returns every process the Node started, handover successors
+// included, in start order.
 func (n *Node) Processes() []*proc.Process {
 	n.mu.Lock()
 	defer n.mu.Unlock()

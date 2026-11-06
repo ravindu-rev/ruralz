@@ -66,14 +66,6 @@ func TestSpanOrderQueries(t *testing.T) {
 	if got := s.SpanNames(tr1); !slices.Equal(got, wantOrder) {
 		t.Fatalf("SpanNames = %v\nwant %v", got, wantOrder)
 	}
-	root := "cd0000000000000" + "1"
-	var filters []string
-	for _, c := range s.Children(tr1, root) {
-		filters = append(filters, c.Name())
-	}
-	if want := []string{"ruralz.route.match", "ruralz.filter.auth-jwt", "ruralz.filter.cors", "ruralz.filter.ratelimit", "ruralz.upstream.orders"}; !slices.Equal(filters, want) {
-		t.Fatalf("Children = %v\nwant %v", filters, want)
-	}
 	roots := s.Roots(tr1)
 	if len(roots) != 1 || roots[0].Name() != "GET orders" || roots[0].ParentSpanID() != "" {
 		t.Fatalf("Roots(tr1) = %v", roots)
@@ -100,6 +92,7 @@ func TestSpanOrderQueries(t *testing.T) {
 	}
 
 	// Span accessors.
+	root := "cd0000000000000" + "1"
 	sp := s.Trace(tr1)[0]
 	if sp.Kind() != server || sp.TraceID() != tr1 || sp.SpanID() != root {
 		t.Fatalf("span = %s %s %s", sp.Kind(), sp.TraceID(), sp.SpanID())

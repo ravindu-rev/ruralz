@@ -4,18 +4,14 @@
 package promtext
 
 import (
-	"context"
 	"math"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
 )
 
-// Tests for promtext (parser golden, histogram quantile interpolation,
-// label matching) and the scrape path the chaos and end-to-end assertions
-// use (every degraded state visible as a metric).
+// Tests for promtext: parser golden, histogram quantile interpolation and
+// label matching.
 
 func golden(t *testing.T) Set {
 	t.Helper()
@@ -303,51 +299,6 @@ func TestParseTolerances(t *testing.T) {
 	}
 	if got := L("b", "2", "a", "q\"\\\n", "odd").String(); got != `{a="q\"\\\n",b="2"}` {
 		t.Fatalf("Labels.String = %s", got)
-	}
-}
-
-func TestScrape(t *testing.T) { // /metrics parsed during e2e assertions
-	body, err := os.ReadFile("testdata/metrics.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("Authorization") != "Bearer tok" {
-			http.Error(w, "unauthorized", http.StatusUnauthorized)
-			return
-		}
-		if !strings.Contains(r.Header.Get("Accept"), "version=0.0.4") {
-			http.Error(w, "bad accept", http.StatusNotAcceptable)
-			return
-		}
-		switch r.URL.Path {
-		case "/metrics":
-			_, _ = w.Write(body)
-		default:
-			_, _ = w.Write([]byte("broken{ 1\n"))
-		}
-	}))
-	defer srv.Close()
-	ctx := context.Background()
-	h := http.Header{"Authorization": {"Bearer tok"}}
-	s, err := Scrape(ctx, srv.Client(), srv.URL+"/metrics", h)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if v, err := s.Value("ruralz_runtime_goroutines", nil); err != nil || v != 42 {
-		t.Fatalf("goroutines = %v, %v", v, err)
-	}
-	if _, err := Scrape(ctx, nil, srv.URL+"/metrics", nil); err == nil || !strings.Contains(err.Error(), "status 401") {
-		t.Fatalf("unauthorized scrape err = %v", err)
-	}
-	if _, err := Scrape(ctx, srv.Client(), srv.URL+"/broken", h); err == nil {
-		t.Fatal("broken body: want error")
-	}
-	if _, err := Scrape(ctx, srv.Client(), "http://127.0.0.1:1/metrics", h); err == nil {
-		t.Fatal("refused scrape: want error")
-	}
-	if _, err := Scrape(ctx, srv.Client(), "://bad", h); err == nil {
-		t.Fatal("bad URL: want error")
 	}
 }
 

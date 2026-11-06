@@ -65,8 +65,6 @@ const (
 	// REST example Bundle, the worked example, the diagnostics and the
 	// diff example.
 	configModelDoc = "docs/architecture/02-configuration-model.md"
-	// topologiesDoc is Deployment topologies: the quickstart Bundle.
-	topologiesDoc = "docs/operations/01-deployment-topologies.md"
 	// examplesDir holds the example Bundles beside controlDir.
 	examplesDir = "examples"
 	// controlDir is the directory beside the Bundles under examples/ that

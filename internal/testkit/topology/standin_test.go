@@ -27,7 +27,6 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/adminapi"
 	"github.com/ravindu-rev/ruralz/internal/adminauth"
-	"github.com/ravindu-rev/ruralz/internal/clientaddr"
 	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/config/profile"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
@@ -104,7 +103,6 @@ type standinConfig struct {
 type standinListener struct {
 	name, protocol string
 	port           int
-	proxyProtocol  bool
 	cert           *tls.Certificate
 }
 
@@ -319,9 +317,6 @@ func (s *standIn) load() (*standinConfig, error) {
 		for _, l := range ls.Items {
 			port, _ := portMember(l, 0)
 			sl := standinListener{name: text(l, "name"), protocol: text(l, "protocol"), port: port}
-			if pp, ok := l.Get("proxyProtocol"); ok && pp.Kind == tree.KindBool {
-				sl.proxyProtocol = pp.Bool
-			}
 			if sl.protocol == "https" {
 				cert, err := s.listenerCert(l)
 				switch {
@@ -498,30 +493,19 @@ func (s *standIn) bindListener(l standinListener) error {
 	if err != nil {
 		return fmt.Errorf("listener %s port %d: %w", l.name, l.port, err)
 	}
-	var ln net.Listener = tcp
-	if l.proxyProtocol {
-		if ln, err = clientaddr.NewListener(tcp, clientaddr.ListenerOptions{Clock: clock.Real()}); err != nil {
-			_ = tcp.Close()
-			return err
-		}
-	}
 	srv := &http.Server{
 		Handler:           http.HandlerFunc(s.handle),
 		ReadHeaderTimeout: 10 * time.Second,
-		ConnContext:       func(ctx context.Context, c net.Conn) context.Context { return context.WithValue(ctx, connKey{}, c) },
 	}
 	if l.cert != nil {
 		srv.TLSConfig = &tls.Config{Certificates: []tls.Certificate{*l.cert}, MinVersion: tls.VersionTLS12}
 	}
-	s.serve(srv, ln, l.cert != nil)
+	s.serve(srv, tcp, l.cert != nil)
 	s.mu.Lock()
-	s.servers[l.name] = &standinServer{spec: l, ln: ln, srv: srv}
+	s.servers[l.name] = &standinServer{spec: l, ln: tcp, srv: srv}
 	s.mu.Unlock()
 	return nil
 }
-
-// connKey keys a request's connection in its context.
-type connKey struct{}
 
 // serve runs srv on ln until the server closes.
 func (s *standIn) serve(srv *http.Server, ln net.Listener, useTLS bool) {
@@ -535,16 +519,10 @@ func (s *standIn) serve(srv *http.Server, ln net.Listener, useTLS bool) {
 }
 
 // handle answers client requests with what the harness tests check.
-func (s *standIn) handle(w http.ResponseWriter, r *http.Request) {
+func (s *standIn) handle(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	rev, fired := DisplayRevision(s.cfg.digest), s.timerFired
 	s.mu.Unlock()
-	client := r.RemoteAddr
-	if c, ok := r.Context().Value(connKey{}).(net.Conn); ok {
-		if peer := clientaddr.PeerOf(c); peer.IsValid() {
-			client = peer.String()
-		}
-	}
 	timer := "pending"
 	if fired {
 		timer = "fired"
@@ -554,7 +532,6 @@ func (s *standIn) handle(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Standin-Now", s.clk.Now().UTC().Format(clock.CommandTimeLayout))
 	w.Header().Set("X-Standin-Start", s.start.UTC().Format(clock.CommandTimeLayout))
 	w.Header().Set("X-Standin-Timer", timer)
-	w.Header().Set("X-Standin-Client", client)
 	_, _ = io.WriteString(w, "stand-in "+rev+"\n")
 }
 

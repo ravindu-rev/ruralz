@@ -136,7 +136,9 @@ func TestRealTimeTopologyRefusesTheClock(t *testing.T) {
 		t.Errorf("Now = %v, want the zero time", topo.Now())
 	}
 	// A real-time Drain takes its 5 s accept window; end it at once.
-	if err := n.Kill(t.Context()); err != nil {
+	p := n.Process()
+	if err := p.Kill(); err != nil {
 		t.Fatal(err)
 	}
+	<-p.Done()
 }

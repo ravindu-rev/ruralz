@@ -215,11 +215,10 @@ func TestIntegrationNoScriptAfterFlush(t *testing.T) {
 	eventually(t, "the reload", func() bool { return liveCall(d, "k2").Err == nil })
 }
 
-// TestIntegrationFailover checks CE-5's mechanism on a scripted
-// failover: the primary dies, the replica is promoted behind the same
-// endpoint, and the Node reconnects, reloads its scripts and serves again.
-// The time it took is logged, not checked: the 15 s target belongs to the
-// chaos experiment, and a loaded machine would stretch it.
+// TestIntegrationFailover checks a scripted failover: the primary dies,
+// the replica is promoted behind the same endpoint, and the Node
+// reconnects, reloads its scripts and serves again. The time it took is
+// logged, not checked: a loaded machine would stretch it.
 func TestIntegrationFailover(t *testing.T) {
 	dep := redisserver.Start(t, redisserver.Process, redisserver.Options{Replica: true})
 	p := proxiedServer(t, dep.Primary().Addr())
@@ -343,7 +342,7 @@ func TestIntegrationClusterSlots(t *testing.T) {
 	}
 }
 
-// TestIntegrationBlackhole checks CE-4's mechanism: a black-holed State
+// TestIntegrationBlackhole checks that a black-holed State
 // Store costs at most one timeout per call until the breaker opens, then
 // calls are skipped; once the path returns, the breaker closes again.
 func TestIntegrationBlackhole(t *testing.T) {

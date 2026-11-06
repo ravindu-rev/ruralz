@@ -671,7 +671,6 @@ func TestConfigErrors(t *testing.T) {
 	}{
 		{name: "reject OK", c: Config{Mode: Reject{Code: codes.OK}}, want: "other than OK"},
 		{name: "unknown mode", c: Config{Mode: badMode{}}, want: "unknown mode"},
-		{name: "listen", c: Config{Listen: "256.0.0.1:0"}, want: "listen"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, err := Start(ctx, tc.c)

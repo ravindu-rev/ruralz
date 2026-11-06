@@ -222,7 +222,7 @@ func TestNetNSChildSkipsWithoutCapability(t *testing.T) {
 		t.Skip("root brings the loopback interface up in any network namespace")
 	}
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestNetNSChildSkipsWithoutCapabilityChild$", "-test.count=1", "-test.v=true") //nolint:gosec // G204: this test binary
-	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"=", EnvNetNSResolvConf+"=", EnvNetNSUser+"=1")
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"=", EnvNetNSUser+"=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "--- SKIP: TestNetNSChildSkipsWithoutCapabilityChild") || !strings.Contains(string(out), ErrNamespace.Error()) {
 		t.Fatalf("child without the capability = %v:\n%s\nwant a skip naming %q", err, out, ErrNamespace)
