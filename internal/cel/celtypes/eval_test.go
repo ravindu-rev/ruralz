@@ -605,9 +605,8 @@ func TestEvalWithoutOptimize(t *testing.T) {
 	assertVal(t, "combined", out, "application/json, text/plain|acme|7")
 }
 
-// TestTrackedEvaluation evaluates through cel-go's cost tracker and
-// ContextEval with interrupt checks, as tracked programs run: the
-// tracker sizes the views through traits.Sizer.
+// TestTrackedEvaluation evaluates through cel-go's cost tracker, as
+// tracked programs run: the tracker sizes the views through traits.Sizer.
 func TestTrackedEvaluation(t *testing.T) {
 	env := testEnv(t)
 	src := `request.headers.exists(k, k == "accept") && request.body.items.all(i, i != "z") && ` +
@@ -616,13 +615,13 @@ func TestTrackedEvaluation(t *testing.T) {
 	if iss.Err() != nil {
 		t.Fatal(iss.Err())
 	}
-	prg, err := env.Program(ast, cel.CostLimit(1_000_000), cel.InterruptCheckFrequency(100), cel.EvalOptions(cel.OptOptimize, cel.OptTrackCost))
+	prg, err := env.Program(ast, cel.CostLimit(1_000_000), cel.EvalOptions(cel.OptOptimize))
 	if err != nil {
 		t.Fatal(err)
 	}
-	out, det, err := prg.ContextEval(t.Context(), NewActivation(fullVars()))
+	out, det, err := prg.Eval(NewActivation(fullVars()))
 	if err != nil || out != types.True {
-		t.Fatalf("ContextEval = %v, %v", out, err)
+		t.Fatalf("Eval = %v, %v", out, err)
 	}
 	if cost := det.ActualCost(); cost == nil || *cost == 0 {
 		t.Errorf("actual cost %v", cost)

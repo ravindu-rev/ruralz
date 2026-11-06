@@ -24,8 +24,9 @@ type analysis struct {
 	refs expr.Refs
 	// findings are RZ-CFG-014 site findings, in walk order.
 	findings []finding
-	// containers are the IDs of expressions used as a comprehension range
-	// or an in container; the nominal estimator sizes a dyn one as a list.
+	// containers are the IDs of expressions used as a comprehension range,
+	// an in container or the receiver of join; the nominal estimator sizes
+	// a dyn one as a list.
 	containers map[int64]bool
 	// folds reports a comprehension.
 	folds bool
@@ -197,6 +198,10 @@ func (w *walker) call(e ast.Expr) {
 		}
 	case fn == "json.encode":
 		w.an.jsonEncode = true
+	case fn == "join" && c.IsMemberFunction():
+		// join reads its receiver as a list, and cel-go estimates its
+		// result from the size of the receiver's elements.
+		w.an.containers[c.Target().ID()] = true
 	}
 	if w.withTimeZone(e.ID()) && len(args) > 0 {
 		if zone := args[len(args)-1]; !literalZone(zone) {

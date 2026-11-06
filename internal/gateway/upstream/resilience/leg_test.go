@@ -808,8 +808,8 @@ func TestLegLoopRealSockets(t *testing.T) {
 				d.Cancel()
 				v := legVars(tt.method, kind, 0)
 				v.Attempt = a.Number
-				failed, _ = EvalFailureWhen(ctx, nil, v)
-				retry, _ := EvalRetryOn(ctx, nil, v)
+				failed, _ = EvalFailureWhen(nil, v)
+				retry, _ := EvalRetryOn(nil, v)
 				dec := l.Decide(RetryInput{RetryOn: retry, Replayable: true})
 				if !dec.Retry {
 					break
@@ -840,7 +840,7 @@ func BenchmarkLegDecide(b *testing.B) {
 		var l Leg
 		l.Begin(rt, &cfg, route, 3)
 		l.StartAttempt()
-		retry, _ := EvalRetryOn(context.Background(), nil, v)
+		retry, _ := EvalRetryOn(nil, v)
 		l.Decide(RetryInput{RetryOn: retry, Replayable: true})
 		l.End(LegSuccess)
 	}

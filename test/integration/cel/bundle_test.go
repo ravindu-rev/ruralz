@@ -163,12 +163,9 @@ func bundle(main, retry string) string {
 	b.WriteString(routeDoc("breaker", "/breaker", "", "u-breaker"))
 	b.WriteString(routeDoc("log", "/log", "", "u"))
 
-	// Routes whose deadline comes before the 50 ms stop: their match.when
-	// and authz.cel rule stop at it.
-	timeout := "  timeout: " + routeDeadline.String() + "\n"
-	b.WriteString(routeDoc("deadline-match", "/deadline/match", boolExpr(celPrefix), "u") + timeout)
-	b.WriteString(policyDoc("authz-deadline", "authz.cel", "", "", "    rule: "+quoted(boolExpr(celPrefix))+"\n"))
-	b.WriteString(routeDoc("deadline-authz", "/deadline/authz", "", "u", "authz-deadline") + timeout)
+	// A Route whose timeout ends a request its Upstream holds, so that
+	// accessLog.when evaluates past the Route deadline.
+	b.WriteString(routeDoc("deadline", "/deadline", "", "u") + "  timeout: " + routeDeadline.String() + "\n")
 	return b.String()
 }
 

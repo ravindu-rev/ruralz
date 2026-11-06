@@ -112,7 +112,7 @@ func benchVars() *expr.Vars {
 // celCall compiles src at place under the example input caps and returns
 // one evaluation.
 func celCall(place expr.PlaceID, src string, isBool bool) func(context.Context, int) (func(int) error, func(), error) {
-	return func(ctx context.Context, _ int) (func(int) error, func(), error) {
+	return func(context.Context, int) (func(int) error, func(), error) {
 		c, err := cel.New()
 		if err != nil {
 			return nil, nil, err
@@ -124,9 +124,9 @@ func celCall(place expr.PlaceID, src string, isBool bool) func(context.Context, 
 		}
 		v := benchVars()
 		if isBool {
-			return func(int) error { _, err := prg.EvalBool(ctx, v); return err }, nil, nil
+			return func(int) error { _, err := prg.EvalBool(v); return err }, nil, nil
 		}
-		return func(int) error { _, err := prg.EvalString(ctx, v); return err }, nil, nil
+		return func(int) error { _, err := prg.EvalString(v); return err }, nil, nil
 	}
 }
 

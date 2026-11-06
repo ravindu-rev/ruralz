@@ -51,10 +51,10 @@ func TestDefaultsFollowTheTrafficTable(t *testing.T) {
 				wantRetry = wantRetry || o.errKind == "reset" || o.status == 503
 			}
 			wantFailure := o.errKind != "" || o.status == 502 || o.status == 503 || o.status == 504
-			if got, err := retryOn.EvalBool(t.Context(), o.vars(method)); err != nil || got != wantRetry {
+			if got, err := retryOn.EvalBool(o.vars(method)); err != nil || got != wantRetry {
 				t.Errorf("retryOn(%s, %+v) = %v, %v; want %v", method, o, got, err, wantRetry)
 			}
-			if got, err := failureWhen.EvalBool(t.Context(), o.vars(method)); err != nil || got != wantFailure {
+			if got, err := failureWhen.EvalBool(o.vars(method)); err != nil || got != wantFailure {
 				t.Errorf("failureWhen(%s, %+v) = %v, %v; want %v", method, o, got, err, wantFailure)
 			}
 		}

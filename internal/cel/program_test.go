@@ -4,7 +4,6 @@
 package cel
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -85,7 +84,7 @@ func TestEvalBoolAndString(t *testing.T) {
 		{expr.Site{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnResponse}, `response.status == 200`, false},
 	}
 	for _, tc := range bools {
-		got, err := mustProgram(t, c, tc.site, tc.src).EvalBool(t.Context(), testVars())
+		got, err := mustProgram(t, c, tc.site, tc.src).EvalBool(testVars())
 		if err != nil || got != tc.want {
 			t.Errorf("EvalBool(%q) = %v, %v; want %v", tc.src, got, err, tc.want)
 		}
@@ -102,7 +101,7 @@ func TestEvalBoolAndString(t *testing.T) {
 		{sequential(expr.PlaceStepPathExpression), `"/orders/" + request.pathParams.orderId`, "/orders/42"},
 	}
 	for _, tc := range strs {
-		got, err := mustProgram(t, c, tc.site, tc.src).EvalString(t.Context(), testVars())
+		got, err := mustProgram(t, c, tc.site, tc.src).EvalString(testVars())
 		if err != nil || got != tc.want {
 			t.Errorf("EvalString(%q) = %q, %v; want %q", tc.src, got, err, tc.want)
 		}
@@ -114,7 +113,7 @@ func TestEvalBoolAndString(t *testing.T) {
 func TestEvalValue(t *testing.T) {
 	c := newCompiler(t)
 	prg := mustProgram(t, c, at(expr.PlaceTransformRequestBody), `{"id": request.body.id, "kind": request.body.kind}`)
-	v, err := prg.EvalValue(t.Context(), testVars())
+	v, err := prg.EvalValue(testVars())
 	if err != nil {
 		t.Fatalf("EvalValue: %v", err)
 	}
@@ -127,7 +126,7 @@ func TestEvalValue(t *testing.T) {
 // TestEvalNilVars checks that a nil activation reads every variable as null.
 func TestEvalNilVars(t *testing.T) {
 	c := newCompiler(t)
-	got, err := mustProgram(t, c, at(expr.PlaceAuthzCELRule), `consumer == null && request == null`).EvalBool(t.Context(), nil)
+	got, err := mustProgram(t, c, at(expr.PlaceAuthzCELRule), `consumer == null && request == null`).EvalBool(nil)
 	if err != nil || !got {
 		t.Errorf("EvalBool(nil) = %v, %v; want true", got, err)
 	}
@@ -169,9 +168,9 @@ func TestEvalErrorKinds(t *testing.T) {
 			prg := mustProgram(t, c, tc.site, tc.src)
 			var err error
 			if tc.bool {
-				_, err = prg.EvalBool(t.Context(), vars)
+				_, err = prg.EvalBool(vars)
 			} else {
-				_, err = prg.EvalString(t.Context(), vars)
+				_, err = prg.EvalString(vars)
 			}
 			var ee *expr.EvalError
 			if !errors.As(err, &ee) {
@@ -205,65 +204,26 @@ func longScope(n int) *expr.Vars {
 func TestTrackedPrograms(t *testing.T) {
 	c := newCompiler(t)
 	cases := []struct {
-		site               expr.Site
-		src                string
-		tracked, stoppable bool
+		site    expr.Site
+		src     string
+		tracked bool
 	}{
-		{at(expr.PlaceRateLimitKey), `consumer == null ? source.ip : consumer.name`, false, false},
-		{at(expr.PlaceRouteMatchWhen), `request.headers["x-tenant"] == "acme"`, false, false},
-		{at(expr.PlaceRouteMatchWhen), `["GET", "HEAD"].exists(m, m == request.method)`, false, false},
-		{at(expr.PlaceRouteMatchWhen), `request.headers["a"] == request.headers["b"]`, true, false},
-		{at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, true, true},
+		{at(expr.PlaceRateLimitKey), `consumer == null ? source.ip : consumer.name`, false},
+		{at(expr.PlaceRouteMatchWhen), `request.headers["x-tenant"] == "acme"`, false},
+		{at(expr.PlaceRouteMatchWhen), `["GET", "HEAD"].exists(m, m == request.method)`, false},
+		{at(expr.PlaceRouteMatchWhen), `request.headers["a"] == request.headers["b"]`, true},
+		{at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, true},
 	}
 	for _, tc := range cases {
-		prg := mustProgram(t, c, tc.site, tc.src)
-		if prg.tracked != tc.tracked || prg.stoppable != tc.stoppable {
-			t.Errorf("%q: tracked %v, stoppable %v; want %v, %v", tc.src, prg.tracked, prg.stoppable, tc.tracked, tc.stoppable)
+		if prg := mustProgram(t, c, tc.site, tc.src); prg.tracked != tc.tracked {
+			t.Errorf("%q: tracked %v, want %v", tc.src, prg.tracked, tc.tracked)
 		}
-	}
-}
-
-// TestStoppableProgramHonorsContext checks that a tracked comprehension stops
-// at an ended context with KindDeadline, and that other programs ignore it.
-func TestStoppableProgramHonorsContext(t *testing.T) {
-	c := newCompiler(t)
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
-	orders := mustProgram(t, c, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`)
-	_, err := orders.EvalBool(ended, longScope(1000))
-	var ee *expr.EvalError
-	if !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
-		t.Errorf("stoppable program under an ended context = %v, want KindDeadline", err)
-	}
-	// Few iterations finish before the first interrupt check.
-	if got, err := orders.EvalBool(ended, testVars()); err != nil || !got {
-		t.Errorf("short comprehension = %v, %v; want true", got, err)
-	}
-	for _, src := range []string{`request.headers["x-tenant"] == "acme"`, `["GET", "HEAD"].exists(m, m == request.method)`} {
-		if got, err := mustProgram(t, c, at(expr.PlaceRouteMatchWhen), src).EvalBool(ended, testVars()); err != nil || !got {
-			t.Errorf("%q under an ended context = %v, %v; want true", src, got, err)
-		}
-	}
-}
-
-// TestComprehensionStop checks that the stop bounds a tracked comprehension
-// even when the request has no deadline. The stop is set to zero, so it
-// has passed before the first interrupt check (TestComprehensionStopFires
-// covers a stop that fires during the evaluation).
-func TestComprehensionStop(t *testing.T) {
-	c := newCompiler(t)
-	c.stop = 0
-	prg := mustProgram(t, c, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`)
-	_, err := prg.EvalBool(context.Background(), longScope(1000))
-	var ee *expr.EvalError
-	if !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
-		t.Errorf("EvalBool past the stop = %v, want KindDeadline", err)
 	}
 }
 
 // TestRuntimeCostLimit checks that a tracked program whose actual cost
 // passes 1,000,000 units fails with KindCostLimit: two 64 KiB header values
-// make contains cost (65536 * 0.1)^2, about 43 million units.
+// make contains cost ⌈0.01 × 65536²⌉, about 43 million units.
 func TestRuntimeCostLimit(t *testing.T) {
 	c := newCompiler(t)
 	prg := mustProgram(t, c, at(expr.PlaceRouteMatchWhen), `request.headers["a"].contains(request.headers["b"])`)
@@ -273,7 +233,7 @@ func TestRuntimeCostLimit(t *testing.T) {
 	v := testVars()
 	v.Request.Header.Set("A", strings.Repeat("a", 64<<10))
 	v.Request.Header.Set("B", strings.Repeat("b", 64<<10))
-	_, err := prg.EvalBool(t.Context(), v)
+	_, err := prg.EvalBool(v)
 	var ee *expr.EvalError
 	if !errors.As(err, &ee) || ee.Kind != expr.KindCostLimit {
 		t.Errorf("EvalBool over capped headers = %v, want KindCostLimit", err)
@@ -282,7 +242,7 @@ func TestRuntimeCostLimit(t *testing.T) {
 	v = testVars()
 	v.Request.Header.Set("A", "abc")
 	v.Request.Header.Set("B", "b")
-	if got, err := prg.EvalBool(t.Context(), v); err != nil || !got {
+	if got, err := prg.EvalBool(v); err != nil || !got {
 		t.Errorf("EvalBool over small headers = %v, %v; want true", got, err)
 	}
 }
@@ -298,7 +258,7 @@ func TestConcurrentEvaluation(t *testing.T) {
 		wg.Go(func() {
 			v := testVars()
 			for range 50 {
-				ok, err := prg.EvalBool(context.Background(), v)
+				ok, err := prg.EvalBool(v)
 				if err != nil || !ok {
 					errs <- errors.Join(err, errors.New("result false"))
 					return

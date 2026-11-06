@@ -4,91 +4,80 @@
 package cel
 
 import (
-	"math/bits"
 	"slices"
+	"strings"
 
-	"cel.dev/cel-go/checker"
-	"cel.dev/cel-go/common"
 	"cel.dev/cel-go/common/ast"
 	"cel.dev/cel-go/common/operators"
-	"cel.dev/cel-go/common/overloads"
 	"cel.dev/cel-go/common/types"
-	"cel.dev/cel-go/common/types/traits"
 )
 
-// costFacts are what the cost bounds of docs/architecture/02-configuration-model.md
-// "Limits" need of a checked expression beyond cel-go's estimate: the
-// values reached from a Ruralz variable, the only values an input cap
-// bounds, and the units cel-go's runtime charges and its estimator does
-// not.
-//
-// cel-go's runtime charges one unit for every field selection, but its
-// estimator charges none for selecting a field of a dyn value, such as a
-// JSON body or the claims (checker's costSelect charges map, object and
-// type-parameter operands only), so its estimate falls one unit short for
-// each such selection evaluated. Its planner qualifies an attribute
-// operand, an identifier, a selection, an index or a conditional, in
-// place, but evaluates a selection, presence test or index of any other
-// operand, such as a list or map literal, a call or a comprehension, as a
-// relative attribute over that operand (interpreter's planSelect and
-// planCallIndex), and its runtime charges that attribute one more unit per
-// evaluation, which the estimator leaves out: `[][0]` costs 12 units and
-// is estimated at 11. bound adds these units back, so the static estimate
-// and the capped bound are both upper bounds of the runtime cost. A
-// relative attribute that cel-go evaluates without charging its unit, as
-// an index key or a conditional branch, is counted all the same, which
-// only raises the bounds.
+// costFacts are what the nominal estimator needs of a checked expression
+// beyond its containers: how the expression uses the elements of each dyn
+// value reached from a Ruralz variable. cel-go sizes an index result and a
+// comprehension variable from their container's element size, which it
+// asks of the estimator once per container path (nominalEstimator), so
+// the elements of one container share a size: a container where every
+// element the expression reads by index or as a comprehension variable is
+// itself used as one, else a string.
 type costFacts struct {
-	// paths maps the ID of each expression whose value is reached from an
-	// unshadowed Ruralz variable through field selections, indexing and
-	// comprehension variables to its path, as checker.AstNode.Path builds
-	// it: the variable, then field names, "@items" for a list entry,
-	// "@keys" for a comprehension variable over a map or dyn value and
-	// "@values" for an indexed map value. A selection of a field of any
-	// other value, such as a call result, has no path here, even where
-	// cel-go builds a partial one that starts with a variable's name.
-	paths map[int64][]string
-	// ranges maps each comprehension's ID to its range.
-	ranges map[int64]ast.Expr
-	// uncounted are the units the estimator does not charge.
-	uncounted []uncountedUnit
+	// elements maps the element path (elementKey) of every dyn value read
+	// by index or as a comprehension variable below a Ruralz variable to
+	// whether each such value is used as a container.
+	elements map[string]bool
 }
 
-// uncountedUnit is one unit the estimator does not charge: a selection of
-// a field of a dyn value or a relative attribute.
-type uncountedUnit struct {
-	// loops are the comprehensions whose loop evaluates the unit once per
-	// iteration, outermost first.
-	loops []int64
-	// chain counts the uncounted units from this one down through its
-	// operands, itself included: in a.b.c over a dyn a, c's chain is two,
-	// and in dyn(m).a.b over a map m, b's chain is three, counting the
-	// relative attribute over dyn(m).
-	chain uint64
+// elementStep stands for one step into a container's elements in a walk
+// path: cel-go's "@items", "@keys", "@values" and "@indices".
+const elementStep = "@"
+
+// pathSeparator joins the steps of an element key: no CEL field name
+// holds it.
+const pathSeparator = "\x00"
+
+// elementKey returns the key of a path from a variable, cel-go's or a
+// walk's, with every element step as elementStep, so cel-go's element
+// paths and the walk's agree whatever step name each gives.
+func elementKey(path []string) string {
+	var b strings.Builder
+	for i, p := range path {
+		if i > 0 {
+			b.WriteString(pathSeparator)
+		}
+		switch p {
+		case "@items", "@keys", "@values", "@indices":
+			b.WriteString(elementStep)
+		default:
+			b.WriteString(p)
+		}
+	}
+	return b.String()
 }
 
-// collectCostFacts walks the checked AST a.
-func collectCostFacts(a *ast.AST) *costFacts {
+// collectCostFacts walks the checked AST a, whose expressions used as a
+// list or map are containers (analysis.containers).
+func collectCostFacts(a *ast.AST, containers map[int64]bool) *costFacts {
 	w := &factWalker{
-		a:      a,
-		facts:  &costFacts{paths: map[int64][]string{}, ranges: map[int64]ast.Expr{}},
-		chains: map[int64]uint64{},
+		a:          a,
+		containers: containers,
+		facts:      &costFacts{elements: map[string]bool{}},
+		paths:      map[int64][]string{},
 	}
 	w.walk(a.Expr())
 	return w.facts
 }
 
-// factWalker collects the costFacts of one checked AST.
+// factWalker collects the costFacts of one checked AST. Its paths follow
+// cel-go's: from an unshadowed Ruralz variable through field selections,
+// indexes and comprehension variables, never through a call result.
 type factWalker struct {
-	a     *ast.AST
-	facts *costFacts
+	a          *ast.AST
+	containers map[int64]bool
+	facts      *costFacts
+	// paths holds the path of each expression reached from a variable.
+	paths map[int64][]string
 	// locals are the comprehension variables in scope, innermost last.
 	locals []local
-	// loops are the comprehensions whose loop encloses the walk.
-	loops []int64
-	// chains holds the chain of each uncounted selection, and of each
-	// operand a relative attribute is built over, by ID.
-	chains map[int64]uint64
 }
 
 // local is one comprehension variable in scope.
@@ -97,6 +86,9 @@ type local struct {
 	// path is the variable's path; nil when its values are not reached from
 	// a Ruralz variable, as for an accumulator.
 	path []string
+	// dyn reports that cel-go sizes the variable's values as dyn values
+	// (dynElements).
+	dyn bool
 }
 
 // walk visits e and its operands.
@@ -105,7 +97,11 @@ func (w *factWalker) walk(e ast.Expr) {
 	case ast.IdentKind:
 		w.ident(e)
 	case ast.SelectKind:
-		w.selection(e)
+		sel := e.AsSelect()
+		w.walk(sel.Operand())
+		if p, ok := w.paths[sel.Operand().ID()]; ok && !sel.IsTestOnly() {
+			w.paths[e.ID()] = appendPath(p, sel.FieldName())
+		}
 	case ast.CallKind:
 		c := e.AsCall()
 		if c.IsMemberFunction() {
@@ -116,13 +112,8 @@ func (w *factWalker) walk(e ast.Expr) {
 			w.walk(arg)
 		}
 		if c.FunctionName() == operators.Index && len(args) == 2 {
-			w.relative(args[0])
-			if p, ok := w.facts.paths[args[0].ID()]; ok {
-				entry := "@items"
-				if t := w.a.GetType(args[0].ID()); t.Kind() == types.MapKind {
-					entry = "@values"
-				}
-				w.facts.paths[e.ID()] = appendPath(p, entry)
+			if p, ok := w.paths[args[0].ID()]; ok {
+				w.element(e, appendPath(p, elementStep), dynElements(w.a.GetType(args[0].ID()), false))
 			}
 		}
 	case ast.ComprehensionKind:
@@ -146,314 +137,100 @@ func (w *factWalker) walk(e ast.Expr) {
 }
 
 // ident gives a Ruralz variable its path and a comprehension variable the
-// path of its range's entries.
+// path of its range's elements, which it reads.
 func (w *factWalker) ident(e ast.Expr) {
 	name := e.AsIdent()
 	for i := len(w.locals) - 1; i >= 0; i-- {
-		if w.locals[i].name == name {
-			if p := w.locals[i].path; p != nil {
-				w.facts.paths[e.ID()] = p
+		if l := w.locals[i]; l.name == name {
+			if l.path != nil {
+				w.element(e, l.path, l.dyn)
 			}
 			return
 		}
 	}
 	if _, ok := varBit(name); ok {
-		w.facts.paths[e.ID()] = []string{name}
+		w.paths[e.ID()] = []string{name}
 	}
 }
 
-// selection records the relative attribute over its operand, extends the
-// operand's path and records a selection the estimator does not charge. A
-// presence test's own unit is charged as at runtime.
-func (w *factWalker) selection(e ast.Expr) {
-	sel := e.AsSelect()
-	op := sel.Operand()
-	w.walk(op)
-	w.relative(op)
-	if sel.IsTestOnly() {
+// element records e, an element of a container at path, and its use when
+// cel-go sizes the container's elements as dyn values: e's own checked
+// type, which the checker may narrow from its use, does not change the
+// size cel-go gives it.
+func (w *factWalker) element(e ast.Expr, path []string, dyn bool) {
+	w.paths[e.ID()] = path
+	if !dyn {
 		return
 	}
-	if p, ok := w.facts.paths[op.ID()]; ok {
-		w.facts.paths[e.ID()] = appendPath(p, sel.FieldName())
-	}
-	if charged(w.a.GetType(op.ID())) {
-		return
-	}
-	chain := w.chains[op.ID()] + 1
-	w.chains[e.ID()] = chain
-	w.facts.uncounted = append(w.facts.uncounted, uncountedUnit{loops: slices.Clone(w.loops), chain: chain})
+	k := elementKey(path)
+	all, seen := w.facts.elements[k]
+	w.facts.elements[k] = w.containers[e.ID()] && (all || !seen)
 }
 
-// relative records the relative attribute cel-go builds over op, the
-// operand of a selection or index, when op is not an attribute: a unit per
-// evaluation the estimator does not charge. The unit starts op's chain, as
-// the attribute is evaluated once per evaluation of op, with every
-// uncounted selection that qualifies it.
-func (w *factWalker) relative(op ast.Expr) {
-	if attribute(op) {
-		return
-	}
-	w.chains[op.ID()] = 1
-	w.facts.uncounted = append(w.facts.uncounted, uncountedUnit{loops: slices.Clone(w.loops), chain: 1})
-}
-
-// attribute reports an operand cel-go's planner qualifies in place: an
-// identifier, a selection, an index or a conditional. An identifier or
-// selection the checker resolves to a type or an enum constant plans as a
-// constant instead, but no such value type-checks as the operand of a
-// selection or index.
-func attribute(e ast.Expr) bool {
-	switch e.Kind() {
-	case ast.IdentKind, ast.SelectKind:
+// dynElements reports whether cel-go sizes the elements of a container of
+// type t as dyn values: those of a dyn value, or of a list or map whose
+// element, key or value type is dyn. keys selects the keys of a map, which
+// a comprehension variable reads, rather than its values, which an index
+// reads.
+func dynElements(t *types.Type, keys bool) bool {
+	ps := t.Parameters()
+	switch t.Kind() {
+	case types.DynKind, types.AnyKind, types.TypeParamKind:
 		return true
-	case ast.CallKind:
-		fn := e.AsCall().FunctionName()
-		return fn == operators.Index || fn == operators.Conditional
+	case types.ListKind:
+		return len(ps) == 1 && isDyn(ps[0])
+	case types.MapKind:
+		if len(ps) != 2 {
+			return false
+		}
+		if keys {
+			return isDyn(ps[0])
+		}
+		return isDyn(ps[1])
 	default:
 		return false
 	}
 }
 
-// comprehension records the range and scopes the variables: the iteration
-// variable and the accumulator in the loop, the accumulator alone in the
-// result.
+// isDyn reports a dyn type.
+func isDyn(t *types.Type) bool {
+	switch t.Kind() {
+	case types.DynKind, types.AnyKind, types.TypeParamKind:
+		return true
+	default:
+		return false
+	}
+}
+
+// comprehension scopes the variables: the iteration variables, which read
+// the elements of the range, and the accumulator in the loop, the
+// accumulator alone in the result.
 func (w *factWalker) comprehension(e ast.Expr) {
 	comp := e.AsComprehension()
 	rng := comp.IterRange()
 	w.walk(rng)
 	w.walk(comp.AccuInit())
-	w.facts.ranges[e.ID()] = rng
+	// A two-variable comprehension, which no enabled macro builds, records
+	// nothing: its elements count as strings, the larger nominal size.
 	var iter []string
-	if p, ok := w.facts.paths[rng.ID()]; ok && !comp.HasIterVar2() {
-		entry := "@keys"
-		if t := w.a.GetType(rng.ID()); t.Kind() == types.ListKind {
-			entry = "@items"
-		}
-		iter = appendPath(p, entry)
+	if p, ok := w.paths[rng.ID()]; ok && !comp.HasIterVar2() {
+		iter = appendPath(p, elementStep)
 	}
+	t := w.a.GetType(rng.ID())
 	n := len(w.locals)
-	w.locals = append(w.locals, local{name: comp.AccuVar()}, local{name: comp.IterVar(), path: iter})
+	w.locals = append(w.locals, local{name: comp.AccuVar()},
+		local{name: comp.IterVar(), path: iter, dyn: dynElements(t, t.Kind() == types.MapKind)})
 	if comp.HasIterVar2() {
 		w.locals = append(w.locals, local{name: comp.IterVar2()})
 	}
-	w.loops = append(w.loops, e.ID())
 	w.walk(comp.LoopCondition())
 	w.walk(comp.LoopStep())
-	w.loops = w.loops[:len(w.loops)-1]
 	w.locals = w.locals[:n+1]
 	w.walk(comp.Result())
 	w.locals = w.locals[:n]
 }
 
-// charged reports whether cel-go's estimator charges a selection of a
-// field of a value of type t.
-func charged(t *types.Type) bool {
-	switch t.Kind() {
-	case types.MapKind, types.StructKind, types.TypeParamKind:
-		return true
-	default:
-		return false
-	}
-}
-
 // appendPath returns p with one more element, never sharing p's array.
 func appendPath(p []string, elem string) []string {
 	return append(slices.Clip(p), elem)
-}
-
-// bound returns the most an evaluation can cost: est, cel-go's estimate
-// with sizes from e, plus one unit per evaluation of an uncounted unit. A
-// unit inside loops whose ranges e sizes is evaluated at most once per
-// iteration of each. For one inside a loop e cannot size, the base its
-// chain starts from, an identifier, a charged selection, a call, a list,
-// map or object literal or a comprehension, costs at least one unit per
-// evaluation in est, so the chain's length times est bounds those
-// evaluations.
-func (f *costFacts) bound(a *ast.AST, est checker.CostEstimate, e checker.CostEstimator) uint64 {
-	if len(f.uncounted) == 0 {
-		return est.Max
-	}
-	s := &sizer{a: a, facts: f, est: e, iters: map[int64]sized{}}
-	var known, chain uint64
-	for _, u := range f.uncounted {
-		evals, ok := uint64(1), true
-		for _, id := range u.loops {
-			n, sizedRange := s.iterations(id)
-			if !sizedRange {
-				ok = false
-				break
-			}
-			evals = mulSat(evals, n)
-		}
-		if ok {
-			known = addSat(known, evals)
-		} else {
-			chain = max(chain, u.chain)
-		}
-	}
-	return addSat(mulSat(est.Max, addSat(chain, 1)), known)
-}
-
-// sizer bounds the ranges of one expression's comprehensions.
-type sizer struct {
-	a     *ast.AST
-	facts *costFacts
-	est   checker.CostEstimator
-	iters map[int64]sized
-}
-
-// sized is a memoized size bound; ok is false when there is none.
-type sized struct {
-	n  uint64
-	ok bool
-}
-
-// iterations returns the most iterations of comprehension id: the size of
-// its range.
-func (s *sizer) iterations(id int64) (uint64, bool) {
-	if v, ok := s.iters[id]; ok {
-		return v.n, v.ok
-	}
-	n, ok := s.size(s.facts.ranges[id])
-	s.iters[id] = sized{n: n, ok: ok}
-	return n, ok
-}
-
-// size returns the most entries of a list or map, or code points of a
-// string, e can hold: exact for a literal, derived for a map or filter
-// (at most one entry per iteration), split (one more entry than its
-// string's size), concatenation, a conditional, dyn and the url escapes
-// (three times their input), and the estimator's size for a value reached
-// from a Ruralz variable. Any other value has no bound here.
-func (s *sizer) size(e ast.Expr) (uint64, bool) {
-	switch e.Kind() {
-	case ast.LiteralKind:
-		if sz, ok := e.AsLiteral().(traits.Sizer); ok {
-			if n, ok := sz.Size().(types.Int); ok && n >= 0 {
-				return uint64(n), true
-			}
-		}
-		return 0, false
-	case ast.ListKind:
-		return uint64(len(e.AsList().Elements())), true
-	case ast.MapKind:
-		return uint64(len(e.AsMap().Entries())), true
-	case ast.ComprehensionKind:
-		return s.iterations(e.ID())
-	case ast.CallKind:
-		if n, ok, derived := s.callSize(e.AsCall()); derived {
-			return n, ok
-		}
-	default:
-	}
-	p, rooted := s.facts.paths[e.ID()]
-	if !rooted {
-		return 0, false
-	}
-	sz := s.est.EstimateSize(factNode{e: e, t: s.a.GetType(e.ID()), path: p})
-	if sz == nil {
-		return 0, false
-	}
-	return sz.Max, true
-}
-
-// callSize derives the size of a call's result; derived is false for a
-// call it does not size.
-func (s *sizer) callSize(c ast.CallExpr) (n uint64, ok, derived bool) {
-	args := c.Args()
-	switch c.FunctionName() {
-	case "split":
-		if c.IsMemberFunction() {
-			n, ok = s.size(c.Target())
-			return addSat(n, 1), ok, true
-		}
-	case operators.Add:
-		if len(args) == 2 {
-			l, lok := s.size(args[0])
-			r, rok := s.size(args[1])
-			return addSat(l, r), lok && rok, true
-		}
-	case operators.Conditional:
-		if len(args) == 3 {
-			l, lok := s.size(args[1])
-			r, rok := s.size(args[2])
-			return max(l, r), lok && rok, true
-		}
-	case overloads.TypeConvertDyn:
-		if len(args) == 1 {
-			n, ok = s.size(args[0])
-			return n, ok, true
-		}
-	case funcPathEscape, funcQueryEscape:
-		if len(args) == 1 {
-			n, ok = s.size(args[0])
-			return mulSat(n, escapeGrowth), ok, true
-		}
-	default:
-	}
-	return 0, false, false
-}
-
-// factNode is the checker.AstNode of a value reached from a Ruralz
-// variable, for an estimator's EstimateSize.
-type factNode struct {
-	e    ast.Expr
-	t    *types.Type
-	path []string
-}
-
-func (n factNode) Path() []string                      { return n.path }
-func (n factNode) Type() *types.Type                   { return n.t }
-func (n factNode) Expr() ast.Expr                      { return n.e }
-func (n factNode) ComputedSize() *checker.SizeEstimate { return nil }
-
-// splitEstimates are the cost estimates of split, replacing ext.Strings'
-// own, which size the result at the string's size: a string of n
-// separators splits into n + 1 entries, so a comprehension over the
-// result can run one iteration more than cel-go estimates.
-func splitEstimates() []checker.CostOption {
-	return []checker.CostOption{
-		checker.OverloadCostEstimate("string_split_string", estimateSplit),
-		checker.OverloadCostEstimate("string_split_string_int", estimateSplit),
-	}
-}
-
-// estimateSplit is ext.Strings' split estimate, traversal plus list
-// creation plus one unit per entry, with at most one entry more than the
-// string's size.
-func estimateSplit(e checker.CostEstimator, target *checker.AstNode, args []checker.AstNode) *checker.CallEstimate {
-	if target == nil || len(args) < 1 {
-		return nil
-	}
-	size := checker.SizeEstimate{Min: 0, Max: ^uint64(0)}
-	if sz := (*target).ComputedSize(); sz != nil {
-		size = *sz
-	} else if sz := e.EstimateSize(*target); sz != nil {
-		size = *sz
-	}
-	traversal := size.Add(checker.FixedSizeEstimate(1)).MultiplyByCostFactor(common.StringTraversalCostFactor)
-	result := checker.SizeEstimate{Min: 0, Max: addSat(size.Max, 1)}
-	cost := traversal.
-		Add(result.MultiplyByCostFactor(1)).
-		Add(checker.FixedCostEstimate(common.ListCreateBaseCost)).
-		Add(checker.FixedCostEstimate(1))
-	return &checker.CallEstimate{CostEstimate: cost, ResultSize: &result}
-}
-
-// addSat returns a + b, saturating at the largest uint64.
-func addSat(a, b uint64) uint64 {
-	s, carry := bits.Add64(a, b, 0)
-	if carry != 0 {
-		return ^uint64(0)
-	}
-	return s
-}
-
-// mulSat returns a × b, saturating at the largest uint64.
-func mulSat(a, b uint64) uint64 {
-	hi, lo := bits.Mul64(a, b)
-	if hi != 0 {
-		return ^uint64(0)
-	}
-	return lo
 }

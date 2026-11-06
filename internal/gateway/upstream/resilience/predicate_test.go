@@ -4,7 +4,6 @@
 package resilience
 
 import (
-	"context"
 	"errors"
 	"slices"
 	"testing"
@@ -59,7 +58,6 @@ func TestDefaultPredicates(t *testing.T) {
 	methods := []string{"GET", "HEAD", "OPTIONS", "PUT", "DELETE", "POST", "PATCH"}
 	kinds := []Kind{KindConnect, KindReset, KindTimeout, KindTLS, KindNone}
 	statuses := []int{200, 429, 500, 502, 503, 504}
-	ctx := context.Background()
 	cells := 0
 	for _, m := range methods {
 		for _, k := range kinds {
@@ -69,7 +67,7 @@ func TestDefaultPredicates(t *testing.T) {
 				if got := DefaultRetryOn(m, k, s); got != want {
 					t.Errorf("DefaultRetryOn(%s, %v, %d) = %v, want %v", m, k, s, got, want)
 				}
-				got, err := EvalRetryOn(ctx, nil, legVars(m, k, s))
+				got, err := EvalRetryOn(nil, legVars(m, k, s))
 				if err != nil || got != want {
 					t.Errorf("EvalRetryOn(nil, %s, %v, %d) = %v, %v; want %v", m, k, s, got, err, want)
 				}
@@ -77,7 +75,7 @@ func TestDefaultPredicates(t *testing.T) {
 				if got := DefaultFailureWhen(k, s); got != wantF {
 					t.Errorf("DefaultFailureWhen(%v, %d) = %v, want %v", k, s, got, wantF)
 				}
-				got, err = EvalFailureWhen(ctx, nil, legVars(m, k, s))
+				got, err = EvalFailureWhen(nil, legVars(m, k, s))
 				if err != nil || got != wantF {
 					t.Errorf("EvalFailureWhen(nil, %s, %v, %d) = %v, %v; want %v", m, k, s, got, err, wantF)
 				}
@@ -112,7 +110,7 @@ func TestDefaultPredicatesNulls(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := EvalRetryOn(context.Background(), nil, tt.v)
+			got, err := EvalRetryOn(nil, tt.v)
 			var ee *expr.EvalError
 			if (err != nil) != tt.retryErr || got != tt.retry {
 				t.Fatalf("retryOn = %v, %v", got, err)
@@ -120,7 +118,7 @@ func TestDefaultPredicatesNulls(t *testing.T) {
 			if err != nil && (!errors.As(err, &ee) || ee.Place != expr.PlaceRetryOn || ee.Kind != expr.KindNull) {
 				t.Fatalf("retryOn error %#v", err)
 			}
-			got, err = EvalFailureWhen(context.Background(), nil, tt.v)
+			got, err = EvalFailureWhen(nil, tt.v)
 			if (err != nil) != tt.failureErr || got != tt.failure {
 				t.Fatalf("failureWhen = %v, %v", got, err)
 			}
@@ -134,12 +132,11 @@ func TestDefaultPredicatesNulls(t *testing.T) {
 // TestEvalPrograms runs authored programs: a retryOn runtime error
 // means no retry, a failureWhen runtime error counts as a failure.
 func TestEvalPrograms(t *testing.T) {
-	ctx := context.Background()
 	v := legVars("POST", KindNone, 429)
 	boom := expr.NewEvalError(expr.PlaceRetryOn, expr.KindNoSuchKey, "no such key")
 	tests := []struct {
 		name    string
-		eval    func(context.Context, expr.Program, *expr.Vars) (bool, error)
+		eval    func(expr.Program, *expr.Vars) (bool, error)
 		prog    *fakeProgram
 		want    bool
 		wantErr bool
@@ -153,7 +150,7 @@ func TestEvalPrograms(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.eval(ctx, tt.prog, v)
+			got, err := tt.eval(tt.prog, v)
 			if got != tt.want || (err != nil) != tt.wantErr || tt.prog.calls != 1 {
 				t.Fatalf("got %v, %v after %d calls", got, err, tt.prog.calls)
 			}

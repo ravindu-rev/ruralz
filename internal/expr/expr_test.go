@@ -179,16 +179,14 @@ func TestRequestReset(t *testing.T) {
 	}
 }
 
-// TestVarsReset checks that Reset clears every field, the request
-// deadline included, so a pooled activation never carries a former
-// request's variables or deadline.
+// TestVarsReset checks that Reset clears every field, so a pooled
+// activation never carries a former request's variables.
 func TestVarsReset(t *testing.T) {
 	v := &Vars{
 		Request: &Request{}, Source: &Source{IP: netip.MustParseAddr("192.0.2.1")}, Route: &Route{Name: "r"},
 		Consumer: &Consumer{Name: "c"}, Auth: &Auth{Method: "jwt"}, Response: &Response{Status: 200},
 		Error: &AttemptError{Kind: "connect"}, Upstream: &Upstream{Name: "u"}, Attempt: 2, Steps: &Steps{},
 		AI: &AI{Model: "m"}, Now: time.Date(2026, 9, 26, 0, 0, 0, 0, time.UTC), Duration: time.Second,
-		Deadline: time.Date(2026, 9, 26, 0, 0, 15, 0, time.UTC),
 	}
 	rv := reflect.ValueOf(v).Elem()
 	for i := range rv.NumField() {
@@ -298,7 +296,7 @@ func TestSteps(t *testing.T) {
 
 func TestErrorKinds(t *testing.T) {
 	want := map[ErrorKind]string{
-		KindCostLimit: "cost_limit", KindDeadline: "deadline", KindNull: "null", KindNoSuchKey: "no_such_key",
+		KindCostLimit: "cost_limit", KindNull: "null", KindNoSuchKey: "no_such_key",
 		KindNoSuchOverload: "no_such_overload", KindConversion: "conversion", KindArithmetic: "arithmetic",
 		KindResultType: "result_type", KindBody: "body", KindOther: "other", 0: "other", 99: "other",
 	}

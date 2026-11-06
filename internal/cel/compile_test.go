@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"cel.dev/cel-go/checker"
+	"cel.dev/cel-go/common/cost"
 
 	"github.com/ravindu-rev/ruralz/internal/expr"
 	"github.com/ravindu-rev/ruralz/internal/phase"
@@ -84,6 +84,20 @@ func TestCheckRejects(t *testing.T) {
 		{"math is not enabled", at(match), `math.greatest(1, 2) == 2`, expr.Issue{
 			Code: "RZ-CFG-014", Offset: 0, Line: 1, Column: 1,
 			Message: "CEL Route.spec.match.when: undeclared reference to 'math'",
+		}},
+		// cel-go names the Go option that would enable optional types; no
+		// option applies to a place, so the message ends at the reference.
+		{"optional types are not enabled", at(match), `optional.of(1) == optional.none()`, expr.Issue{
+			Code: "RZ-CFG-014", Offset: 11, Line: 1, Column: 12,
+			Message: "CEL Route.spec.match.when: undeclared reference to 'optional.of'",
+		}},
+		{"a near miss of a function of optional types", at(match), `optional.off(1) == 1`, expr.Issue{
+			Code: "RZ-CFG-014", Offset: 12, Line: 1, Column: 13,
+			Message: "CEL Route.spec.match.when: undeclared reference to 'optional.off'",
+		}},
+		{"a near miss of a variable", at(match), `requst.method == "GET"`, expr.Issue{
+			Code: "RZ-CFG-014", Offset: 0, Line: 1, Column: 1,
+			Message: "CEL Route.spec.match.when: undeclared reference to 'requst' (did you mean 'request'?)",
 		}},
 		{"duration literal", at(match), `duration("1x") > duration("1s")`, expr.Issue{
 			Code: "RZ-CFG-014", Offset: 9, Line: 1, Column: 10,
@@ -302,13 +316,13 @@ func TestCheckEmptyIsAbsent(t *testing.T) {
 // and one unit more fails, and that an unbounded estimate fails.
 func TestCostCeilingBoundary(t *testing.T) {
 	an := &analysis{}
-	if _, _, bad := costFinding(checker.CostEstimate{Min: 1, Max: staticCostCeiling}, an); bad {
+	if _, _, bad := costFinding(cost.Estimate{Min: 1, Max: staticCostCeiling}, an); bad {
 		t.Error("an estimate at the ceiling failed")
 	}
-	if _, _, bad := costFinding(checker.CostEstimate{Max: staticCostCeiling + 1}, an); !bad {
+	if _, _, bad := costFinding(cost.Estimate{Max: staticCostCeiling + 1}, an); !bad {
 		t.Error("an estimate above the ceiling passed")
 	}
-	msg, _, bad := costFinding(checker.CostEstimate{Max: math.MaxUint64}, an)
+	msg, _, bad := costFinding(cost.Estimate{Max: math.MaxUint64}, an)
 	if !bad || !strings.HasPrefix(msg, "estimated cost is unbounded") {
 		t.Errorf("unbounded estimate = %q, %v", msg, bad)
 	}
@@ -332,10 +346,21 @@ func TestNominalSizes(t *testing.T) {
 		// compared with a one-character literal.
 		{at(expr.PlaceAuthzCELRule), `request.body.exists(x, x == 1)`, 195},
 		// Types and objects have size 1, as at runtime: comparing them is
-		// not unbounded. Selecting a of the dyn body adds the unit cel-go's
-		// estimator leaves out.
+		// not unbounded. Selecting a of the dyn body costs its unit, as at
+		// runtime.
 		{at(expr.PlaceAuthzCELRule), `type(request.body.a) == int`, 6},
 		{at(expr.PlaceAuthzCELRule), `consumer == consumer`, 3},
+		// cel-go sizes an index into a dyn value, and a comprehension
+		// variable over one, by the size of its elements: 32-entry
+		// containers where every element the expression reads is one, as
+		// the indexed range and each body item here.
+		{at(expr.PlaceAuthzCELRule), `request.body["items"].exists(i, i == "z")`, 196},
+		{at(expr.PlaceAuthzCELRule), `request.body.items.exists(i, i.exists(j, j == "y"))`, 6340},
+		// Read once as a range and once as a string, the body's elements
+		// count as strings, which bounds both: the range has 256 entries.
+		{at(expr.PlaceAuthzCELRule), `request.body["items"].exists(i, i == "z") || request.body["name"] == "x"`, 1544},
+		// join takes a list: a dyn receiver counts 32 strings of 256 bytes.
+		{at(expr.PlaceAuthzCELRule), `request.body.tags.join(",") == "a"`, 8233},
 	}
 	for _, tc := range cases {
 		cc, iss := c.compile(tc.site, tc.src)

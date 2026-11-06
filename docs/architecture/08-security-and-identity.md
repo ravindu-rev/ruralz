@@ -290,7 +290,7 @@ Authorization runs in Filter class `authz`. Each type's slot defaults to its nam
 
 | Engine | When to use | Cost per request | Guardrails | Planned |
 |---|---|---|---|---|
-| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)), 50 ms comprehension stop (target) | Planned (M1) |
+| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)), which alone bounds an evaluation | Planned (M1) |
 | OPA (Rego), `authz.opa` | Large or shared data-driven rule sets | `PrepareForEval` per Revision ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)); under 100 µs at p99 (hypothesis) | Deadline; only allowlisted pure built-ins, so no `http.send`; 16 MiB data per Policy (target) | Planned (M2) |
 | Cedar, `authz.cedar` | Principal, action and resource models with hierarchies | In process; under 100 µs at p99 (hypothesis) | 1,000 policies and 10,000 entities per Policy, ancestor depth at most 8 (target), transitive closure precomputed per Revision; no schema validator in cedar-go ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) | Planned (M2) |
 
@@ -306,7 +306,7 @@ spec:
     rule: 'consumer != null && consumer.tier == "gold"'   # Tier gate with existing fields
 ```
 
-An `authz.cel` rule runs once per request: in `onRequestBody` when it reads `request.body`, which makes the body a gate, else in `onRequestHeaders`. `true` admits; `false` denies with 403 RZ-AUTH-010; a runtime error, the cost limit and the comprehension stop included, is 403 RZ-AUTH-015; each decision counts in `ruralz_auth_decisions_total`. Before a body rule runs, a decoded body over its cap is 413 RZ-RT-003 and a spent buffer budget 503 RZ-RT-004, neither a decision; a body that is not JSON reads as null. An empty `rule` is RZ-CFG-005.
+An `authz.cel` rule runs once per request: in `onRequestBody` when it reads `request.body`, which makes the body a gate, else in `onRequestHeaders`. `true` admits; `false` denies with 403 RZ-AUTH-010; a runtime error, the cost limit included, is 403 RZ-AUTH-015; each decision counts in `ruralz_auth_decisions_total`. Before a body rule runs, a decoded body over its cap is 413 RZ-RT-003 and a spent buffer budget 503 RZ-RT-004, neither a decision; a body that is not JSON reads as null. An empty `rule` is RZ-CFG-005.
 
 ### OPA and Cedar schemas
 

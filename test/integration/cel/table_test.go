@@ -214,7 +214,7 @@ func retryOnPlace() place {
 		run: func(t *testing.T, s *suite, p *place, k kind) {
 			signal := upstreamCEL("u-retry", "retryOn")
 			before := scrape(t, s.top, s.n)
-			if n := attempts(t, s, p, k.input(true), modeOf(k)); n != 1 {
+			if n := attempts(t, s, p, k.input(true), plain); n != 1 {
 				t.Errorf("a retryOn runtime error made %d attempts, want 1: no retry", n)
 			}
 			if d := signal(scrape(t, s.top, s.n)) - signal(before); d != 1 {
@@ -246,13 +246,9 @@ func failureWhenPlace() place {
 		run: func(t *testing.T, s *suite, p *place, k kind) {
 			signal := upstreamCEL("u-breaker", "failureWhen")
 			before := scrape(t, s.top, s.n)
-			mode, counted, opened := modeOf(k), 0, false
+			counted, opened := 0, false
 			for range breakerLegs {
-				a := s.send(t, p, p.path, k.input(false), mode)
-				if mode == stopping {
-					// The first leg proved the stop on the clock.
-					mode = advancing
-				}
+				a := s.send(t, p, p.path, k.input(false), plain)
 				if a.status == http.StatusServiceUnavailable && a.code == "RZ-UP-005" {
 					opened = true
 					break
@@ -318,7 +314,7 @@ func accessLogPlace() place {
 		run: func(t *testing.T, s *suite, p *place, k kind) {
 			path := "/log/" + strings.ReplaceAll(k.name, " ", "-")
 			before := scrape(t, s.top, s.n)
-			if a := s.send(t, p, path, k.input(false), modeOf(k)); a.status != http.StatusOK {
+			if a := s.send(t, p, path, k.input(false), plain); a.status != http.StatusOK {
 				t.Fatalf("answer %v, want 200", a)
 			}
 			waitEntry(t, s, path)

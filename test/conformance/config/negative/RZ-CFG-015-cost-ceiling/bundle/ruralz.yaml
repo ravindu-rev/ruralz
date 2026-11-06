@@ -78,5 +78,5 @@ spec:
       request.headers.exists(k, k == "x48") ||
       request.headers.exists(k, k == "x49") ||
       request.headers.exists(k, k == "x50") ||
-      request.path.contains("a") ||
-      request.path.contains("b")
+      request.path.contains("abcdefghij") ||
+      request.path.contains("bcdefghijk")

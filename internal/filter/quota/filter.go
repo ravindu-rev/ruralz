@@ -336,7 +336,7 @@ func (flt *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange)
 // field without a count; a cached denial whose units the cost exceeds is
 // denied 429 RZ-RL-003; otherwise Prepare fills call with one Quota
 // reservation.
-func (flt *Filter) Prepare(ctx context.Context, x filter.Exchange, call *statestore.Call) (filter.Result, bool) {
+func (flt *Filter) Prepare(_ context.Context, x filter.Exchange, call *statestore.Call) (filter.Result, bool) {
 	st := flt.state(x)
 	st.reset()
 	v := x.Vars()
@@ -355,7 +355,7 @@ func (flt *Filter) Prepare(ctx context.Context, x filter.Exchange, call *statest
 		st.window = time.Duration(*q.Window)
 	}
 	st.w = windowSeconds(st.window, st.month, now)
-	if err := flt.evaluate(ctx, v, c, st); err != nil {
+	if err := flt.evaluate(v, c, st); err != nil {
 		flt.record(x, st, false, 0, 0)
 		flt.count(x, flt.failure())
 		return filter.Undecided(CodeUndecided, err), true
@@ -483,12 +483,12 @@ func quotaOf(c *expr.Consumer, name string) (v1alpha1.Quota, bool) {
 // digest and the cost. It returns the first runtime error, an
 // invalid-value error for a cost below 1, or for a quota without a
 // window of at least 1 ms or a calendar month.
-func (flt *Filter) evaluate(ctx context.Context, v *expr.Vars, c *expr.Consumer, st *reqState) error {
+func (flt *Filter) evaluate(v *expr.Vars, c *expr.Consumer, st *reqState) error {
 	var first error
 	if flt.keyIsName {
 		st.digest = digestOf(c.Name)
 	} else {
-		s, err := flt.key.EvalString(ctx, v)
+		s, err := flt.key.EvalString(v)
 		if err != nil {
 			first = classify(err)
 		}
@@ -496,7 +496,7 @@ func (flt *Filter) evaluate(ctx context.Context, v *expr.Vars, c *expr.Consumer,
 	}
 	st.cost = 1
 	if flt.cost != nil {
-		n, err := flt.cost.EvalInt(ctx, v)
+		n, err := flt.cost.EvalInt(v)
 		if err != nil && first == nil {
 			first = classify(err)
 		}

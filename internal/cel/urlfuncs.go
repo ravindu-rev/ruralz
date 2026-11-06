@@ -4,15 +4,10 @@
 package cel
 
 import (
-	"math"
-
 	celgo "cel.dev/cel-go/cel"
-	"cel.dev/cel-go/checker"
-	"cel.dev/cel-go/common"
 	"cel.dev/cel-go/common/cost"
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
-	"cel.dev/cel-go/interpreter"
 )
 
 // The Ruralz functions url.pathEscape and url.queryEscape
@@ -52,8 +47,8 @@ func (urlLibrary) CompileOptions() []celgo.EnvOption {
 			celgo.Overload(overloadQueryEscape, []*celgo.Type{celgo.StringType}, celgo.StringType,
 				celgo.UnaryBinding(escapeBinding(isUnreserved)))),
 		celgo.CostEstimatorOptions(
-			checker.OverloadCostEstimate(overloadPathEscape, estimateEscape),
-			checker.OverloadCostEstimate(overloadQueryEscape, estimateEscape),
+			cost.OverloadCostEstimate(overloadPathEscape, estimateEscape),
+			cost.OverloadCostEstimate(overloadQueryEscape, estimateEscape),
 		),
 	}
 }
@@ -63,8 +58,8 @@ func (urlLibrary) CompileOptions() []celgo.EnvOption {
 func (urlLibrary) ProgramOptions() []celgo.ProgramOption {
 	return []celgo.ProgramOption{
 		celgo.CostTrackerOptions(
-			interpreter.OverloadCostTracker(overloadPathEscape, trackEscape),
-			interpreter.OverloadCostTracker(overloadQueryEscape, trackEscape),
+			cost.OverloadTracker(overloadPathEscape, trackEscape),
+			cost.OverloadTracker(overloadQueryEscape, trackEscape),
 		),
 	}
 }
@@ -136,20 +131,15 @@ func keepInPathSegment(c byte) bool {
 
 // estimateEscape is the static estimate of a url function call: 1 plus
 // the string traversal of its input, with the result sized at three times
-// the input.
-func estimateEscape(e checker.CostEstimator, _ *checker.AstNode, args []checker.AstNode) *checker.CallEstimate {
+// the input. An input without a size is unbounded.
+func estimateEscape(e cost.Estimator, _ *cost.AstNode, args []cost.AstNode) *cost.CallEstimate {
 	if len(args) != 1 {
 		return nil
 	}
-	size := checker.SizeEstimate{Min: 0, Max: math.MaxUint64}
-	if sz := args[0].ComputedSize(); sz != nil {
-		size = *sz
-	} else if sz := e.EstimateSize(args[0]); sz != nil {
-		size = *sz
-	}
-	c := size.MultiplyByCostFactor(common.StringTraversalCostFactor).Add(checker.FixedCostEstimate(1))
-	result := checker.SizeEstimate{Min: size.Min, Max: mulSat(size.Max, escapeGrowth)}
-	return &checker.CallEstimate{CostEstimate: c, ResultSize: &result}
+	size := cost.EstimateSize(e, args[0])
+	c := size.MultiplyByCostFactor(cost.StringTraversalCostFactor).Add(cost.FixedCostEstimate(1))
+	result := cost.RangedSizeEstimate(size.Min, cost.SafeMultiply(size.Max, escapeGrowth))
+	return cost.NewCallEstimate(c, &result)
 }
 
 // trackEscape is the runtime cost of a url function call: 1 plus 0.1 unit
@@ -158,7 +148,7 @@ func trackEscape(args []ref.Val, _ ref.Val) *uint64 {
 	n := uint64(1)
 	if len(args) == 1 {
 		if s, ok := args[0].(types.String); ok {
-			n = cost.SafeAdd(n, cost.SafeMultiplyByFactor(uint64(len(s)), common.StringTraversalCostFactor))
+			n = cost.SafeAdd(n, cost.SafeMultiplyByFactor(uint64(len(s)), cost.StringTraversalCostFactor))
 		}
 	}
 	return &n

@@ -38,7 +38,7 @@ func TestHandleAddsNoAllocations(t *testing.T) {
 			t.Fatalf("Handle(%q) = %+v, want Continue", tc.src, r)
 		}
 		handle := testing.AllocsPerRun(200, func() { f.Handle(ctx, tc.p, x) })
-		eval := testing.AllocsPerRun(200, func() { _, _ = f.rule.EvalBool(ctx, x.Vars()) })
+		eval := testing.AllocsPerRun(200, func() { _, _ = f.rule.EvalBool(x.Vars()) })
 		if handle > eval {
 			t.Errorf("Handle(%q) allocates %.0f per run, its evaluation %.0f: the Filter adds allocations", tc.src, handle, eval)
 		}

@@ -173,7 +173,7 @@ func TestEvalValueNestedJSON(t *testing.T) {
 		if prg == nil {
 			t.Fatalf("Compile(%q) = %+v", tc.src, iss)
 		}
-		v, err := prg.EvalValue(t.Context(), &expr.Vars{})
+		v, err := prg.EvalValue(&expr.Vars{})
 		if err != nil {
 			t.Fatalf("EvalValue(%q) = %v", tc.src, err)
 		}
@@ -191,7 +191,7 @@ func TestEvalValueNestedJSON(t *testing.T) {
 		}
 	}
 	prg, _ := c.NewBuilder(nil, expr.InputCaps{}).Compile(site, `[double("NaN")]`)
-	v, err := prg.EvalValue(t.Context(), &expr.Vars{})
+	v, err := prg.EvalValue(&expr.Vars{})
 	if err != nil {
 		t.Fatal(err)
 	}

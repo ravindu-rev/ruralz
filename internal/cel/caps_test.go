@@ -4,7 +4,6 @@
 package cel
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -26,7 +25,7 @@ const (
 	// headerLiteral reads one header value against a literal: bounded by
 	// the header cap.
 	headerLiteral = `request.headers["x-a"].contains("b")`
-	// headerPair compares two header values: (65536 × 0.1)² units at the
+	// headerPair compares two header values: 0.01 × 65536² units at the
 	// 64 KiB header cap, above the limit.
 	headerPair = `request.headers["a"].contains(request.headers["b"])`
 	// routePair searches a Route label for the Route's name: bounded by the
@@ -59,6 +58,8 @@ func TestTrackingFollowsTheCaps(t *testing.T) {
 	unboundedEdits.AddedHeaderBytes = -1
 	added := exampleCaps()
 	added.AddedHeaderBytes = 16 << 20
+	moreAdded := exampleCaps()
+	moreAdded.AddedHeaderBytes = 128 << 20
 	rule := routeSite(expr.PlaceAuthzCELRule)
 	tests := []struct {
 		name    string
@@ -78,7 +79,10 @@ func TestTrackingFollowsTheCaps(t *testing.T) {
 		{"one header value, at the header cap", rule, headerLiteral, caps, false},
 		{"one header value, no header cap", rule, headerLiteral, noHeaderCap, true},
 		{"one header value, unbounded Policy edits", rule, headerLiteral, unboundedEdits, true},
-		{"one header value, 16 MiB of Policy edits", rule, headerLiteral, added, true},
+		// contains costs ⌈0.01 · m · n⌉ for a value of m bytes and a needle
+		// of n: about 168,000 units over 16 MiB, 1.3 million over 128 MiB.
+		{"one header value, 16 MiB of Policy edits", rule, headerLiteral, added, false},
+		{"one header value, 128 MiB of Policy edits", rule, headerLiteral, moreAdded, true},
 		{"two header values, at the header cap", rule, headerPair, caps, true},
 		{"two claims, at the claims cap", rule, `auth.claims.a.contains(auth.claims.b)`, caps, true},
 		{"a comprehension over the header names", at(expr.PlaceRouteMatchWhen), `request.headers.exists(k, k == "x-a")`, caps, false},
@@ -111,9 +115,6 @@ func TestTrackingFollowsTheCaps(t *testing.T) {
 			prg := mustCapped(t, c, tt.site, tt.src, tt.caps)
 			if prg.tracked != tt.tracked {
 				t.Errorf("%q tracked %v with a bound of %d units, want %v", tt.src, prg.tracked, bound, tt.tracked)
-			}
-			if prg.stoppable != (tt.tracked && cc.an.folds) {
-				t.Errorf("%q stoppable %v, want %v: only a tracked comprehension stops", tt.src, prg.stoppable, tt.tracked && cc.an.folds)
 			}
 		})
 	}
@@ -235,25 +236,22 @@ func TestClientRequestSites(t *testing.T) {
 	}
 }
 
-// TestRuleWithinTheCapsIgnoresTheStop checks that the orders rule, untracked
+// TestRuleWithinTheCapsRunsUntracked checks that the orders rule, untracked
 // under the caps because its bound proves it ends within the cost limit,
-// has no comprehension stop: an ended context does not stop it, and it
-// decides over a scope at the claims cap. Without caps it is tracked and
-// stops (TestStoppableProgramHonorsContext).
-func TestRuleWithinTheCapsIgnoresTheStop(t *testing.T) {
+// decides over a scope at the claims cap. Without caps it is tracked
+// (TestCostLimitEndsAComprehension).
+func TestRuleWithinTheCapsRunsUntracked(t *testing.T) {
 	c := newCompiler(t)
 	prg := mustCapped(t, c, at(expr.PlaceAuthzCELRule), ordersRule, exampleCaps())
-	if prg.tracked || prg.stoppable {
-		t.Fatalf("orders rule under the caps: tracked %v, stoppable %v; want neither", prg.tracked, prg.stoppable)
+	if prg.tracked {
+		t.Fatal("orders rule under the caps is tracked")
 	}
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
 	// 32,762 one-byte scopes and a final orders:read: a 65,535-byte scope,
 	// within the 64 KiB claims cap.
 	v := testVars()
 	v.Auth.Claims = celtypes.FromNative(map[string]any{"scope": strings.Repeat("x ", 32<<10-6) + "orders:read"})
-	if got, err := prg.EvalBool(ended, v); err != nil || !got {
-		t.Errorf("EvalBool under an ended context = %v, %v; want true", got, err)
+	if got, err := prg.EvalBool(v); err != nil || !got {
+		t.Errorf("EvalBool over a scope at the claims cap = %v, %v; want true", got, err)
 	}
 }
 
@@ -270,35 +268,33 @@ func TestRuleThatCanPassTheLimitUnderTheCapsIsTracked(t *testing.T) {
 	v := testVars()
 	v.Request.Header.Set("A", strings.Repeat("a", 32<<10))
 	v.Request.Header.Set("B", strings.Repeat("b", 32<<10))
-	_, err := prg.EvalBool(t.Context(), v)
+	_, err := prg.EvalBool(v)
 	var ee *expr.EvalError
 	if !errors.As(err, &ee) || ee.Kind != expr.KindCostLimit {
 		t.Errorf("EvalBool at the header cap = %v, want KindCostLimit", err)
 	}
 }
 
-// TestTrackedComprehensionUnderTheCapsStops checks the guarantee of the
-// comprehension stop: a comprehension over the body, which no cap bounds,
-// stays tracked and stoppable under the caps and stops at an ended
-// context with KindDeadline.
-func TestTrackedComprehensionUnderTheCapsStops(t *testing.T) {
+// TestTrackedComprehensionUnderTheCapsEndsAtTheLimit checks the guarantee
+// of the cost limit for a comprehension: one over the body, which no cap
+// bounds, stays tracked under the caps and ends with KindCostLimit over
+// 200,000 items, 6 units each.
+func TestTrackedComprehensionUnderTheCapsEndsAtTheLimit(t *testing.T) {
 	c := newCompiler(t)
 	prg := mustCapped(t, c, at(expr.PlaceAuthzCELRule), `request.body.items.exists(i, i == "z")`, exampleCaps())
-	if !prg.tracked || !prg.stoppable {
-		t.Fatalf("body comprehension under the caps: tracked %v, stoppable %v; want both", prg.tracked, prg.stoppable)
+	if !prg.tracked {
+		t.Fatal("body comprehension under the caps is untracked")
 	}
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
-	items := make([]any, 1000)
+	items := make([]any, 200_000)
 	for i := range items {
 		items[i] = "a"
 	}
 	v := testVars()
 	v.Request.Body = celtypes.FromNative(map[string]any{"items": items})
-	_, err := prg.EvalBool(ended, v)
+	_, err := prg.EvalBool(v)
 	var ee *expr.EvalError
-	if !errors.As(err, &ee) || ee.Kind != expr.KindDeadline {
-		t.Errorf("EvalBool under an ended context = %v, want KindDeadline", err)
+	if !errors.As(err, &ee) || ee.Kind != expr.KindCostLimit {
+		t.Errorf("EvalBool over 200,000 body items = %v, want KindCostLimit", err)
 	}
 }
 

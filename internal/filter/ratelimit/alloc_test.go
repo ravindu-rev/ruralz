@@ -72,7 +72,7 @@ func TestAdmitAddsNoAllocations(t *testing.T) {
 	for range 10 {
 		l.run(ctx, t)
 	}
-	key := testing.AllocsPerRun(500, func() { _, _ = l.f.key.EvalString(ctx, l.x.Vars()) })
+	key := testing.AllocsPerRun(500, func() { _, _ = l.f.key.EvalString(l.x.Vars()) })
 	if n := testing.AllocsPerRun(500, func() { l.run(ctx, t) }); n > key {
 		t.Errorf("an admitted request allocates %v per run, its key evaluation %v: the Filter adds allocations", n, key)
 	}
@@ -118,7 +118,7 @@ func TestLocalDenyAllocatesOnlyTheResponse(t *testing.T) {
 		f.Finish(ctx, x)
 	}
 	deny()
-	key := testing.AllocsPerRun(200, func() { _, _ = f.key.EvalString(ctx, x.Vars()) })
+	key := testing.AllocsPerRun(200, func() { _, _ = f.key.EvalString(x.Vars()) })
 	if n := testing.AllocsPerRun(200, deny); n-key > 5 {
 		t.Errorf("a local denial allocates %v per run beyond its key's %v, want its response only (at most 5)", n-key, key)
 	}

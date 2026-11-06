@@ -34,7 +34,7 @@ func TestEvalInt(t *testing.T) {
 		{at(expr.PlaceRateLimitCost), `dyn(3)`, 3},
 		{at(expr.PlaceRateLimitCost), `-2`, -2},
 	} {
-		got, err := mustProgram(t, c, tc.site, tc.src).EvalInt(t.Context(), testVars())
+		got, err := mustProgram(t, c, tc.site, tc.src).EvalInt(testVars())
 		if err != nil || got != tc.want {
 			t.Errorf("EvalInt(%q) = %d, %v; want %d", tc.src, got, err, tc.want)
 		}
@@ -47,14 +47,14 @@ func TestEvalInt(t *testing.T) {
 func TestEvalIntResultType(t *testing.T) {
 	c := newCompiler(t)
 	for _, src := range []string{`dyn("x")`, `auth.claims.scope`, `dyn(1u)`} {
-		_, err := mustProgram(t, c, at(expr.PlaceRateLimitCost), src).EvalInt(t.Context(), testVars())
+		_, err := mustProgram(t, c, at(expr.PlaceRateLimitCost), src).EvalInt(testVars())
 		var ee *expr.EvalError
 		if !errors.As(err, &ee) || ee.Kind != expr.KindResultType || ee.Place != expr.PlaceRateLimitCost {
 			t.Errorf("EvalInt(%q) = %v, want KindResultType at the cost place", src, err)
 		}
 	}
 	prg := mustProgram(t, c, at(expr.PlaceTransformRequestBody), `1`)
-	if _, err := prg.EvalString(t.Context(), testVars()); err == nil {
+	if _, err := prg.EvalString(testVars()); err == nil {
 		t.Error("EvalString of an int result succeeded")
 	}
 }
@@ -105,14 +105,14 @@ func TestNetPrefix(t *testing.T) {
 		{`net.prefix("2001:DB8::1", 32, 48)`, "2001:db8::/48"},
 		{`net.prefix(source.ip, 32, 64)`, "192.0.2.1/32"},
 	} {
-		got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), tc.src).EvalString(t.Context(), testVars())
+		got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), tc.src).EvalString(testVars())
 		if err != nil || got != tc.want {
 			t.Errorf("EvalString(%q) = %q, %v; want %q", tc.src, got, err, tc.want)
 		}
 	}
 	v := testVars()
 	v.Source.IP = netip.MustParseAddr("2001:db8:1:2:aaaa::9")
-	got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), `net.prefix(source.ip, 32, 64)`).EvalString(t.Context(), v)
+	got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), `net.prefix(source.ip, 32, 64)`).EvalString(v)
 	if err != nil || got != "2001:db8:1:2::/64" {
 		t.Errorf("net.prefix of an IPv6 client = %q, %v; want its /64", got, err)
 	}
@@ -132,7 +132,7 @@ func TestNetPrefixErrors(t *testing.T) {
 		`net.prefix("2001:db8::1", 32, 129)`,
 		`net.prefix("2001:db8::1", 32, -1)`,
 	} {
-		_, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), src).EvalString(t.Context(), testVars())
+		_, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), src).EvalString(testVars())
 		var ee *expr.EvalError
 		if !errors.As(err, &ee) {
 			t.Errorf("EvalString(%q) = %v, want an EvalError", src, err)
@@ -143,7 +143,7 @@ func TestNetPrefixErrors(t *testing.T) {
 		}
 	}
 	// Out-of-range lengths are refused only for the address's own family.
-	got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), `net.prefix("192.0.2.1", 32, 200)`).EvalString(t.Context(), testVars())
+	got, err := mustProgram(t, c, at(expr.PlaceRateLimitKey), `net.prefix("192.0.2.1", 32, 200)`).EvalString(testVars())
 	if err != nil || got != "192.0.2.1/32" {
 		t.Errorf("IPv4 with an unused IPv6 length out of range = %q, %v; want 192.0.2.1/32", got, err)
 	}
@@ -218,7 +218,7 @@ func TestNetPrefixRuntimeCost(t *testing.T) {
 	if !prg.tracked {
 		t.Fatal("net.prefix over an unbounded source.ip is untracked")
 	}
-	if got, err := prg.EvalString(t.Context(), testVars()); err != nil || got != "192.0.2.1/32" {
+	if got, err := prg.EvalString(testVars()); err != nil || got != "192.0.2.1/32" {
 		t.Errorf("tracked net.prefix = %q, %v", got, err)
 	}
 }
