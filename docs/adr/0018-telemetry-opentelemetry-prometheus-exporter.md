@@ -45,7 +45,7 @@ Chosen option: "OpenTelemetry-first with an external producer and the OpenTeleme
 | Conventions and resource | HTTP semantic conventions without `url.full` and `url.query`; `gen_ai.*` pinned to one commit per release; `service.name`, `service.version`, `service.instance.id` | Planned (M1); `gen_ai` Planned (M3) |
 | Vendor SDKs | None; vendors read the operator's OpenTelemetry Collector or a Prometheus-compatible scraper | Not planned: one export path (P1) |
 
-When v1.47.0 brings the expected stable Logs API and SDK ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)), it replaces the release-candidate SDK behind the bridge; `slog` call sites stay.
+The bridge feeds the Logs SDK, stable since v1.47.0 ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0)); `slog` call sites stay.
 
 *Figure 1: one collection of Ruralz aggregates feeds both metric exports; only `internal/telemetry` imports OpenTelemetry.*
 
@@ -81,12 +81,12 @@ flowchart LR
 
 - Good, because OTLP and `/metrics` read one collection, so names and values match and each operation aggregates once.
 - Good, because Ruralz, not the SDK, ends series, so Hot Reloads that rename Routes retire series within the [Cardinality budget](../architecture/10-observability.md#cardinality-budget).
-- Good, because the confinement is lint, so churn in the pre-stable Logs SDK and the pre-1.0 exporter touches one package.
+- Good, because the confinement is lint, so churn in the pre-1.0 `otelslog` bridge and exporter touches one package.
 - Good, because `slog` call sites survive v1.47.0 unchanged, and (`trace_id`, server `span_id`) correlates spans, logs, exemplars and `requestId` (O6).
 - Bad, because the exporter is pre-1.0 and its default strategy appends suffixes, so Ruralz MUST set the strategy and re-check each upgrade.
 - Bad, because `otlptranslator`'s newest release dates from 2025-09-09 ([source](https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/list)), failing S1.
 - Bad, because the producer bypasses SDK aggregation and exemplar reservoirs, so Ruralz code owns buckets, exemplar slots and their tests.
-- Bad, because until v1.47.0 the bridge feeds a pre-stable SDK, and v1.47.0-rc.1 already deprecates `otel/log/global` ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)).
+- Bad, because the `otelslog` bridge stays pre-1.0 beside the stable Logs SDK, and v1.47.0 deprecates `otel/log/global` ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)).
 - Bad, because library instruments rename between releases (grpc-go v1.84.0 ([source](https://github.com/grpc/grpc-go/releases/tag/v1.84.0))), so Grafana dashboards and alerts use only `ruralz_*` names.
 - Bad, because the lossless audit export waits on OQ-observability-19 (blocking for Planned (M2)), and OTLP authentication headers come after `telemetry.otlp.tls`, Planned (M1) ([Configuration model](../architecture/02-configuration-model.md#gateway)).
 
@@ -126,7 +126,7 @@ flowchart LR
 
 ## More information
 
-- Also rejected: logs on the release-candidate Logs API, since call sites would use an API whose global logger package is already deprecated ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)); the Prometheus client for all metrics, since metrics would miss OTLP and operators would run two pipelines; and per-vendor exporters, since each vendor adds a dependency, a code path and a test matrix to every build.
+- Also rejected: logs on the OpenTelemetry Logs API directly, since call sites would use an API whose global logger package is deprecated ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)); the Prometheus client for all metrics, since metrics would miss OTLP and operators would run two pipelines; and per-vendor exporters, since each vendor adds a dependency, a code path and a test matrix to every build.
 - Owning document: [Observability](../architecture/10-observability.md#telemetry-pipeline). Catalog rows: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog). Import rules: [Import boundaries](../engineering/02-repository-layout-and-conventions.md#import-boundaries).
 - Related: [ADR-0006](0006-control-store-raft-boltdb.md) (`go-hclog` adapts to `slog`), [ADR-0007](0007-control-stream-protocol.md) (Node counters ride heartbeats) and [ADR-0014](0014-ai-api-surface.md) (`gen_ai`).
 - Revisit at OpenTelemetry Go v1.47.0, at the exporter's first v1 release, or when the name identity gate or PB-10 fails.
