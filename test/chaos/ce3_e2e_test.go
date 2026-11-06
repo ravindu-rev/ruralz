@@ -60,7 +60,7 @@ func ce3(t *testing.T, measurement bool) {
 		return r.SetStoreMode("main", faultproxy.Delay{Mean: ce3Added / 2})
 	})
 	fault := r.Hold(l, PhaseFault, FaultPhase)
-	end := r.Inject("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
+	end := r.Remove("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
 	rec := r.Hold(l, PhaseRecovery, RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)

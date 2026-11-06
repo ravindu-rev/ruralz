@@ -78,7 +78,7 @@ Each runner's job-started hook, `runner.sh admit`, runs before any step of the j
 3. Run `nightly.yml` on demand from `main`: its Latency job checks every host before each scenario and fails with an "RH-1 host check failed" annotation when a host's frequency, throttle counters or round trip are off.
 4. `chaos-scale.yml` reads the same inventory and places its `target` profile's runs on the four hosts: the Nodes on RH-1, the mock Upstreams on RH-1U, the State Store on RH-1S and the load on RH-1L, which returns every request's record once the run's load has ended ([Scale profiles](../../docs/engineering/03-testing-and-quality-strategy.md#scale-profiles)).
 
-Only protected branches and tags run on `rh-1`: the runner's hook admits no job of another ref or of a pull-request event, and each `rh-1` job's first step refuses them too, so the rulesets `scripts/repo-settings.sh` applies to `main`, `release-*` and `v*` tags must be in place first.
+Only protected branches and tags run on `rh-1`: the runner's hook admits no job of another ref or of a pull-request event, and each `rh-1` job's first step refuses them too, so the rulesets of `main`, `release-*` and `v*` tags ([Repository settings](../../docs/engineering/02-repository-layout-and-conventions.md#repository-settings)) must be in place first.
 
 ## Maintenance window
 

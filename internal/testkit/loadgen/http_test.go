@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -243,9 +244,9 @@ func TestHTTP1ConnectionBound(t *testing.T) {
 
 // A light HTTP/1.1 load keeps few connections of a pool busy, since the
 // pool takes its most recently used idle connection first; with
-// RoundRobin, requests spread over Connections by sequence number, so the
-// same light load uses every connection, each carrying one request at a
-// time.
+// RoundRobin, requests take Connections in turn, so the same light load
+// uses every connection, each carrying one request at a time, and a
+// request passes a busy connection over for the next free one.
 func TestHTTP1RoundRobin(t *testing.T) {
 	var s saw
 	srv := serve(t, s.handler(""))
@@ -272,27 +273,103 @@ func TestHTTP1RoundRobin(t *testing.T) {
 		t.Errorf("%d connections, by sequence %v; want 3, seq%%3 sharing one", spread.conns.Load(), locals)
 	}
 
-	// A round-robin connection carries one request at a time: request 3
-	// waits for request 0's connection while the others are free.
-	release := make(chan struct{})
-	var inHandler atomic.Int64
-	slow := serve(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		inHandler.Add(1)
-		<-release
-	}))
-	tg = newTarget(t, HTTPConfig{URL: slow.url, Connections: 3, RoundRobin: true})
-	go tg.Do(t.Context(), Request{Seq: 0})
-	waitFor(t, "request 0 in its handler", func() bool { return inHandler.Load() == 1 })
+	// A round-robin connection carries one request at a time, and a
+	// request takes the next connection in turn that is free: while
+	// request 0 holds its connection, requests 3, 6 and 9, which the
+	// sequence alone would have put there, take the other two; once every
+	// connection holds a request, the next one waits, and its context
+	// ends the wait without sending anything.
+	h := newHolder(t)
+	tg = newTarget(t, HTTPConfig{URL: h.url, Connections: 3, RoundRobin: true, Prepare: h.holdSeqs(0, 10, 11)})
+	h.goDo(tg, 0)
+	waitFor(t, "request 0 in its handler", func() bool { return h.held.Load() == 1 })
+	for _, seq := range []uint64{3, 6, 9} {
+		if resp := tg.Do(t.Context(), Request{Seq: seq}); resp.Outcome != Success || h.heldOn(resp.Conn.Local) {
+			t.Errorf("request %d beside a busy round-robin connection: %+v, want Success on a free connection", seq, resp)
+		}
+	}
+	h.goDo(tg, 10)
+	h.goDo(tg, 11)
+	waitFor(t, "a request on every connection", func() bool { return h.held.Load() == 3 })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	if resp := tg.Do(ctx, Request{Seq: 3}); resp.Outcome != Canceled || resp.Status != 0 {
-		t.Errorf("request on a busy round-robin connection: %+v, want Canceled before sending", resp)
+	if resp := tg.Do(ctx, Request{Seq: 12}); resp.Outcome != Canceled || resp.Status != 0 || h.answered.Load() != 3 {
+		t.Errorf("request with every round-robin connection busy: %+v, %d answered; want Canceled before sending, 3 answered", resp, h.answered.Load())
 	}
-	close(release)
+	h.finish()
 }
 
-// HTTP/2 requests spread over Connections by sequence number, and each
-// connection carries at most StreamsPerConn at once.
+// holder is a server answering every request at once but those carrying
+// X-Hold, which it holds until finish, recording the client address of
+// each held request's connection.
+type holder struct {
+	url      string
+	release  chan struct{}
+	held     atomic.Int64
+	answered atomic.Int64
+	mu       sync.Mutex
+	addrs    map[string]bool
+	wg       sync.WaitGroup
+}
+
+func newHolder(t *testing.T) *holder {
+	t.Helper()
+	h := &holder{release: make(chan struct{}), addrs: map[string]bool{}}
+	h.url = serve(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Hold") == "" {
+			h.answered.Add(1)
+			return
+		}
+		h.mu.Lock()
+		h.addrs[r.RemoteAddr] = true
+		h.mu.Unlock()
+		h.held.Add(1)
+		select {
+		case <-h.release:
+		case <-r.Context().Done():
+		}
+	})).url
+	t.Cleanup(h.finish)
+	return h
+}
+
+// holdSeqs returns a Prepare hook marking the requests seqs to be held.
+func (h *holder) holdSeqs(seqs ...uint64) func(*http.Request, uint64) {
+	return func(r *http.Request, seq uint64) {
+		if slices.Contains(seqs, seq) {
+			r.Header.Set("X-Hold", "1")
+		}
+	}
+}
+
+// goDo sends request seq through tg on a goroutine finish waits for.
+func (h *holder) goDo(tg *HTTPTarget, seq uint64) {
+	h.wg.Go(func() { tg.Do(context.Background(), Request{Seq: seq}) })
+}
+
+// heldOn reports whether a held request arrived on the connection whose
+// client address is local.
+func (h *holder) heldOn(local string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.addrs[local]
+}
+
+// finish releases the held requests and waits for every goDo.
+func (h *holder) finish() {
+	h.mu.Lock()
+	select {
+	case <-h.release:
+	default:
+		close(h.release)
+	}
+	h.mu.Unlock()
+	h.wg.Wait()
+}
+
+// HTTP/2 requests take Connections in turn, each connection carrying at
+// most StreamsPerConn at once, and a request passes a connection whose
+// streams are all taken over for the next one with a free stream.
 func TestHTTP2LanesAndStreamBound(t *testing.T) {
 	var s saw
 	srv := serve(t, s.handler(""))
@@ -309,25 +386,110 @@ func TestHTTP2LanesAndStreamBound(t *testing.T) {
 		t.Errorf("%d connections, by sequence %v; want 3, seq%%3 sharing one", srv.conns.Load(), locals)
 	}
 
-	release := make(chan struct{})
-	held := make(chan struct{})
-	var once sync.Once
-	slow := serve(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		once.Do(func() { close(held) })
-		<-release
-	}))
-	tg = newTarget(t, HTTPConfig{URL: slow.url, Protocol: H2C, Connections: 2, StreamsPerConn: 1})
-	go tg.Do(t.Context(), Request{Seq: 0})
-	<-held
-	// Request 2 shares request 0's connection, whose one stream is taken:
-	// it waits, and its context ends the wait without sending anything.
+	// With request 0 holding its connection's one stream, request 2,
+	// which the sequence alone would have put beside it, takes the other
+	// connection's; once request 4 holds that one too, request 6 waits,
+	// and its context ends the wait without sending anything.
+	h := newHolder(t)
+	tg = newTarget(t, HTTPConfig{URL: h.url, Protocol: H2C, Connections: 2, StreamsPerConn: 1, Prepare: h.holdSeqs(0, 4)})
+	h.goDo(tg, 0)
+	waitFor(t, "request 0 in its handler", func() bool { return h.held.Load() == 1 })
+	if resp := tg.Do(t.Context(), Request{Seq: 2}); resp.Outcome != Success || resp.Proto != "HTTP/2.0" || h.heldOn(resp.Conn.Local) {
+		t.Errorf("request beside a connection with no free stream: %+v, want Success on the other connection", resp)
+	}
+	h.goDo(tg, 4)
+	waitFor(t, "a held stream on each connection", func() bool { return h.held.Load() == 2 })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
-	resp := tg.Do(ctx, Request{Seq: 2})
-	if resp.Outcome != Canceled || resp.Status != 0 {
-		t.Errorf("queued stream: %+v, want Canceled before sending", resp)
+	if resp := tg.Do(ctx, Request{Seq: 6}); resp.Outcome != Canceled || resp.Status != 0 || h.answered.Load() != 1 {
+		t.Errorf("queued stream: %+v, %d answered; want Canceled before sending, 1 answered", resp, h.answered.Load())
 	}
-	close(release)
+	h.finish()
+}
+
+// A round-robin connection that never answers, as one to a Node of the
+// zone GD-2 loses, holds only its own request: under the generator, every
+// later request takes another connection at its intended time, none
+// waits behind the hung one, so the workers never run out, no backlog
+// builds and nothing floods out once the hung request's timeout frees its
+// connection, which the next request taking it then dials anew (Testing
+// "Load generator and L4 balancer", HTTP). Requests queued behind the
+// hung connection would hold a worker each until that timeout: with two
+// workers, request 3 would never end before it.
+func TestRoundRobinHungConnectionHoldsOnlyItsRequest(t *testing.T) {
+	var mu sync.Mutex
+	hung := "" // client address of the connection that never answers
+	var onHung atomic.Int64
+	srv := serve(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		if hung == "" {
+			hung = r.RemoteAddr
+		}
+		never := r.RemoteAddr == hung
+		mu.Unlock()
+		if never {
+			onHung.Add(1)
+			<-r.Context().Done()
+		}
+	}))
+	tg := newTarget(t, HTTPConfig{URL: srv.url, Connections: 3, RoundRobin: true})
+	const n = 12
+	var smu sync.Mutex
+	var samples []Sample
+	fk := clocktest.New(epoch())
+	g := start(t, tg, Config{
+		Rate: 100, Requests: n, Timeout: time.Second, MaxInFlight: 2, Clock: fk,
+		OnResult: func(s Sample) {
+			smu.Lock()
+			samples = append(samples, s)
+			smu.Unlock()
+		},
+	})
+	waitFor(t, "request 0 on the connection that never answers", func() bool { return onHung.Load() == 1 })
+	for i := 1; i < n; i++ {
+		fk.Jump(ms(10))
+		waitFor(t, fmt.Sprintf("request %d to end beside the hung connection", i), func() bool {
+			p := g.Progress()
+			return p.Done == int64(i) && p.InFlight == 1
+		})
+		if p := g.Progress(); p.Backlog != 0 || p.Missed != 0 {
+			t.Fatalf("after request %d: %d waiting, %d missed; want none", i, p.Backlog, p.Missed)
+		}
+	}
+	fk.Jump(time.Second)
+	res, err := g.Wait()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := res.Measured; m.Count(Success) != n-1 || m.Count(Timeout) != 1 || onHung.Load() != 1 {
+		t.Errorf("outcomes %v, %d requests on the hung connection; want %d successes, 1 timeout, 1 on it", m.Outcomes, onHung.Load(), n-1)
+	}
+	mu.Lock()
+	never := hung
+	mu.Unlock()
+	smu.Lock()
+	for _, s := range samples {
+		if s.Seq == 0 {
+			continue
+		}
+		if s.Outcome != Success || !s.Sent.Equal(s.Intended) || !s.Done.Equal(s.Intended) || s.Conn.Local == never {
+			t.Errorf("request %d: %v sent %v after its intended time, %v to its end, on %s; want Success at once off the hung connection %s",
+				s.Seq, s.Outcome, s.Sent.Sub(s.Intended), s.Done.Sub(s.Intended), s.Conn.Local, never)
+		}
+	}
+	smu.Unlock()
+	// The hung connection closed at its request's timeout; the slot
+	// freed then comes last in turn, so the third request from here takes
+	// it and dials anew, while the other two reuse their connections.
+	dialed := srv.conns.Load()
+	for seq := uint64(n); seq < n+3; seq++ {
+		if resp := tg.Do(t.Context(), Request{Seq: seq}); resp.Outcome != Success || resp.Conn.Local == never {
+			t.Fatalf("request %d after the timeout: %+v", seq, resp)
+		}
+	}
+	if got := srv.conns.Load() - dialed; got != 1 {
+		t.Errorf("%d connections dialed after the hung request's timeout, want 1 in its place", got)
+	}
 }
 
 func TestHTTPDisableKeepAlives(t *testing.T) {
@@ -426,16 +588,16 @@ func TestNewHTTPRejects(t *testing.T) {
 		}
 	}
 	tg, err := NewHTTP(HTTPConfig{URL: "http://127.0.0.1/", Protocol: H2C})
-	if err != nil || len(tg.groups) != 1 || len(tg.groups[0]) != DefaultHTTP2Connections || cap(tg.groups[0][0].sem) != DefaultHTTP2Streams {
-		t.Errorf("h2c defaults: %d lanes of %d streams, err %v; want PBB S3's 64 of 64", len(tg.groups[0]), cap(tg.groups[0][0].sem), err)
+	if err != nil || len(tg.groups) != 1 || len(tg.groups[0].lanes) != DefaultHTTP2Connections || cap(tg.groups[0].free) != DefaultHTTP2Connections*DefaultHTTP2Streams {
+		t.Errorf("h2c defaults: %d lanes, %d stream slots, err %v; want PBB S3's 64 of 64", len(tg.groups[0].lanes), cap(tg.groups[0].free), err)
 	}
 	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/"})
-	if err != nil || len(tg.groups) != 1 || tg.groups[0][0].tr.MaxConnsPerHost != DefaultHTTP1Connections {
-		t.Errorf("HTTP/1.1 default connections %d, err %v; want PBB S1's 256", tg.groups[0][0].tr.MaxConnsPerHost, err)
+	if err != nil || len(tg.groups) != 1 || tg.groups[0].lanes[0].tr.MaxConnsPerHost != DefaultHTTP1Connections || tg.groups[0].free != nil {
+		t.Errorf("HTTP/1.1 default connections %d, err %v; want PBB S1's 256 in one pool", tg.groups[0].lanes[0].tr.MaxConnsPerHost, err)
 	}
 	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/", RoundRobin: true})
-	if err != nil || len(tg.groups) != 1 || len(tg.groups[0]) != DefaultHTTP1Connections || tg.groups[0][0].tr.MaxConnsPerHost != 1 || tg.groups[0][0].sem != nil {
-		t.Errorf("round-robin HTTP/1.1 defaults: %d lanes, err %v; want PBB S1's 256 of one connection each", len(tg.groups[0]), err)
+	if err != nil || len(tg.groups) != 1 || len(tg.groups[0].lanes) != DefaultHTTP1Connections || tg.groups[0].lanes[0].tr.MaxConnsPerHost != 1 || cap(tg.groups[0].free) != DefaultHTTP1Connections {
+		t.Errorf("round-robin HTTP/1.1 defaults: %d lanes, err %v; want PBB S1's 256 of one connection and one request each", len(tg.groups[0].lanes), err)
 	}
 }
 

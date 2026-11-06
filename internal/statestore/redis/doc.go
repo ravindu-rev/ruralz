@@ -40,9 +40,14 @@
 // whatever its address. Commands always go through the auto-pipelined connections
 // (2 per shard, rueidis PipelineMultiplex 1), whose rings together hold
 // the Node's 8,192 calls in flight (ringScaleOf); up to 8 dedicated
-// connections per shard open lazily and no M1 call uses one. Client-side
-// caching and retries are off: no call makes a second round trip, and a
-// cluster command follows at most MaxRedirects MOVED or ASK replies.
+// connections per shard open lazily and no M1 call uses one. rueidis
+// dials a pipelined connection only when the first command is routed to
+// it, so the maintenance goroutine opens every pipelined connection of a
+// shard once, when the shard first serves (warm), and no call waits for a
+// first dial within its deadline; a connection that closes later redials
+// on demand. Client-side caching and retries are off: no call makes a
+// second round trip, and a cluster command follows at most MaxRedirects
+// MOVED or ASK replies.
 // rediss:// verifies every server, cluster node and sentinel for the host
 // it dials, against its TLS block's CA and presenting its client
 // certificate (tlsconf.StateStoreClient, which follows rotations until

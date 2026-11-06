@@ -596,7 +596,12 @@ func (e *lkgEnv) checkBoot(p *lkgProcess, want revision.Digest) {
 // verified through the full gate, or by the file-mode order without one;
 // it writes nothing before it holds the lock. Then the holder exits and
 // the successor takes the lock, loads the source and writes its active
-// Revision.
+// Revision. The successor decides that load before the step ends, as
+// every step decides its own: it activates a source that passes the gate
+// and rejects any other with the gate's code, still serving what it
+// booted. A load left undecided would activate during the next step,
+// taking the compile fault that step injects or replacing the rejection
+// it waits for.
 func (e *lkgEnv) handover() {
 	t := e.t
 	t.Helper()
@@ -630,8 +635,21 @@ func (e *lkgEnv) handover() {
 	s.held.Store(true)
 	s.l.TookLock()
 	waitFor(t, "the successor's first source load", func() bool { return s.loads.Load() > loads })
-	if e.src == srcValid {
+	switch e.src {
+	case srcValid:
 		e.waitActive(s, e.srcDigest)
+	case srcParse:
+		e.waitRejected(s, revision.Digest{}, codeParse)
+		e.unchanged(s, want)
+	case srcRef:
+		e.waitRejected(s, revision.Digest{}, codeRef)
+		e.unchanged(s, want)
+	case srcUnserved:
+		e.waitRejected(s, e.srcDigest, codeUnserved)
+		e.unchanged(s, want)
+	default:
+		// srcMissing loads nothing; no step ends on srcSecret, as op 4
+		// writes its secret and waits for the retry before it returns.
 	}
 	e.cur = s
 }

@@ -50,15 +50,36 @@ type raw struct {
 	kw        Keywords
 }
 
-// cond is a supported "if" schema: required members and member consts.
+// cond is a supported "if" schema: the members it tests, each required and
+// each against a scalar const (parseCond), and the condKey of each.
 type cond struct {
-	required []string
-	consts   []Condition
+	consts []Condition
+	keys   []string
+}
+
+// condKey returns the key of one member const: two consts of one member
+// have one key exactly when an instance value equal to one (constEqual)
+// equals the other, so strings compare by text and numbers by value
+// (numberKey). The member name is length-prefixed, so no member and value
+// pair reads as another.
+func condKey(k Condition) string {
+	var v string
+	switch t := k.Value.(type) {
+	case string:
+		v = "s" + t
+	case bool:
+		v = "b" + strconv.FormatBool(t)
+	case json.Number:
+		v = "n" + numberKey(string(t))
+	default:
+		v = "z"
+	}
+	return strconv.Itoa(len(k.Member)) + ":" + k.Member + v
 }
 
 // Condition is one member constraint of an if/then dispatch rule: the
-// instance object's member Member equals the JSON scalar Value (a string,
-// json.Number, bool or nil).
+// instance object has the member Member, equal to the JSON scalar Value (a
+// string, json.Number, bool or nil).
 type Condition struct {
 	// Member is the object member name, such as "type".
 	Member string
@@ -471,18 +492,26 @@ func parseCEL(v any, ptr string) (*CELSpec, error) {
 }
 
 // parseCond accepts the dispatch form the generator emits:
-// {"properties": {"<m>": {"const": <scalar>}}, "required": ["<m>"]}.
+// {"properties": {"<m>": {"const": <scalar>}}, "required": ["<m>"]}, with
+// one or more tested members, each against a scalar const and each
+// required. A rule then matches exactly the objects that have every tested
+// member with its const, which its Conditions state whole (Dispatch,
+// DispatchValues). Any other if is refused: one testing nothing, a member
+// required but not tested against a const, or a const on a member not
+// required (which an object lacking the member satisfies) would match
+// objects that no list of Conditions describes.
 func parseCond(v any, ptr string) (*cond, error) {
 	m, ok := v.(map[string]any)
 	if !ok {
 		return nil, schemaErr(ptr, "if must be an object")
 	}
 	c := &cond{}
+	var required []string
 	for _, k := range slices.Sorted(maps.Keys(m)) {
 		switch k {
 		case "required":
 			var err error
-			if c.required, err = stringList(m[k], ptr, "required"); err != nil {
+			if required, err = stringList(m[k], ptr, "required"); err != nil {
 				return nil, err
 			}
 		case "properties":
@@ -501,6 +530,20 @@ func parseCond(v any, ptr string) (*cond, error) {
 		default:
 			return nil, schemaErr(ptr, "if supports only properties with const and required, not %s", k)
 		}
+	}
+	if len(c.consts) == 0 {
+		return nil, schemaErr(ptr, "if must test at least one member against a const")
+	}
+	for _, r := range required {
+		if !slices.ContainsFunc(c.consts, func(k Condition) bool { return k.Member == r }) {
+			return nil, schemaErr(ptr, "if requires %q without testing it against a const", r)
+		}
+	}
+	for _, k := range c.consts {
+		if !slices.Contains(required, k.Member) {
+			return nil, schemaErr(ptr, "if tests %q against a const without requiring it", k.Member)
+		}
+		c.keys = append(c.keys, condKey(k))
 	}
 	return c, nil
 }

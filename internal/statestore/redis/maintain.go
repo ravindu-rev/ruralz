@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"math/bits"
 	"net"
+	"strconv"
 	"time"
 
 	"github.com/redis/rueidis"
@@ -61,6 +62,12 @@ func (d *Driver) options() rueidis.ClientOption {
 	opt.AlwaysPipelining = true
 	opt.AlwaysRESP2 = false
 	opt.PipelineMultiplex = multiplexOf(d.lim.PipelinedPerShard)
+	if opt.PipelineMultiplex == 0 {
+		// rueidis reads 0 on a standalone or sentinel client as
+		// log2(GOMAXPROCS) connections, up to 4; a negative value is one,
+		// the count warm opens.
+		opt.PipelineMultiplex = -1
+	}
 	opt.RingScaleEachConn = ringScaleOf(d.lim.InFlight, d.lim.PipelinedPerShard)
 	opt.BlockingPoolSize = max(d.lim.DedicatedPerShard, 1)
 	switch d.topo {
@@ -110,9 +117,14 @@ func multiplexOf(n int) int {
 	return bits.Len(uint(n)) - 1
 }
 
+// pipelinedConns returns the pipelined connections the State client keeps
+// per shard for n of Limits.PipelinedPerShard: 2^multiplexOf(n).
+func pipelinedConns(n int) int { return 1 << multiplexOf(n) }
+
 // maintain runs the maintenance loop until ctx ends: it creates the State
-// client, keeps a cluster's slot map, probes half-open breakers, reads
-// INFO memory and retries pending script loads.
+// client, keeps a cluster's slot map, probes half-open breakers, opens each
+// shard's pipelined connections, reads INFO memory and retries pending
+// script loads.
 func (d *Driver) maintain(ctx context.Context) {
 	defer close(d.maintDone)
 	t := d.clk.NewTimer(0)
@@ -131,8 +143,9 @@ func (d *Driver) maintain(ctx context.Context) {
 
 // tick runs one maintenance pass: it creates the State client when there
 // is none, follows the sentinel client's primary for the zone label,
-// keeps a cluster's slot map, probes half-open breakers, reads INFO memory
-// and retries pending script loads.
+// keeps a cluster's slot map, probes half-open breakers, opens the
+// pipelined connections of each shard that serves for the first time
+// (warm), reads INFO memory and retries pending script loads.
 func (d *Driver) tick(ctx context.Context) {
 	c := d.loadClient()
 	if c == nil {
@@ -174,6 +187,7 @@ func (d *Driver) tick(ctx context.Context) {
 		if sh.brk.State() == breaker.Open {
 			continue
 		}
+		d.warm(ctx, c, sh)
 		now := d.clk.Now()
 		if !sh.mem.due(now) {
 			continue
@@ -286,6 +300,45 @@ func (d *Driver) probeShard(ctx context.Context, sh *shard) {
 	}
 	tr.settle(true)
 	d.putTrip(tr)
+}
+
+// maxWarmPings bounds the PINGs one shard's warm-up sends (warm).
+const maxWarmPings = 64
+
+// warm opens, once per shard, the pipelined connections of sh that the
+// State client has not dialed yet, so no call waits for a first dial: the
+// client is created off the request path and keeps PipelinedPerShard
+// pipelined connections per shard
+// (docs/architecture/11-scalability-and-distributed-state.md "State client
+// and RZ-STS error codes"), but rueidis dials a pipelined connection only
+// when the first command is routed to it, and that command's caller would
+// wait for the dial, the TLS handshake, AUTH and SCRIPT LOAD within its
+// stateStoreTimeout and the per-request deadline, failing past them. rueidis
+// routes each command that names a slot to one of the shard's pipelined
+// connections at random, so warm sends PINGs that name one, each within
+// the admin timeout, until the dialer holds every pipelined connection of
+// the shard, at most maxWarmPings of them. The first PING that fails, as
+// each does once the driver closed, ends the warm-up, and the connections
+// it did not open dial on demand, as a closed connection redials. A
+// cluster node the client does not know yet is warmed by a later pass.
+func (d *Driver) warm(ctx context.Context, c rueidis.Client, sh *shard) {
+	if sh.warmed.Load() {
+		return
+	}
+	node := d.nodeClient(c, sh.addr)
+	if node == nil {
+		return
+	}
+	sh.warmed.Store(true)
+	want := pipelinedConns(d.lim.PipelinedPerShard)
+	for i := 0; i < maxWarmPings && d.conns.countOf(sh) < want; i++ {
+		actx, cancel := context.WithTimeout(ctx, d.opts.AdminTimeout)
+		err := node.Do(actx, node.B().Ping().Build().SetSlot(strconv.Itoa(i))).Error()
+		cancel()
+		if err != nil {
+			return
+		}
+	}
 }
 
 // readMemory reads INFO memory from sh. A failed or incomplete reading is

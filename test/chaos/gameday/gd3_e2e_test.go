@@ -33,7 +33,7 @@ func TestGD3StateStoreOutage(t *testing.T) {
 	base := r.Hold(l, chaos.PhaseBaseline, chaos.Baseline)
 	start := r.Inject("blackhole", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Blackhole{}) })
 	fault := r.Hold(l, chaos.PhaseFault, chaos.FaultPhase)
-	end := r.Inject("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
+	end := r.Remove("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
 	rec := r.Hold(l, chaos.PhaseRecovery, chaos.RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)
@@ -43,10 +43,11 @@ func TestGD3StateStoreOutage(t *testing.T) {
 	limited, closed, undeclared := l.StreamNamed("limited"), l.StreamNamed("closed"), l.StreamNamed("undeclared")
 	n := int64(r.Nodes)
 	r.Add(
-		chaos.Check("baseline RZ-STS responses", chaos.Functional, float64(chaos.CodesIn(closed, base.Start, base.End, chaos.STSCodes()...)), chaos.EQ, 0),
+		chaos.Check("baseline RZ-STS-002 responses", chaos.Functional, float64(chaos.CodesIn(closed, base.Start, base.End, chaos.ErrorReplyCodes()...)), chaos.EQ, 0),
 		r.AdmissionCheck("declared-ceiling fail-open admissions per key and window", limited, time.Second, start, fault.End, n*int64(plan.Ceiling)),
 		r.AdmissionCheck("file-mode fail-open admissions per key and window", undeclared, time.Second, start, fault.End, n*int64(plan.UndeclaredRequests)),
 	)
+	r.RecordExpiries("baseline", base.Start, base.End, closed.Requests())
 	order := chaos.CodeOrder(closed, start, fault.End, chaos.STSCodes()...)
 	t.Logf("gameday: %s: closed-Policy codes in the order they first appeared: %v", GD3, order)
 	r.Add(

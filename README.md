@@ -62,7 +62,7 @@ The four differentiators are (1) **WASM plugin system**, (2) **AI/LLM gateway**,
 
 ## Status
 
-Ruralz is building milestone M1 Core gateway, which release `0.1.0` completes. `0.1.0` is not out yet: until the [releases page](https://github.com/ravindu-rev/ruralz/releases) lists it, there is no archive or image to install, and `ruralzd` and the `ruralz` CLI build from source with `make build`. Its first release candidate, `v0.1.0-rc.1`, is tagged once the other [M1 exit criteria](docs/roadmap/01-roadmap-and-milestones.md#m1-exit-criteria) hold. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
+Ruralz is building milestone M1 Core gateway, which release `0.1.0` completes. `0.1.0` is not out yet: until the [releases page](https://github.com/ravindu-rev/ruralz/releases) lists it, there is no archive or image to install, and `ruralzd` and the `ruralz` CLI build from source with `make build`. `v0.1.0`, with no release candidate before it, is tagged once the other [M1 exit criteria](docs/roadmap/01-roadmap-and-milestones.md#m1-exit-criteria) hold. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
 
 | Milestone | Scope |
 |---|---|

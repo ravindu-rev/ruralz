@@ -52,7 +52,7 @@ Pack name: **M1** Core gateway. M1 ships a file-mode Ruralz Gateway with core Po
 4. The Feature Catalog gives 100% of rows a milestone or a reasoned `Not planned` (target), per SM-2, and 100% of rows tagged Planned (M1) are implemented (target), per SM-3.
 5. Every Open question blocking an M1 feature is closed: every row whose Blocking column names M1.
 
-Release `0.1.0` completes the exit: its first candidate, `v0.1.0-rc.1`, is tagged only once criteria 2 to 5 hold and `t5-systemd.yml` has passed ([Release runbook](../engineering/04-release-versioning-and-compatibility.md#release-runbook)).
+Release `0.1.0` completes the exit: `v0.1.0`, which has no release candidate, is tagged only once criteria 2 to 5 hold and `t5-systemd.yml` has passed ([Release runbook](../engineering/04-release-versioning-and-compatibility.md#release-runbook)).
 
 ## M2 WASM and Control with GitOps
 

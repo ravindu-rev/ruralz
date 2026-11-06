@@ -51,8 +51,7 @@ func Start(ctx context.Context, c Config) (*Proxy, error) {
 		return nil, fmt.Errorf("respproxy: %w", err)
 	}
 	// The fault proxy closes itself when ctx ends; closing the Counter
-	// then too releases held replies, which the fault proxy's Close
-	// waits for.
+	// then too ends its holds and their timers.
 	return &Proxy{Proxy: fp, Counter: ctr, stop: context.AfterFunc(ctx, ctr.Close)}, nil
 }
 

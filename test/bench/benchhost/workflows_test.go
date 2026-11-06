@@ -138,9 +138,10 @@ func TestChaosScaleWorkflow(t *testing.T) {
 
 // TestSchedules: release-verify.yml, the weekly re-verification of the
 // newest release of each supported line, is the only workflow on a
-// schedule. nightly.yml and chaos-scale.yml run on demand and in the
-// release run, and image-checks.yml and t5-systemd.yml also on the pushes
-// to main that change their inputs
+// schedule. nightly.yml runs on every merge to main, on demand and in the
+// release run, chaos-scale.yml on demand and in the release run, and
+// image-checks.yml and t5-systemd.yml on the merges to main that change
+// their inputs, on demand and in the release run
 // (docs/engineering/02-repository-layout-and-conventions.md, "CI
 // stages").
 func TestSchedules(t *testing.T) {
@@ -162,7 +163,7 @@ func TestSchedules(t *testing.T) {
 		t.Errorf("scheduled workflows = %q, want only release-verify.yml", scheduled)
 	}
 	for name, triggers := range map[string][]string{
-		"nightly.yml":      {"workflow_dispatch", "workflow_call"},
+		"nightly.yml":      {"push", "workflow_dispatch", "workflow_call"},
 		"chaos-scale.yml":  {"workflow_dispatch", "workflow_call"},
 		"image-checks.yml": {"push", "workflow_dispatch", "workflow_call"},
 		"t5-systemd.yml":   {"push", "workflow_dispatch", "workflow_call"},
@@ -172,6 +173,9 @@ func TestSchedules(t *testing.T) {
 			if !strings.Contains(wf, "\n  "+tr+":\n") {
 				t.Errorf("%s lacks the %s trigger", name, tr)
 			}
+		}
+		if slices.Contains(triggers, "push") && !strings.Contains(wf, "\n  push:\n    branches: [main]\n") {
+			t.Errorf("%s runs on pushes to branches other than main", name)
 		}
 	}
 }

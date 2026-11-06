@@ -102,8 +102,9 @@ func TestEverySchemaPathResolvable(t *testing.T) {
 			}
 		}
 	})
+	key := freeName(x)
 	for _, f := range fields {
-		res, path := instanceFor(f)
+		res, path := instanceFor(f, key)
 		info, ok := x.Lookup(f.Kind, res, path)
 		if !ok || info.Node != f.Node {
 			t.Errorf("Lookup(%s %s %v) = %v %v, want the enumerated node", f.Kind, f.Path, f.Where, info.Node.Def(), ok)
@@ -313,6 +314,34 @@ func TestLevelIsMaxSince(t *testing.T) {
 	})
 	if got := v1(t).Level(); got != want {
 		t.Fatalf("Level() = %d, want %d", got, want)
+	}
+}
+
+func TestDispatchResultsShared(t *testing.T) {
+	// Select returns one Node, on every call, for an object with the
+	// members one rule tests, also where several rules test the same
+	// member and value (in the committed schema PolicySpec tests type
+	// against "plugin" twice), so Walk and Lookup report equal Info there.
+	for name, x := range map[string]*Index{"committed": v1(t), "matching together": mustLoad(t, matchingTogether)} {
+		together := 0
+		for _, n := range x.memo {
+			for i, c := range n.cases {
+				obj := &tree.Node{Kind: tree.KindMap}
+				for _, k := range c.ifc.consts {
+					obj.Set(k.Member, tree.Pos{}, scalarTree(k.Value))
+				}
+				if a, b := n.Select(obj), n.Select(obj); a != b {
+					t.Errorf("%s: Select(%+v) at %v returned two nodes", name, c.ifc.consts, partPtrs(n))
+				}
+				if strings.Count(string(n.ruleMask(i)), "1") > 1 {
+					together++
+				}
+			}
+		}
+		t.Logf("%s: %d rules match together with another", name, together)
+		if name == "matching together" && together == 0 {
+			t.Errorf("%s: no rules match together", name)
+		}
 	}
 }
 

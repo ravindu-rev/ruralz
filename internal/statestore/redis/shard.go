@@ -50,6 +50,10 @@ type shard struct {
 
 	mem memory
 
+	// warmed is set once the maintenance goroutine began opening the
+	// shard's pipelined connections (warm).
+	warmed atomic.Bool
+
 	// reconnects spaces the READONLY reconnects (minRefreshGap).
 	reconnects rateLog
 

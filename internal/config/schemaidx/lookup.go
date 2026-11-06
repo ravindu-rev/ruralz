@@ -155,8 +155,11 @@ func itemSchema(parent *Node, parentFree bool) (child *Node, free, ok bool) {
 // envelope tree (apiVersion, kind, metadata, spec); it selects the if/then
 // dispatch along the path (such as Policy spec.config by spec.type) and
 // may be nil or lack the path, in which case dispatch falls back to the
-// static schema. ok is false for an unknown kind or a path the schema
-// does not allow.
+// static schema. Each path element names the first matching instance node,
+// as in tree.At: the first member of the name, the first keyed-list entry
+// with the key, the first equal set element; a later duplicate, which Walk
+// visits under the same path, is not reached. ok is false for an unknown
+// kind or a path the schema does not allow.
 func (x *Index) Lookup(kind string, res *tree.Node, path diag.Path) (Info, bool) {
 	info, _, ok := x.resolve(kind, res, path, false)
 	return info, ok

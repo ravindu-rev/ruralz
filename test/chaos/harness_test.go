@@ -638,6 +638,44 @@ func TestReasonClearedAtDatesTheAnswer(t *testing.T) {
 	}
 }
 
+// TestQueueDrops checks that QueueDrops counts the writes the Nodes'
+// post-commit queues dropped for a reason of their own, such as a full
+// class, and leaves out those the State client skipped without a call for
+// an open breaker, which the queue drops too: a Node whose breaker opened
+// while its class never filled, as every Node of a CE-16 run whose 2,020
+// cache_set drops were all skipped writes, counts none.
+func TestQueueDrops(t *testing.T) {
+	s := &Sampler{keep: DefaultKeep(), ids: map[string]int{}, samples: map[string][]Sample{}}
+	expo := func(dropped, skipped int) promtext.Set {
+		text := "# TYPE ruralz_state_writes_dropped_total counter\n" +
+			`ruralz_state_writes_dropped_total{kind="cache_set"} ` + strconv.Itoa(dropped) + "\n" +
+			`ruralz_state_writes_dropped_total{kind="cache_invalidate"} ` + strconv.Itoa(skipped) + "\n" +
+			"# TYPE ruralz_state_calls_total counter\n" +
+			`ruralz_state_calls_total{op="cache_set",result="skipped"} ` + strconv.Itoa(skipped) + "\n" +
+			`ruralz_state_calls_total{op="cache_set",result="timeout"} ` + strconv.Itoa(dropped) + "\n" +
+			`ruralz_state_calls_total{op="cache_get",result="skipped"} ` + strconv.Itoa(3*skipped) + "\n"
+		set, err := promtext.ParseBytes([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	// node-1's class filled: 40 drops, 10 of them skipped writes; node-2's
+	// breaker opened: every drop a skipped write.
+	s.record("node-1", at(0), at(0), at(1), expo(5, 5), nil)
+	s.record("node-1", at(1000), at(1000), at(1001), expo(45, 15), nil)
+	s.record("node-2", at(0), at(0), at(1), expo(0, 0), nil)
+	s.record("node-2", at(1000), at(1000), at(1001), expo(2020, 2020), nil)
+	if got := s.QueueDrops("cache_set", at(0), at(1000)); got != 30 {
+		t.Errorf("QueueDrops(cache_set) = %v, want node-1's 30 drops of a full class", got)
+	}
+	// Only the skips of the write's own op are left out: the lookups'
+	// skipped cache_get calls drop no invalidation.
+	if got := s.QueueDrops("cache_invalidate", at(0), at(1000)); got != 2030 {
+		t.Errorf("QueueDrops(cache_invalidate) = %v, want every one of the 2,030 drops", got)
+	}
+}
+
 // TestStreamKeepAttributesEveryRequest: a stream attributes every
 // finished request to its Node as it ends, an answered one as well as a
 // failed one, before a later connection from the same client address, as

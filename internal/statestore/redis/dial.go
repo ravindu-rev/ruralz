@@ -378,6 +378,20 @@ func (s *connSet) len() int {
 	return len(s.conns)
 }
 
+// countOf returns the open connections to sh's server, sentinel
+// connections excepted.
+func (s *connSet) countOf(sh *shard) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for c := range s.conns {
+		if c.sh == sh && !c.sentinel {
+			n++
+		}
+	}
+	return n
+}
+
 // closeWhere closes the connections match selects and returns how many.
 func (s *connSet) closeWhere(match func(*trackedConn) bool) int {
 	s.mu.Lock()

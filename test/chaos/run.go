@@ -156,6 +156,9 @@ type Run struct {
 	// session is the load service on the load host at the target
 	// profile, started with the first load.
 	session *loadSession
+	// real is the real clock that dates the injections and removals;
+	// nil is clock.Real(), a unit test sets a fake.
+	real clock.Clock
 }
 
 // Start starts a run for t: the topology over the run's build, the State
@@ -661,17 +664,44 @@ func (r *Run) captureMetrics() {
 }
 
 // Inject runs fn, the fault kind on target, and records it at the time
-// fn started; a failing fn fails the run.
+// fn started, which it returns; a failing fn fails the run.
 func (r *Run) Inject(kind, target string, fn func() error) time.Time {
 	r.T.Helper()
-	at := time.Now()
+	start, _ := r.inject(kind, target, fn)
+	return start
+}
+
+// Remove runs fn, which ends a fault, the kind on target, records it as
+// Inject does at the time fn started, and returns the real instant fn
+// returned. The fault holds until then, as a filled deployment refuses
+// writes until the unfill's deletes land, and the recovery in which
+// errors return to zero follows the fault
+// (docs/architecture/11-scalability-and-distributed-state.md "Chaos
+// experiments"), so a recovery's windows start at that instant
+// (RecoveryCriteria). A failing fn fails the run.
+func (r *Run) Remove(kind, target string, fn func() error) time.Time {
+	r.T.Helper()
+	_, done := r.inject(kind, target, fn)
+	return done
+}
+
+// inject runs fn, records the injection at its start and returns when fn
+// started and when it returned, on the run's real clock.
+func (r *Run) inject(kind, target string, fn func() error) (start, done time.Time) {
+	r.T.Helper()
+	c := r.real
+	if c == nil {
+		c = clock.Real()
+	}
+	start = c.Now()
 	if err := fn(); err != nil {
 		r.T.Fatalf("chaos: inject %s on %s: %v", kind, target, err)
 	}
+	done = c.Now()
 	r.mu.Lock()
-	r.rec.Injections = append(r.rec.Injections, Injection{Kind: kind, Target: target, Time: at})
+	r.rec.Injections = append(r.rec.Injections, Injection{Kind: kind, Target: target, Time: start})
 	r.mu.Unlock()
-	return at
+	return start, done
 }
 
 // Add records criteria.

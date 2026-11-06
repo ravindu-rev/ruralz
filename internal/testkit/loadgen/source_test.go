@@ -62,12 +62,12 @@ func TestSourceAddrsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tg.groups) != 2 || tg.groups[0][0].tr.MaxConnsPerHost != 3 || tg.groups[1][0].tr.MaxConnsPerHost != 2 {
+	if len(tg.groups) != 2 || tg.groups[0].lanes[0].tr.MaxConnsPerHost != 3 || tg.groups[1].lanes[0].tr.MaxConnsPerHost != 2 {
 		t.Errorf("HTTP/1.1 split %d groups, %d and %d connections; want 3 and 2", len(tg.groups),
-			tg.groups[0][0].tr.MaxConnsPerHost, tg.groups[1][0].tr.MaxConnsPerHost)
+			tg.groups[0].lanes[0].tr.MaxConnsPerHost, tg.groups[1].lanes[0].tr.MaxConnsPerHost)
 	}
 	tg, err = NewHTTP(HTTPConfig{URL: "http://127.0.0.1/", Protocol: H2C, Connections: 5, SourceAddrs: two})
-	if err != nil || len(tg.groups) != 2 || len(tg.groups[0]) != 3 || len(tg.groups[1]) != 2 {
+	if err != nil || len(tg.groups) != 2 || len(tg.groups[0].lanes) != 3 || len(tg.groups[1].lanes) != 2 {
 		t.Errorf("h2c split: %v; want 3 and 2 connections", err)
 	}
 	if ipv6, err := NewHTTP(HTTPConfig{URL: "http://[::1]/", SourceAddrs: []netip.Addr{netip.IPv6Loopback()}}); err != nil || len(ipv6.groups) != 1 {

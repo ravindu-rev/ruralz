@@ -90,6 +90,42 @@ func TestProxySlowReplyDelaysOnlyMatchingReplies(t *testing.T) {
 	}
 }
 
+// TestProxySlowRepliesHeldSideBySide checks the slow reply fault through a
+// real connection as CE-16 holds the cache connection's script replies:
+// the proxy goes on reading while a reply is held, so each pipelined reply
+// is held its own 4 s from when the proxy read it, side by side. A reply
+// read 1 s after the first reaches the client at 5 s; were the holds one
+// after another, it would wait for the first's to end and then 4 s more,
+// to 8 s, past a 5 s stateStoreTimeout.
+func TestProxySlowRepliesHeldSideBySide(t *testing.T) {
+	clk := clocktest.New(time.Unix(0, 0))
+	up := startUpstream(t, defaultReply)
+	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+	if err := p.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: 4 * time.Second}); err != nil {
+		t.Fatal(err)
+	}
+	cl := dialClient(t, p.Addr())
+	cl.send(cmd("EVALSHA", "a", "0"))
+	waitFor(t, "the first reply held", func() bool { return p.Snapshot().Held == 1 })
+	clk.Advance(time.Second)
+	cl.send(cmd("EVALSHA", "b", "0"))
+	waitFor(t, "the second reply held beside the first", func() bool { return p.Snapshot().Held == 2 })
+	clk.Advance(3 * time.Second)
+	if got := cl.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
+		t.Fatalf("first EVALSHA = %q", got)
+	}
+	if s := p.Snapshot(); s.Held != 1 || s.Replies != 1 {
+		t.Fatalf("Snapshot = %+v at 4 s, want the second reply still held and one reply", s)
+	}
+	clk.Advance(time.Second)
+	if got := cl.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
+		t.Fatalf("second EVALSHA = %q", got)
+	}
+	if s := p.Snapshot(); s.Held != 0 || s.Replies != 2 {
+		t.Fatalf("Snapshot = %+v at 5 s, want none held and both replies", s)
+	}
+}
+
 // TestProxyFaultsPassThrough checks that the fault proxy's modes act on
 // the proxied connections: Reset resets a live connection, and after
 // SetUpstream new connections reach the new server while counting goes
@@ -181,7 +217,7 @@ func TestStartErrors(t *testing.T) {
 		c    Config
 	}{
 		{"no upstream", Config{}},
-		{"a ConnTap of its own", Config{Fault: faultproxy.Config{Upstream: "127.0.0.1:1", ConnTap: func(faultproxy.ConnInfo) faultproxy.TapFunc { return nil }}}},
+		{"a ConnTap of its own", Config{Fault: faultproxy.Config{Upstream: "127.0.0.1:1", ConnTap: func(faultproxy.ConnInfo) faultproxy.ConnHooks { return faultproxy.ConnHooks{} }}}},
 	} {
 		if p, err := Start(t.Context(), tc.c); err == nil {
 			_ = p.Close()

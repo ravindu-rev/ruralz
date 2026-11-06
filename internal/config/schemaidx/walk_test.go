@@ -298,6 +298,65 @@ func TestLookupElements(t *testing.T) {
 	}
 }
 
+func TestLookupNamesFirstDuplicate(t *testing.T) {
+	// Lookup, like tree.At, follows a path through the first member of a
+	// name and the first keyed-list entry with a key. Walk visits a later
+	// duplicate under the same path with its own dispatch, and every
+	// position below it too, so Lookup of such a path reports the first
+	// occurrence's dispatch, not the Info Walk reported at the duplicate.
+	policy, _ := v1(t).Spec("Policy")
+	quota, _ := policy.PolicyConfig("quota")
+	jwt, _ := policy.PolicyConfig("auth.jwt")
+	keyed := mustLoad(t, `{"properties":{"kind":{"enum":["K"]}},
+	  "allOf":[{"if":{"properties":{"kind":{"const":"K"}},"required":["kind"]},"then":{"properties":{"spec":{"properties":{
+	    "l":{"type":"array","x-ruralz-list":{"type":"map","key":"name"},"items":{"$ref":"#/$defs/E"}}}}}}}],
+	  "$defs":{"E":{"type":"object","properties":{"name":{"type":"string"},"t":{"type":"string"},"c":{"type":"object"}},
+	    "allOf":[{"if":{"properties":{"t":{"const":"x"}},"required":["t"]},"then":{"properties":{"c":{"x-ruralz-secret":true}}}}]}}}`)
+	for _, tc := range []struct {
+		name, kind, src string
+		x               *Index
+		// dup is the duplicated position and below a position only the
+		// later duplicate has; first checks Lookup's Info at below, later
+		// the Info of Walk's visit there.
+		dup, below   diag.Path
+		first, later func(Info) bool
+	}{
+		{
+			"duplicate member", "Policy", `{"spec":{"type":"quota"},"spec":{"type":"auth.jwt","config":{"issuers":[]}}}`, v1(t),
+			pathOf("spec"), pathOf("spec", "config"),
+			func(i Info) bool { return i.Node == quota }, func(i Info) bool { return i.Node == jwt },
+		},
+		{
+			"duplicate keyed entry", "K", `{"spec":{"l":[{"name":"a"},{"name":"a","t":"x","c":{}}]}}`, keyed,
+			pathOf("spec", "l", diag.Keyed("name", "a")), pathOf("spec", "l", diag.Keyed("name", "a"), "c"),
+			func(i Info) bool { return i.Known() && !i.InSecret }, func(i Info) bool { return i.InSecret },
+		},
+	} {
+		res := parseTree(t, tc.src)
+		var dups, below []Info
+		if err := tc.x.Walk(tc.kind, res, func(c *Cursor) error {
+			switch c.Path().String() {
+			case tc.dup.String():
+				dups = append(dups, c.Info)
+			case tc.below.String():
+				below = append(below, c.Info)
+			}
+			return nil
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if l, ok := tc.x.Lookup(tc.kind, res, tc.dup); len(dups) != 2 || !ok || l != dups[0] || l == dups[1] {
+			t.Errorf("%s: Lookup(%s) = %+v %v, want the first of the Walk visits %+v", tc.name, tc.dup, l, ok, dups)
+		}
+		if len(below) != 1 || !tc.later(below[0]) {
+			t.Errorf("%s: Walk visits of %s = %+v, want one under the later duplicate's dispatch", tc.name, tc.below, below)
+		}
+		if l, ok := tc.x.Lookup(tc.kind, res, tc.below); !ok || !tc.first(l) {
+			t.Errorf("%s: Lookup(%s) = %+v %v, want the first duplicate's dispatch", tc.name, tc.below, l, ok)
+		}
+	}
+}
+
 func TestItemElem(t *testing.T) {
 	// Key-aware elements per list type; set elements by their RFC 8785
 	// value, so equal numbers share one element and diff paths carry the
@@ -575,7 +634,7 @@ func TestFieldsReportBranchKeywords(t *testing.T) {
 		if kw := f.Node.Keywords(); kw.Secret != w.secret || kw.Ref != w.ref || kw.Impact != w.impact {
 			t.Errorf("spec.v under %s: secret %v ref %q impact %s; want %+v", key, kw.Secret, kw.Ref, kw.Impact, w)
 		}
-		res, path := instanceFor(f)
+		res, path := instanceFor(f, freeName(x))
 		if info, ok := x.Lookup(f.Kind, res, path); !ok || info.Node != f.Node {
 			t.Errorf("spec.v under %s: Lookup %+v %v resolves another node", key, info, ok)
 		}

@@ -39,17 +39,20 @@
 #            queued, as GitHub does after 24 hours without a runner, counts
 #            as that failure too.
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
-# It runs on demand, and release.yml runs it on the tagged commit through
-# workflow_call with rotation-all and, once a release exists, the previous
-# release's verified linux/amd64 ruralzd (baseline-artifact, an artifact of
-# the release run, and baseline-version), granting contents: write (the
-# records job), actions: read and issues: write. A failure opens a
+# It runs on every merge to main and on demand, and release.yml runs it on
+# the tagged commit through workflow_call with rotation-all and, once a
+# release exists, the previous release's verified linux/amd64 ruralzd
+# (baseline-artifact, an artifact of the release run, and
+# baseline-version), granting contents: write (the records job),
+# actions: read and issues: write. A failure opens a
 # nightly-failure issue (a fuzz crasher opens a fuzz-crasher issue with the
 # failing input) and blocks the next release. nightly has no path filters,
 # so `all` changes nothing.
 name: nightly
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       all:
@@ -353,7 +356,7 @@ jobs:
     steps:
       - name: Protected ref
         # The self-hosted RH-1 runner runs only jobs of protected branches
-        # and tags (dispatched, or called by release.yml), never
+        # and tags (pushed, dispatched, or called by release.yml), never
         # pull-request code.
         env:
           EVENT: ${{ github.event_name }}
@@ -612,7 +615,7 @@ jobs:
           # job list also holds pr-fast, pr-full and main jobs, and called
           # job names carry a "<caller job> / " prefix. Keep only this
           # workflow's jobs (stage 11 and the stage 6 rescan), named without
-          # the prefix, so issue titles match the dispatched runs.
+          # the prefix, so issue titles match the push and dispatched runs.
           gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
             while read -r name; do
               job=${name##* / }

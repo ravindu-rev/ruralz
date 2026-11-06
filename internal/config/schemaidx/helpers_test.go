@@ -182,8 +182,11 @@ func rawSchemas(doc any, fn func(ptr string, m map[string]any)) {
 
 // instanceFor builds a minimal resource tree and instance path reaching
 // schema path f.Path, with every dispatch condition of f.Where set on its
-// object.
-func instanceFor(f Field) (*tree.Node, diag.Path) {
+// object. A typed-map value ("{}") is the member valueKey, which must be a
+// name no schema object declares or tests (freeName): Lookup resolves a
+// declared member before additionalProperties, and a condition sets its
+// member to a scalar.
+func instanceFor(f Field, valueKey string) (*tree.Node, diag.Path) {
 	root := &tree.Node{Kind: tree.KindMap}
 	objects := map[string]*tree.Node{"": root}
 	var path diag.Path
@@ -199,8 +202,8 @@ func instanceFor(f Field) (*tree.Node, diag.Path) {
 		case "{}":
 			next = &tree.Node{Kind: tree.KindMap}
 			cur.Kind = tree.KindMap
-			cur.Set("k", tree.Pos{}, next)
-			path = append(path, diag.Field("k"))
+			cur.Set(valueKey, tree.Pos{}, next)
+			path = append(path, diag.Field(valueKey))
 			sp += "{}"
 		default:
 			next = &tree.Node{Kind: tree.KindMap}
@@ -249,6 +252,45 @@ func plainNames(x *Index) bool {
 		}
 	}
 	return true
+}
+
+// freeName returns a member name that no schema object of x declares in
+// properties and no if/then rule of x tests, for the typed-map values
+// instanceFor builds: "k", or "k0", "k1" and so on when x uses it. It reads
+// every schema object a Node of x merges or may merge by dispatch, then
+// and else branches included.
+func freeName(x *Index) string {
+	used := map[string]bool{}
+	seen := map[*raw]bool{}
+	var mark func(r *raw)
+	mark = func(r *raw) {
+		if r == nil || seen[r] {
+			return
+		}
+		seen[r] = true
+		for name, p := range r.props {
+			used[name] = true
+			mark(p)
+		}
+		if r.ifc != nil {
+			for _, c := range r.ifc.consts {
+				used[c.Member] = true
+			}
+		}
+		for _, next := range append([]*raw{r.ref, r.items, r.addl, r.then, r.els}, r.allOf...) {
+			mark(next)
+		}
+	}
+	for _, n := range x.memo {
+		for _, p := range n.parts {
+			mark(p)
+		}
+	}
+	name := "k"
+	for i := 0; used[name]; i++ {
+		name = "k" + strconv.Itoa(i)
+	}
+	return name
 }
 
 // joinPath appends member name to schema path base.

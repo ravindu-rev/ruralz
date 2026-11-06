@@ -33,7 +33,7 @@ func TestCE4StateStoreBlackholed(t *testing.T) {
 	base := r.Hold(l, PhaseBaseline, Baseline)
 	start := r.Inject("blackhole", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Blackhole{}) })
 	fault := r.Hold(l, PhaseFault, FaultPhase)
-	end := r.Inject("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
+	end := r.Remove("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
 	rec := r.Hold(l, PhaseRecovery, RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)
@@ -45,10 +45,11 @@ func TestCE4StateStoreBlackholed(t *testing.T) {
 	limited, closed, undeclared := l.StreamNamed("limited"), l.StreamNamed("closed"), l.StreamNamed("undeclared")
 	n := int64(r.Nodes)
 	r.Add(
-		Check("baseline RZ-STS responses", Functional, float64(CodesIn(closed, base.Start, base.End, STSCodes()...)), EQ, 0),
+		Check("baseline RZ-STS-002 responses", Functional, float64(CodesIn(closed, base.Start, base.End, ErrorReplyCodes()...)), EQ, 0),
 		r.AdmissionCheck("declared-ceiling fail-open admissions per key and window", limited, time.Second, start, fault.End, n*int64(plan.Ceiling)),
 		r.AdmissionCheck("file-mode fail-open admissions per key and window", undeclared, time.Second, start, fault.End, n*int64(plan.UndeclaredRequests)),
 	)
+	r.RecordExpiries("baseline", base.Start, base.End, closed.Requests())
 	order := CodeOrder(closed, start, fault.End, STSCodes()...)
 	t.Logf("chaos: closed-Policy codes in the order they first appeared: %v", order)
 	r.Add(

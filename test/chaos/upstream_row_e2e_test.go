@@ -54,11 +54,13 @@ const (
 // chaos Upstream's three Endpoints at 50% load, in three 60 s phases: one
 // Endpoint resetting, one slowed past perTryTimeout, then all three
 // resetting. The resetting Endpoint is ejected and GETs succeed on
-// retries; the slowed one turns suspect within 1 s, new attempts skip
-// it, attempts already on it end at perTryTimeout with RZ-UP-003, which
-// ejects it; with all three resetting the breaker opens and requests get
-// 503 RZ-UP-005, until half-open probes close it once the Endpoints
-// recover. Each phase shows in ruralz_upstream_ejections_total,
+// retries while the retry budget has room, a retry it refuses answering
+// the reset as 502 RZ-UP-004; the slowed one turns suspect within 1 s,
+// new attempts skip it, attempts already on it end at perTryTimeout with
+// RZ-UP-003, which ejects it; with all three resetting the breaker opens
+// and requests get 503 RZ-UP-005, until half-open probes close it once
+// the Endpoints recover. Each phase counts the requests due from its
+// recorded start and shows in ruralz_upstream_ejections_total,
 // ruralz_upstream_retries_total and ruralz_upstream_breaker_state_info
 // (docs/engineering/03-testing-and-quality-strategy.md "Chaos testing").
 func TestUpstreamRow(t *testing.T) {
@@ -118,13 +120,21 @@ func TestUpstreamRow(t *testing.T) {
 		return max(least, 0)
 	}
 
-	// One Endpoint resetting.
-	r.Add(
-		Check("one resetting: failed requests", Functional, float64(PhaseStats(st, aStart, a.End).Failed), EQ, 0),
+	// One Endpoint resetting. Each phase counts the requests due from its
+	// recorded start: its fault is injected after the start, and a request
+	// due in between can still meet the fault. GETs succeed on retries
+	// while the retry budget has room; a retry it refuses answers the
+	// reset, 502 RZ-UP-004, as when more of a Node's first attempts meet
+	// the reset at once than the budget allows
+	// (docs/architecture/09-traffic-management-and-resilience.md "Retry
+	// budget").
+	resets := PhaseResetFailures(st, a)
+	refusals := r.RetryBudgetRefusals(up, a, resets)
+	r.Add(append(resets.Criteria("one resetting", refusals),
 		Check("one resetting: passive ejections on the Node with the fewest", Functional, perNode("ruralz_upstream_ejections_total", promtext.L("upstream", UpstreamName, "reason", "passive"), aStart, a.End), GE, 1),
 		Check("one resetting: retries on the Node with the fewest", Functional, perNode("ruralz_upstream_retries_total", up, aStart, a.End), GT, 0),
-	)
-	r.Breakdown("one_resetting_retry_budget_exhausted", r.SumIncrease("ruralz_upstream_retry_budget_exhausted_total", up, aStart, a.End))
+	)...)
+	r.Breakdown("one_resetting_retry_budget_exhausted", refusals)
 
 	// One Endpoint slowed past perTryTimeout. A suspect Endpoint stays
 	// eligible, so ruralz_upstream_healthy_endpoints never shows the mark:
@@ -156,8 +166,8 @@ func TestUpstreamRow(t *testing.T) {
 	// client, so they show in ruralz_upstream_attempts_total rather than
 	// in the responses, which carry RZ-UP-003 only past the budget.
 	attemptTimeouts := r.SumIncrease(catalog.UpstreamAttemptsTotal, promtext.L("upstream", UpstreamName, "error", "timeout"), bStart, b.End)
-	timeouts := CodesIn(st, bStart, b.End, "RZ-UP-003")
-	stB := PhaseStats(st, bStart, b.End)
+	timeouts := CodesIn(st, b.Start, b.End, "RZ-UP-003")
+	stB := PhaseStats(st, b.Start, b.End)
 	r.Add(
 		Check("one slowed: Endpoint suspect after the slowdown, seconds (sampled every 100 ms)", Functional, suspect.Seconds(), LE, (StallTimeout+every).Seconds()),
 		Check("one slowed: new attempts on the suspect Endpoint", Functional, float64(skipped), EQ, 0),
@@ -177,7 +187,7 @@ func TestUpstreamRow(t *testing.T) {
 	}
 	r.Add(
 		Check("all resetting: Nodes whose breaker opened", Functional, float64(opened), EQ, float64(len(nodes))),
-		Check("all resetting: requests answered 503 RZ-UP-005", Functional, float64(CodesIn(st, cStart, c.End, "RZ-UP-005")), GT, 0),
+		Check("all resetting: requests answered 503 RZ-UP-005", Functional, float64(CodesIn(st, c.Start, c.End, "RZ-UP-005")), GT, 0),
 	)
 	// Recovery: half-open probes close every breaker, then no request
 	// fails.

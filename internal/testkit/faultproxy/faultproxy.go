@@ -20,9 +20,13 @@
 //
 // SetUpstream switches new connections to another upstream (scripted State
 // Store failover, CE-5). A Tap sees every forwarded byte synchronously
-// (the State Store's RESP counting proxy is a Tap). Every goroutine belongs to the
-// Proxy: one accept loop, and two per connection (one per direction),
-// bounded by MaxConns; Close stops and waits for all of them.
+// (the State Store's RESP counting proxy is a Tap). A connection's Hold
+// may hold the chunks it reads, as the counting proxy holds the replies to
+// named commands: reading continues while chunks are held and every chunk
+// is forwarded in the order read, so held chunks delay the chunks behind
+// them, never each other's holds. Every goroutine belongs to the Proxy: one
+// accept loop, and two per connection (one per direction), bounded by
+// MaxConns; Close stops and waits for all of them.
 package faultproxy
 
 import (
@@ -138,6 +142,29 @@ func validMode(m Mode) error {
 // be retained.
 type TapFunc func(dir Direction, b []byte)
 
+// HoldFunc decides, as a pump reads a chunk in direction dir, whether the
+// chunk waits for its release before it is forwarded. True holds it until
+// release is called; false forwards it once every chunk read before it has
+// been, and then release must never be called. The pump goes on reading
+// while chunks are held and forwards every chunk in the order it read
+// them, so a held chunk delays the chunks behind it but not their reads,
+// and the holds of pipelined chunks run side by side, never one after
+// another. release may be called from any goroutine, also after the
+// connection ended; calls after the first do nothing. A chunk the mode
+// drops (Blackhole) or the connection's end discards is never forwarded,
+// held or not. Hold runs synchronously on the direction's goroutine before
+// any tap sees the chunk; b must not be retained.
+type HoldFunc func(dir Direction, b []byte, release func()) bool
+
+// ConnHooks are one connection's own hooks, which Config.ConnTap returns;
+// the zero value has none.
+type ConnHooks struct {
+	// Tap sees the connection's forwarded chunks, after Config.Tap.
+	Tap TapFunc
+	// Hold, when set, may hold each chunk the connection reads.
+	Hold HoldFunc
+}
+
 // ConnInfo describes a proxied connection.
 type ConnInfo struct {
 	// ID numbers connections from 1 in accept order.
@@ -169,9 +196,9 @@ type Config struct {
 	// Tap, when set, sees every forwarded chunk of every connection.
 	Tap TapFunc
 	// ConnTap, when set, is called once per connection when it is dialed
-	// and returns that connection's own tap (nil for none), so stateful
-	// parsers such as a RESP command counter keep per-connection state.
-	ConnTap func(ConnInfo) TapFunc
+	// and returns that connection's own hooks, so stateful parsers such as
+	// a RESP command counter keep per-connection state.
+	ConnTap func(ConnInfo) ConnHooks
 	// Seed seeds the delay distribution; 0 picks a random seed.
 	Seed uint64
 }
@@ -639,11 +666,12 @@ func (c *conn) run(ctx context.Context) {
 	c.down = newPump(c, Down, up)
 	c.down.dst = c.client
 	c.mu.Unlock()
-	var tap TapFunc
+	var hooks ConnHooks
 	if c.p.cfg.ConnTap != nil {
-		tap = c.p.cfg.ConnTap(c.info())
+		hooks = c.p.cfg.ConnTap(c.info())
 	}
-	c.up.tap, c.down.tap = tap, tap
+	c.up.tap, c.down.tap = hooks.Tap, hooks.Tap
+	c.up.holdFn, c.down.holdFn = hooks.Hold, hooks.Hold
 	// The connection may have been switched while dialing.
 	c.poke()
 	if len(c.kept) > 0 {
@@ -700,10 +728,32 @@ func (c *conn) hold() bool {
 	}
 }
 
-// chunk is bytes held by a delayed direction.
+// chunk is bytes a direction keeps queued: under Delay until due, and
+// while the hold a HoldFunc took on it waits for its release. The queue
+// forwards its chunks in the order read.
 type chunk struct {
-	b   []byte
-	due time.Time
+	b    []byte
+	due  time.Time
+	hold *hold // nil unless the connection's Hold held the chunk
+}
+
+// waiting reports whether ch still waits for its release.
+func (ch *chunk) waiting() bool { return ch.hold != nil && !ch.hold.released.Load() }
+
+// hold is the release of one chunk a HoldFunc held.
+type hold struct {
+	pm       *pump
+	released atomic.Bool
+	// release is free, bound once, which the HoldFunc gets.
+	release func()
+}
+
+// free releases the chunk and pokes its pump, which forwards it once the
+// chunks ahead of it went; calls after the first do nothing.
+func (h *hold) free() {
+	if h.released.CompareAndSwap(false, true) {
+		h.pm.poke()
+	}
 }
 
 // pump forwards one direction.
@@ -712,6 +762,7 @@ type pump struct {
 	dir      Direction
 	src, dst *net.TCPConn
 	tap      TapFunc
+	holdFn   HoldFunc
 	buf      []byte
 	wake     chan struct{} // capacity 1
 
@@ -721,6 +772,8 @@ type pump struct {
 	queue   []chunk
 	queued  int
 	lastDue time.Time
+	// spare is a hold the last HoldFunc call did not take, for the next.
+	spare *hold
 }
 
 func newPump(c *conn, dir Direction, src *net.TCPConn) *pump {
@@ -827,22 +880,18 @@ func (pm *pump) run() {
 				_ = pm.dst.CloseWrite()
 				return
 			}
-			if !pm.wait(pm.queue[0].due) {
+			if !pm.wait(pm.wakeAt()) {
 				return
 			}
 			continue
 		}
 		if pm.queued >= pm.c.p.cfg.MaxQueuedBytes {
-			if !pm.wait(pm.queue[0].due) {
+			if !pm.wait(pm.wakeAt()) {
 				return
 			}
 			continue
 		}
-		var deadline time.Time
-		if len(pm.queue) > 0 {
-			deadline = pm.queue[0].due
-		}
-		if !pm.armRead(seen, deadline) {
+		if !pm.armRead(seen, pm.wakeAt()) {
 			continue
 		}
 		n, err := pm.src.Read(pm.buf)
@@ -863,14 +912,22 @@ func (pm *pump) run() {
 	}
 }
 
-// handle forwards, queues or drops one chunk per the current mode.
+// handle forwards, queues or drops one chunk per the current mode; the
+// connection's Hold sees every chunk forwarded or queued, as it is read.
 func (pm *pump) handle(b []byte) error {
 	switch m := pm.c.mode().(type) {
 	case Pass:
+		h := pm.holdOf(b)
+		// Chunks queued under Pass have no due: they wait only for a hold,
+		// theirs or one ahead of them.
+		pm.lastDue = time.Time{}
 		if err := pm.flush(time.Time{}); err != nil {
 			return err
 		}
-		return pm.forward(b)
+		if h == nil && len(pm.queue) == 0 {
+			return pm.forward(b)
+		}
+		pm.enqueue(b, time.Time{}, h)
 	case Delay:
 		// Order only binds chunks still queued: once Pass flushed or
 		// Blackhole dropped the queue, an earlier, longer delay must not
@@ -883,16 +940,53 @@ func (pm *pump) handle(b []byte) error {
 			due = pm.lastDue
 		}
 		pm.lastDue = due
-		pm.queue = append(pm.queue, chunk{b: slices.Clone(b), due: due})
-		pm.setQueued(pm.queued + len(b))
+		pm.enqueue(b, due, pm.holdOf(b))
 	}
 	// Blackhole drops; Reset and Refuse are handled by the loop.
 	return nil
 }
 
-// flush forwards queued chunks due by now (all of them when now is zero).
+// holdOf asks the connection's Hold whether to hold b, just read, and
+// returns the chunk's hold: nil when b goes as soon as the chunks ahead of
+// it have.
+func (pm *pump) holdOf(b []byte) *hold {
+	if pm.holdFn == nil {
+		return nil
+	}
+	h := pm.spare
+	if h == nil {
+		h = &hold{pm: pm}
+		h.release = h.free
+	}
+	if !pm.holdFn(pm.dir, b, h.release) {
+		pm.spare = h
+		return nil
+	}
+	pm.spare = nil
+	return h
+}
+
+// enqueue queues a copy of b, due at due (zero for at once) and held by h
+// (nil for no hold).
+func (pm *pump) enqueue(b []byte, due time.Time, h *hold) {
+	pm.queue = append(pm.queue, chunk{b: slices.Clone(b), due: due, hold: h})
+	pm.setQueued(pm.queued + len(b))
+}
+
+// wakeAt returns when the first queued chunk can go, the deadline of a
+// read or a wait: its due, or zero, no deadline, while it waits for its
+// release, which pokes the pump.
+func (pm *pump) wakeAt() time.Time {
+	if len(pm.queue) == 0 || pm.queue[0].waiting() {
+		return time.Time{}
+	}
+	return pm.queue[0].due
+}
+
+// flush forwards the queued chunks in order while the first one waits for
+// no release and is due by now (whatever its due when now is zero).
 func (pm *pump) flush(now time.Time) error {
-	for len(pm.queue) > 0 && (now.IsZero() || !pm.queue[0].due.After(now)) {
+	for len(pm.queue) > 0 && !pm.queue[0].waiting() && (now.IsZero() || !pm.queue[0].due.After(now)) {
 		ch := pm.queue[0]
 		pm.queue[0] = chunk{}
 		pm.queue = pm.queue[1:]
