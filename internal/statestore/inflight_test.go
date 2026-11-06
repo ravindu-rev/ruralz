@@ -111,8 +111,7 @@ func (g *countingGauge) value() (v, peak int64, adds int) {
 // TestInFlightGauge checks ruralz_state_inflight_calls: each slot taken
 // adds one to the gauge and each release takes one away, while a refused
 // call leaves it alone, so the gauge reads the slots in use and plateaus
-// at the ceiling (O2, docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Scenarios").
+// at the ceiling.
 func TestInFlightGauge(t *testing.T) {
 	gauge := &countingGauge{}
 	g := NewInFlight(2, &emit.StateMetrics{InFlight: gauge})

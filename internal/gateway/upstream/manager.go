@@ -48,8 +48,7 @@ type Options struct {
 	Dial discovery.DialFunc
 	// Send replaces the transport every pool sends its attempts on, so a
 	// benchmark counts the Upstream layer without net/http (PB-8's canned
-	// transport, docs/architecture/12-performance-budgets-and-benchmarking.md
-	// "Regression policy and gates"); benchmarks and tests only.
+	// transport); benchmarks and tests only.
 	Send http.RoundTripper
 	// Resolver performs DNS discovery lookups; nil means
 	// discovery.NewResolver().

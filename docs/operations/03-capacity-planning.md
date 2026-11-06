@@ -10,7 +10,7 @@ In scope: sizing Ruralz Gateway Nodes, each Cell's State Store, Ruralz Control r
 
 Non-goals, with owners:
 
-- Per-Node limits and caps: [Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog) and the documents that own them, which win on conflict.
+- Per-Node limits and caps: [Data plane](../architecture/03-data-plane.md#bounded-resources), [Scalability](../architecture/11-scalability-and-distributed-state.md#per-node-limits) and the other documents that own them, which win on conflict.
 - Ceilings, accuracy bounds and autoscaling signals: [Scalability and distributed state](../architecture/11-scalability-and-distributed-state.md).
 - Topologies and starting sizes: [Deployment topologies](01-deployment-topologies.md), whose [Sizing defaults](01-deployment-topologies.md#sizing-defaults) this model replaces.
 - Rollout pacing and Control Store internals: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md); upgrade order: [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).

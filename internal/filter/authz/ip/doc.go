@@ -29,8 +29,6 @@
 // fail closed, Security and identity "Threat model and trust boundaries").
 //
 // Both lookups walk a per-family binary trie and allocate nothing, so an
-// admitted request costs no allocation
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": cors, authz.cel or authz.ip, 0 allocations).
+// admitted request costs no allocation.
 // A Filter is immutable and safe for concurrent use.
 package ip

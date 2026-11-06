@@ -100,9 +100,9 @@ func TestRuntimeMetrics(t *testing.T) {
 	}
 }
 
-// The GC CPU time and heap allocation counters behind the GC share and a
-// macro run's alloc/op (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Resources per core") read /cpu/classes/gc/total:cpu-seconds, a float64
+// The GC CPU time and heap allocation counters behind the GC share of Node
+// CPU and the allocation rate (docs/architecture/10-observability.md
+// "Ruralz Gateway metrics") read /cpu/classes/gc/total:cpu-seconds, a float64
 // runtime metric, and /gc/heap/allocs:objects, and only grow.
 func TestRuntimeGCCPUAndAllocations(t *testing.T) {
 	r, clk := newTestRegistry(t, nil)

@@ -45,8 +45,6 @@
 //
 // # Cost
 //
-// Handle allocates nothing beyond the program's own evaluation
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": authz.cel, 0 allocations). A Filter is
-// immutable and safe for concurrent use.
+// Handle allocates nothing beyond the program's own evaluation. A Filter
+// is immutable and safe for concurrent use.
 package cel

@@ -14,10 +14,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Allocation gate and benchmarks (docs/architecture/
-// 12-performance-budgets-and-benchmarking.md "Per-stage latency budget":
-// snapshot pin and Route match, 0 Ruralz-owned allocations; Routers and
-// chains for 10,000 Routes built in 2 s or less on one core).
+// Allocation gate and benchmarks (targets: snapshot pin and Route match,
+// 0 Ruralz-owned allocations; Routers and chains for 10,000 Routes built
+// in 2 s or less on one core).
 
 // allocSpecs are Routes of every path tier and criterion kind, without
 // match.when, each reachable first through its own host entry.

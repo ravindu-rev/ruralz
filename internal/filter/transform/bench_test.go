@@ -78,10 +78,9 @@ func literalOps() *v1alpha1.TransformRequestConfig {
 }
 
 // TestLiteralOperationsAllocations covers the allocation budget of the
-// literal operations over pooled buffers
-// (docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget"): a call that rewrites the body allocates only the body
-// the message keeps, and one that changes nothing allocates nothing.
+// literal operations over pooled buffers: a call that rewrites the body
+// allocates only the body the message keeps, and one that changes nothing
+// allocates nothing.
 func TestLiteralOperationsAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items at random under the race detector")

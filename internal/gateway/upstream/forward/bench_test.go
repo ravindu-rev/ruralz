@@ -10,9 +10,8 @@ import (
 )
 
 // benchForward measures the forwarder's own work per request, the onRoute
-// leg selection of docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget" (1 µs p50, 4 µs p99, 0 allocations), over
-// legs that return at once, on the runtime generator as in production.
+// leg selection (targets: 1 µs p50, 4 µs p99, 0 allocations), over legs
+// that return at once, on the runtime generator as in production.
 func benchForward(b *testing.B, legs []*fakeLeg, weights []uint32) {
 	f := forwarder(legs, weights, nil)
 	o := outbound(nil)

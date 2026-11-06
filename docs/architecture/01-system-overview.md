@@ -484,7 +484,6 @@ flowchart LR
 | [Traffic management and resilience](09-traffic-management-and-resilience.md) | Load balancing, Rate Limits, Quotas |
 | [Observability](10-observability.md) | Metrics, traces, logs |
 | [Scalability and distributed state](11-scalability-and-distributed-state.md) | State Store bounds, Cells, Regions |
-| [Limits and caps](12-performance-budgets-and-benchmarking.md) | Per-Node limits and caps |
 
 ## Open questions
 

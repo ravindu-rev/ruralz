@@ -14,10 +14,8 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// The ratelimit stage budget of
-// docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget": local token bucket shard, then GCRA on the memory
-// driver, 2 µs at p50 and 8 µs at p99 with 0 allocations (targets).
+// The ratelimit stage targets: local token bucket shard, then GCRA on the
+// memory driver, 2 µs at p50 and 8 µs at p99 with 0 allocations.
 
 // admitLoop is one admitted request as the executor's batch runs it, over
 // a reused exchange: Prepare, one Consume on the memory driver, Complete

@@ -92,8 +92,7 @@ func BenchmarkLegCanned(b *testing.B) {
 }
 
 // TestLegAllocations reports the Ruralz-owned allocations of the Upstream
-// layer stage for a pass-through leg (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget", Upstream layer: 6 (target)) and fails when
+// layer stage for a pass-through leg (6, target) and fails when
 // they grow past the count this implementation reaches (maxLegAllocs).
 func TestLegAllocations(t *testing.T) {
 	if raceEnabled {

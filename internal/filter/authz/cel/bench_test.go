@@ -12,9 +12,7 @@ import (
 )
 
 // Allocation gate and benchmarks of authz.cel in onRequestHeaders
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": 2 µs at p50 and 5 µs at p99, 0
-// allocations, targets).
+// (targets: 2 µs at p50 and 5 µs at p99, 0 allocations).
 
 // TestHandleAddsNoAllocations checks that an admitting Handle allocates
 // nothing beyond the rule's own evaluation, for the documents' rules.

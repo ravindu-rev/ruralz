@@ -8,7 +8,7 @@ This document tells operators what fails, what keeps working and how to recover:
 
 In scope: failure behavior at component boundaries, degraded modes, recovery objectives, backup practice, runbooks and game days. "Pack 8.2" names a [foundation pack](../_meta/foundation-pack.md) section.
 
-Non-goals, with owners: accuracy bounds ([Scalability](../architecture/11-scalability-and-distributed-state.md)); Control Store, fencing and backup internals ([Control plane](../architecture/04-control-plane-and-gitops.md)); upgrade rollback ([Release](../engineering/04-release-versioning-and-compatibility.md), [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); layouts ([Deployment topologies](01-deployment-topologies.md)); per-Node limits ([Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog)); State Store product operations beyond the rules below.
+Non-goals, with owners: accuracy bounds ([Scalability](../architecture/11-scalability-and-distributed-state.md)); Control Store, fencing and backup internals ([Control plane](../architecture/04-control-plane-and-gitops.md)); upgrade rollback ([Release](../engineering/04-release-versioning-and-compatibility.md), [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); layouts ([Deployment topologies](01-deployment-topologies.md)); per-Node limits ([Data plane](../architecture/03-data-plane.md#bounded-resources), [Scalability](../architecture/11-scalability-and-distributed-state.md#per-node-limits)); State Store product operations beyond the rules below.
 
 ## Failure catalog
 

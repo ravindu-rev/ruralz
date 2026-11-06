@@ -66,9 +66,7 @@
 // later Filter copies them; nothing may write into them in place, which no
 // http.Header method does. An allowed actual request and its response
 // therefore allocate nothing, except to add Origin to a Vary field the
-// response already has
-// (docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget": cors, 0 allocations in onRequestHeaders).
+// response already has.
 //
 // # Configuration
 //

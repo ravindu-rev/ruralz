@@ -27,7 +27,7 @@ Every dependency MUST pass gates G1 to G3 and SHOULD score well on the rest. A l
 | S1 | A release in the last 12 months and active commits | Quarterly health check |
 | S2 | Builds on the project floor (Go 1.26) with no extra flags | Build with the floor toolchain |
 | S3 | Composes with `net/http` handlers and `context.Context` cancellation | Catalog row rationale |
-| S4 | Exposes memory caps, deadlines and cost limits | Compared with [Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md) |
+| S4 | Exposes memory caps, deadlines and cost limits | Compared with the ceilings the design sets, such as [Bounded resources](../architecture/03-data-plane.md#bounded-resources) |
 | S5 | Protocol completeness (federation, KIP coverage, MQTT v5) | Conformance suites |
 | S6 | Small transitive graph; no second implementation of something already linked | `go mod graph` diff in the pull request |
 | S7 | Wrapped behind a Ruralz interface in `internal/`, never exposed in `pkg/` or `sdk/` | Exported API lint |
@@ -212,8 +212,6 @@ jwx v4 needs `encoding/json/v2`, standard in Go 1.27 and behind `GOEXPERIMENT=js
 - The `go 1.26.10` line keeps the code on Go 1.26 APIs: vet's `stdversion` check, which golangci-lint runs in `make lint`, reports any standard library API newer than it.
 - A Go 1.26 build, with `GOTOOLCHAIN` set to a 1.26 release, needs `GOEXPERIMENT=jsonv2`: a guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation without it, with an identifier naming the fix.
 - JSON golden tests (Bundle loading, Control Stream JSON, JOSE) MUST produce identical bytes on the floor and release toolchains.
-
-A checked-in `default.pgo` for `cmd/ruralzd` is Planned (M4); the Go docs report 2 to 14% gains ([source](https://go.dev/doc/pgo)).
 
 ### Static builds
 

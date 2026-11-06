@@ -13,10 +13,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Allocation gates and benchmarks of headers
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": onUpstreamRequest with headers setting two
-// values, 2 µs at p50 and 8 µs at p99, 2 allocations, targets).
+// Allocation gates and benchmarks of headers (targets: onUpstreamRequest
+// with headers setting two values, 2 µs at p50 and 8 µs at p99, 2
+// allocations).
 
 // twoLiterals sets two literal request values.
 func twoLiterals() *v1alpha1.HeadersConfig {

@@ -12,7 +12,7 @@ Non-goals:
 
 - Field and Policy type design, owned by the [Configuration model](../architecture/02-configuration-model.md); a missing field becomes an Open question here, never an invented field.
 - Behavior, failure semantics and performance of each feature, owned by the architecture document linked in its Design cell.
-- Limit values, owned by the architecture documents and cataloged in [Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog).
+- Limit values, owned by the architecture documents, such as [Bounded resources](../architecture/03-data-plane.md#bounded-resources) in Data plane and [Per-Node limits](../architecture/11-scalability-and-distributed-state.md#per-node-limits) in Scalability and distributed state.
 - Calendar dates, which no milestone carries (OQ-roadmap-and-milestones-2).
 - Commercial support and Ruralz Cloud terms, which sell help and operations, never a feature ([Vision and positioning](../vision/01-vision-and-positioning.md)).
 

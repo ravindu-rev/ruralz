@@ -14,7 +14,7 @@ Non-goals, with owners:
 - Control Stream, Rollouts, gates and fencing: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
 - Versions, skew policy and upgrade order: [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).
 - Restores and Region failover: [High availability and disaster recovery](04-high-availability-and-disaster-recovery.md).
-- Per-Node limits, Helm objects and fields: [Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog), [Deployment topologies](01-deployment-topologies.md), [Configuration model](../architecture/02-configuration-model.md).
+- Per-Node limits, Helm objects and fields: [Data plane](../architecture/03-data-plane.md#bounded-resources), [Deployment topologies](01-deployment-topologies.md), [Configuration model](../architecture/02-configuration-model.md).
 - Listener socket passing: Not planned; ADR-0015 keeps processes independent.
 
 ## Guarantees

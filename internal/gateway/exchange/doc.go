@@ -23,7 +23,7 @@
 // (BodyNeeds.ResponseGate); Reply, Tees and RateLimitFields to commit;
 // SetFinal before onLog; FillAccess for the access record; Pool.Put after
 // the record is submitted. Nothing on that path allocates once the pools
-// are warm (PB-8, docs/architecture/12-performance-budgets-and-benchmarking.md),
+// are warm,
 // except formatting RequestID on demand, normalizing a host that is not
 // lower-case, and the body work of gates, tees, rewrites and decodes.
 //

@@ -8,7 +8,7 @@ This document fixes where Ruralz runs: ten topologies with ports, bootstrap, sta
 
 In scope: the sections below and [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed). "Pack 8.4" names a section of the [foundation pack](../_meta/foundation-pack.md).
 
-Non-goals: kinds and fields ([Configuration model](../architecture/02-configuration-model.md)); control-plane internals ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md)); per-Node limits ([Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog)); sizing formulas ([Capacity planning](03-capacity-planning.md)); upgrades ([Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); runbooks ([HA and DR](04-high-availability-and-disaster-recovery.md)); and Ruralz Cloud beyond T10.
+Non-goals: kinds and fields ([Configuration model](../architecture/02-configuration-model.md)); control-plane internals ([Control plane and GitOps](../architecture/04-control-plane-and-gitops.md)); per-Node limits ([Data plane](../architecture/03-data-plane.md#bounded-resources), [Scalability](../architecture/11-scalability-and-distributed-state.md#per-node-limits)); sizing formulas ([Capacity planning](03-capacity-planning.md)); upgrades ([Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md)); runbooks ([HA and DR](04-high-availability-and-disaster-recovery.md)); and Ruralz Cloud beyond T10.
 
 ## Topology catalog
 

@@ -470,7 +470,7 @@ Commit titles follow Conventional Commits: `<type>(<scope>): <subject>`, imperat
 |---|---|---|
 | `feat` | New behavior | `gateway`, `control`, `cli`, `config`, `filter`, `plugin`, `ai`, `statestore`, `controlstream`, `console`, `sdk`, `api`, `deploy` |
 | `fix` | Bug fix | Same as `feat` |
-| `perf` | Performance change with benchmark evidence (P10) | Same as `feat` |
+| `perf` | Performance improvement, no other behavior change | Same as `feat` |
 | `refactor` | No behavior change | Same as `feat` |
 | `test` | Tests only | `feat` scopes, `conformance` |
 | `docs` | Documentation only | Document slug, for example `docs(data-plane)` |

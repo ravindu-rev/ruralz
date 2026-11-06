@@ -40,9 +40,8 @@ import (
 
 // PB-8: Ruralz-owned allocations per S1 request, net/http excluded, 30 or
 // fewer (target), measured by testing.AllocsPerRun over one whole S1
-// request (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Budget catalog and SLO ties" and "Regression policy and gates"): a
-// pre-parsed HTTP/1.1 request through the exchange, the Router, the Filter
+// request: a pre-parsed HTTP/1.1 request through the exchange, the Router,
+// the Filter
 // Chain executor and the Upstream leg on a canned transport, to the
 // response write into a discard ResponseWriter and onLog with metrics, an
 // unsampled trace and the access log. The Node is assembled from the parts

@@ -519,8 +519,7 @@ func TestResponseWithoutMessageCannotDecide(t *testing.T) {
 
 // TestActualRequestAllocatesNothing checks the per-stage budget of cors:
 // an allowed actual request allocates nothing in onRequestHeaders, and
-// neither does its response side on a response without Vary
-// (docs/architecture/12-performance-budgets-and-benchmarking.md).
+// neither does its response side on a response without Vary.
 func TestActualRequestAllocatesNothing(t *testing.T) {
 	yes := true
 	f := buildWith(t, &v1alpha1.CORSConfig{

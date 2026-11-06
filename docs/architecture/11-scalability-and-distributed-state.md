@@ -602,7 +602,7 @@ Evacuating a Cell shifts DNS or anycast weight; receiving Cells start with empty
 
 ### Per-Node limits
 
-[Limits and caps](12-performance-budgets-and-benchmarking.md#limit-catalog) lists these values with every other Node limit.
+Each row's owner fixes its value and wins on conflict; [Bounded resources](03-data-plane.md#bounded-resources) holds the rest of a Node's request-path ceilings.
 
 | Limit | Per-Node value | Owner | When reached |
 |---|---|---|---|
@@ -636,7 +636,7 @@ At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ce
 
 ## Pointers to related documents
 
-- [Limits and caps](12-performance-budgets-and-benchmarking.md#limit-catalog): every per-Node limit and cap, with its owner.
+- [Data plane](03-data-plane.md#bounded-resources): the connection, request, buffer and stream ceilings of every Node.
 - [Capacity planning](../operations/03-capacity-planning.md): Node and State Store sizing from these limits.
 - [Zero-downtime upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md): the `SO_REUSEPORT` handover and Drain order.
 - [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md): runbooks and Region failover; [Deployment topologies](../operations/01-deployment-topologies.md): Cell layouts.

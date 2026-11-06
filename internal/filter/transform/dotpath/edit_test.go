@@ -317,9 +317,8 @@ func ordersDoc() []byte {
 }
 
 // TestEditorAllocations checks the allocation budget of the literal
-// operations (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": 0 for remove, replace and arrayOps over
-// pooled buffers): with buffers grown once, normalizing a 1 KiB order and
+// operations (0 for remove, replace and arrayOps over pooled buffers):
+// with buffers grown once, normalizing a 1 KiB order and
 // moving, appending, deleting and literally replacing in it allocate
 // nothing.
 func TestEditorAllocations(t *testing.T) {

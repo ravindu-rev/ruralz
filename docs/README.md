@@ -29,7 +29,7 @@ The documentation is split by question. Each folder answers one kind of question
 |---|---|---|
 | `docs/vision/` | Why Ruralz exists, who it serves, the four differentiators and the principles `P1` to `P10` | Evaluators, everyone |
 | `docs/features/` | Which capabilities Ruralz plans, each with its milestone or a `Not planned` reason | Evaluators |
-| `docs/architecture/` | How Ruralz Gateway, Ruralz Control, Ruralz Console, the State Store and the Control Store are designed, from the system overview to the limits and caps a Node enforces | Architects, contributors |
+| `docs/architecture/` | How Ruralz Gateway, Ruralz Control, Ruralz Console, the State Store and the Control Store are designed, from the system overview to scalability and distributed state | Architects, contributors |
 | `docs/operations/` | How to deploy, upgrade, size and recover Ruralz in production | Operators |
 | `docs/engineering/` | Which libraries are used, how the repository is laid out, how code is tested and how releases are versioned | Contributors |
 | `docs/reference/` | The `ruralz` CLI, the admin APIs, the REST API and the Control Stream service | Operators, contributors, Plugin authors |
@@ -124,7 +124,6 @@ For AI platform engineers routing LLM traffic through Ruralz Gateway.
 | [Traffic Management and Resilience](architecture/09-traffic-management-and-resilience.md) | `docs/architecture/` |
 | [Observability](architecture/10-observability.md) | `docs/architecture/` |
 | [Scalability and Distributed State](architecture/11-scalability-and-distributed-state.md) | `docs/architecture/` |
-| [Limits and Caps](architecture/12-performance-budgets-and-benchmarking.md) | `docs/architecture/` |
 | [Deployment Topologies](operations/01-deployment-topologies.md) | `docs/operations/` |
 | [Zero-Downtime Upgrades and Hot Reload](operations/02-zero-downtime-upgrades-and-hot-reload.md) | `docs/operations/` |
 | [Capacity Planning](operations/03-capacity-planning.md) | `docs/operations/` |

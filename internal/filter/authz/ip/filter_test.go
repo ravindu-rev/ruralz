@@ -205,8 +205,7 @@ func TestBuildStopsOnEndedContext(t *testing.T) {
 }
 
 // TestAdmitAllocatesNothing checks the per-stage budget of authz.ip in
-// onRequestHeaders: 0 Ruralz-owned allocations for an admitted request
-// (docs/architecture/12-performance-budgets-and-benchmarking.md).
+// onRequestHeaders: 0 Ruralz-owned allocations for an admitted request.
 func TestAdmitAllocatesNothing(t *testing.T) {
 	rec := &decisions{}
 	f := build(t, &v1alpha1.AuthzIPConfig{Allow: []string{"10.0.0.0/8", "2001:db8::/32"}, Deny: []string{"10.9.0.0/16"}}, rec)

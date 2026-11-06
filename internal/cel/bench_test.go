@@ -13,8 +13,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
-// Microbenchmarks of docs/engineering/03-testing-and-quality-strategy.md
-// "Benchmarks": typical match and key expressions run under 2 µs at p99
+// Microbenchmarks: typical match and key expressions run under 2 µs at p99
 // (target, docs/architecture/02-configuration-model.md "Limits"), and the
 // worst-case fixtures of ADR-0019 end within 50 ms, finished or at the cost
 // limit.
@@ -58,8 +57,7 @@ func BenchmarkRateLimitKey(b *testing.B) {
 }
 
 // The authz.cel rules of the documents and the field kinds such rules
-// read (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": authz.cel, 2 µs at p50, 0 allocations).
+// read (targets: 2 µs at p50, 0 allocations).
 
 func BenchmarkAuthzGold(b *testing.B) {
 	benchBool(b, at(expr.PlaceAuthzCELRule), `consumer != null && consumer.tier == "gold"`, snapshotVars())

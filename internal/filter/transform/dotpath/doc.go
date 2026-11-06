@@ -50,7 +50,5 @@
 // caller's buffers, copying every untouched value as a byte range, so
 // after warm-up Normalize and every operation allocate nothing beyond the
 // growth of those buffers; a Replacer may allocate, as a regexp
-// replacement does
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget").
+// replacement does.
 package dotpath

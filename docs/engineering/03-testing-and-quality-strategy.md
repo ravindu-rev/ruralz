@@ -8,7 +8,7 @@ This document fixes how Ruralz proves code matches design: unit tests, property 
 
 In scope: tests for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control), the `ruralz` CLI, the Plugin Development Kits (PDKs) and the Bundle schema, and the pipeline jobs that run them, under the [foundation pack](../_meta/foundation-pack.md) and P10 ([Vision](../vision/01-vision-and-positioning.md#principles)).
 
-Non-goals, owned elsewhere: limit values ([Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog)); signing and skew ([Release, versioning and compatibility](04-release-versioning-and-compatibility.md)); the CI jobs' make targets and the Ruralz Console toolchain ([Repository layout](02-repository-layout-and-conventions.md#ci-stages)); the threat model ([Security and identity](../architecture/08-security-and-identity.md)); the `ruralz test run` case format ([CLI and API surface](../reference/01-cli-and-api-surface.md)).
+Non-goals, owned elsewhere: limit values (their owning documents, such as [Bounded resources](../architecture/03-data-plane.md#bounded-resources)); signing and skew ([Release, versioning and compatibility](04-release-versioning-and-compatibility.md)); the CI jobs' make targets and the Ruralz Console toolchain ([Repository layout](02-repository-layout-and-conventions.md#ci-stages)); the threat model ([Security and identity](../architecture/08-security-and-identity.md)); the `ruralz test run` case format ([CLI and API surface](../reference/01-cli-and-api-surface.md)).
 
 ## Test pyramid
 

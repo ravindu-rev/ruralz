@@ -15,9 +15,7 @@ import (
 )
 
 // Tests that the values the authz.cel stage reads most convert without
-// allocating (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": authz.cel, 0 allocations), and convert to the
-// same values as before.
+// allocating, and convert to the same values as before.
 
 // TestPreparedFieldsAllocateNothing checks that every field of a prepared
 // Route and Consumer, a label lookup and a list element read the value the
