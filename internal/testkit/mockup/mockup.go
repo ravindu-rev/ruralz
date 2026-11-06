@@ -113,6 +113,10 @@ type Config struct {
 	// so a benchmark measures the mock's own latency beyond its configured
 	// delay. It runs on the handler's goroutine and must not block.
 	OnServed func(elapsed, delay time.Duration)
+
+	// listen, when set, makes the Server's listener in place of a TCP
+	// listener on Listen. Tests only.
+	listen func(ctx context.Context, addr string) (net.Listener, error)
 }
 
 // Stats counts requests and connections.
@@ -196,7 +200,13 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	if seed == 0 {
 		seed = rand.Uint64() //nolint:gosec // G404: delay jitter, not security
 	}
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", c.Listen)
+	var ln net.Listener
+	var err error
+	if c.listen != nil {
+		ln, err = c.listen(ctx, c.Listen)
+	} else {
+		ln, err = (&net.ListenConfig{}).Listen(ctx, "tcp", c.Listen)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("mockup: listen %s: %w", c.Listen, err)
 	}
@@ -223,6 +233,9 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 		protocols.SetHTTP2(true)
 	default:
 		protocols.SetUnencryptedHTTP2(true)
+		// net/http then reads the h2c preface's first bytes alone, under the
+		// header deadline: each connection's first read takes more.
+		ln = firstReadListener{ln}
 	}
 	s.srv = &http.Server{
 		Handler:           s,
@@ -236,8 +249,11 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 		// closes the Server), so they carry ctx's values, not its end.
 		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			if tc, ok := c.(*tls.Conn); ok {
-				c = tc.NetConn()
+			switch x := c.(type) {
+			case *tls.Conn:
+				c = x.NetConn()
+			case *firstReadConn:
+				c = x.Conn
 			}
 			return context.WithValue(ctx, connKey{}, c)
 		},

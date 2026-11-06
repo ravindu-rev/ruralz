@@ -24,6 +24,17 @@ import (
 // knowledge on an http listener (RFC 9113 section 3.4).
 const h2cPreface = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n"
 
+// firstRead is what the first read of a cleartext connection takes from the
+// socket: net/http's read buffer. net/http tells h2c from HTTP/1.1 by a
+// first read of the 14 bytes that start the preface alone, under the header
+// deadline it armed at accept (ReadHeaderTimeout); were that read to take
+// only those bytes of a request that reached the socket whole as the
+// deadline passed, the next read would meet the deadline and net/http would
+// take the 14 bytes for the whole request line, answering a plain 400 Bad
+// Request and closing (docs/architecture/03-data-plane.md "Listeners and
+// protocols").
+const firstRead = 4 << 10
+
 // notCounted marks a connection whose outcome is not counted yet.
 const notCounted = -1
 
@@ -54,6 +65,13 @@ type Conn struct {
 	// net/http never calls concurrently, touches them.
 	sniffing bool
 	sniffed  int
+	// readAhead is set until the first read of a cleartext connection,
+	// which takes up to firstRead bytes; ahead holds what it took past the
+	// bytes asked for and aheadErr its error, which Read returns before it
+	// reads the socket again. Only Read touches them.
+	readAhead bool
+	ahead     []byte
+	aheadErr  error
 
 	mu      sync.Mutex
 	proto   int // the ruralz_listener_open_connections slot holding it
@@ -64,16 +82,17 @@ type Conn struct {
 // newConn records c, accepted at start, as open under http1.
 func newConn(c net.Conn, listener string, m *emit.ListenerMetrics, stripe emit.Stripe, start time.Time, isTLS, proxy bool) *Conn {
 	rec := &Conn{
-		Conn:     c,
-		listener: listener,
-		metrics:  m,
-		stripe:   stripe,
-		start:    start,
-		tls:      isTLS,
-		proxy:    proxy,
-		sniffing: !isTLS,
-		proto:    emit.ProtoHTTP1,
-		outcome:  notCounted,
+		Conn:      c,
+		listener:  listener,
+		metrics:   m,
+		stripe:    stripe,
+		start:     start,
+		tls:       isTLS,
+		proxy:     proxy,
+		sniffing:  !isTLS,
+		readAhead: !isTLS,
+		proto:     emit.ProtoHTTP1,
+		outcome:   notCounted,
 	}
 	m.OpenConns[emit.ProtoHTTP1].Add(stripe, 1)
 	return rec
@@ -111,11 +130,11 @@ func (c *Conn) NextRequest() uint32 { return c.requests.Add(1) - 1 }
 // NetConn returns the connection below the record.
 func (c *Conn) NetConn() net.Conn { return c.Conn }
 
-// Read reads from the connection; on an http listener it watches the first
-// bytes for the h2c preface, and on a proxyProtocol listener it counts a
-// refused PROXY v2 header.
+// Read reads from the connection; on an http listener the first read takes
+// up to firstRead bytes and it watches the first bytes for the h2c preface,
+// and on a proxyProtocol listener it counts a refused PROXY v2 header.
 func (c *Conn) Read(b []byte) (int, error) {
-	n, err := c.Conn.Read(b)
+	n, err := c.read(b)
 	if c.sniffing && n > 0 {
 		c.sniff(b[:n])
 	}
@@ -123,6 +142,38 @@ func (c *Conn) Read(b []byte) (int, error) {
 		c.checkRefused(err)
 	}
 	return n, err
+}
+
+// read returns the bytes the first read took ahead, then its error, before
+// it reads the socket again. The first read of a cleartext connection that
+// asks for fewer than firstRead bytes, as net/http's h2c preface read does,
+// takes up to firstRead, so a request that reached the socket whole is read
+// whole.
+func (c *Conn) read(b []byte) (int, error) {
+	if c.ahead != nil {
+		n := copy(b, c.ahead)
+		if c.ahead = c.ahead[n:]; len(c.ahead) > 0 {
+			return n, nil
+		}
+		err := c.aheadErr
+		c.ahead, c.aheadErr = nil, nil
+		return n, err
+	}
+	if !c.readAhead || len(b) == 0 {
+		return c.Conn.Read(b)
+	}
+	c.readAhead = false
+	if len(b) >= firstRead {
+		return c.Conn.Read(b)
+	}
+	buf := make([]byte, firstRead)
+	n, err := c.Conn.Read(buf)
+	k := copy(b, buf[:n])
+	if k < n {
+		c.ahead, c.aheadErr = buf[k:n], err
+		return k, nil
+	}
+	return k, err
 }
 
 // Write writes to the connection; on a proxyProtocol listener a write
