@@ -94,13 +94,16 @@ type HTTPConfig struct {
 	// DefaultHTTP1Connections), or sets the HTTP/2 connections requests
 	// spread over (default DefaultHTTP2Connections).
 	Connections int
-	// RoundRobin spreads HTTP/1.1 requests over Connections by sequence
-	// number, as HTTP/2 requests spread, each connection carrying one
-	// request at a time, so a light load still uses every connection:
-	// behind an L4 balancer, which balances connections, it reaches every
-	// backend. Without it Connections bounds a pool that takes its most
-	// recently used idle connection first, so a light load keeps few
-	// connections busy.
+	// RoundRobin spreads HTTP/1.1 requests over Connections in turn, as
+	// HTTP/2 requests spread, each connection carrying one request at a
+	// time, so a light load still uses every connection: behind an L4
+	// balancer, which balances connections, it reaches every backend. A
+	// request takes the next connection in turn that is free and waits
+	// only while every connection is busy, so a connection that never
+	// answers holds only its own request (Testing "Load generator and L4
+	// balancer", HTTP). Without it Connections bounds a pool that takes
+	// its most recently used idle connection first, so a light load keeps
+	// few connections busy.
 	RoundRobin bool
 	// StreamsPerConn bounds concurrent streams per HTTP/2 connection;
 	// default DefaultHTTP2Streams.
@@ -142,23 +145,59 @@ func LoopbackAddrs(n int) ([]netip.Addr, error) {
 // HTTPTarget sends HTTP requests. It never follows redirects and never
 // asks for compression, so each response is the one the server sent.
 // Requests spread over HTTP/2 connections, and with RoundRobin over
-// HTTP/1.1 connections, by sequence number; with SourceAddrs they first
-// spread over the source addresses.
+// HTTP/1.1 connections, in turn: each takes the next connection that is
+// free, for HTTP/2 one with a free stream, and waits only while every
+// connection is busy (Testing "Load generator and L4 balancer", HTTP).
+// With SourceAddrs, request seq first goes to source address seq % n.
 type HTTPTarget struct {
 	cfg HTTPConfig
-	// groups holds one group of lanes per source address, or one group
-	// dialing from the system's choice.
-	groups [][]*lane
+	// groups holds one group per source address, or one group dialing
+	// from the system's choice.
+	groups []*group
 }
 
-// lane is one connection pool: every HTTP/1.1 connection, or one
-// round-robin HTTP/1.1 connection, or one HTTP/2 connection with its
-// stream bound.
+// group is one source address's share of the connections: one lane
+// pooling every HTTP/1.1 connection, or one lane per connection, a
+// round-robin HTTP/1.1 connection or an HTTP/2 connection, whose free
+// request slots the group hands out in turn.
+type group struct {
+	lanes []*lane
+	// free holds a lane index for each free request slot, one per
+	// round-robin HTTP/1.1 connection and StreamsPerConn per HTTP/2
+	// connection, least recently freed first, so requests take the
+	// connections in turn and a busy one, such as one that never answers,
+	// is passed over; nil for a pool, whose transport picks an idle
+	// connection itself.
+	free chan int
+}
+
+// lane is one connection pool: every HTTP/1.1 connection of a group, or
+// one round-robin HTTP/1.1 connection, or one HTTP/2 connection.
 type lane struct {
 	tr     *http.Transport
 	client *http.Client
-	sem    chan struct{} // nil for HTTP/1.1
 }
+
+// take claims the next free request slot in turn and returns its lane,
+// waiting only while every slot is taken; ok is false when ctx ended
+// first. A free slot is taken even under an ended ctx, which then ends
+// the request before anything is sent.
+func (g *group) take(ctx context.Context) (lane int, ok bool) {
+	select {
+	case i := <-g.free:
+		return i, true
+	default:
+	}
+	select {
+	case i := <-g.free:
+		return i, true
+	case <-ctx.Done():
+		return 0, false
+	}
+}
+
+// release frees a request slot of lane i, last in turn.
+func (g *group) release(i int) { g.free <- i }
 
 // NewHTTP returns an HTTP target.
 func NewHTTP(c HTTPConfig) (*HTTPTarget, error) {
@@ -221,17 +260,27 @@ func NewHTTP(c HTTPConfig) (*HTTPTarget, error) {
 			share++
 		}
 		if c.Protocol == HTTP1 && !c.RoundRobin {
-			t.groups = append(t.groups, []*lane{t.newLane(src, share, 0)})
+			t.groups = append(t.groups, &group{lanes: []*lane{t.newLane(src, share)}})
 			continue
 		}
-		// One lane per connection: an HTTP/2 connection with its stream
-		// bound, or a round-robin HTTP/1.1 connection, whose transport
-		// queues a request while its one connection is busy.
-		var lanes []*lane
-		for range share {
-			lanes = append(lanes, t.newLane(src, 1, c.StreamsPerConn))
+		// One lane per connection, a round-robin HTTP/1.1 connection with
+		// one request slot or an HTTP/2 connection with a slot per stream,
+		// the slots queued lane after lane, round after round, so requests
+		// arriving one by one take the connections in order.
+		slots := 1
+		if c.Protocol != HTTP1 {
+			slots = c.StreamsPerConn
 		}
-		t.groups = append(t.groups, lanes)
+		grp := &group{free: make(chan int, share*slots)}
+		for range share {
+			grp.lanes = append(grp.lanes, t.newLane(src, 1))
+		}
+		for range slots {
+			for i := range share {
+				grp.free <- i
+			}
+		}
+		t.groups = append(t.groups, grp)
 	}
 	return t, nil
 }
@@ -263,9 +312,9 @@ func checkSources(c HTTPConfig) ([]netip.Addr, error) {
 	return out, nil
 }
 
-// newLane returns a pool of conns connections (HTTP/1.1) or one HTTP/2
-// connection of streams streams, dialing from src when it is valid.
-func (t *HTTPTarget) newLane(src netip.Addr, conns, streams int) *lane {
+// newLane returns a pool of conns connections, dialing from src when it
+// is valid; its group bounds the requests each connection carries.
+func (t *HTTPTarget) newLane(src netip.Addr, conns int) *lane {
 	c := t.cfg
 	dial := c.Dial
 	if dial == nil {
@@ -294,35 +343,29 @@ func (t *HTTPTarget) newLane(src netip.Addr, conns, streams int) *lane {
 		MaxIdleConnsPerHost: conns,
 		Protocols:           &protocols,
 	}
-	l := &lane{
+	return &lane{
 		tr: tr,
 		client: &http.Client{
 			Transport:     tr,
 			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 		},
 	}
-	if streams > 0 {
-		l.sem = make(chan struct{}, streams)
-	}
-	return l
 }
 
 // Close closes the target's idle connections.
 func (t *HTTPTarget) Close() error {
 	for _, g := range t.groups {
-		for _, l := range g {
+		for _, l := range g.lanes {
 			l.tr.CloseIdleConnections()
 		}
 	}
 	return nil
 }
 
-// lane returns the lane of request seq: the group of source address
-// seq % groups, then its lanes in turn.
-func (t *HTTPTarget) lane(seq uint64) *lane {
-	n := uint64(len(t.groups))
-	g := t.groups[seq%n]
-	return g[(seq/n)%uint64(len(g))]
+// group returns the group of request seq: that of source address
+// seq % groups.
+func (t *HTTPTarget) group(seq uint64) *group {
+	return t.groups[seq%uint64(len(t.groups))]
 }
 
 // connCapture records the connection a request got.
@@ -347,22 +390,25 @@ func (c *connCapture) get() ConnInfo {
 	return c.info
 }
 
-// Do sends request r and reads the whole response body.
+// Do sends request r and reads the whole response body. On a group of
+// connections taken in turn it first claims the next free one, and frees
+// it once the body is read and closed.
 func (t *HTTPTarget) Do(ctx context.Context, r Request) Response {
-	l := t.lane(r.Seq)
+	g := t.group(r.Seq)
 	var resp Response
 	if t.cfg.Keys != nil {
 		resp.Key = t.cfg.Keys.Key(r.Seq)
 	}
-	if l.sem != nil {
-		select {
-		case l.sem <- struct{}{}:
-			defer func() { <-l.sem }()
-		case <-ctx.Done():
+	l := g.lanes[0]
+	if g.free != nil {
+		i, ok := g.take(ctx)
+		if !ok {
 			resp.Err = context.Cause(ctx)
 			resp.Outcome = Classify(resp.Err)
 			return resp
 		}
+		defer g.release(i)
+		l = g.lanes[i]
 	}
 	var cc connCapture
 	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotConn: cc.got})
