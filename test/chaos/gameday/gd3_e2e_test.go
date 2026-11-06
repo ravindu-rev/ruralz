@@ -33,7 +33,7 @@ func TestGD3StateStoreOutage(t *testing.T) {
 	base := r.Hold(l, chaos.PhaseBaseline, chaos.Baseline)
 	start := r.Inject("blackhole", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Blackhole{}) })
 	fault := r.Hold(l, chaos.PhaseFault, chaos.FaultPhase)
-	end := r.Inject("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
+	end := r.Remove("pass", "state-store", func() error { return r.SetStoreMode("main", faultproxy.Pass{}) })
 	rec := r.Hold(l, chaos.PhaseRecovery, chaos.RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)

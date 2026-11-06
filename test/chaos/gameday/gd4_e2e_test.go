@@ -52,7 +52,7 @@ func TestGD4StateStorePartition(t *testing.T) {
 	bh := r.Hold(l, gd4Blackholed, gd4Span)
 	r.Inject("refuse", "state-store-of-cut-nodes", set(faultproxy.Refuse{}))
 	rf := r.Hold(l, gd4Refused, gd4Span)
-	end := r.Inject("pass", "state-store-of-cut-nodes", set(faultproxy.Pass{}))
+	end := r.Remove("pass", "state-store-of-cut-nodes", set(faultproxy.Pass{}))
 	rec := r.Hold(l, chaos.PhaseRecovery, chaos.RecoveryTime)
 	if err := l.Wait(); err != nil {
 		t.Fatal(err)
