@@ -5,6 +5,7 @@ package respproxy
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -123,6 +124,60 @@ func TestProxySlowRepliesHeldSideBySide(t *testing.T) {
 	}
 	if s := p.Snapshot(); s.Held != 0 || s.Replies != 2 {
 		t.Fatalf("Snapshot = %+v at 5 s, want none held and both replies", s)
+	}
+}
+
+// TestProxyCountsPipelinedBatchOnce checks the counts through a real
+// connection, as CE-15's GCRA calls cross the proxy: a batch of 64
+// EVALSHA commands sent in one write counts 64 commands and 64 replies,
+// each logged once with its reply, with no reply delay and with every
+// EVALSHA reply held, the held replies released by a change of the delays.
+func TestProxyCountsPipelinedBatchOnce(t *testing.T) {
+	for _, held := range []bool{false, true} {
+		name := "no delay"
+		if held {
+			name = "replies held"
+		}
+		t.Run(name, func(t *testing.T) {
+			clk := clocktest.New(time.Unix(0, 0))
+			up := startUpstream(t, defaultReply)
+			p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+			if held {
+				if err := p.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: time.Hour}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cl := dialClient(t, p.Addr())
+			var batch strings.Builder
+			for i := range 64 {
+				batch.WriteString(cmd("EVALSHA", "sha", "1", "rz:rl:flood:{"+strconv.Itoa(i)+"}"))
+			}
+			cl.send(batch.String())
+			if held {
+				waitFor(t, "a held reply", func() bool { return p.Snapshot().Held > 0 })
+				if err := p.SetReplyDelays(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i := range 64 {
+				if got := cl.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
+					t.Fatalf("reply %d = %q", i, got)
+				}
+			}
+			s := p.Snapshot()
+			if s.Commands != 64 || s.Count("EVALSHA") != 64 || s.Replies != 64 || s.Errors["NOSCRIPT"] != 64 || s.Held != 0 || s.Desyncs != 0 {
+				t.Errorf("Snapshot = %+v, want 64 EVALSHA commands and replies, none held", s)
+			}
+			answered := 0
+			for _, e := range p.Log() {
+				if e.Name == "EVALSHA" && e.Reply.Kind == '-' {
+					answered++
+				}
+			}
+			if answered != 64 {
+				t.Errorf("the log holds %d answered EVALSHA commands, want 64", answered)
+			}
+		})
 	}
 }
 

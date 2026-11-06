@@ -7,6 +7,7 @@ import (
 	"errors"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -136,6 +137,103 @@ func TestCounterCountsCommandsAndReplies(t *testing.T) {
 		if got.Seq != want.Seq || got.Conn != want.Conn || got.RoundTrip != want.RoundTrip || got.Name != want.Name ||
 			!slices.Equal(got.Args, want.Args) || got.Argc != want.Argc || got.Cut || got.Reply != want.Reply {
 			t.Errorf("log[%d] = %+v, want %+v", i, got, want)
+		}
+	}
+}
+
+// TestCounterCountsEachCommandAndReplyOnce checks that a pipelined batch
+// counts each command and each reply exactly once, matched in order,
+// however the proxy's reads cut the bytes and whether reply delays hold
+// some of them or none: the read-time scan that decides the holds counts
+// nothing. The batch is fed whole, a byte at a time and in uneven chunks,
+// with no delay, a delay on EVALSHA and a delay on every reply; a RESP3
+// push between the replies answers no command. CE-15 cross-checks the
+// Nodes' GCRA calls against these counts.
+func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
+	var batch strings.Builder
+	for i := range 5 {
+		batch.WriteString(cmd("EVALSHA", "sha", "1", "rz:rl:flood:{"+strconv.Itoa(i)+"}", "1"))
+	}
+	batch.WriteString(cmd("GET", "g") + cmd("HMGET", "p", "n", "t", "e") + cmd("TIME") + cmd("EVALSHA", "sha", "0"))
+	commands := batch.String()
+	replies := ":1\r\n" + ":0\r\n" + "*3\r\n:1\r\n:0\r\n:1500\r\n" + "$5\r\nhello\r\n" +
+		">2\r\n$10\r\ninvalidate\r\n_\r\n" + "-ERR one\r\n" +
+		"_\r\n" + "*3\r\n_\r\n$3\r\nabc\r\n_\r\n" + "*2\r\n$10\r\n1700000000\r\n$6\r\n123456\r\n" +
+		"-NOSCRIPT No matching script.\r\n"
+	wantNames := []string{"EVALSHA", "EVALSHA", "EVALSHA", "EVALSHA", "EVALSHA", "GET", "HMGET", "TIME", "EVALSHA"}
+	wantReplies := []Reply{
+		{Kind: ':'},
+		{Kind: ':'},
+		{Kind: '*'},
+		{Kind: '$'},
+		{Kind: '-', Err: "ERR one"},
+		{Kind: '_'},
+		{Kind: '*'},
+		{Kind: '*'},
+		{Kind: '-', Err: "NOSCRIPT No matching script."},
+	}
+	cut := func(s string, sizes []int) []string {
+		var out []string
+		for i := 0; s != ""; i++ {
+			n := min(len(s), sizes[i%len(sizes)])
+			out = append(out, s[:n])
+			s = s[n:]
+		}
+		return out
+	}
+	for _, chunking := range []struct {
+		name  string
+		sizes []int
+	}{
+		{"whole", []int{1 << 20}},
+		{"a byte at a time", []int{1}},
+		{"uneven chunks", []int{3, 7, 1, 11, 5, 2}},
+	} {
+		for _, delays := range []struct {
+			name   string
+			delays []ReplyDelay
+		}{
+			{"no delay", nil},
+			{"EVALSHA held", []ReplyDelay{{Command: "EVALSHA", Delay: time.Second}}},
+			{"every reply held", []ReplyDelay{{Delay: time.Second}}},
+		} {
+			t.Run(chunking.name+"/"+delays.name, func(t *testing.T) {
+				clk := clocktest.New(time.Unix(0, 0))
+				c := NewCounter(CounterConfig{Clock: clk})
+				if err := c.SetReplyDelays(delays.delays...); err != nil {
+					t.Fatal(err)
+				}
+				cn := newConn(c, 1)
+				for _, b := range cut(commands, chunking.sizes) {
+					cn.up(b)
+				}
+				for _, b := range cut(replies, chunking.sizes) {
+					cn.down(b)
+				}
+				clk.Advance(time.Second)
+				if got, waiting := cn.sent(); strings.Join(got, "") != replies || waiting != 0 {
+					t.Fatalf("forwarded %q with %d chunks waiting, want every reply byte once", strings.Join(got, ""), waiting)
+				}
+				s := c.Snapshot()
+				if s.Commands != 9 || s.Replies != 9 || s.Pushes != 1 || s.RoundTrips != 1 || s.Desyncs != 0 || s.Held != 0 {
+					t.Errorf("Snapshot = %+v, want 9 commands and replies in one round trip, 1 push, none held", s)
+				}
+				if want := map[string]int64{"EVALSHA": 6, "GET": 1, "HMGET": 1, "TIME": 1}; !maps.Equal(s.ByName, want) {
+					t.Errorf("ByName = %v, want %v", s.ByName, want)
+				}
+				if want := map[string]int64{"ERR": 1, "NOSCRIPT": 1}; !maps.Equal(s.Errors, want) {
+					t.Errorf("Errors = %v, want %v", s.Errors, want)
+				}
+				log := c.Log()
+				if got := names(log); !slices.Equal(got, wantNames) {
+					t.Fatalf("log names = %q, want %q", got, wantNames)
+				}
+				for i, e := range log {
+					if e.Reply != wantReplies[i] {
+						t.Errorf("log[%d] %s reply = %+v, want %+v", i, e.Name, e.Reply, wantReplies[i])
+					}
+				}
+			})
 		}
 	}
 }

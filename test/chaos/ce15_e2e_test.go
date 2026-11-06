@@ -97,10 +97,11 @@ func TestCE15KeyRotationFlood(t *testing.T) {
 		worstWindow = max(worstWindow, w)
 	}
 	r.Breakdown("first_seen_calls_fullest_window", float64(worstWindow))
-	nodeCalls := 0.0
-	for _, n := range r.Sampler.Nodes() {
-		nodeCalls += Increase(r.Sampler.Trace(n, "ruralz_state_calls_total", promtext.L("op", "gcra")), fault.Start, rec.Start.Add(5*time.Second))
-	}
+	// The Nodes' GCRA calls over the span the proxies' log covered, from
+	// before the baseline to after the recovery: Nodes still working off
+	// the flood's backlog after the fault make their last calls late, and
+	// those count on both sides.
+	nodeCalls := calls.NodeCalls(r.Sampler, "gcra")
 	r.Breakdown("proxy_flood_gcra_commands", float64(len(got)))
 	r.Breakdown("node_gcra_calls", nodeCalls)
 	r.Add(

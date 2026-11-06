@@ -13,6 +13,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore"
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/respproxy"
+	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
+	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 )
 
 // CallLogEvery is how often a CallLog drains the counting RESP proxies'
@@ -41,6 +43,8 @@ type CallLog struct {
 	calls  []Call
 	seqs   map[*respproxy.Proxy]uint64
 	missed uint64
+	// from and to are the real span the log covers (Span).
+	from, to time.Time
 
 	stop chan struct{}
 	done chan struct{}
@@ -51,6 +55,7 @@ type CallLog struct {
 // proxies (StateStoreOptions.RESPProxy).
 func (r *Run) StartCallLog(ctx context.Context, store string, policies ...string) *CallLog {
 	cl := &CallLog{r: r, store: store, policies: policies, seqs: map[*respproxy.Proxy]uint64{}, stop: make(chan struct{}), done: make(chan struct{})}
+	cl.from = time.Now()
 	for _, n := range r.Top.Nodes() {
 		ps, _ := n.RESPProxy(store)
 		for _, p := range ps {
@@ -124,7 +129,37 @@ func (cl *CallLog) Stop() ([]Call, uint64) {
 	<-cl.done
 	cl.mu.Lock()
 	defer cl.mu.Unlock()
+	if cl.to.IsZero() {
+		cl.to = time.Now()
+	}
 	return append([]Call(nil), cl.calls...), cl.missed
+}
+
+// Span returns the real span the log covered: from before it read the
+// proxies' first Seqs to after its last drain at Stop, so every call it
+// saw was read within it. Before Stop the span has no end.
+func (cl *CallLog) Span() (from, to time.Time) {
+	cl.mu.Lock()
+	defer cl.mu.Unlock()
+	return cl.from, cl.to
+}
+
+// NodeCalls returns the State Store calls of op, such as gcra, that every
+// Node sampled by s counted in ruralz_state_calls_total, whatever their
+// result, over the span the log covered: the count the calls it saw match
+// when each crossed a counting proxy once (CE-15's cross-check,
+// docs/architecture/11-scalability-and-distributed-state.md "Chaos
+// experiments"). Both counts cover one span, so a call the Nodes make
+// late, working off a backlog after the load that queued it ended, counts
+// on both sides; the span's edges must see no call, as for a log started
+// before the load and stopped after its recovery.
+func (cl *CallLog) NodeCalls(s *Sampler, op string) float64 {
+	from, to := cl.Span()
+	total := 0.0
+	for _, n := range s.Nodes() {
+		total += Increase(s.Trace(n, catalog.StateCallsTotal, promtext.L("op", op)), from, to)
+	}
+	return total
 }
 
 // KeyTag returns the hash tag of the rate limit key a Policy keyed by
