@@ -7,12 +7,9 @@ import (
 	"net/netip"
 
 	celgo "cel.dev/cel-go/cel"
-	"cel.dev/cel-go/checker"
-	"cel.dev/cel-go/common"
 	"cel.dev/cel-go/common/cost"
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/common/types/ref"
-	"cel.dev/cel-go/interpreter"
 )
 
 // net.prefix(string, int, int) returns the network of an IP address in
@@ -45,7 +42,7 @@ func (netLibrary) CompileOptions() []celgo.EnvOption {
 			celgo.Overload(netPrefixOverload,
 				[]*celgo.Type{celgo.StringType, celgo.IntType, celgo.IntType}, celgo.StringType,
 				celgo.FunctionBinding(netPrefix))),
-		celgo.CostEstimatorOptions(checker.OverloadCostEstimate(netPrefixOverload, estimateNetPrefix)),
+		celgo.CostEstimatorOptions(cost.OverloadCostEstimate(netPrefixOverload, estimateNetPrefix)),
 	}
 }
 
@@ -53,7 +50,7 @@ func (netLibrary) CompileOptions() []celgo.EnvOption {
 // programs that track cost.
 func (netLibrary) ProgramOptions() []celgo.ProgramOption {
 	return []celgo.ProgramOption{
-		celgo.CostTrackerOptions(interpreter.OverloadCostTracker(netPrefixOverload, trackNetPrefix)),
+		celgo.CostTrackerOptions(cost.OverloadTracker(netPrefixOverload, trackNetPrefix)),
 	}
 }
 
@@ -92,19 +89,14 @@ func netPrefix(args ...ref.Val) ref.Val {
 // 0.1 unit per byte of its address argument, the result sized at the
 // address plus netPrefixSuffix bytes. An address without a size is
 // unbounded.
-func estimateNetPrefix(e checker.CostEstimator, _ *checker.AstNode, args []checker.AstNode) *checker.CallEstimate {
+func estimateNetPrefix(e cost.Estimator, _ *cost.AstNode, args []cost.AstNode) *cost.CallEstimate {
 	if len(args) != 3 {
 		return nil
 	}
-	size := checker.SizeEstimate{Min: 0, Max: ^uint64(0)}
-	if sz := args[0].ComputedSize(); sz != nil {
-		size = *sz
-	} else if sz := e.EstimateSize(args[0]); sz != nil {
-		size = *sz
-	}
-	call := size.MultiplyByCostFactor(common.StringTraversalCostFactor).Add(checker.FixedCostEstimate(1))
-	result := checker.SizeEstimate{Min: size.Min, Max: addSat(size.Max, netPrefixSuffix)}
-	return &checker.CallEstimate{CostEstimate: call, ResultSize: &result}
+	size := cost.EstimateSize(e, args[0])
+	call := size.MultiplyByCostFactor(cost.StringTraversalCostFactor).Add(cost.FixedCostEstimate(1))
+	result := cost.RangedSizeEstimate(size.Min, cost.SafeAdd(size.Max, netPrefixSuffix))
+	return cost.NewCallEstimate(call, &result)
 }
 
 // trackNetPrefix is the runtime cost of one net.prefix call, as
@@ -117,6 +109,6 @@ func trackNetPrefix(args []ref.Val, _ ref.Val) *uint64 {
 			n = uint64(len(s))
 		}
 	}
-	c := cost.SafeAdd(1, cost.SafeMultiplyByFactor(n, common.StringTraversalCostFactor))
+	c := cost.SafeAdd(1, cost.SafeMultiplyByFactor(n, cost.StringTraversalCostFactor))
 	return &c
 }

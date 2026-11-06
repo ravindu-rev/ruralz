@@ -218,17 +218,17 @@ var _ filter.Filter = (*Filter)(nil)
 // got no response is left alone. A CEL runtime error or an invalid
 // computed value cannot decide, with the class default code, and leaves
 // the message as it was.
-func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) filter.Result {
+func (f *Filter) Handle(_ context.Context, p phase.Phase, x filter.Exchange) filter.Result {
 	switch p {
 	case f.reqPhase:
-		return f.request.apply(ctx, x)
+		return f.request.apply(x)
 	case f.respPhase:
 		if p == phase.OnUpstreamResponseHeaders {
 			if l := x.Leg(); l != nil && l.Response == nil {
 				return filter.Next()
 			}
 		}
-		return f.response.apply(ctx, x)
+		return f.response.apply(x)
 	default:
 		return filter.Next()
 	}
@@ -261,7 +261,7 @@ type entry struct {
 
 // apply runs the side on the Phase's message: every valueExpression, then
 // remove, set and add.
-func (s *side) apply(ctx context.Context, x filter.Exchange) filter.Result {
+func (s *side) apply(x filter.Exchange) filter.Result {
 	if len(s.names) == 0 {
 		return filter.Next()
 	}
@@ -276,7 +276,7 @@ func (s *side) apply(ctx context.Context, x filter.Exchange) filter.Result {
 	var vals []string
 	if s.computed > 0 {
 		var err error
-		if vals, err = s.evaluate(ctx, x.Vars()); err != nil {
+		if vals, err = s.evaluate(x.Vars()); err != nil {
 			return filter.Undecided("", err)
 		}
 	}
@@ -290,7 +290,7 @@ func (s *side) apply(ctx context.Context, x filter.Exchange) filter.Result {
 // evaluate runs every valueExpression of the side, set entries first, then
 // add entries, and returns the results in one slice. Each result is
 // trimmed and checked as a field value.
-func (s *side) evaluate(ctx context.Context, v *expr.Vars) ([]string, error) {
+func (s *side) evaluate(v *expr.Vars) ([]string, error) {
 	vals := make([]string, s.computed)
 	j := 0
 	for _, list := range [...][]entry{s.set, s.add} {
@@ -299,7 +299,7 @@ func (s *side) evaluate(ctx context.Context, v *expr.Vars) ([]string, error) {
 			if e.prog == nil {
 				continue
 			}
-			raw, err := e.prog.EvalString(ctx, v)
+			raw, err := e.prog.EvalString(v)
 			if err != nil {
 				kind := errTypeCEL
 				var ee *expr.EvalError

@@ -62,52 +62,38 @@
 //
 // The static estimate sizes every string reached from a variable, typed or
 // dyn, at 256 bytes and every list or map at 32 entries (target); a dyn
-// value used as a comprehension range or an in container is sized as a
-// container. A second estimate, under the snapshot's input caps
+// value used as a comprehension range, an in container or the receiver of
+// join is sized as a container, and the elements of a dyn container as
+// containers when every one the expression reads is used as one, else as
+// strings. A second estimate, under the snapshot's input caps
 // (expr.InputCaps, passed to NewBuilder), decides runtime tracking: the
 // client request's fields at the header cap, which counts the request
 // target, plus Policy edits, the claims and the Route and Consumer fields
 // at their caps, and every other value, such as a body or a field of a call
-// result, unbounded. A program whose bound under
-// the caps stays within 1,000,000 units cannot reach the cost limit and
-// evaluates without cost tracking; any other one evaluates under that
-// limit (target). A program is reused across snapshots only under equal
-// caps.
+// result, unbounded. A program whose bound under the caps stays within
+// 1,000,000 units cannot reach the cost limit and evaluates without cost
+// tracking; any other one evaluates under that limit (target). A program
+// is reused across snapshots only under equal caps.
 //
-// Both estimates are cel-go's with three corrections that make them upper
-// bounds of the runtime cost (costFacts). Two are units cel-go's runtime
-// charges and its estimator does not: a unit per evaluation of a field
-// selection on a dyn value, and a unit per evaluation of a selection,
+// Both estimates are cel-go's, under revision 1 of its cost model, pinned
+// in every environment, which charges every unit its runtime charges: a
+// unit per field selection, on a dyn value too, and a unit per selection,
 // presence test or index whose operand is not an identifier, a selection,
 // an index or a conditional, such as a list or map literal, a call or a
-// comprehension, which cel-go evaluates as a relative attribute. The third
+// comprehension, which cel-go evaluates as a relative attribute; and it
 // counts a split result at one entry more than its string's size, as n
-// separators split into n + 1 entries.
+// separators split into n + 1 entries. So each is an upper bound of the
+// runtime cost for inputs within its sizes.
 //
-// A tracked program holding a comprehension evaluates in an execution
-// frame whose context stops it at the smaller of the request deadline and
-// 50 ms (target, ADR-0019), fixed when the evaluation starts. The request
-// deadline is expr.Vars.Deadline, which the data plane sets to the Route
-// deadline, on the Compiler's clock; a context's own deadline, a
-// wall-clock instant, is never read. An evaluation that starts at or after
-// its deadline, as an onLog one after a request that ran to its Route
-// deadline, or under a request context that has already ended, stops at
-// the first interrupt check, and a cancellation during the evaluation does
-// not stop it sooner. Either stop is a runtime error, KindDeadline, even
-// when cel-go's interrupted comprehension yields an error value that a
-// logical operator absorbs, as in `list.exists(...) || b`: an evaluation
-// whose interrupt check saw the stop never yields a value. An untracked
-// comprehension has no stop, since its bound caps its work. The stop is a
-// context and timer taken from a pool the Compiler owns and returned
-// unless it fired, so an evaluation that finishes in time builds no
-// context, timer or closure. Its timer runs on the Compiler's clock:
-// [NewWithClock] takes ruralzd's process clock, the clock of the Route
-// deadline, and [New] the wall clock for validation.
+// The cost limit alone bounds an evaluation (ADR-0019): cel-go charges a
+// tracked program as it runs, in time linear in the units it charges, and
+// aborts it at the limit with a runtime error, KindCostLimit, which no
+// logical operator absorbs, as in `list.exists(...) || b`. An untracked
+// program cannot reach the limit, since its bound caps its work.
 //
 // What remains of a tracked evaluation's allocations is cel-go's: the cost
-// tracker clones itself, grows its value stack and copies call arguments
-// for every call it observes, the execution frame derives a child context
-// and an async gate, and functions such as split build their results. An
+// tracker clones itself and copies the arguments and the charge of every
+// call it prices, and functions such as split build their results. An
 // untracked program allocates only for the values it builds and the
 // strings it reads from the request.
 //

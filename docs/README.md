@@ -159,7 +159,7 @@ The full ADR index, with the same columns, is [docs/adr/README.md](adr/README.md
 | [ADR-0016](adr/0016-kubernetes-helm-and-crds.md) | Kubernetes packaging: Helm chart and CRDs mirroring kinds, Gateway API deferred | proposed | Deployment Topologies |
 | [ADR-0017](adr/0017-artifact-signing.md) | Artifact signing: Revisions and Plugins signed, verified by Nodes by default | accepted | Security and Identity |
 | [ADR-0018](adr/0018-telemetry-opentelemetry-prometheus-exporter.md) | Telemetry: OpenTelemetry-first with an slog bridge and the OpenTelemetry Prometheus exporter | accepted | Observability |
-| [ADR-0019](adr/0019-expressions-authorization-comprehension-stop.md) | Expressions and authorization: CEL inline with a comprehension stop, OPA and Cedar engines, no Lua | accepted | Security and Identity |
+| [ADR-0019](adr/0019-expressions-authorization-comprehension-stop.md) | Expressions and authorization: CEL inline under its cost limit, OPA and Cedar engines, no Lua | accepted | Security and Identity |
 
 ## Conventions
 

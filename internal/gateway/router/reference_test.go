@@ -4,7 +4,6 @@
 package router
 
 import (
-	"context"
 	"encoding/binary"
 	"fmt"
 	"math/rand/v2"
@@ -46,7 +45,7 @@ type refResult struct {
 }
 
 // referenceMatch answers one request.
-func referenceMatch(ctx context.Context, hostnames []string, routes []refRoute, method, rawHost, path string, h http.Header) refResult {
+func referenceMatch(hostnames []string, routes []refRoute, method, rawHost, path string, h http.Header) refResult {
 	none := refResult{route: -1}
 	host := routematch.NormalizeHost(rawHost)
 	if len(hostnames) > 0 && !slices.ContainsFunc(hostnames, func(s string) bool {
@@ -107,7 +106,7 @@ func referenceMatch(ctx context.Context, hostnames []string, routes []refRoute, 
 		}
 		if c.rt.when != nil {
 			v := &expr.Vars{Request: &expr.Request{Method: method, Host: host, Path: path, Header: h, PathParams: c.params}}
-			ok, err := c.rt.when.EvalBool(ctx, v)
+			ok, err := c.rt.when.EvalBool(v)
 			if err != nil {
 				return refResult{route: -1, code: "RZ-RT-006"}
 			}
@@ -418,9 +417,9 @@ func checkReference(t *testing.T, progs map[string]expr.Program, data []byte) {
 	params := make([]expr.Param, 0, r.MaxParams())
 	for range 1 + g.n(6) {
 		method, host, path, h := genRequest(g, matches)
-		want := referenceMatch(t.Context(), hostnames, refs, method, host, path, h)
+		want := referenceMatch(hostnames, refs, method, host, path, h)
 		v := &expr.Vars{Request: &expr.Request{Method: method, Host: routematch.NormalizeHost(host), Path: path, Header: h}}
-		res := r.Match(t.Context(), &snapshot.MatchRequest{Host: host, Path: path, Method: method, Header: h, Vars: v}, params)
+		res := r.Match(&snapshot.MatchRequest{Host: host, Path: path, Method: method, Header: h, Vars: v}, params)
 		code, _ := errcode.CodeOf(res.Err)
 		if res.Route != want.route || code != want.code || !slices.Equal(res.Params, want.params) {
 			t.Fatalf("listener %q, Routes %+v:\n%s %s%s %v: Match = %d %v %q, reference %d %v %q",

@@ -154,7 +154,7 @@ func (f *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange) f
 			return filter.Undecided("", err)
 		}
 	}
-	ok, err := f.rule.EvalBool(ctx, x.Vars())
+	ok, err := f.rule.EvalBool(x.Vars())
 	switch {
 	case err != nil:
 		return f.Undecided(x, "", classify(err))

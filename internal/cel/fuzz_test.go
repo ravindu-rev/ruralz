@@ -4,7 +4,6 @@
 package cel
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"hash/fnv"
@@ -327,7 +326,7 @@ func treeCap(x any) int {
 // FuzzEvalCapped checks evaluation at the Gateway caps: a 64 KiB header
 // value (limits.maxRequestHeaderBytes) and large containers. Evaluation
 // returns a value or an *expr.EvalError, so the place's runtime-error rule
-// applies; the cost limit and the comprehension stop are such errors.
+// applies; the cost limit is such an error.
 func FuzzEvalCapped(f *testing.F) {
 	for i, s := range fuzzSeeds() {
 		f.Add(s, uint8(i), uint8(i*7), []byte(s))
@@ -341,19 +340,17 @@ func FuzzEvalCapped(f *testing.F) {
 		}
 		v := fuzzVars(data, 64, 256)
 		v.Request.Header.Set("X-Tenant", strings.Repeat("a,", 32<<10))
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
 		p, _ := expr.LookupPlace(site.Place)
 		var err error
 		switch p.Result {
 		case expr.ResultBool:
-			_, err = prg.EvalBool(ctx, v)
+			_, err = prg.EvalBool(v)
 		case expr.ResultString:
-			_, err = prg.EvalString(ctx, v)
+			_, err = prg.EvalString(v)
 		case expr.ResultDyn:
-			_, err = prg.EvalValue(ctx, v)
+			_, err = prg.EvalValue(v)
 		case expr.ResultInt:
-			_, err = prg.EvalInt(ctx, v)
+			_, err = prg.EvalInt(v)
 		}
 		var ee *expr.EvalError
 		if err != nil && !errors.As(err, &ee) {

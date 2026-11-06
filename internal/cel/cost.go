@@ -7,7 +7,7 @@ import (
 	"math"
 	"strconv"
 
-	"cel.dev/cel-go/checker"
+	"cel.dev/cel-go/common/cost"
 	"cel.dev/cel-go/common/types"
 
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -27,44 +27,69 @@ const (
 	nominalContainerSize = 32
 )
 
+// Both estimators answer cel-go's two kinds of size question
+// (cost.Estimator): one about an expression of the checked AST, whose
+// node carries the expression, and one about the elements of a container,
+// whose node carries no expression, only the container's path from its
+// variable followed by "@items", "@keys" or "@values" and the elements'
+// type. cel-go sizes an index result and a comprehension variable from
+// the element size of their container rather than by asking about them.
+
 // nominalEstimator sizes the values cel-go cannot size itself at the
 // nominal sizes: a string at 256 bytes and a list or map at 32 entries,
 // whether typed or dyn. A dyn value is sized as a container where the
-// expression iterates it or tests membership in it, else as a string. An
-// object, type or null value has size 1, as cel-go's runtime cost charges
-// a value that has no size, so comparing two of them is not unbounded.
+// expression iterates it, tests membership in it or joins it, else as a
+// string. The elements of a dyn container are sized from every value the
+// expression reads among them, by index or as a comprehension variable
+// (costFacts.elements): as containers when each of those is used as one,
+// else as strings, which bounds both uses. An object, type or null value
+// has size 1, as cel-go's runtime cost charges a value that has no size,
+// so comparing two of them is not unbounded.
 type nominalEstimator struct {
-	// containers are the IDs of comprehension ranges and in containers.
+	// containers are the IDs of comprehension ranges, in containers and
+	// join receivers.
 	containers map[int64]bool
+	// elements are the element paths whose values are all containers.
+	elements map[string]bool
 }
 
-// EstimateSize implements checker.CostEstimator.
-func (e nominalEstimator) EstimateSize(n checker.AstNode) *checker.SizeEstimate {
+// EstimateSize implements cost.Estimator.
+func (e nominalEstimator) EstimateSize(n cost.AstNode) *cost.SizeEstimate {
 	t := n.Type()
 	if t == nil {
 		return nil
 	}
 	switch t.Kind() {
 	case types.StringKind, types.BytesKind:
-		return &checker.SizeEstimate{Min: 0, Max: nominalStringSize}
+		return &cost.SizeEstimate{Min: 0, Max: nominalStringSize}
 	case types.ListKind, types.MapKind:
-		return &checker.SizeEstimate{Min: 0, Max: nominalContainerSize}
+		return &cost.SizeEstimate{Min: 0, Max: nominalContainerSize}
 	case types.DynKind, types.AnyKind, types.TypeParamKind:
-		if e.containers[n.Expr().ID()] {
-			return &checker.SizeEstimate{Min: 0, Max: nominalContainerSize}
+		if e.container(n) {
+			return &cost.SizeEstimate{Min: 0, Max: nominalContainerSize}
 		}
-		return &checker.SizeEstimate{Min: 0, Max: nominalStringSize}
+		return &cost.SizeEstimate{Min: 0, Max: nominalStringSize}
 	case types.StructKind, types.TypeKind, types.NullTypeKind:
-		return &checker.SizeEstimate{Min: 1, Max: 1}
+		return &cost.SizeEstimate{Min: 1, Max: 1}
 	default:
 		// Scalars: cel-go sizes them itself.
 		return nil
 	}
 }
 
-// EstimateCallCost implements checker.CostEstimator: no function needs a
-// cost beyond those of cel-go and the enabled extensions.
-func (nominalEstimator) EstimateCallCost(string, string, *checker.AstNode, []checker.AstNode) *checker.CallEstimate {
+// container reports whether the dyn value of n is sized as a container:
+// the expression's own use, or that of every value read at n's element
+// path.
+func (e nominalEstimator) container(n cost.AstNode) bool {
+	if x := n.Expr(); x != nil {
+		return e.containers[x.ID()]
+	}
+	return e.elements[elementKey(n.Path())]
+}
+
+// EstimateCallCost implements cost.Estimator: no function needs a cost
+// beyond those of cel-go and the enabled extensions.
+func (nominalEstimator) EstimateCallCost(string, string, *cost.AstNode, []cost.AstNode) *cost.CallEstimate {
 	return nil
 }
 
@@ -73,43 +98,39 @@ func (nominalEstimator) EstimateCallCost(string, string, *checker.AstNode, []che
 // value, which cel-go then treats as unbounded. An estimate within the
 // runtime limit therefore holds for every input within the caps, and the
 // program needs no cost tracking. Only a value reached from a capped
-// variable field is sized (costFacts.paths): a value an expression
-// computes, such as a split element or a field of a call result, gets no
-// size unless cel-go derives one from sized operands, so no cap is ever
-// applied to data it does not bound. With the zero caps every input is
-// unbounded.
+// variable field is sized, by the path cel-go gives it
+// (cost.AstNode.Path), which runs from a variable through field
+// selections, indexes and comprehension variables only: a value an
+// expression computes, such as a split element or a field of a call
+// result, has no path and gets no size unless cel-go derives one from
+// sized operands, so no cap is ever applied to data it does not bound.
+// With the zero caps every input is unbounded.
 type cappedEstimator struct {
 	caps expr.InputCaps
 	// clientRequest reports that request is the client request, whose
 	// header block the caps bound (siteEnv.clientRequest).
 	clientRequest bool
-	// paths are the expression's values reached from a Ruralz variable.
-	paths map[int64][]string
 }
 
-// EstimateSize implements checker.CostEstimator. Objects, types and null
-// have size 1, as cel-go's runtime cost charges a value without a size.
-func (e cappedEstimator) EstimateSize(n checker.AstNode) *checker.SizeEstimate {
+// EstimateSize implements cost.Estimator. Objects, types and null have
+// size 1, as cel-go's runtime cost charges a value without a size.
+func (e cappedEstimator) EstimateSize(n cost.AstNode) *cost.SizeEstimate {
 	if t := n.Type(); t != nil {
 		switch t.Kind() {
 		case types.StructKind, types.TypeKind, types.NullTypeKind:
-			return &checker.SizeEstimate{Min: 1, Max: 1}
+			return &cost.SizeEstimate{Min: 1, Max: 1}
 		default:
 		}
 	}
-	path, rooted := e.paths[n.Expr().ID()]
-	if !rooted {
-		return nil
-	}
-	limit, ok := e.capOf(path)
+	limit, ok := e.capOf(n.Path())
 	if !ok {
 		return nil
 	}
-	return &checker.SizeEstimate{Min: 0, Max: limit}
+	return &cost.SizeEstimate{Min: 0, Max: limit}
 }
 
 // capOf returns the cap of the value at path, a field path from a
-// variable (checker.AstNode.Path), in bytes for a string and entries for a
+// variable (cost.AstNode.Path), in bytes for a string and entries for a
 // list or map; false when no cap bounds it.
 func (e cappedEstimator) capOf(path []string) (uint64, bool) {
 	if len(path) < 2 {
@@ -197,16 +218,16 @@ func pick(element bool, elem, whole int64) int64 {
 	return whole
 }
 
-// EstimateCallCost implements checker.CostEstimator: cel-go's and the
+// EstimateCallCost implements cost.Estimator: cel-go's and the
 // extensions' own estimates apply.
-func (cappedEstimator) EstimateCallCost(string, string, *checker.AstNode, []checker.AstNode) *checker.CallEstimate {
+func (cappedEstimator) EstimateCallCost(string, string, *cost.AstNode, []cost.AstNode) *cost.CallEstimate {
 	return nil
 }
 
 // costFinding returns the RZ-CFG-015 message and hint for an estimate,
 // or ok false when the estimate passes. an supplies the hint: json.encode,
 // which cel-go cannot bound, or a comprehension.
-func costFinding(est checker.CostEstimate, an *analysis) (msg, hint string, ok bool) {
+func costFinding(est cost.Estimate, an *analysis) (msg, hint string, ok bool) {
 	if est.Max <= staticCostCeiling {
 		return "", "", false
 	}

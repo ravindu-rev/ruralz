@@ -72,7 +72,7 @@ func (st *state) finish(ctx context.Context) {
 	}
 	gw, gwOK := x.Timer().Observe(st.gwEnd, st.stripe, st.lm.GatewayDuration, h.node.GatewayDurationSkipped)
 	st.count(status, end, dur)
-	st.accessRecord(lctx, status, dur, end, gw, gwOK)
+	st.accessRecord(status, dur, end, gw, gwOK)
 	st.publishTap(status, dur)
 	st.endSpan(status)
 }
@@ -111,14 +111,14 @@ func (st *state) count(status int, end time.Time, dur time.Duration) {
 // and counts ruralz_telemetry_access_log_cel_errors_total. The writer
 // copies every field at Submit, so the record never references the
 // request's memory.
-func (st *state) accessRecord(ctx context.Context, status int, dur time.Duration, end time.Time, gw time.Duration, gwOK bool) {
+func (st *state) accessRecord(status int, dur time.Duration, end time.Time, gw time.Duration, gwOK bool) {
 	h, x := st.h, st.x
 	if h.alog == nil {
 		return
 	}
 	if when := st.snap.Gateway.AccessLogWhen; when != nil {
 		x.Enter(nil, phase.OnLog, nil)
-		ok, err := when.EvalBool(ctx, x.Exchange().Vars())
+		ok, err := when.EvalBool(x.Exchange().Vars())
 		switch {
 		case err != nil:
 			h.node.AccessLogCELErrors.Add(st.stripe, 1)

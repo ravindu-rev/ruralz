@@ -4,11 +4,9 @@
 package cel
 
 import (
-	"context"
 	"encoding/json"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/cel/celtypes"
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -18,7 +16,8 @@ import (
 // Microbenchmarks of docs/engineering/03-testing-and-quality-strategy.md
 // "Benchmarks": typical match and key expressions run under 2 µs at p99
 // (target, docs/architecture/02-configuration-model.md "Limits"), and the
-// worst-case fixtures of ADR-0019 end within 50 ms, finished or stopped.
+// worst-case fixtures of ADR-0019 end within 50 ms, finished or at the cost
+// limit.
 // Every program is planned under exampleCaps, the input caps a default
 // Gateway's snapshot passes, so each runs tracked or untracked as it does
 // in the data plane.
@@ -35,20 +34,18 @@ func snapshotVars() *expr.Vars {
 // benchBool reports the evaluation of a bool program.
 func benchBool(b *testing.B, site expr.Site, src string, v *expr.Vars) {
 	prg := mustCapped(b, newCompiler(b), site, src, exampleCaps())
-	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = prg.EvalBool(ctx, v)
+		_, _ = prg.EvalBool(v)
 	}
 }
 
 // benchString reports the evaluation of a string program.
 func benchString(b *testing.B, site expr.Site, src string, v *expr.Vars) {
 	prg := mustCapped(b, newCompiler(b), site, src, exampleCaps())
-	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = prg.EvalString(ctx, v)
+		_, _ = prg.EvalString(v)
 	}
 }
 
@@ -84,15 +81,6 @@ func BenchmarkAuthzOrders(b *testing.B) {
 	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, snapshotVars())
 }
 
-// BenchmarkAuthzOrdersDeadline is BenchmarkAuthzOrders with a request
-// deadline in the activation, as the data plane evaluates it: the Route
-// deadline of a matched request (expr.Vars.Deadline).
-func BenchmarkAuthzOrdersDeadline(b *testing.B) {
-	v := snapshotVars()
-	v.Deadline = time.Now().Add(time.Hour)
-	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, v)
-}
-
 // mapClaims is a JWT payload as auth.jwt holds it: a map that CEL reads in
 // place through expr.Tree, and that Native copies.
 type mapClaims map[string]any
@@ -109,7 +97,7 @@ func (c mapClaims) Tree() any { return map[string]any(c) }
 
 // BenchmarkAuthzOrdersJWTClaims is BenchmarkAuthzOrders over a verified
 // token's claims as auth.jwt sets them, eight registered and custom
-// members, with a request deadline in the activation.
+// members.
 func BenchmarkAuthzOrdersJWTClaims(b *testing.B) {
 	v := snapshotVars()
 	v.Auth = &expr.Auth{Method: "jwt", Claims: mapClaims{
@@ -117,7 +105,6 @@ func BenchmarkAuthzOrdersJWTClaims(b *testing.B) {
 		"exp": json.Number("1793318400"), "iat": json.Number("1793314800"), "jti": "8f1c",
 		"azp": "portal", "scope": "orders:read orders:write",
 	}}
-	v.Deadline = time.Now().Add(time.Hour)
 	benchBool(b, at(expr.PlaceAuthzCELRule), `auth.claims.scope.split(" ").exists(s, s == "orders:read")`, v)
 }
 
@@ -128,10 +115,9 @@ func BenchmarkAccessLogWhen(b *testing.B) {
 func BenchmarkDefaultRetryOn(b *testing.B) {
 	prg := newCompiler(b).Default(expr.PlaceRetryOn)
 	v := outcome{errKind: "reset"}.vars("GET")
-	ctx := context.Background()
 	b.ReportAllocs()
 	for b.Loop() {
-		_, _ = prg.EvalBool(ctx, v)
+		_, _ = prg.EvalBool(v)
 	}
 }
 
@@ -168,7 +154,7 @@ func BenchmarkCompile(b *testing.B) {
 // BenchmarkWorstCaseSplit splits a 64 KiB header value
 // (limits.maxRequestHeaderBytes) into 32,768 items and scans them with map
 // and exists: an expression that passes RZ-CFG-015 at nominal sizes and
-// runs as a tracked comprehension, finished or stopped at 50 ms.
+// runs as a tracked comprehension, finished or at the cost limit.
 func BenchmarkWorstCaseSplit(b *testing.B) {
 	v := testVars()
 	v.Request.Header.Set("X-Tenant", strings.Repeat("a,", 32<<10))
@@ -178,9 +164,8 @@ func BenchmarkWorstCaseSplit(b *testing.B) {
 
 // BenchmarkWorstCaseUntracked runs the authz-orders rule over a scope at
 // the 4 × 16 KiB claims cap, 32,763 entries: the bound under the caps keeps
-// it within the cost limit, so it runs untracked and without a stop, and
-// its time is the most a comprehension without a stop can take on such a
-// scan.
+// it within the cost limit, so it runs untracked, and its time is the most
+// an untracked comprehension can take on such a scan.
 func BenchmarkWorstCaseUntracked(b *testing.B) {
 	v := snapshotVars()
 	v.Auth.Claims = celtypes.FromNative(map[string]any{"scope": strings.Repeat("x ", 32<<10-6) + "orders:read"})
@@ -188,7 +173,7 @@ func BenchmarkWorstCaseUntracked(b *testing.B) {
 }
 
 // BenchmarkWorstCaseNested runs a 32 × 32 nested comprehension over a body
-// list that passes RZ-CFG-015, finished or stopped at 50 ms.
+// list that passes RZ-CFG-015, finished or at the cost limit.
 func BenchmarkWorstCaseNested(b *testing.B) {
 	list := make([]any, 32)
 	for i := range list {

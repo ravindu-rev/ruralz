@@ -157,22 +157,20 @@ func TestRuntimeErrorFailsClosed(t *testing.T) {
 	}
 }
 
-// TestStopsAreRuntimeErrors checks that both stops of a rule fail closed
-// with RZ-AUTH-015: a tracked comprehension, over the request body, which
-// no input cap bounds, evaluated under an ended request context (the
-// deadline stop), and a rule that the caps leave able to pass the runtime
-// limit, two header values compared by contains, whose actual cost passes
-// it with the header block within its 64 KiB cap.
-func TestStopsAreRuntimeErrors(t *testing.T) {
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
+// TestCostLimitIsARuntimeError checks that a rule the runtime cost limit
+// ends fails closed with RZ-AUTH-015: a tracked comprehension over the
+// request body, which no input cap bounds, over 200,000 items of 6 units
+// each, and a rule that the caps leave able to pass the limit, two header
+// values compared by contains, whose actual cost passes it with the header
+// block within its 64 KiB cap.
+func TestCostLimitIsARuntimeError(t *testing.T) {
 	items := build(t, `request.body.items.exists(i, i == "z")`, bodyOnly, nil)
 	v := vars(t)
-	v.Request.Body = celtest.JSON(t, `{"items": [`+strings.TrimSuffix(strings.Repeat(`"a",`, 1000), ",")+`]}`)
-	r := items.Handle(ended, phase.OnRequestBody, exchange(v, nil))
+	v.Request.Body = celtest.JSON(t, `{"items": [`+strings.TrimSuffix(strings.Repeat(`"a",`, 200_000), ",")+`]}`)
+	r := items.Handle(t.Context(), phase.OnRequestBody, exchange(v, nil))
 	var ee *expr.EvalError
-	if r.Outcome != filter.CannotDecide || r.Code != "RZ-AUTH-015" || !errors.As(r.Err, &ee) || ee.Kind != expr.KindDeadline {
-		t.Errorf("comprehension under an ended context = %+v, want RZ-AUTH-015 with a deadline error", r)
+	if r.Outcome != filter.CannotDecide || r.Code != "RZ-AUTH-015" || !errors.As(r.Err, &ee) || ee.Kind != expr.KindCostLimit {
+		t.Errorf("comprehension over 200,000 body items = %+v, want RZ-AUTH-015 with a cost-limit error", r)
 	}
 
 	costly := build(t, `request.headers["a"].contains(request.headers["b"])`, headersOnly, nil)
@@ -184,20 +182,19 @@ func TestStopsAreRuntimeErrors(t *testing.T) {
 	}
 }
 
-// TestRuleWithinTheCapsDecidesUnstopped checks the tracking rule of the
+// TestRuleWithinTheCapsRunsUntracked checks the tracking rule of the
 // snapshot's input caps: the authz-orders rule, whose cost with claims of
-// at most 4 × 16 KiB stays within the runtime limit, runs untracked and
-// without a comprehension stop, so it decides even under an ended request
-// context; built with every input unbounded, the same rule is tracked and
-// the ended context stops it.
-func TestRuleWithinTheCapsDecidesUnstopped(t *testing.T) {
+// at most 4 × 16 KiB stays within the runtime limit, runs untracked, so
+// it decides over any scope, here one past the caps of 150,000 tokens at
+// about 7.2 units each, observed only to show that no limit applies;
+// built with every input unbounded, the same rule is tracked and the cost
+// limit ends it over that scope with RZ-AUTH-015.
+func TestRuleWithinTheCapsRunsUntracked(t *testing.T) {
 	const rule = `auth.claims.scope.split(" ").exists(s, s == "orders:read")`
-	ended, cancel := context.WithCancel(t.Context())
-	cancel()
 	v := vars(t)
-	v.Auth = &expr.Auth{Method: filter.MethodJWT, Claims: celtest.JSON(t, `{"scope": "`+strings.Repeat("x ", 1000)+`orders:read"}`)}
-	if r := build(t, rule, headersOnly, nil).Handle(ended, phase.OnRequestHeaders, exchange(v, nil)); r.Outcome != filter.Continue {
-		t.Errorf("rule within the caps under an ended context = %+v, want Continue", r)
+	v.Auth = &expr.Auth{Method: filter.MethodJWT, Claims: celtest.JSON(t, `{"scope": "`+strings.Repeat("x ", 150_000)+`orders:read"}`)}
+	if r := build(t, rule, headersOnly, nil).Handle(t.Context(), phase.OnRequestHeaders, exchange(v, nil)); r.Outcome != filter.Continue {
+		t.Errorf("rule within the caps over 150,000 tokens = %+v, want Continue", r)
 	}
 	env := buildEnv(t, rule, headersOnly, nil)
 	env.CEL = celtest.Compiler(t).NewBuilder(nil, expr.InputCaps{})
@@ -205,10 +202,10 @@ func TestRuleWithinTheCapsDecidesUnstopped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := f.Handle(ended, phase.OnRequestHeaders, exchange(v, nil))
+	r := f.Handle(t.Context(), phase.OnRequestHeaders, exchange(v, nil))
 	var ee *expr.EvalError
-	if r.Outcome != filter.CannotDecide || !errors.As(r.Err, &ee) || ee.Kind != expr.KindDeadline {
-		t.Errorf("rule without caps under an ended context = %+v, want a deadline error", r)
+	if r.Outcome != filter.CannotDecide || r.Code != "RZ-AUTH-015" || !errors.As(r.Err, &ee) || ee.Kind != expr.KindCostLimit {
+		t.Errorf("rule without caps over 150,000 tokens = %+v, want RZ-AUTH-015 with a cost-limit error", r)
 	}
 }
 

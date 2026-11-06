@@ -7,31 +7,27 @@ import (
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 
 	celgo "cel.dev/cel-go/cel"
 	"cel.dev/cel-go/common/types"
 	"cel.dev/cel-go/ext"
 
 	"github.com/ravindu-rev/ruralz/internal/cel/celtypes"
-	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
-// comprehensionStop bounds the evaluation of a tracked program holding a
-// comprehension, with the request deadline (ADR-0019, target).
-const comprehensionStop = 50 * time.Millisecond
+// costModelRevision is the revision of cel-go's cost model the estimates
+// and the runtime cost limit follow (docs/architecture/02-configuration-model.md
+// "Limits"): pinned, so a cel-go release that adds a revision moves no
+// estimate or charge until the revision is adopted here.
+const costModelRevision = 1
 
 // Compiler is the expr.Compiler on cel-go: it owns one environment per set
-// of declared variables, the compiled defaults of retryOn and failureWhen,
-// and the comprehension stops its programs share. It is safe for
-// concurrent use; a process builds one with New.
+// of declared variables and the compiled defaults of retryOn and
+// failureWhen. It is safe for concurrent use; a process builds one with
+// New.
 type Compiler struct {
 	provider *celtypes.Provider
-	// stop is comprehensionStop; tests shorten it.
-	stop time.Duration
-	// stops times the comprehension stops of every program planned here.
-	stops *stopPool
 
 	mu   sync.Mutex
 	envs map[expr.Var]*celgo.Env
@@ -44,26 +40,14 @@ type Compiler struct {
 var _ expr.Compiler = (*Compiler)(nil)
 
 // New returns a Compiler with the defaults of retryOn and failureWhen
-// compiled, timing comprehension stops on the wall clock: for validation,
-// whose programs never evaluate a request.
-func New() (*Compiler, error) { return NewWithClock(clock.Real()) }
-
-// NewWithClock is New with the clock that times comprehension stops and
-// reads the request deadline (expr.Vars.Deadline). ruralzd passes its
-// process clock, the clock of the Route deadline and of every Node
-// deadline, so the controllable-clock test build stops a comprehension
-// only when the harness moves the clock past the stop or the Route
-// deadline (docs/engineering/03-testing-and-quality-strategy.md "Hermetic
-// rule scope").
-func NewWithClock(clk clock.Clock) (*Compiler, error) {
+// compiled.
+func New() (*Compiler, error) {
 	p, err := celtypes.NewProvider()
 	if err != nil {
 		return nil, fmt.Errorf("cel: %w", err)
 	}
 	c := &Compiler{
 		provider: p,
-		stop:     comprehensionStop,
-		stops:    newStopPool(clk),
 		envs:     map[expr.Var]*celgo.Env{},
 		defaults: map[expr.PlaceID]*Program{},
 	}
@@ -161,14 +145,13 @@ func (c *Compiler) env(vars expr.Var) (*celgo.Env, error) {
 		return e, nil
 	}
 	opts := []celgo.EnvOption{
+		celgo.CostModelVersion(costModelRevision),
 		celgo.CustomTypeProvider(c.provider),
 		celgo.CustomTypeAdapter(c.provider),
 		ext.Strings(ext.StringsVersion(5)),
 		ext.Encoders(ext.EncodersVersion(1)),
 		celgo.Lib(urlLibrary{}),
 		celgo.Lib(netLibrary{}),
-		// After ext.Strings, so these replace its split estimates.
-		celgo.CostEstimatorOptions(splitEstimates()...),
 		celgo.ASTValidators(
 			celgo.ValidateDurationLiterals(),
 			celgo.ValidateTimestampLiterals(),
@@ -206,7 +189,8 @@ func (c *Compiler) checked(se siteEnv, src string) (*checkedExpr, []expr.Issue) 
 	if iss.Err() != nil {
 		return nil, celIssues(se, src, iss)
 	}
-	return &checkedExpr{env: env, ast: a, an: analyze(a.NativeRep(), se), facts: collectCostFacts(a.NativeRep())}, nil
+	an := analyze(a.NativeRep(), se)
+	return &checkedExpr{env: env, ast: a, an: an, facts: collectCostFacts(a.NativeRep(), an.containers)}, nil
 }
 
 // compiled is a source that passed every check at its site.
@@ -231,15 +215,13 @@ func (cc *compiled) tracked(caps expr.InputCaps) (bool, error) {
 }
 
 // cappedBound returns the most an evaluation of cc can cost with its
-// inputs within caps: cel-go's estimate under the capped estimator plus
-// the selections it does not charge (costFacts.bound).
+// inputs within caps: cel-go's estimate under the capped estimator.
 func (cc *compiled) cappedBound(caps expr.InputCaps) (uint64, error) {
-	e := cappedEstimator{caps: caps, clientRequest: cc.se.clientRequest, paths: cc.facts.paths}
-	est, err := cc.env.EstimateCost(cc.ast, e)
+	est, err := cc.env.EstimateCost(cc.ast, cappedEstimator{caps: caps, clientRequest: cc.se.clientRequest})
 	if err != nil {
 		return 0, err
 	}
-	return cc.facts.bound(cc.ast.NativeRep(), est, e), nil
+	return est.Max, nil
 }
 
 // compile runs every check on src at site: parse and type-check, the site
@@ -265,12 +247,11 @@ func (c *Compiler) compile(site expr.Site, src string) (*compiled, []expr.Issue)
 	if msg, hint, bad := resultMismatch(se.result, cc.ast.OutputType()); bad {
 		iss = append(iss, wholeIssue(codeInvalid, se, msg, hint))
 	}
-	nominal := nominalEstimator{containers: cc.an.containers}
+	nominal := nominalEstimator{containers: cc.an.containers, elements: cc.facts.elements}
 	est, err := cc.env.EstimateCost(cc.ast, nominal)
 	if err != nil {
 		return nil, append(iss, wholeIssue(codeCost, se, "cost estimate: "+err.Error(), ""))
 	}
-	est.Max = cc.facts.bound(cc.ast.NativeRep(), est, nominal)
 	if msg, hint, bad := costFinding(est, cc.an); bad {
 		iss = append(iss, wholeIssue(codeCost, se, msg, hint))
 	}

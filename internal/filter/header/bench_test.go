@@ -82,7 +82,7 @@ func TestComputedSideAllocations(t *testing.T) {
 	handle := testing.AllocsPerRun(200, func() { f.Handle(ctx, phase.OnUpstreamRequest, x) })
 	eval := testing.AllocsPerRun(200, func() {
 		for _, e := range f.request.set {
-			_, _ = e.prog.EvalString(ctx, x.Vars())
+			_, _ = e.prog.EvalString(x.Vars())
 		}
 	})
 	if handle > eval+1 {

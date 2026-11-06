@@ -97,7 +97,7 @@ func (f *fixture) match(tb testing.TB, rq req) got {
 		Method: method, Scheme: "https", Host: routematch.NormalizeHost(rq.host), Path: path, Header: rq.header,
 	}}
 	q := snapshot.MatchRequest{Host: rq.host, Path: path, Method: method, Header: rq.header, Vars: v}
-	res := f.r.Match(tb.Context(), &q, make([]expr.Param, 0, f.r.MaxParams()))
+	res := f.r.Match(&q, make([]expr.Param, 0, f.r.MaxParams()))
 	if !slices.Equal(v.Request.PathParams, res.Params) {
 		tb.Errorf("%s %s%s: request.pathParams = %v after Match, want the result's %v", method, rq.host, rq.path, v.Request.PathParams, res.Params)
 	}

@@ -34,38 +34,38 @@ const (
 	// logGate is the header without which accessLog.when is true at once,
 	// so no other case's request reaches its expression.
 	logGate = "x-log"
-	// listEntries is the one-letter entries of a stop case's list header,
-	// 60,000 bytes within the 64 KiB header cap: under cost tracking the
-	// comprehension runs most of a second of real time, far past the stop,
-	// for about 100,000 cost units. Entries are never empty, since a
-	// recipient may drop empty list elements.
-	listEntries = 30000
-	// costBytes is the size of a cost case's a and b headers: contains
-	// costs (16384 × 0.1)² units, about 2.7 million, past the 1,000,000
-	// limit.
+	// limitEntries is the one-letter entries of a comprehension case's
+	// list header, beside its needle of needleBytes: each entry's
+	// startsWith charges 0.1 unit a needle byte, 1,639 units, so the
+	// comprehension passes the 1,000,000-unit limit after about 610
+	// entries, before its end, with the header block within the 64 KiB
+	// cap. Entries are never empty, since a recipient may drop empty list
+	// elements.
+	limitEntries = 2000
+	needleBytes  = 16 << 10
+	// costBytes is the size of a cost case's a and b headers: one contains
+	// call costs 0.01 × 16,384² units, about 2.7 million, past the
+	// 1,000,000 limit.
 	costBytes = 16 << 10
-	// stillFor is how long a stop case waits with the clock standing
-	// still: no answer may come, since the evaluation runs on, while a stop
-	// on real time would have ended it.
-	stillFor = 100 * time.Millisecond
-	// stopStep is the clock step of a stop case after that wait; the
-	// answer must come within stopBound of the clock.
-	stopStep  = 10 * time.Millisecond
-	stopBound = 5 * time.Second
+	// clockStep is the clock step of a send that waits on a Node timer;
+	// the answer must come within clockBound of the clock.
+	clockStep  = 10 * time.Millisecond
+	clockBound = 5 * time.Second
 	// apiKey is the Consumer's API key.
 	apiKey = "cel-suite-key" //nolint:gosec // G101: the suite's test Consumer key, not a credential
 )
 
 // boolExpr is the expression of every case, over the headers of prefix p.
 // Without the list header it errs with no_such_key; comparing a and b
-// headers of costBytes reaches the cost limit; over a list header of
-// listEntries entries it runs past the comprehension stop; with small
-// headers it is true when a holds b. At the nominal sizes of RZ-CFG-015 it
-// stays within 10,000 units, and at the 64 KiB header cap it can pass the
-// runtime limit, so the caps leave it tracked, and stoppable, since it
-// holds a comprehension.
+// headers of costBytes reaches the cost limit in one call; over a list
+// header of limitEntries entries and a needle of needleBytes it reaches
+// the cost limit inside its comprehension, whose error no logical
+// operator absorbs; with small headers it is true when a holds b. At the
+// nominal sizes of RZ-CFG-015 it stays within 10,000 units, and at the
+// 64 KiB header cap it can pass the runtime limit, so the caps leave it
+// tracked.
 func boolExpr(p string) string {
-	return `request.headers["` + p + `list"].split(",").exists(s, s == request.headers["` + p + `needle"]) || ` +
+	return `request.headers["` + p + `list"].split(",").exists(s, s.startsWith(request.headers["` + p + `needle"])) || ` +
 		`request.headers["` + p + `a"].contains(request.headers["` + p + `b"])`
 }
 
@@ -84,31 +84,32 @@ func quoted(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "
 type input int
 
 const (
-	inTrue      input = iota // the expression is true
-	inFalse                  // the expression is false
-	inEval                   // no header: an evaluation error
-	inCost                   // a and b of costBytes: the cost limit
-	inStopTrue               // inTrue with a long list: true only if it ran to its end
-	inStopFalse              // inFalse with a long list
+	inTrue       input = iota // the expression is true
+	inFalse                   // the expression is false
+	inEval                    // no header: an evaluation error
+	inCost                    // a and b of costBytes: the cost limit in one call
+	inLimitTrue               // inTrue with a long list and needle: true only if it ran to its end
+	inLimitFalse              // inFalse with a long list and needle
 )
 
 // headers returns the input's headers named with prefix p.
 func (in input) headers(p string) http.Header {
 	h := http.Header{}
 	set := func(name, v string) { h.Set(p+name, v) }
-	list := "q"
-	if in == inStopTrue || in == inStopFalse {
-		list = strings.TrimSuffix(strings.Repeat("a,", listEntries), ",")
+	list, needle := "q", "zz"
+	if in == inLimitTrue || in == inLimitFalse {
+		list = strings.TrimSuffix(strings.Repeat("a,", limitEntries), ",")
+		needle = strings.Repeat("z", needleBytes)
 	}
 	switch in {
-	case inTrue, inStopTrue:
+	case inTrue, inLimitTrue:
 		set("list", list)
-		set("needle", "zz")
+		set("needle", needle)
 		set("a", "ab")
 		set("b", "b")
-	case inFalse, inStopFalse:
+	case inFalse, inLimitFalse:
 		set("list", list)
-		set("needle", "zz")
+		set("needle", needle)
 		set("a", "a")
 		set("b", "zz")
 	case inCost:
@@ -126,31 +127,31 @@ type kind struct {
 	name string
 	// logged is the error kind a debug record names.
 	logged string
-	// stop marks the comprehension stop, which needs the clock moved.
-	stop bool
+	// comprehension marks the cost limit reached inside the comprehension.
+	comprehension bool
 }
 
 func kinds() []kind {
 	return []kind{
 		{name: "evaluation error", logged: "no_such_key"},
 		{name: "cost limit", logged: "cost_limit"},
-		{name: "comprehension stop", logged: "deadline", stop: true},
+		{name: "comprehension cost limit", logged: "cost_limit", comprehension: true},
 	}
 }
 
 // input returns the kind's input for a place whose control evaluates to
-// contrast: a stop case's expression, had it run to its end, gives that
-// control's answer, so only the stop gives the error's.
+// contrast: a comprehension case's expression, had it run to its end,
+// gives that control's answer, so only the cost limit gives the error's.
 func (k kind) input(contrast bool) input {
 	switch {
 	case k.logged == "no_such_key":
 		return inEval
-	case k.logged == "cost_limit":
+	case !k.comprehension:
 		return inCost
 	case contrast:
-		return inStopTrue
+		return inLimitTrue
 	default:
-		return inStopFalse
+		return inLimitFalse
 	}
 }
 
@@ -169,10 +170,10 @@ func (a answer) String() string {
 
 // suite is the Node every place runs on.
 type suite struct {
-	top    *topology.Topology
-	n      *topology.Node
-	client *http.Client
-	retry  *mockup.Server
+	top         *topology.Topology
+	n           *topology.Node
+	client      *http.Client
+	main, retry *mockup.Server
 }
 
 // place is one M1 CEL place, with the failureMode or optional variant
@@ -270,26 +271,13 @@ func (s *suite) doOn(client *http.Client, req *http.Request) (answer, error) {
 type sendMode int
 
 const (
-	// plain sends with the clock standing still.
+	// plain sends with the clock standing still: no evaluation waits on
+	// time, so every runtime error comes without the clock.
 	plain sendMode = iota
-	// stopping is a stop case: send first waits stillFor with the clock
-	// standing still and fails on an answer, since the evaluation runs on
-	// until the clock passes the stop, then moves the clock in stopStep
-	// steps until the answer comes, within stopBound.
-	stopping
-	// advancing moves the clock in stopStep steps from the start, for an
-	// answer that waits on a Node timer, such as a retry delay or a stop
-	// already proven on the clock.
+	// advancing moves the clock in clockStep steps, for an answer that
+	// waits on a Node timer, such as a retry delay.
 	advancing
 )
-
-// modeOf returns the send mode of kind k.
-func modeOf(k kind) sendMode {
-	if k.stop {
-		return stopping
-	}
-	return plain
-}
 
 // send sends the place's request on path in mode.
 func (s *suite) send(t *testing.T, p *place, path string, in input, mode sendMode) answer {
@@ -311,15 +299,7 @@ func (s *suite) send(t *testing.T, p *place, path string, in input, mode sendMod
 		a, err := s.do(req)
 		done <- result{a, err}
 	}()
-	if mode == stopping {
-		select {
-		case r := <-done:
-			t.Fatalf("%s %s answered %v, %v with the clock standing still: the comprehension stop ran on real time, or the evaluation ended first",
-				req.Method, path, r.a, r.err)
-		case <-time.After(stillFor):
-		}
-	}
-	for advanced := time.Duration(0); ; advanced += stopStep {
+	for advanced := time.Duration(0); ; advanced += clockStep {
 		select {
 		case r := <-done:
 			if r.err != nil {
@@ -328,10 +308,10 @@ func (s *suite) send(t *testing.T, p *place, path string, in input, mode sendMod
 			return r.a
 		case <-time.After(2 * time.Millisecond):
 		}
-		if advanced > stopBound {
+		if advanced > clockBound {
 			t.Fatalf("%s %s: no answer after %v of the clock", req.Method, path, advanced)
 		}
-		if err := s.top.Advance(t.Context(), stopStep); err != nil {
+		if err := s.top.Advance(t.Context(), clockStep); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -370,7 +350,7 @@ func (s *suite) recordsOf(policy string) string {
 func (s *suite) check(t *testing.T, p *place, k kind) {
 	t.Helper()
 	before := scrape(t, s.top, s.n)
-	a := s.send(t, p, p.path, k.input(p.contrast), modeOf(k))
+	a := s.send(t, p, p.path, k.input(p.contrast), plain)
 	p.failed(t, a)
 	if p.signal != nil {
 		after := scrape(t, s.top, s.n)
@@ -384,9 +364,11 @@ func (s *suite) check(t *testing.T, p *place, k kind) {
 }
 
 // TestPlaces drives every M1 CEL place through each runtime-error kind:
-// first a control whose expression evaluates, then an evaluation error,
-// the cost limit and the comprehension stop, each with the place's
-// runtime-error behavior and signal.
+// first a control whose expression evaluates, then an evaluation error
+// and the cost limit, reached in one call and inside the comprehension,
+// each with the place's runtime-error behavior and signal and with the
+// clock standing still, since the cost limit alone bounds an evaluation
+// (docs/architecture/02-configuration-model.md "Limits").
 func TestPlaces(t *testing.T) {
 	requireClock(t)
 	s := startSuite(t)
@@ -437,7 +419,7 @@ func startSuite(t *testing.T) *suite {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &suite{top: top, n: n[0], client: top.HTTPClient(), retry: retry}
+	return &suite{top: top, n: n[0], client: top.HTTPClient(), main: main, retry: retry}
 }
 
 // keyHash is the Consumer's API key hash.

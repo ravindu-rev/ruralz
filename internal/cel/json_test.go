@@ -36,7 +36,7 @@ func TestDecodeJSONReadsInCEL(t *testing.T) {
 		`request.body.s == "x" && request.body.n == null && request.body.l[0]`,
 	}
 	for _, src := range cases {
-		got, err := mustProgram(t, c, at(expr.PlaceAuthzCELRule), src).EvalBool(t.Context(), bodyVars(v))
+		got, err := mustProgram(t, c, at(expr.PlaceAuthzCELRule), src).EvalBool(bodyVars(v))
 		if err != nil || !got {
 			t.Errorf("%q = %v, %v; want true", src, got, err)
 		}
@@ -67,7 +67,7 @@ func TestDecodeJSONIsStrict(t *testing.T) {
 			if errors.Is(err, expr.ErrTooLarge) {
 				t.Errorf("a malformed body reads as too large: %v", err)
 			}
-			_, evalErr := prg.EvalBool(t.Context(), bodyVars(v))
+			_, evalErr := prg.EvalBool(bodyVars(v))
 			var ee *expr.EvalError
 			if !errors.As(evalErr, &ee) || ee.Kind != expr.KindBody {
 				t.Errorf("reading the failed body = %v, want KindBody", evalErr)

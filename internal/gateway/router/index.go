@@ -4,7 +4,6 @@
 package router
 
 import (
-	"context"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/routematch"
@@ -114,32 +113,32 @@ func (e *entry) add(rt *route) {
 // match tries the entry's candidates for the request in precedence ranks
 // 2 to 6: exact, template, prefix, regex, no path. It reports whether
 // matching is over.
-func (e *entry) match(ctx context.Context, m *matcher) bool {
+func (e *entry) match(m *matcher) bool {
 	path := m.q.Path
 	if strings.HasPrefix(path, "/") {
 		if e.exact {
 			if n := e.root.find(path); n != nil {
 				for _, rt := range n.exact {
-					if m.try(ctx, rt) {
+					if m.try(rt) {
 						return true
 					}
 				}
 			}
 		}
-		if e.root.templates && e.root.matchTemplates(ctx, m, path, 1) {
+		if e.root.templates && e.root.matchTemplates(m, path, 1) {
 			return true
 		}
-		if e.root.prefixes && e.root.matchPrefixes(ctx, m, path, 1) {
+		if e.root.prefixes && e.root.matchPrefixes(m, path, 1) {
 			return true
 		}
 	}
 	for _, rt := range e.regex {
-		if rt.regex.MatchString(path) && m.try(ctx, rt) {
+		if rt.regex.MatchString(path) && m.try(rt) {
 			return true
 		}
 	}
 	for _, rt := range e.any {
-		if m.try(ctx, rt) {
+		if m.try(rt) {
 			return true
 		}
 	}
@@ -161,21 +160,21 @@ func (n *node) find(path string) *node {
 // (the start of the next segment), depth first with a literal segment
 // before the parameter edge: precedence rank 3. A parameter takes exactly
 // one non-empty segment.
-func (n *node) matchTemplates(ctx context.Context, m *matcher, path string, i int) bool {
+func (n *node) matchTemplates(m *matcher, path string, i int) bool {
 	if i > len(path) {
 		for _, rt := range n.template {
-			if m.try(ctx, rt) {
+			if m.try(rt) {
 				return true
 			}
 		}
 		return false
 	}
 	seg, next := routematch.NextSegment(path, i)
-	if c := n.literal[seg]; c != nil && c.templates && c.matchTemplates(ctx, m, path, next) {
+	if c := n.literal[seg]; c != nil && c.templates && c.matchTemplates(m, path, next) {
 		return true
 	}
 	if c := n.param; c != nil && seg != "" {
-		return c.matchTemplates(ctx, m, path, next)
+		return c.matchTemplates(m, path, next)
 	}
 	return false
 }
@@ -184,20 +183,20 @@ func (n *node) matchTemplates(ctx context.Context, m *matcher, path string, i in
 // first. Every matching prefix is a string prefix of the path, so a
 // deeper one is longer (precedence rank 4), and at one node the prefix
 // with a trailing slash is the longer.
-func (n *node) matchPrefixes(ctx context.Context, m *matcher, path string, i int) bool {
+func (n *node) matchPrefixes(m *matcher, path string, i int) bool {
 	if i <= len(path) {
 		seg, next := routematch.NextSegment(path, i)
-		if c := n.literal[seg]; c != nil && c.prefixes && c.matchPrefixes(ctx, m, path, next) {
+		if c := n.literal[seg]; c != nil && c.prefixes && c.matchPrefixes(m, path, next) {
 			return true
 		}
 		for _, rt := range n.slash {
-			if m.try(ctx, rt) {
+			if m.try(rt) {
 				return true
 			}
 		}
 	}
 	for _, rt := range n.prefix {
-		if m.try(ctx, rt) {
+		if m.try(rt) {
 			return true
 		}
 	}

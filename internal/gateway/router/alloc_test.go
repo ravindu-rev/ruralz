@@ -69,10 +69,9 @@ func TestMatchAllocatesNothing(t *testing.T) {
 		{"miss", gated, matchRequest("GET", "api.shop.example", "/v2", nil)},
 		{"outside hostnames", gated, matchRequest("GET", "other.example", "/v1/orders", nil)},
 	}
-	ctx := t.Context()
 	for _, tc := range cases {
 		params := make([]expr.Param, 0, tc.r.MaxParams())
-		if n := testing.AllocsPerRun(100, func() { tc.r.Match(ctx, tc.q, params) }); n != 0 {
+		if n := testing.AllocsPerRun(100, func() { tc.r.Match(tc.q, params) }); n != 0 {
 			t.Errorf("%s: %v allocations per Match, want 0", tc.name, n)
 		}
 	}
@@ -126,7 +125,7 @@ func BenchmarkMatch(b *testing.B) {
 		b.Run(bc.name, func(b *testing.B) {
 			b.ReportAllocs()
 			for b.Loop() {
-				r.Match(b.Context(), bc.q, params)
+				r.Match(bc.q, params)
 			}
 		})
 	}

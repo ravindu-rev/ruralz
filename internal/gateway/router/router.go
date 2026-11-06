@@ -4,11 +4,9 @@
 package router
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/errcode"
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -40,10 +38,6 @@ type Route struct {
 	// When is the compiled Match.When; nil exactly when Match.When is
 	// empty.
 	When expr.Program
-	// Timeout is the effective Route timeout: When runs under the Route
-	// deadline it gives, snapshot.MatchRequest.Start plus Timeout; 0 sets
-	// no deadline.
-	Timeout time.Duration
 }
 
 // Router is the compiled Router of one listener.
@@ -109,22 +103,20 @@ func (r *Router) MaxParams() int { return r.maxParams }
 // params is the caller's storage for the winner's captures. The result is
 // the winner, Route -1 when none is left (RZ-RT-001), or Route -1 with an
 // RZ-RT-006 error when a match.when failed. On return q.Vars holds the
-// winner's captures and Route deadline, or none.
-func (r *Router) Match(ctx context.Context, q *snapshot.MatchRequest, params []expr.Param) snapshot.MatchResult {
+// winner's captures, or none.
+func (r *Router) Match(q *snapshot.MatchRequest, params []expr.Param) snapshot.MatchResult {
 	m := matcher{q: q, preflight: preflightMethod(q), params: params[:0], route: -1}
 	host := routematch.NormalizeHost(q.Host)
 	if r.admits(host) {
 		r.hosts.Lookup(host, func(_ routematch.HostPattern, e *entry) bool {
-			return !e.match(ctx, &m)
+			return !e.match(&m)
 		})
 	}
 	if m.route < 0 {
 		m.setPathParams(m.params)
-		m.setDeadline(0)
 		return snapshot.MatchResult{Route: -1, Err: m.err}
 	}
 	m.setPathParams(m.won)
-	m.setDeadline(m.timeout)
 	return snapshot.MatchResult{Route: m.route, Params: m.won}
 }
 
