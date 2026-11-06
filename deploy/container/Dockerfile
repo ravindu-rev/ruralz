@@ -5,7 +5,7 @@
 # (docs/engineering/04-release-versioning-and-compatibility.md, "Release
 # artifacts" and "Packaging and audit"): the released linux ruralzd binary
 # on an empty base, with only the CA bundle taken from a digest-pinned
-# golang:1.27.1-bookworm stage (docs/engineering/01-tech-stack-and-libraries.md,
+# golang:1.27.2-bookworm stage (docs/engineering/01-tech-stack-and-libraries.md,
 # "Static builds" and "CI tooling"), whose literal FROM line Dependabot's
 # docker updates move. `make release-dry-run` builds it from the
 # repository root once it has left dist/linux_<arch>/ruralzd and
