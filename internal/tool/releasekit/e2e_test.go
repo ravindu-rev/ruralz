@@ -28,7 +28,7 @@ func goIn(t *testing.T, dir string, env []string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// TestReleaseFromRepository runs the stage 12 tooling on this repository
+// TestReleaseFromRepository runs the release tooling on this repository
 // in the order of make release-dry-run without Docker: release-flag
 // binaries of three artifacts (one of each executable format), depgate's
 // notices, package, an SBOM per archive as Syft writes one, notes,
@@ -72,7 +72,7 @@ func TestReleaseFromRepository(t *testing.T) {
 	toolchain := goIn(t, root, nil, "env", "GOVERSION")
 
 	// A development dry run without Docker records no image.
-	m, err := runPackage(t.Context(), packageOptions{root: root, dist: dist, notices: notices, out: out, version: version, commit: commit, bench: filepath.Join(base, "bench")},
+	m, err := runPackage(t.Context(), packageOptions{root: root, dist: dist, notices: notices, out: out, version: version, commit: commit},
 		packageDeps{git: runGit, facts: readBuildFacts, toolchain: toolchain, artifacts: arts})
 	if err != nil {
 		t.Fatal(err)

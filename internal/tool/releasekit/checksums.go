@@ -29,11 +29,11 @@ type releaseFile struct {
 // releaseFiles lists every file of a release directory that SHA256SUMS
 // covers, so its one signature covers every asset: the archives and their
 // SBOMs, the image SBOM when the build recorded the image, the schema
-// files, release-manifest.json, NOTES.md and the benchmark records archive
+// files, release-manifest.json and NOTES.md
 // (docs/engineering/04-release-versioning-and-compatibility.md, "Release
 // artifacts"). The manifest's own digest is filled by the caller.
 func releaseFiles(m *manifest) []releaseFile {
-	out := []releaseFile{{name: manifestName}, {name: notesName}, {name: m.Bench.Name, sha256: m.Bench.SHA256}}
+	out := []releaseFile{{name: manifestName}, {name: notesName}}
 	for _, a := range m.Archives {
 		out = append(out, releaseFile{name: a.Name, sha256: a.SHA256}, releaseFile{name: a.SBOM})
 	}

@@ -13,7 +13,7 @@ The security response team acknowledges every report within 2 business days (tar
 ## How a report is handled
 
 1. The team rates severity and privately prepares the fix, a regression test and patches for the release lines the table below names.
-2. At disclosure, the patches, signatures, SBOMs and an advisory with a CVE identifier, affected and fixed versions and workarounds publish together, and the fix merges publicly the same day.
+2. At disclosure, the fix merges publicly, which releases the patch with its signatures and SBOMs, and an advisory with a CVE identifier, affected and fixed versions and workarounds publishes with that release the same day.
 
 | Severity | Examples | Fixed release | Release lines |
 |---|---|---|---|
@@ -34,5 +34,3 @@ A release line is a minor version, such as `0.1`, with its patch releases. The [
 |---|---|---|
 | N, the newest minor | `0.1`, from release `0.1.0` | Bug and security fixes, for about 6 months, until N+2 ships (target) |
 | N-1 and N-2 | None: `0.1` is the first line | Not applicable |
-
-A release candidate, such as `0.1.0-rc.1`, receives no patch: a fix ships in the next candidate.

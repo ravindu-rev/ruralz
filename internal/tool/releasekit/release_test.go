@@ -65,10 +65,12 @@ func TestCheckVersion(t *testing.T) {
 	}
 }
 
+// TestVersionKind: X.Y.Z is a release; any other version, a pre-release
+// included, is a development build.
 func TestVersionKind(t *testing.T) {
 	cases := map[string]string{
-		"0.1.0": kindRelease, "1.0.0": kindRelease, "0.1.0-rc.1": kindCandidate, "0.1.0-rc.12": kindCandidate,
-		"0.1.0-rc.0": kindDev, "0.1.0-rc1": kindDev, "0.0.0-dev": kindDev, "0.1.0-3-gabcdef1-dirty": kindDev,
+		"0.1.0": kindRelease, "1.0.0": kindRelease, "10.20.30": kindRelease,
+		"0.1.0-rc.1": kindDev, "0.1.0-rc.0": kindDev, "0.0.0-dev": kindDev, "0.1.0-3-gabcdef1-dirty": kindDev,
 	}
 	for v, want := range cases {
 		if got := versionKind(v); got != want {
@@ -77,13 +79,13 @@ func TestVersionKind(t *testing.T) {
 	}
 }
 
-// TestImageTags: X.Y.Z and X.Y for a release, X.Y.Z-rc.N for a
-// candidate, nothing for a development build, never latest.
+// TestImageTags: X.Y.Z and X.Y for a release, nothing for a development
+// build, a pre-release included, never latest.
 func TestImageTags(t *testing.T) {
 	cases := map[string][]string{
 		"0.1.0":                  {"0.1.0", "0.1"},
 		"1.12.3":                 {"1.12.3", "1.12"},
-		"0.1.0-rc.2":             {"0.1.0-rc.2"},
+		"0.1.0-rc.2":             {},
 		"0.0.0-dev":              {},
 		"0.1.0-3-gabcdef1-dirty": {},
 	}

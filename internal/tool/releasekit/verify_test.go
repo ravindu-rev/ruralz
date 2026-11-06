@@ -18,10 +18,10 @@ import (
 )
 
 // TestVerifyRelease: a complete release directory and its image pass the
-// audit, with or without the Sigstore bundle; a development build may
-// record no image.
+// audit, with or without the Sigstore bundle, for a release and for a
+// development build; a development build may record no image.
 func TestVerifyRelease(t *testing.T) {
-	for _, version := range []string{"0.1.0", "0.1.0-rc.2", "0.0.0-dev"} {
+	for _, version := range []string{"0.1.0", "0.1.0-3-gabcdef1", "0.0.0-dev"} {
 		fx := newFixture(t, version)
 		fx.release(t)
 		if got := fx.verify(t); len(got) != 0 {
@@ -124,7 +124,7 @@ func TestVerifyFindings(t *testing.T) {
 			rewriteManifest(t, fx, func(m *manifest) { m.Images = images(m.Version) })
 			_ = os.Remove(filepath.Join(fx.out, "ruralzd_0.1.0_image.cdx.json"))
 			fx.resum(t)
-		}, "the release 0.1.0 records no image: a release or candidate ships its image"},
+		}, "the release 0.1.0 records no image: a release ships its image"},
 		{"image digest", func(t *testing.T, fx *fixture) {
 			rewriteManifest(t, fx, func(m *manifest) { m.Images[0].Digest = "sha256:abc" })
 		}, `manifest image index digest "sha256:abc" is not sha256:<64 hex>`},
@@ -164,18 +164,6 @@ func TestVerifyFindings(t *testing.T) {
 				doc["components"] = doc["components"].([]any)[:1]
 			})
 		}, "lists 1 platform images, want 2"},
-		{"records archive bytes", func(t *testing.T, fx *fixture) {
-			writeFile(t, filepath.Join(fx.out, "ruralz_0.1.0_bench.tar.gz"), "other bytes")
-		}, "ruralz_0.1.0_bench.tar.gz does not match its manifest size and SHA-256"},
-		{"records archive missing", func(_ *testing.T, fx *fixture) {
-			_ = os.Remove(filepath.Join(fx.out, "ruralz_0.1.0_bench.tar.gz"))
-		}, "ruralz_0.1.0_bench.tar.gz is missing"},
-		{"records archive count", func(t *testing.T, fx *fixture) {
-			rewriteManifest(t, fx, func(m *manifest) { m.Bench.Records = 5 })
-		}, "ruralz_0.1.0_bench.tar.gz: holds 3 records, the manifest says 5"},
-		{"records archive name", func(t *testing.T, fx *fixture) {
-			rewriteManifest(t, fx, func(m *manifest) { m.Bench.Name = "bench.tar.gz" })
-		}, `manifest names the benchmark records archive "bench.tar.gz", want "ruralz_0.1.0_bench.tar.gz"`},
 		{"notes missing", func(_ *testing.T, fx *fixture) {
 			_ = os.Remove(filepath.Join(fx.out, notesName))
 		}, "NOTES.md is missing"},

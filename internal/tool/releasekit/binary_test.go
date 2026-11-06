@@ -69,7 +69,11 @@ func TestBuildProblems(t *testing.T) {
 		{"not stripped", "0.1.0", "-s -w", func(f *buildFacts) { f.Stripped = false }},
 		{"other commit", "0.0.0-dev", "built from commit", func(f *buildFacts) { withSetting(f, "vcs.revision", strings.Repeat("f", 40)) }},
 		{"release without Git", "0.1.0", "no Git commit recorded", func(f *buildFacts) { withSetting(f, "vcs.revision", "") }},
-		{"modified checkout", "0.1.0-rc.1", "modified checkout", func(f *buildFacts) { f.Info.Main.Version = "v0.1.0-rc.1"; withSetting(f, "vcs.modified", "true") }},
+		{"modified checkout", "0.1.0", "modified checkout", func(f *buildFacts) { withSetting(f, "vcs.modified", "true") }},
+		{"pre-release, a development build", "0.1.0-rc.1", "", func(f *buildFacts) {
+			f.Info.Main.Version = "v0.1.0-rc.1.0.20261001-abc+dirty"
+			withSetting(f, "vcs.modified", "true")
+		}},
 		{"module version", "0.1.0", "module version v0.0.9", func(f *buildFacts) { f.Info.Main.Version = "v0.0.9" }},
 	}
 	for _, c := range cases {

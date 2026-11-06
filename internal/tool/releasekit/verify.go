@@ -58,9 +58,9 @@ type archived struct {
 // docs/engineering/04-release-versioning-and-compatibility.md, "Packaging
 // and audit"): the manifest's fields, every archive's bytes, members,
 // timestamps, legal files and binary build, every SBOM, the schema
-// assets, the benchmark records archive, the image plan with its digests
-// and, per platform, the image itself, SHA256SUMS, the notes, the
-// signature when present, and no stray file. It returns the findings.
+// assets, the image plan with its digests and, per platform, the image
+// itself, SHA256SUMS, the notes, the signature when present, and no stray
+// file. It returns the findings.
 func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 	m, manifestData, err := loadManifest(o.manifest)
 	if err != nil {
@@ -137,11 +137,6 @@ func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 		return nil, err
 	}
 
-	// The benchmark records archive.
-	if err := verifyBench(&a, dir, m, mtime); err != nil {
-		return nil, err
-	}
-
 	// The image, per platform, and its SBOM.
 	switch {
 	case !planOK:
@@ -206,9 +201,8 @@ func runVerify(o verifyOptions, d verifyDeps) ([]string, error) {
 }
 
 // verifyImagePlan checks the manifest's image plan against images(): the
-// same images with the digests a build recorded, which a release or
-// candidate must have. It reports whether the plan is fit for the image
-// audit.
+// same images with the digests a build recorded, which a release must
+// have. It reports whether the plan is fit for the image audit.
 func verifyImagePlan(a *audit, m *manifest) bool {
 	want := images(m.Version)
 	if len(m.Images) != len(want) {
@@ -225,8 +219,8 @@ func verifyImagePlan(a *audit, m *manifest) bool {
 			a.add("manifest image plan lists platform manifests %s without an index digest", jsonText(got.Manifests))
 			return false
 		}
-		if k := versionKind(m.Version); k != kindDev {
-			a.add("the %s %s records no image: a release or candidate ships its image", k, m.Version)
+		if versionKind(m.Version) == kindRelease {
+			a.add("the release %s records no image: a release ships its image", m.Version)
 		}
 		return true
 	}
@@ -414,41 +408,6 @@ func verifyArchive(a *audit, dir string, info archiveInfo, art artifact, m *mani
 		a.add("%s: %s", name, p)
 	}
 	return &archived{binary: bin.Data, notice: byPath[noticeMember].Data, thirdParty: byPath[thirdPartyMember].Data, info: facts.Info}, nil
-}
-
-// verifyBench audits the benchmark records archive: its name, size and
-// digest, the deterministic layout of every archive, and members that are
-// exactly the records the manifest counts with the files they name.
-func verifyBench(a *audit, dir string, m *manifest, mtime time.Time) error {
-	b := m.Bench
-	if want := benchArchiveName(m.Version); b.Name != want {
-		a.add("manifest names the benchmark records archive %q, want %q", b.Name, want)
-		return nil
-	}
-	data, err := os.ReadFile(filepath.Join(dir, b.Name)) //nolint:gosec // The expected records archive of the release directory.
-	if errors.Is(err, fs.ErrNotExist) {
-		a.add("%s is missing", b.Name)
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if int64(len(data)) != b.Size || sha256Hex(data) != b.SHA256 {
-		a.add("%s does not match its manifest size and SHA-256", b.Name)
-	}
-	members, gz, err := readTarGz(data)
-	if err != nil {
-		a.add("%s: unreadable archive: %v", b.Name, err)
-		return nil
-	}
-	if gz.Name != "" || !gz.ModTime.IsZero() {
-		a.add("%s: gzip header carries a name or time", b.Name)
-	}
-	verifyLayout(a, b.Name, members, mtime)
-	for _, p := range benchProblems(members, b.Records) {
-		a.add("%s: %s", b.Name, p)
-	}
-	return nil
 }
 
 // jsonText renders v as compact JSON for a finding.

@@ -18,10 +18,11 @@ import (
 const repoURL = "https://github.com/ravindu-rev/ruralz"
 
 // signerIdentity is the certificate identity of the keyless signatures:
-// the reusable release-build.yml workflow at the release tag, the job
-// that signs and attests (docs/engineering/04-release-versioning-and-compatibility.md,
-// "Release pipeline").
-const signerIdentity = repoURL + "/.github/workflows/release-build.yml@refs/tags/v"
+// the reusable release-build.yml workflow at the ref of the release run,
+// main, whose push starts every release; its jobs sign and attest
+// (docs/engineering/04-release-versioning-and-compatibility.md, "Release
+// pipeline").
+const signerIdentity = repoURL + "/.github/workflows/release-build.yml@refs/heads/main"
 
 // oidcIssuer is the OIDC issuer of GitHub Actions.
 const oidcIssuer = "https://token.actions.githubusercontent.com"
@@ -42,7 +43,7 @@ func notesTitle(version string) string { return "# Ruralz " + version }
 
 // notesOptions are the flags of `releasekit notes`.
 type notesOptions struct {
-	root, version, from, to, budgets, skipped, out string
+	root, version, from, to, out string
 	// manifest is the release directory's release-manifest.json, whose
 	// image digests the verification steps name; empty lists the
 	// artifacts without digests.
@@ -150,15 +151,11 @@ type notesInput struct {
 	Features, Fixes, Performance, Dependencies,
 	Deprecations, Upgrades []noteItem
 	Schema   []string
-	Records  []benchRecord
-	Skipped  []skippedGate
 	Archives []artifact
 	Images   []imagePlan
-	// Bench names the benchmark records archive.
-	Bench string
 }
 
-// classify sorts the commits of the range into the notes sections:
+// classifyCommits sorts the commits of the range into the notes sections:
 // features (feat), fixes (fix), performance (perf), dependency updates
 // (build(deps)), deprecations (Deprecated footers) and upgrade notes
 // (breaking titles and BREAKING CHANGE footers).
@@ -248,14 +245,15 @@ func writeItems(b *strings.Builder, items []noteItem) {
 }
 
 // renderNotes renders the release notes in Markdown. The sections follow
-// the Release artifacts row of
-// docs/engineering/04-release-versioning-and-compatibility.md: features,
-// fixes, deprecations, upgrade notes, schema, ABI and Control Stream
-// additions, budget results, verification steps and skipped gates.
+// the Release notes row of
+// docs/engineering/04-release-versioning-and-compatibility.md, "Release
+// artifacts": the artifacts, features, fixes, performance changes,
+// dependency updates, deprecations, upgrade notes, schema, ABI and Control
+// Stream changes, and verification steps.
 func renderNotes(in notesInput) string {
 	var b strings.Builder
 	b.WriteString(notesTitle(in.Version) + "\n\n")
-	kind := map[string]string{kindRelease: "Release", kindCandidate: "Release candidate", kindDev: "Development build"}[versionKind(in.Version)]
+	kind := map[string]string{kindRelease: "Release", kindDev: "Development build"}[versionKind(in.Version)]
 	from := "the first commit"
 	if in.From != "" {
 		from = codeSpan(in.From)
@@ -274,10 +272,9 @@ func renderNotes(in notesInput) string {
 	}
 	b.WriteString("\nEach archive holds the binary, `LICENSE`, `NOTICE`, `README.md` and its own `THIRD_PARTY_LICENSES`; " +
 		"linux `ruralzd` archives add `deploy/systemd/`. Each archive's CycloneDX 1.7 SBOM is `<archive>.cdx.json`. " +
-		codeSpan(in.Bench) + " holds the `ruralz.bench.v1` records, raw histograms and CPU profiles of the release's Latency and soak jobs. " +
 		"`SHA256SUMS`, signed as `" + signatureName + "`, covers every other file of the release: the archives and their SBOMs, the image SBOM, " +
 		"the JSON Schema files `ruralz-<apiVersion>-authoring.schema.json` and `ruralz-<apiVersion>-rendered.schema.json`, " +
-		"`" + manifestName + "`, which lists every archive's members and digests and the image digests, `" + notesName + "` and the benchmark records.\n\n")
+		"`" + manifestName + "`, which lists every archive's members and digests and the image digests, and `" + notesName + "`.\n\n")
 	for _, img := range in.Images {
 		digest := ""
 		if img.recorded() {
@@ -314,75 +311,9 @@ func renderNotes(in notesInput) string {
 		b.WriteString("- " + line + "\n")
 	}
 
-	b.WriteString("\n## Budget results\n\n")
-	writeBudgets(&b, in.Records, in.Commit)
-
 	b.WriteString("\n## Verification\n\n")
 	writeVerification(&b, in)
-
-	b.WriteString("\n## Skipped gates\n\n")
-	if len(in.Skipped) == 0 {
-		b.WriteString("None: no maintainer skipped a release gate.\n")
-	} else {
-		b.WriteString("A maintainer skipped these [release gates](" + repoURL + "/blob/" + tagOf(in) +
-			"/docs/engineering/03-testing-and-quality-strategy.md#release-gates), each with the reason below.\n\n")
-		b.WriteString("| Gate | Evidence | Skipped by | Role | Reason |\n|---|---|---|---|---|\n")
-		evidence := map[string]string{}
-		for _, row := range releaseGateRows() {
-			evidence[row[0]] = row[1]
-		}
-		for _, g := range in.Skipped {
-			fmt.Fprintf(&b, "| %s | %s | @%s | %s | %s |\n", escapeMarkdown(g.Gate), escapeMarkdown(evidence[g.Gate]), escapeMarkdown(g.By), g.Role,
-				escapeMarkdown(strings.Join(strings.Fields(g.Reason), " ")))
-		}
-	}
 	return b.String()
-}
-
-// tagOf is the release tag of a release or candidate, else the commit, for
-// links into the repository as it was released.
-func tagOf(in notesInput) string {
-	if versionKind(in.Version) == kindDev {
-		return in.Commit
-	}
-	return "v" + in.Version
-}
-
-// writeBudgets renders every budget with its pooled result from the
-// benchmark summary records: per scenario, what the summary covers
-// (comparison, ladder or soak) and its A/B verdict against its baseline.
-func writeBudgets(b *strings.Builder, records []benchRecord, commit string) {
-	if len(records) == 0 {
-		b.WriteString("No benchmark summary records were provided for this build.\n")
-		return
-	}
-	b.WriteString("| Scenario | Summary | A/B verdict | Budget | Value | Result | SLO | Verdict | Hardware | Commit |\n" +
-		"|---|---|---|---|---|---|---|---|---|---|\n")
-	other := false
-	for _, r := range records {
-		c := short(r.Identity.Commit)
-		if r.Identity.Commit != commit {
-			c += " (other commit)"
-			other = true
-		}
-		ab := escapeMarkdown(r.Summary.Verdict)
-		if r.Identity.Baseline != "" {
-			ab += " against " + escapeMarkdown(r.Identity.Baseline)
-		}
-		lead := fmt.Sprintf("| %s | %s | %s |", escapeMarkdown(r.Identity.Scenario), escapeMarkdown(r.Summary.Of), ab)
-		if len(r.Budgets) == 0 {
-			fmt.Fprintf(b, "%s none | | | | %s | %s | %s |\n", lead,
-				escapeMarkdown(r.Validity.Verdict), escapeMarkdown(r.Environment.HardwareProfile), c)
-		}
-		for _, bg := range r.Budgets {
-			fmt.Fprintf(b, "%s %s | %s | %s | %s | %s | %s | %s |\n", lead,
-				escapeMarkdown(bg.ID), escapeMarkdown(bg.Value), escapeMarkdown(bg.Result), escapeMarkdown(bg.SLO),
-				escapeMarkdown(bg.Verdict), escapeMarkdown(r.Environment.HardwareProfile), c)
-		}
-	}
-	if other {
-		b.WriteString("\nRows marked (other commit) were measured on another commit than this release's.\n")
-	}
 }
 
 // signerWorkflow is the reusable workflow whose OIDC identity signs every
@@ -393,23 +324,21 @@ const signerWorkflow = "ravindu-rev/ruralz/.github/workflows/release-build.yml"
 const sbomPredicate = "https://cyclonedx.org/bom"
 
 // cosign2Flag is the flag cosign 2.x needs to read the Sigstore bundles
-// cosign 3 writes, for SHA256SUMS and for the image's OCI referrers.
-// release-verify.yml runs every command of the Verification section's sh
-// blocks with cosign 3.x, except the blocks that pass this flag, which
-// are the 2.x variants.
+// cosign 3 writes, for SHA256SUMS and for the image's OCI referrers: each
+// cosign command of the Verification section is printed for cosign 3.x,
+// then again with this flag as its 2.x variant.
 const cosign2Flag = "--new-bundle-format"
 
 // writeVerification renders how to verify the signatures, checksums,
-// provenance and SBOM attestations, as commands release-verify.yml runs
-// verbatim (cosign2Flag). cosign below 3.1.3 on 3.x, or 2.6.5 on 2.x, has a
-// verification bypass (GHSA-fx35-mq7g-6g98).
+// provenance and SBOM attestations, as commands to run verbatim in the
+// directory of the downloaded files. cosign below 3.1.3 on 3.x, or 2.6.5
+// on 2.x, has a verification bypass (GHSA-fx35-mq7g-6g98).
 func writeVerification(b *strings.Builder, in notesInput) {
-	identity := signerIdentity + in.Version
 	archive := ""
 	if len(in.Archives) > 0 {
 		archive = in.Archives[0].archiveName(in.Version)
 	}
-	signer := fmt.Sprintf(" \\\n     --certificate-identity %s \\\n     --certificate-oidc-issuer %s\n", identity, oidcIssuer)
+	signer := fmt.Sprintf(" \\\n     --certificate-identity %s \\\n     --certificate-oidc-issuer %s\n", signerIdentity, oidcIssuer)
 	attest := func(subject, predicate string) {
 		fmt.Fprintf(b, "   gh attestation verify %s --repo ravindu-rev/ruralz \\\n     --signer-workflow %s", subject, signerWorkflow)
 		if predicate != "" {
@@ -417,8 +346,8 @@ func writeVerification(b *strings.Builder, in notesInput) {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("Every artifact is signed keylessly with Sigstore by the reusable workflow `release-build.yml` at `refs/tags/v" + in.Version +
-		"` and logged in Rekor; its SLSA Build Level 3 provenance and CycloneDX SBOMs are GitHub artifact attestations of the same workflow. " +
+	b.WriteString("Every artifact is signed keylessly with Sigstore by the reusable workflow `release-build.yml` of the release run on `refs/heads/main`" +
+		" and logged in Rekor; its SLSA Build Level 3 provenance and CycloneDX SBOMs are GitHub artifact attestations of the same workflow. " +
 		"Verify with the GitHub CLI and cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x, which fix a verification bypass (GHSA-fx35-mq7g-6g98).\n\n")
 	b.WriteString("1. Check the signature of `SHA256SUMS`, then the files you downloaded (on macOS, `shasum -a 256 --ignore-missing -c SHA256SUMS`):\n\n")
 	b.WriteString("   ```sh\n")
@@ -558,15 +487,18 @@ func quoted(ss []string) []string {
 }
 
 // previousRelease names the release tag the notes start from when none is
-// given: the newest vX.Y.Z tag before the release commit, never a release
-// candidate's (an X.Y.Z release lists every change since the previous
-// release, the candidates' included), or root when there is none.
-func previousRelease(ctx context.Context, git gitRunner, dir, toCommit string) string {
-	out, err := git(ctx, dir, "describe", "--tags", "--abbrev=0", "--match", "v[0-9]*", "--exclude", "v*-*", toCommit+"^")
-	if tag := strings.TrimSpace(string(out)); err == nil && checkRef(tag) == nil {
-		return tag
+// given: the previous release of the release commit, the highest vX.Y.Z
+// tag it contains other than its own, as `releasekit next` reads it, or
+// root when there is none.
+func previousRelease(ctx context.Context, git gitRunner, dir, toCommit string) (string, error) {
+	tags, err := readReleaseTags(ctx, git, dir, toCommit)
+	if err != nil {
+		return "", err
 	}
-	return rootRef
+	if prev, ok := tags.previous(); ok {
+		return prev.Name, nil
+	}
+	return rootRef, nil
 }
 
 // runNotes writes the release notes of version for the range from..to; an
@@ -583,7 +515,9 @@ func runNotes(ctx context.Context, o notesOptions, git gitRunner) error {
 		return err
 	}
 	if o.from == "" {
-		o.from = previousRelease(ctx, git, o.root, toCommit)
+		if o.from, err = previousRelease(ctx, git, o.root, toCommit); err != nil {
+			return err
+		}
 	}
 	fromCommit := ""
 	if o.from != rootRef {
@@ -595,7 +529,7 @@ func runNotes(ctx context.Context, o notesOptions, git gitRunner) error {
 	if err != nil {
 		return err
 	}
-	in := notesInput{Version: o.version, Commit: toCommit, Archives: artifacts(), Images: images(o.version), Bench: benchArchiveName(o.version)}
+	in := notesInput{Version: o.version, Commit: toCommit, Archives: artifacts(), Images: images(o.version)}
 	if o.manifest != "" {
 		m, err := readManifest(o.manifest)
 		if err != nil {
@@ -604,7 +538,7 @@ func runNotes(ctx context.Context, o notesOptions, git gitRunner) error {
 		if m.Version != o.version || m.Commit != toCommit {
 			return fmt.Errorf("%s describes %s at %s, not %s at %s", o.manifest, m.Version, m.Commit, o.version, toCommit)
 		}
-		in.Images, in.Bench = m.Images, m.Bench.Name
+		in.Images = m.Images
 	}
 	if fromCommit != "" {
 		in.From = o.from
@@ -612,16 +546,6 @@ func runNotes(ctx context.Context, o notesOptions, git gitRunner) error {
 	classifyCommits(commits, &in)
 	if in.Schema, err = schemaNotes(ctx, git, o.root, fromCommit, toCommit); err != nil {
 		return err
-	}
-	if o.budgets != "" {
-		if in.Records, err = readBudgets(o.budgets); err != nil {
-			return err
-		}
-	}
-	if o.skipped != "" {
-		if in.Skipped, err = readSkipped(o.skipped); err != nil {
-			return err
-		}
 	}
 	return os.WriteFile(o.out, []byte(renderNotes(in)), 0o600)
 }
