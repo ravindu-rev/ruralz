@@ -67,6 +67,9 @@ type MockConfig struct {
 	// Header is added to every response, such as the Cache-Control the
 	// cache key flood's entries need.
 	Header http.Header
+	// Name, when set, is carried in every response's mockup.HeaderServer,
+	// as the chaos runs' mock Upstreams name themselves.
+	Name string
 }
 
 // MockStats are the mock's counters since the last reset.
@@ -104,7 +107,7 @@ func StartMock(ctx context.Context, c MockConfig) (*Mock, error) {
 	}
 	m := &Mock{cpu: newCPUMeter(), h: newHistogram()}
 	m.srv, err = mockup.Start(ctx, mockup.Config{
-		Listen: c.Listen, TLS: tc, Behavior: b, LogSize: -1, MaxConcurrentStreams: 1000,
+		Name: c.Name, Listen: c.Listen, TLS: tc, Behavior: b, LogSize: -1, MaxConcurrentStreams: 1000,
 		OnServed: m.served,
 	})
 	if err != nil {
@@ -573,3 +576,20 @@ func unknown(r Request) Response {
 }
 
 func failed(err error) Response { return Response{Error: err.Error()} }
+
+// FreePort returns a TCP port free on listen's host a moment ago, listen
+// being "host:0": the port a server the harness starts on a lab host
+// binds, which binds it again on a retry when another process took it
+// first.
+func FreePort(ctx context.Context, listen string) (int, error) {
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", listen)
+	if err != nil {
+		return 0, fmt.Errorf("lab: port: %w", err)
+	}
+	defer func() { _ = ln.Close() }()
+	a, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return 0, fmt.Errorf("lab: port: address %v", ln.Addr())
+	}
+	return a.Port, nil
+}

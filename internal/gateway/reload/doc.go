@@ -90,8 +90,9 @@
 // Only the lock holder writes lkg/ (internal/gateway/lkg). A failed write
 // retries after 1 s, doubling to 60 s (target), under degraded reason
 // lkg_write_failed; a successor that took the lock writes its active
-// Revision when lkg/ names another. ruralz_config_revision_info{role="lkg"}
-// follows what lkg.json names.
+// Revision when lkg/ names another, as a job of the activation loop after
+// TookLock returned. ruralz_config_revision_info{role="lkg"} follows what
+// lkg.json names.
 //
 // # Handover and Drain
 //

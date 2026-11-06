@@ -47,7 +47,7 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | None | None |
 | ADRs | `ADR-NNNN`, files `docs/adr/NNNN-<slug>.md` | None | None |
 | Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | None | "TBD", "TODO" |
-| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region + bench suite · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
+| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) · **M6** Reference hardware benchmarks (RH-1, RH-2 and RH-3, the budget gates and bench suite on them) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
 
 **Process settings.** A Node reads them once at start, so a change needs a restart or a Zero-Downtime Upgrade.
 

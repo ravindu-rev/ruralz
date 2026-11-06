@@ -27,8 +27,10 @@
 //	                         process reloads it and sends ready again
 //	holder       accepted    with the usage at acceptance: connections,
 //	                         inflightUnits, bufferedBytes,
-//	                         pluginMemoryBytes, rssBytes
-//	holder       usage       the same members, every UsageInterval
+//	                         pluginMemoryBytes, rssBytes; and, while the
+//	                         holder runs a watchdog, watchdogUsec, its
+//	                         interval in microseconds
+//	holder       usage       the usage members, every UsageInterval
 //	new process  listening   its sockets joined their groups
 //	holder       released    the lock was released at its Drain's start
 //
@@ -55,6 +57,11 @@
 // activations stay held from accepted until the holder's Drain, so a
 // source change waits for the new process.
 //
+// The accepted message carries the interval the holder's watchdog runs
+// with ([HolderConfig].Watchdog), so a new process to which the service
+// manager gives none, as systemd gives none to a child of ExecReload=,
+// feeds the unit's watchdog once it takes over; a process that took the
+// lock as a successor passes the interval it runs with on in turn.
 // Accepted, the holder reports its usage every [UsageInterval]. On
 // listening, within [ListeningTimeout] of accepted, it steers every group
 // to the new process, the admin port's included, closes idle admin
@@ -84,18 +91,24 @@
 // if the holder exited, else connects to the socket and sends ready.
 // Refused, or not accepted in time, it closes its sockets and exits 1
 // ([OutcomeRefused]); reload runs its reload and sends ready again; a
-// failed reload refuses. Accepted, it lowers each Node-wide ceiling by
-// the holder's usage ([Ceilings]) and sets a soft memory limit
-// (debug.SetMemoryLimit) of [MemorySharePercent] of its cgroup's
-// memory.max minus the holder's rssBytes, or without a cgroup limit
-// GOMEMLIMIT minus rssBytes, and none with neither; it listens, still
-// pinned to the holder, and sends listening. On released it takes the
-// lock, retrying while another process holds it, pins its groups, writes
-// holder.json and sends MAINPID= with READY=1 and STATUS= ([Notifier]),
-// in that order, so the ExecReload= helper exits 0 and the service
-// manager follows the new main process: [OutcomeHolder]. A follower goes
-// on applying the old holder's usage reports and restores the ceilings
-// and the process's own memory limit once the old holder is gone.
+// failed reload refuses. Accepted, it records the holder's watchdog
+// interval ([Successor.HolderWatchdog]), none when accepted carries no
+// watchdogUsec; a negative one, or one a time.Duration cannot hold, breaks
+// the protocol, and the process gives up as when refused. It lowers each
+// Node-wide ceiling by the holder's usage ([Ceilings]) and sets a soft
+// memory limit (debug.SetMemoryLimit) of [MemorySharePercent] of its
+// cgroup's memory.max minus the holder's rssBytes, or without a cgroup
+// limit GOMEMLIMIT minus rssBytes, and none with neither; it listens,
+// still pinned to the holder, and sends listening. On released it takes
+// the lock, retrying while another process holds it, pins its groups,
+// writes holder.json and sends MAINPID= with READY=1 and STATUS=
+// ([Notifier]), in that order, so the ExecReload= helper exits 0 and the
+// service manager follows the new main process: [OutcomeHolder]. Only then
+// does the process start its watchdog (internal/gateway), with its own
+// interval when its environment enables one, else with the holder's, so
+// no ping precedes the lock. A follower goes on applying the old holder's
+// usage reports and restores the ceilings and the process's own memory
+// limit once the old holder is gone.
 //
 // A connection that ends after accepted and before released, as when
 // the holder crashed, makes the new process take the lock, retrying

@@ -6,6 +6,7 @@ package clocktest
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -482,6 +483,104 @@ func TestFireTimeIsDeadlineAtFire(t *testing.T) {
 	}
 }
 
+// A deadline timer holds its deadline across an advance that comes after
+// its caller read the clock and before it armed the timer, where
+// NewTimer(deadline.Sub(read)) would fire that advance late; a deadline
+// already reached fires at once; ResetAt and AfterFuncAt arm the same way.
+func TestDeadlineTimersHoldAcrossAnAdvance(t *testing.T) {
+	f := New(epoch())
+	deadline := f.Now().Add(time.Second)
+	f.Advance(400 * time.Millisecond)
+	tm := f.NewTimerAt(deadline)
+	late := f.NewTimer(deadline.Sub(epoch()))
+	f.Advance(600 * time.Millisecond)
+	select {
+	case at := <-tm.C():
+		if !at.Equal(deadline) {
+			t.Errorf("NewTimerAt delivered %v, want its deadline %v", at, deadline)
+		}
+	default:
+		t.Fatal("NewTimerAt did not fire at its deadline")
+	}
+	select {
+	case at := <-late.C():
+		t.Fatalf("the duration timer fired at %v, before the late deadline it got", at)
+	default:
+	}
+	late.Stop()
+
+	select {
+	case at := <-f.NewTimerAt(epoch()).C():
+		if !at.Equal(f.Now()) {
+			t.Errorf("a reached deadline delivered %v, want the time %v", at, f.Now())
+		}
+	default:
+		t.Error("NewTimerAt of a reached deadline did not fire at once")
+	}
+	ran := make(chan time.Duration, 2)
+	f.AfterFuncAt(f.Now().Add(time.Second), func() { ran <- f.Since(epoch()) })
+	r := f.NewTimer(time.Hour)
+	if !r.ResetAt(f.Now().Add(500 * time.Millisecond)) {
+		t.Error("ResetAt of an armed timer reported inactive")
+	}
+	f.Advance(time.Second)
+	if got := <-ran; got != 2*time.Second {
+		t.Errorf("AfterFuncAt ran at %v, want 2s", got)
+	}
+	select {
+	case at := <-r.C():
+		if want := epoch().Add(1500 * time.Millisecond); !at.Equal(want) {
+			t.Errorf("ResetAt delivered %v, want %v", at, want)
+		}
+	default:
+		t.Error("ResetAt's timer did not fire")
+	}
+}
+
+// Jump shows only its end: callbacks of the timers it fires read the new
+// time, where Advance shows each deadline, channels still get their
+// deadlines, and a timer armed while they fire waits for a later move.
+func TestJumpShowsOnlyItsEnd(t *testing.T) {
+	f := New(epoch())
+	var seen []time.Duration
+	f.AfterFunc(100*time.Millisecond, func() {
+		seen = append(seen, f.Since(epoch()))
+		f.AfterFunc(100*time.Millisecond, func() { seen = append(seen, f.Since(epoch())) })
+	})
+	ch := f.NewTimer(200 * time.Millisecond)
+	f.Jump(time.Second)
+	if want := []time.Duration{time.Second}; !slices.Equal(seen, want) {
+		t.Errorf("callbacks saw %v, want %v", seen, want)
+	}
+	select {
+	case at := <-ch.C():
+		if !at.Equal(epoch().Add(200 * time.Millisecond)) {
+			t.Errorf("delivered %v, want the deadline %v", at, epoch().Add(200*time.Millisecond))
+		}
+	default:
+		t.Error("the timer due inside the jump did not fire")
+	}
+	if got := f.Pending(); got != 1 {
+		t.Fatalf("%d timers armed after the jump, want the one armed at its end", got)
+	}
+	f.Jump(100 * time.Millisecond)
+	if want := []time.Duration{time.Second, 1100 * time.Millisecond}; !slices.Equal(seen, want) {
+		t.Errorf("callbacks saw %v, want %v", seen, want)
+	}
+	f.Jump(-time.Hour)
+	if got := f.Since(epoch()); got != 1100*time.Millisecond {
+		t.Errorf("Since after a negative jump = %v, want 1.1s", got)
+	}
+
+	g := New(epoch())
+	var advanced time.Duration
+	g.AfterFunc(100*time.Millisecond, func() { advanced = g.Since(epoch()) })
+	g.Advance(time.Second)
+	if advanced != 100*time.Millisecond {
+		t.Errorf("Advance showed %v to the callback, want its deadline 100ms", advanced)
+	}
+}
+
 // waiting reports whether a BlockUntil call is blocked on f, waiting for
 // the armed timers to change.
 func waiting(f *Fake) bool {
@@ -589,5 +688,48 @@ func TestBlockUntilCancellation(t *testing.T) {
 	cancel()
 	if err := returned(t, errc); !errors.Is(err, context.Canceled) {
 		t.Fatalf("BlockUntil after cancel = %v, want context.Canceled", err)
+	}
+}
+
+// BlockUntilDue returns once a timer due at its time is armed, whatever
+// other timers are armed, and waits for a goroutine that arms it later;
+// the Advance after it then fires that timer.
+func TestBlockUntilDueWaitsForTheTimerDueThen(t *testing.T) {
+	f := New(epoch())
+	f.NewTimer(time.Hour)
+	if err := f.BlockUntilDue(t.Context(), epoch().Add(time.Hour)); err != nil {
+		t.Fatalf("BlockUntilDue of an armed timer = %v, want nil", err)
+	}
+	at := epoch().Add(time.Minute)
+	errc := make(chan error, 1)
+	go func() { errc <- f.BlockUntilDue(t.Context(), at) }()
+	waitFor(t, "BlockUntilDue to block", func() bool { return waiting(f) })
+	other := f.NewTimer(2 * time.Minute)
+	waitFor(t, "BlockUntilDue to block again", func() bool { return waiting(f) })
+	select {
+	case err := <-errc:
+		t.Fatalf("BlockUntilDue returned %v with no timer due at %v", err, at)
+	default:
+	}
+	slept := make(chan error, 1)
+	go func() { slept <- f.Sleep(t.Context(), time.Minute) }()
+	if err := returned(t, errc); err != nil {
+		t.Fatalf("BlockUntilDue = %v, want nil", err)
+	}
+	f.Advance(time.Minute)
+	select {
+	case err := <-slept:
+		if err != nil {
+			t.Fatalf("Sleep = %v, want nil", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the advance after BlockUntilDue did not end the Sleep")
+	}
+	other.Stop()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	if err := f.BlockUntilDue(ctx, epoch().Add(time.Second)); !errors.Is(err, context.Canceled) {
+		t.Fatalf("BlockUntilDue after cancel = %v, want context.Canceled", err)
 	}
 }

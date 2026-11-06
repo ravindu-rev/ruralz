@@ -152,17 +152,16 @@ func (d *Deadline) Init(cancel context.CancelCauseFunc, clk clock.Clock, deadlin
 	if deadline.IsZero() {
 		return
 	}
-	wait := deadline.Sub(clk.Now())
-	if wait <= 0 {
+	if !clk.Now().Before(deadline) {
 		d.fire()
 		return
 	}
 	if timer == nil {
-		d.timer = clk.AfterFunc(wait, d.fire)
+		d.timer = clk.AfterFuncAt(deadline, d.fire)
 		return
 	}
 	d.timer = timer
-	timer.Reset(wait)
+	timer.ResetAt(deadline)
 }
 
 // Fire cancels the context at the deadline unless Stop came first. A call

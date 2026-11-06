@@ -27,7 +27,10 @@
 // re-ran, the open nightly-failure and fuzz-crasher issues, the seed file
 // each closed fuzz-crasher issue names (present at -commit in the checkout
 // -C), the ruralz.bench.v1 records of the Latency and soak jobs under
-// -records, and the candidate tags and their release runs. It applies the
+// -records, and the candidate tags and their release runs. The rh-1 jobs,
+// the Latency job, the soak and chaos-scale.yml's chaos job, and their
+// records count only when RH1_PROVISIONED is true, from M6: until then
+// GitHub skips them. It applies the
 // skips a maintainer recorded on the tag's tracking issue, the issue
 // titled with the tag that releasegate opens when absent and updates on
 // every run with each gate's outcome, writes the ruralz.skippedgates.v1
@@ -192,6 +195,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer, env envir
 		findings, err = runGates(ctx, g, gatesOptions{
 			tag: tag, commit: commit, runID: id, records: records, skipped: skipped, summary: summary, dir: dir,
 			runURL: fmt.Sprintf("%s/%s/actions/runs/%d", strings.TrimRight(server, "/"), g.repo, id),
+			rh1:    env.getenv("RH1_PROVISIONED") == "true",
 		}, env.now(), git, stdout)
 	case "latest":
 		var latest bool

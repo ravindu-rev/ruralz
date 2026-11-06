@@ -45,13 +45,15 @@ const (
 
 const hexDigits = "0123456789abcdef"
 
-// ParseTraceparent parses a traceparent value per W3C Trace Context:
-// leading and trailing spaces and tabs are ignored; version 00 is exactly
-// 55 bytes "00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>";
-// version ff is invalid; a higher version is read on its first 55 bytes
-// when byte 55 is "-" or absent; the trace ID and the parent ID are not
-// all zeros. On any failure ok is false and the other results are zero. It
-// never allocates.
+// ParseTraceparent parses a traceparent value per W3C Trace Context
+// (docs/architecture/10-observability.md "Propagation"): leading and
+// trailing spaces and tabs are ignored; version 00 is exactly 55 bytes
+// "00-<32 lowercase hex>-<16 lowercase hex>-<2 lowercase hex>", so any
+// byte after its flags, even a single "-", makes it invalid; version ff is
+// invalid; a higher version is read on its first 55 bytes when byte 55 is
+// "-" or absent; the trace ID and the parent ID are not all zeros; flag
+// bits other than sampled are returned, never refused. On any failure ok
+// is false and the other results are zero. It never allocates.
 func ParseTraceparent(v string) (traceID [16]byte, parentID [8]byte, flags byte, ok bool) {
 	v = trimOWS(v)
 	if len(v) < TraceparentLen {

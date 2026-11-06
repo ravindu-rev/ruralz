@@ -260,6 +260,12 @@ func Path(target string) string {
 // fragment), as well as user information without a host, are returned as
 // Marker, since they may hold a credential in an unknown place. A '@'
 // anywhere in a URL without user information therefore also gives Marker.
+//
+// The path keeps the escapes raw wrote, and only a byte a path cannot hold
+// unescaped, such as a space or a non-ASCII byte, is percent-encoded. An
+// escaped '@', '/' or ':' is never decoded, so the result holds no '@'
+// that could read as user information, and no path segment is split or
+// joined.
 func URL(raw string) string {
 	u, err := url.Parse(raw)
 	if err != nil || u.Opaque != "" {
@@ -270,12 +276,50 @@ func URL(raw string) string {
 	if at := strings.LastIndexByte(raw, '@'); at >= 0 && (u.User == nil || u.Host == "" || !inAuthority(raw, at)) {
 		return Marker
 	}
+	// RawPath is the path as raw wrote it, or empty when that is the
+	// default escaping of Path, which EscapedPath then returns.
+	written := u.RawPath
+	if written == "" {
+		written = u.EscapedPath()
+	}
 	u.User = nil
 	u.RawQuery = ""
 	u.ForceQuery = false
 	u.Fragment = ""
 	u.RawFragment = ""
+	// String writes EscapedPath, which discards a RawPath holding a byte
+	// that needs escaping and escapes the decoded Path again, writing '@',
+	// '/' and ':' unescaped where raw had escaped them. escapePath gives a
+	// valid escaping of Path, which EscapedPath keeps.
+	u.RawPath = escapePath(written)
 	return u.String()
+}
+
+// escapePath returns the escaped path p with each byte percent-encoded,
+// in uppercase hexadecimal, that net/url does not accept unescaped in an
+// escaped path, and '@'. It keeps the unreserved characters, the
+// sub-delimiters, ':' and '/' (RFC 3986 section 3.3), the '[' and ']'
+// net/url leaves alone, and the escapes p holds, as written.
+func escapePath(p string) string {
+	const hex = "0123456789ABCDEF"
+	b := make([]byte, 0, len(p))
+	for i := range len(p) {
+		if c := p[i]; pathByte(c) {
+			b = append(b, c)
+		} else {
+			b = append(b, '%', hex[c>>4], hex[c&0x0f])
+		}
+	}
+	return string(b)
+}
+
+// pathByte reports whether escapePath keeps c unescaped. A '%' in a path
+// net/url parsed always starts a valid escape, so it is kept.
+func pathByte(c byte) bool {
+	if 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9' {
+		return true
+	}
+	return strings.IndexByte("-._~!$&'()*+,;=:/[]%", c) >= 0
 }
 
 // inAuthority reports whether byte i of raw lies in its authority: after

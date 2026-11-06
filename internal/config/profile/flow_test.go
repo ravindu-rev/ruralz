@@ -127,6 +127,54 @@ func TestFlowEntryShape(t *testing.T) {
 	})
 }
 
+// TestFlowPairKeyOneLine covers the properties of a flow pair's implicit
+// key, which YAML 1.2 keeps on one line from its first tag or anchor to its
+// ':' (YAML 1.2.2 sections 6.7 and 7.4): in the flow-key context of rules
+// 152 to 155 the separation after a property is in-line (rule 80 in rules
+// 96, 159 and 160), so a key whose tag or anchor ends an earlier line is
+// RZ-CFG-001 at its ':', whatever its content, beside the RZ-CFG-003 of an
+// anchor. The same properties may end their line before a flow node, a
+// value, a flow mapping's key or an explicit key, whose separation spans
+// lines.
+func TestFlowPairKeyOneLine(t *testing.T) {
+	checkFlowRows(t, []flowRow{
+		// The nightly fuzz crasher, which the profile read as [{0: null}].
+		{"{0: [!!str\n0: ]}", "RZ-CFG-001@2:2", msgMultiLineKey},
+		{"[!!str\n0: x]\n", "RZ-CFG-001@2:2", msgMultiLineKey},
+		{"[!!str\n  0 : x]\n", "RZ-CFG-001@2:5", msgMultiLineKey},
+		{"[!!str\n\"0\": x]\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		{"[!!str\n'0':x]\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		{"[!!str\n: x]\n", "RZ-CFG-001@2:1", msgMultiLineKey},
+		{"[!!str # c\n0: x]\n", "RZ-CFG-001@2:2", msgMultiLineKey},
+		{"[!!str\n\n0: x]\n", "RZ-CFG-001@3:2", msgMultiLineKey},
+		{"[a, !!int\n  1: x]\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		{"k: [!!str\n  0: x]\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		{"- [!!str\n  0: x]\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		// Properties that may end their line.
+		{"[!!str\n0]\n", `[s:"0"]`, ""},
+		{"[!!str\n0:x]\n", `[s:"0:x"]`, ""},
+		{"[!!str 0: x]\n", `[{0:s:"x"}]`, ""},
+		{"[!!str : x]\n", `[{:s:"x"}]`, ""},
+		{"[0: !!str\n x]\n", `[{0:s:"x"}]`, ""},
+		{"[? !!str\n0 : x]\n", `[{0:s:"x"}]`, ""},
+		{"{!!str\n0: x}\n", `{0:s:"x"}`, ""},
+		{"[{!!str\n\"0\": x}]\n", `[{0:s:"x"}]`, ""},
+	})
+	// An anchor is RZ-CFG-003 wherever it is; a key it starts on an earlier
+	// line is RZ-CFG-001 too.
+	for _, tt := range []struct{ src, want string }{
+		{"[&a\n0: x]\n", "RZ-CFG-003@1:2 RZ-CFG-001@2:2"},
+		{"[&a\n: x]\n", "RZ-CFG-003@1:2 RZ-CFG-001@2:1"},
+		{"[&a !!str\n0: x]\n", "RZ-CFG-003@1:2 RZ-CFG-001@2:2"},
+		{"[!!str\n&a 0: x]\n", "RZ-CFG-003@2:1 RZ-CFG-001@2:5"},
+	} {
+		docs, diags := parseYAML(t, tt.src)
+		if got := codes(diags); got != tt.want || len(docs) != 0 || diags[len(diags)-1].Message != msgMultiLineKey {
+			t.Errorf("%q: %q %+v, want %s, the last %q", tt.src, got, diags, tt.want, msgMultiLineKey)
+		}
+	}
+}
+
 // TestFlowClosingBracket covers the closing bracket of a flow collection in
 // a block collection (YAML 1.2.2 rule 69, s-flow-line-prefix): like every
 // line of the collection it is indented more than the block collection, so

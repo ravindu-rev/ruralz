@@ -6,7 +6,7 @@
 # parallel jobs, the longest 3 hours (target):
 #   Fuzz     every Fuzz target for 15 minutes, eight targets per shard on
 #            general runners; the grown corpus ($GOCACHE/fuzz) is kept as an
-#            artifact and restored the next night.
+#            artifact and restored by the next run.
 #   Chaos    every M1 chaos experiment, failure row, lab gate and drill
 #            against at least 10 Nodes (CHAOS_SCALE=nightly), as root so
 #            each handover gets a network namespace of its own; it uploads
@@ -39,19 +39,17 @@
 #            queued, as GitHub does after 24 hours without a runner, counts
 #            as that failure too.
 #   Supply chain rescan (stage 6): new advisories can affect unchanged code.
-# A failure opens a nightly-failure issue (a fuzz crasher opens a
-# fuzz-crasher issue with the failing input) and blocks the next release.
-# release.yml re-runs it on the tagged commit through workflow_call with
-# rotation-all and, once a release exists, the previous release's verified
-# linux/amd64 ruralzd (baseline-artifact, an artifact of the release run,
-# and baseline-version), and grants contents: write (the records job),
-# actions: read and issues: write; nightly has no path filters, so `all`
-# changes nothing.
+# It runs on demand, and release.yml runs it on the tagged commit through
+# workflow_call with rotation-all and, once a release exists, the previous
+# release's verified linux/amd64 ruralzd (baseline-artifact, an artifact of
+# the release run, and baseline-version), granting contents: write (the
+# records job), actions: read and issues: write. A failure opens a
+# nightly-failure issue (a fuzz crasher opens a fuzz-crasher issue with the
+# failing input) and blocks the next release. nightly has no path filters,
+# so `all` changes nothing.
 name: nightly
 
 on:
-  schedule:
-    - cron: "17 3 * * *"
   workflow_dispatch:
     inputs:
       all:
@@ -150,7 +148,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Restore the corpus of the previous night
+      - name: Restore the corpus of the previous run
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
@@ -225,7 +223,27 @@ jobs:
           retention-days: 90
 
   chaos:
-    name: 11. Chaos
+    name: 11. Chaos (${{ matrix.part }})
+    # The suite in four parts, each on its own runner within the 3-hour
+    # limit: the CE experiments in two halves, the failure rows and lab
+    # gates beside them, and the drills. Each part measures its own
+    # saturation.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - part: experiments-1
+            packages: ./test/chaos
+            flags: -run '^TestCE(1|2|3|4|12)[A-Z]'
+          - part: experiments-2
+            packages: ./test/chaos
+            flags: -run '^TestCE(5|6|15|16)[A-Z]'
+          - part: rows
+            packages: ./test/chaos
+            flags: -skip ^TestCE
+          - part: drills
+            packages: ./test/chaos/gameday
+            flags: ""
     # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
     runs-on: ubuntu-24.04
     timeout-minutes: 180
@@ -253,16 +271,22 @@ jobs:
         # "Process harness").
         env:
           RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
+          PACKAGES: ${{ matrix.packages }}
+          FLAGS: ${{ matrix.flags }}
         run: |
           sudo --preserve-env env "PATH=$PATH" "HOME=$HOME" \
-            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" make nightly NIGHTLY_JOB=chaos
+            "GOCACHE=$(go env GOCACHE)" "GOMODCACHE=$(go env GOMODCACHE)" \
+            make nightly NIGHTLY_JOB=chaos "CHAOS_PACKAGES=$PACKAGES" "TEST_FLAGS=$FLAGS"
       - name: Hand the records and evidence to the runner user
-        # The suite ran as root, so root owns the files.
+        # The suite ran as root, so root owns the files and every directory
+        # it created on their way, dist/ included: the records directory is
+        # created mode 0750, so a root-owned dist/ keeps the upload out of
+        # dist/chaos.
         if: always()
         env:
           RURALZ_TEST_ARTIFACT_DIR: ${{ runner.temp }}/chaos-evidence
         run: |
-          for d in dist/chaos "$RURALZ_TEST_ARTIFACT_DIR"; do
+          for d in dist "$RURALZ_TEST_ARTIFACT_DIR"; do
             if [[ -d "$d" ]]; then
               sudo chown -R "$(id -u):$(id -g)" "$d"
             fi
@@ -272,7 +296,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chaos-records
+          name: chaos-records-${{ matrix.part }}
           path: dist/chaos/
           if-no-files-found: ignore
           retention-days: 90
@@ -280,7 +304,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: chaos-evidence
+          name: chaos-evidence-${{ matrix.part }}
           path: ${{ runner.temp }}/chaos-evidence/
           if-no-files-found: ignore
           retention-days: 14
@@ -314,7 +338,11 @@ jobs:
 
   latency:
     name: 11. Latency
-    runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}
+    # From M6, once the repository variable RH1_PROVISIONED is true; until
+    # then GitHub skips the job (docs/architecture/12-performance-budgets-and-benchmarking.md,
+    # "Reference hardware").
+    if: vars.RH1_PROVISIONED == 'true'
+    runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}
     # One rh-1 job at a time: the Latency job, the release soak job and
     # chaos-scale.yml share the rh-1 group, which never cancels a running
     # job.
@@ -325,7 +353,7 @@ jobs:
     steps:
       - name: Protected ref
         # The self-hosted RH-1 runner runs only jobs of protected branches
-        # and tags (scheduled, dispatched, or called by release.yml), never
+        # and tags (dispatched, or called by release.yml), never
         # pull-request code.
         env:
           EVENT: ${{ github.event_name }}
@@ -336,11 +364,6 @@ jobs:
             echo "::error title=Refused on rh-1::rh-1 runs only jobs of protected branches and tags, never pull requests; this is $EVENT on $REF (protected: $PROTECTED)"
             exit 1
           fi
-      - name: RH-1 check
-        if: vars.RH1_PROVISIONED != 'true'
-        run: |
-          echo "::error title=RH-1 not provisioned::The Latency job runs only on the self-hosted rh-1 runner. Set the repository variable RH1_PROVISIONED=true once the runner is registered; until then M1 exit criteria 2 and 3 stay open."
-          exit 1
       - name: Maintainer acceptance
         if: inputs.accept-scenario != '' || inputs.accept-commit != ''
         env:
@@ -589,7 +612,7 @@ jobs:
           # job list also holds pr-fast, pr-full and main jobs, and called
           # job names carry a "<caller job> / " prefix. Keep only this
           # workflow's jobs (stage 11 and the stage 6 rescan), named without
-          # the prefix, so issue titles match the scheduled runs.
+          # the prefix, so issue titles match the dispatched runs.
           gh run view "$RUN_ID" --json jobs --jq '.jobs[] | select(.conclusion == "failure") | .name' |
             while read -r name; do
               job=${name##* / }

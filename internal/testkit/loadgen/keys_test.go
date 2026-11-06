@@ -27,6 +27,12 @@ func TestKeySources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	given := []string{"a", "b"}
+	list, err := List(given...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	given[0] = "changed" // the list keeps its own copy
 	for _, c := range []struct {
 		name  string
 		k     KeySource
@@ -37,6 +43,7 @@ func TestKeySources(t *testing.T) {
 		{"cycle", cyc, []string{"k0", "k1", "k2", "k0", "k1"}, 3, "uniform"},
 		{"rotate", rot, []string{"r0", "r0", "r1", "r1", "r2"}, 0, "rotating"},
 		{"single", Single("hot"), []string{"hot", "hot", "hot", "hot", "hot"}, 1, "single"},
+		{"list", list, []string{"a", "b", "a", "b", "a"}, 2, "list"},
 	} {
 		got := keys(c.k, len(c.want))
 		for i := range got {
@@ -54,6 +61,9 @@ func TestKeySources(t *testing.T) {
 	}
 	if _, err := Rotate("r", 0); err == nil {
 		t.Error("Rotate with 0 requests per key succeeded")
+	}
+	if _, err := List(); err == nil {
+		t.Error("List of no keys succeeded")
 	}
 }
 

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -176,14 +177,25 @@ func (r *successorRig) releaseHolderLock() {
 }
 
 // gateToListening runs the new process to listening: it connects, sends
-// ready and gets accepted with u.
+// ready and gets accepted with u, from a holder without a watchdog.
 func (r *successorRig) gateToListening(u Usage) (*wire, <-chan runResult) {
+	r.t.Helper()
+	b, err := encode(acceptedMessage(u, 0))
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return r.gateToListeningOn(strings.TrimSuffix(string(b), "\n"))
+}
+
+// gateToListeningOn runs the new process to listening on the accepted
+// message line accepted.
+func (r *successorRig) gateToListeningOn(accepted string) (*wire, <-chan runResult) {
 	r.t.Helper()
 	r.listenHolder()
 	done := r.run()
 	w := r.conn()
 	w.expect(TypeReady)
-	w.send(acceptedWire{Type: TypeAccepted, Usage: u})
+	w.sendRaw(accepted)
 	w.expect(TypeListening)
 	return w, done
 }
@@ -429,6 +441,81 @@ func TestSuccessorTakesOverWhenTheHolderExits(t *testing.T) {
 	}
 	if r.lock.Held() == nil {
 		t.Error("the Lock does not record the lock taken")
+	}
+	if got := r.s.HolderWatchdog(); got != 0 {
+		t.Errorf("HolderWatchdog() = %v without an accepted, want 0", got)
+	}
+}
+
+// TestSuccessorRecordsTheHolderWatchdog checks the holder's watchdog
+// interval a new process takes from accepted: the interval watchdogUsec
+// carries, kept once the process took the lock on released or after the
+// holder crashed; none from an accepted without watchdogUsec, as a holder
+// without a watchdog or an older holder sends, or with it 0, so the
+// process runs no watchdog unless its own environment enables one.
+func TestSuccessorRecordsTheHolderWatchdog(t *testing.T) {
+	const usage = `"connections":0,"inflightUnits":0,"bufferedBytes":0,"pluginMemoryBytes":0,"rssBytes":0`
+	for _, tt := range []struct {
+		name     string
+		accepted string
+		crash    bool
+		want     time.Duration
+	}{
+		{name: "holder with a watchdog", accepted: `{"type":"accepted",` + usage + `,"watchdogUsec":30000000}`, want: 30 * time.Second},
+		{name: "holder with a watchdog that crashed", accepted: `{"type":"accepted",` + usage + `,"watchdogUsec":30000000}`, crash: true, want: 30 * time.Second},
+		{name: "holder without a watchdog or older holder", accepted: `{"type":"accepted",` + usage + `}`},
+		{name: "watchdogUsec 0", accepted: `{"type":"accepted",` + usage + `,"watchdogUsec":0}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			r := newSuccessorRig(t)
+			w, done := r.gateToListeningOn(tt.accepted)
+			r.releaseHolderLock()
+			if tt.crash {
+				_ = w.c.Close()
+			} else {
+				w.send(bareWire{Type: TypeReleased})
+			}
+			if res := recv(t, "Run", done); res.out != OutcomeHolder || res.err != nil {
+				t.Fatalf("Run = %v, %v, want holder", res.out, res.err)
+			}
+			if got := r.s.HolderWatchdog(); got != tt.want {
+				t.Errorf("HolderWatchdog() = %v after accepted %s, want %v", got, tt.accepted, tt.want)
+			}
+		})
+	}
+}
+
+// TestSuccessorRefusesAMalformedHolderWatchdog checks an accepted whose
+// watchdogUsec no duration holds: it breaks the protocol, so the new
+// process gives up as when refused, closing its sockets without ever
+// listening and keeping no interval.
+func TestSuccessorRefusesAMalformedHolderWatchdog(t *testing.T) {
+	for name, line := range map[string]string{
+		"negative":          `{"type":"accepted","watchdogUsec":-1}`,
+		"beyond a duration": `{"type":"accepted","watchdogUsec":` + strconv.FormatInt(maxWatchdogUsec+1, 10) + `}`,
+		"a string":          `{"type":"accepted","watchdogUsec":"30s"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			r := newSuccessorRig(t)
+			r.listenHolder()
+			done := r.run()
+			w := r.conn()
+			w.expect(TypeReady)
+			w.sendRaw(line)
+			res := recv(t, "Run", done)
+			if res.out != OutcomeRefused || !errors.Is(res.err, ErrProtocol) {
+				t.Fatalf("Run = %v, %v, want refused with ErrProtocol", res.out, res.err)
+			}
+			if want := []string{"bound:close"}; !slices.Equal(r.ev.all(), want) {
+				t.Errorf("events %v, want %v", r.ev.all(), want)
+			}
+			if !w.closed() {
+				t.Error("the connection stayed open")
+			}
+			if got := r.s.HolderWatchdog(); got != 0 {
+				t.Errorf("HolderWatchdog() = %v, want 0", got)
+			}
+		})
 	}
 }
 

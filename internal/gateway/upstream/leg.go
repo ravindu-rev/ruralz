@@ -851,7 +851,7 @@ func (ls *legState) unpark() {
 	clk := ls.u.rt.m.clk
 	var t clock.Timer
 	if d := ls.leg.Deadline(); !d.IsZero() && p.end.dl != nil {
-		t = clk.AfterFunc(max(d.Sub(clk.Now()), 0), p.end.dl.Cancel)
+		t = clk.AfterFuncAt(d, p.end.dl.Cancel)
 	}
 	// The drain reads the Upstream: out of gateway-added time.
 	ex := ls.o.Excluder

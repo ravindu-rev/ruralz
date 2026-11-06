@@ -37,6 +37,12 @@
 // # Runtime
 //
 // With more than one Node, each runs with GOMAXPROCS max(1, CPUs / Nodes).
+// With Config.CPUs, as the target chaos profile's Nodes share RH-1's
+// gateway cpuset, each Node process, a handover successor included,
+// starts in a systemd-run scope of the user manager with AllowedCPUs set
+// to that cpuset, which executes the Node in place, so the process the
+// harness signals, samples and passes its clock socket to is the Node's;
+// CPUs then counts the cpuset's.
 // The harness waits up to ReadyTimeout (30 s) of real time for /readyz, as
 // ruralz dev run --ready-timeout does. Stop sends SIGTERM, advances a
 // controllable-clock Node through its Drain in DrainStep steps, and sends
@@ -66,7 +72,9 @@
 // # State Store, transport and mocks
 //
 // StartStateStore runs any internal/statestore/statestoretest/redisserver
-// kind, a standalone redis-server process by default. Each Node reaches it
+// kind, a standalone redis-server process by default, a process kind also
+// on another host (StateStoreOptions.Host), as the target chaos profile's
+// on RH-1S. Each Node reaches it
 // through its own fault proxy, or counting RESP proxy, one per endpoint of
 // the URL (the server, a cluster's seeds or the sentinels), and the harness
 // writes the URL through those proxies into the secret that

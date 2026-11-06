@@ -165,7 +165,8 @@ func writeScript(t *testing.T, body string) string {
 }
 
 // TestHelperListener is a helper process: a TCP listener on
-// LAB_TEST_LISTEN that runs until killed.
+// LAB_TEST_LISTEN that writes a ready line once it listens and runs until
+// killed, or exits 3 when the address is taken.
 func TestHelperListener(t *testing.T) {
 	addr := os.Getenv("LAB_TEST_LISTEN")
 	if addr == "" {
@@ -173,8 +174,10 @@ func TestHelperListener(t *testing.T) {
 	}
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", addr)
 	if err != nil {
+		_, _ = fmt.Fprintf(os.Stdout, "helper: %v\n", err)
 		os.Exit(3)
 	}
+	_, _ = fmt.Fprintf(os.Stdout, "helper: listening on %s\n", addr)
 	for {
 		c, err := ln.Accept()
 		if err != nil {

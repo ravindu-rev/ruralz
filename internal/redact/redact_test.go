@@ -283,6 +283,71 @@ func TestURL(t *testing.T) {
 	}
 }
 
+// TestURLKeepsPathEscapes: a path holding a byte that needs escaping, such
+// as a space or a non-ASCII byte, makes net/url escape the decoded path
+// again, which writes '@', '/' and ':' unescaped where the input escaped
+// them. URL keeps the input's escapes in every URL shape, so the result
+// holds no '@' and every segment stays as written, while user information,
+// the query and the fragment are still dropped and an opaque URL still
+// gives Marker.
+func TestURLKeepsPathEscapes(t *testing.T) {
+	tests := []struct{ name, in, want string }{
+		{"empty user information without scheme", "//@0/%40 ", "//0/%40%20"},
+		{"empty user information with scheme", "rediss://@redis.internal:6380/%40 ", "rediss://redis.internal:6380/%40%20"},
+		{"user information without scheme", "//u:" + canary + "@host/a%40b c", "//host/a%40b%20c"},
+		{"user information with scheme", "rediss://:" + canary + "@redis.internal:6380/0%40\xc3\xa9", "rediss://redis.internal:6380/0%40%C3%A9"},
+		{"escaped '@' in user information", "redis://u%40x:" + canary + "%40@host/%40 ", "redis://host/%40%20"},
+		{"no user information", "https://idp.example/users/a%40b c", "https://idp.example/users/a%40b%20c"},
+		{"no authority", "/a%40b c", "/a%40b%20c"},
+		{"relative path", "a%40b%3Ac d", "a%40b%3Ac%20d"},
+		{"escaped slash", "https://idp.example/a%2Fb c", "https://idp.example/a%2Fb%20c"},
+		{"escapes that would read as an authority", "http:/%2F%40host/x y", "http:/%2F%40host/x%20y"},
+		{"sub-delimiters", "https://idp.example/%40!$&'()*+,;=: x", "https://idp.example/%40!$&'()*+,;=:%20x"},
+		{"bytes a path cannot hold unescaped", "https://idp.example/%40\"<>\\^`{|}", "https://idp.example/%40%22%3C%3E%5C%5E%60%7B%7C%7D"},
+		{"query", "https://idp.example/p%40 ?q=%40 ", "https://idp.example/p%40%20"},
+		{"fragment", "https://idp.example/p%40 #%40 ", "https://idp.example/p%40%20"},
+		{"opaque", "mailto:a%40b c", Marker},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := URL(tt.in); got != tt.want {
+				t.Errorf("URL(%q) = %q, want %q", tt.in, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestEscapePathMatchesNetURL checks escapePath byte by byte against
+// net/url: a byte stays exactly when net/url accepts it unescaped in an
+// escaped path and it is not '@', any other byte becomes its uppercase
+// escape, and EscapedPath keeps the result, so URL.String writes it as is.
+func TestEscapePathMatchesNetURL(t *testing.T) {
+	for c := range 256 {
+		b := byte(c)
+		if b == '%' {
+			// A '%' in a parsed path always starts an escape.
+			continue
+		}
+		p := string([]byte{'/', b})
+		want := p
+		// EscapedPath returns RawPath only when net/url accepts it.
+		if (&url.URL{Path: p, RawPath: p}).EscapedPath() != p || b == '@' {
+			want = fmt.Sprintf("/%%%02X", b)
+		}
+		got := escapePath(p)
+		if got != want {
+			t.Errorf("escapePath(%q) = %q, want %q", p, got, want)
+		}
+		if kept := (&url.URL{Path: p, RawPath: got}).EscapedPath(); kept != got {
+			t.Errorf("EscapedPath discards escapePath(%q) = %q for %q", p, got, kept)
+		}
+	}
+	// The escapes the path holds stay as written, in either case.
+	if got, want := escapePath("/a%2fb%40c d"), "/a%2fb%40c%20d"; got != want {
+		t.Errorf("escapePath(%q) = %q, want %q", "/a%2fb%40c d", got, want)
+	}
+}
+
 // headerAttr builds an attribute keyed by a header name, the keys a
 // header-map group holds (deliberately not snake_case log keys).
 func headerAttr(name string, v any) slog.Attr { return slog.Attr{Key: name, Value: slog.AnyValue(v)} }
@@ -449,14 +514,16 @@ func TestNoAllocationsOnNameChecks(t *testing.T) {
 	}
 }
 
-// FuzzURL: URL never panics, never returns user information, a query or a
-// fragment, and never returns any part of the user information of its
-// input: when the input holds '@', the result is Marker or carries no '@'
-// and a host parsed from after the input's last '@'.
+// FuzzURL: URL never panics, never returns user information, a query, a
+// fragment or a '@', and never returns any part of the user information of
+// its input: when the input holds '@', the result is Marker or carries a
+// host parsed from after the input's last '@'. The path of the result is
+// the input's, changed only by escaping bytes, never by decoding an escape.
 func FuzzURL(f *testing.F) {
 	for _, s := range []string{
 		"rediss://:pw@h:6380/0", "https://h/p?q=1#f", "user:pw@h", "//u:p@h", "%zz", "http://[::1]/",
 		"rediss://:1234/x@host:6380", "redis://user:1234#secret@host:6379", "redis://u:p@1:2/ss@host:6379", "//@//0",
+		"https://h/a%2Fb c", "http:/%2F%40h/x y",
 	} {
 		f.Add(s)
 	}
@@ -472,12 +539,19 @@ func FuzzURL(f *testing.F) {
 		if u.User != nil || u.RawQuery != "" || u.Fragment != "" {
 			t.Fatalf("URL(%q) = %q keeps user information, query or fragment", raw, got)
 		}
+		if strings.Contains(got, "@") {
+			t.Fatalf("URL(%q) = %q keeps a '@'", raw, got)
+		}
+		in, err := url.Parse(raw)
+		if err != nil {
+			t.Fatalf("URL(%q) = %q for an input that does not parse: %v", raw, got, err)
+		}
+		if p, inPath := writtenPath(u), writtenPath(in); !escapesOnly(inPath, p) {
+			t.Fatalf("URL(%q) = %q: path %q is not %q with bytes escaped", raw, got, p, inPath)
+		}
 		at := strings.LastIndexByte(raw, '@')
 		if at < 0 {
 			return
-		}
-		if strings.Contains(got, "@") {
-			t.Fatalf("URL(%q) = %q keeps a '@'", raw, got)
 		}
 		// The host must come from after the last '@': no byte between
 		// "//" and that '@' may become the host, path, query or fragment.
@@ -489,12 +563,38 @@ func FuzzURL(f *testing.F) {
 		if err != nil || want.Host != u.Host {
 			t.Fatalf("URL(%q) = %q: host %q, want the host after the last '@' %q (%v)", raw, got, u.Host, hostPart, err)
 		}
-		if in, err := url.Parse(raw); err == nil && in.User != nil {
+		if in.User != nil {
 			if !strings.HasPrefix(raw[at+1:], hostPart) || strings.Contains(raw[at+1:], "@") {
 				t.Fatalf("URL(%q): '@' after the authority", raw)
 			}
 		}
 	})
+}
+
+// writtenPath returns the path of u as the string u was parsed from wrote
+// it: RawPath, or the default escaping of Path when RawPath is empty.
+func writtenPath(u *url.URL) string {
+	if u.RawPath != "" {
+		return u.RawPath
+	}
+	return u.EscapedPath()
+}
+
+// escapesOnly reports whether out is in with some bytes other than '%'
+// replaced by their escapes, in either case of hexadecimal digit.
+func escapesOnly(in, out string) bool {
+	for i := range len(in) {
+		c := in[i]
+		switch {
+		case out != "" && out[0] == c:
+			out = out[1:]
+		case c != '%' && len(out) >= 3 && out[0] == '%' && strings.EqualFold(out[1:3], fmt.Sprintf("%02X", c)):
+			out = out[3:]
+		default:
+			return false
+		}
+	}
+	return out == ""
 }
 
 // FuzzSensitive checks Sensitive against the regular expression sensitiveRE.

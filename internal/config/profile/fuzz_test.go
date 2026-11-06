@@ -152,6 +152,12 @@ func hostileSeeds() []string {
 		strings.Repeat("k", 1025) + ": v\n",
 		"x: a\u00a0b\n",
 		"%FOO {\n---\n!!map {\n...\n",
+		// Flow pairs whose key's tag or anchor ends an earlier line, and
+		// properties that end their line before a flow node or a value.
+		"x: [!!str\n  0: a]\n",
+		"x: [a, !!str\n  \"k\": b]\n",
+		"x: [&a\n  : v]\n",
+		"x: [!!str\n  0, 0: !!str\n  v]\n",
 	}
 }
 

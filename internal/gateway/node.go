@@ -147,7 +147,8 @@ type node struct {
 }
 
 // sdnotifyInterval is the watchdog interval the service manager asks for
-// and why it has none.
+// in the environment, and why it has none. A handover successor without
+// one runs its watchdog with its holder's interval once it takes the lock.
 type sdnotifyInterval struct {
 	env sdnotify.Env
 	err error
@@ -441,7 +442,7 @@ func (n *node) buildLoader(ctx context.Context, compiler *compile.Compiler, hub 
 	}
 	n.interval.env, n.interval.err = sdnotify.ReadEnv(func(k string) string { v, _ := n.p.lookupEnv(k); return v }, n.p.pid)
 	if n.interval.err != nil {
-		n.log.WarnContext(ctx, "watchdog settings unreadable: no watchdog", catalog.KeyError, n.interval.err.Error())
+		n.log.WarnContext(ctx, "watchdog settings unreadable: the environment enables no watchdog", catalog.KeyError, n.interval.err.Error())
 	}
 	n.notifier, err = sdnotify.New(sdnotify.Options{Socket: n.interval.env.Socket, Held: n.successor, Readiness: n.tracker.Readyz})
 	if err != nil {

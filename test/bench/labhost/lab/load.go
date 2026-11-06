@@ -24,13 +24,16 @@ const (
 	KeysZipf   = "zipf"
 	KeysRotate = "rotate"
 	KeysSingle = "single"
+	KeysList   = "list"
 )
 
-// KeySpec is a scenario's key source (PBB "Scenarios").
+// KeySpec is a scenario's or a chaos stream's key source (PBB
+// "Scenarios"), a pure function of each request's sequence number, so the
+// harness derives a returned record's key from it (Record).
 type KeySpec struct {
-	// Kind is cycle, zipf, rotate or single.
+	// Kind is cycle, zipf, rotate, single or list.
 	Kind string `json:"kind"`
-	// Prefix starts every key.
+	// Prefix starts every key; single's one key.
 	Prefix string `json:"prefix,omitempty"`
 	// N is the key cardinality (cycle, zipf).
 	N int `json:"n,omitempty"`
@@ -40,6 +43,9 @@ type KeySpec struct {
 	Seed uint64 `json:"seed,omitempty"`
 	// PerKey is the requests per key (rotate).
 	PerKey uint64 `json:"perKey,omitempty"`
+	// Values are the keys used in turn (list), such as the chaos
+	// Consumers' API keys.
+	Values []string `json:"values,omitempty"`
 }
 
 // Source returns the loadgen key source.
@@ -53,6 +59,8 @@ func (k KeySpec) Source() (loadgen.KeySource, error) {
 		return loadgen.Rotate(k.Prefix, k.PerKey)
 	case KeysSingle:
 		return loadgen.Single(k.Prefix), nil
+	case KeysList:
+		return loadgen.List(k.Values...)
 	default:
 		return nil, fmt.Errorf("lab: unknown key distribution %q", k.Kind)
 	}

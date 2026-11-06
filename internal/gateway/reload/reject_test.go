@@ -296,6 +296,7 @@ func TestTransientRejectionIsRetried(t *testing.T) {
 	waitFor(t, "the first rejection", func() bool { return r.metrics.rejections("RZ-CFG-026") == 1 })
 	r.idle()
 	// The fixed jitter draws 0: the first retry waits RetryMin.
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin - time.Millisecond)
 	r.idle()
 	if n := len(r.comp.calls()); n != 2 {
@@ -307,6 +308,7 @@ func TestTransientRejectionIsRetried(t *testing.T) {
 	if p := r.l.Snapshots().Pending; p == nil || *p != rev("B").Digest.String() {
 		t.Fatal("the retried Revision is not pending")
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("B")
 	// Counted once; the failed retry logged at info.
@@ -397,6 +399,7 @@ func TestBootTransientRejectionReadiness(t *testing.T) {
 		t.Errorf("detail %q", d)
 	}
 	// The secret appears: the retry activates and the Node is ready.
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("A")
 	if !r.ready.Ready() {
@@ -418,6 +421,7 @@ func TestBootStoreURLRejectionReadiness(t *testing.T) {
 	if got := r.reasons(); !slices.Equal(got, []string{"no_revision/"}) {
 		t.Fatalf("reasons %v, want no_revision only", got)
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("A")
 	if !r.ready.Ready() {
@@ -465,6 +469,7 @@ func TestLoadPastTheDeadlineReloads(t *testing.T) {
 	if lr := r.l.Snapshots().LastRejected; lr == nil || lr.Digest != nil {
 		t.Fatalf("lastRejected = %+v", lr)
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	waitFor(t, "the source to load again", func() bool {
 		_, reloads, _ := r.src.counts()
@@ -512,6 +517,7 @@ func TestCompileDeadline(t *testing.T) {
 	if len(recs) != 1 || recs[0].attrs["retry_in"] == nil {
 		t.Fatalf("records %+v, want a retried rejection", recs)
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("B")
 }
@@ -582,6 +588,7 @@ func TestPrepareFailureRejectsWithItsCode(t *testing.T) {
 	}
 	// Retried: the port frees.
 	r.parts[1].set(func(p *fakePart) { p.prepareErr = nil })
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("B")
 }

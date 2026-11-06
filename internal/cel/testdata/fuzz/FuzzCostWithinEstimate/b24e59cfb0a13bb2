@@ -1,0 +1,5 @@
+go test fuzz v1
+string("[][0]")
+byte('R')
+byte('\x0e')
+[]byte("0")

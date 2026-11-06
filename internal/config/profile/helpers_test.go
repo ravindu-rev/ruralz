@@ -166,42 +166,12 @@ func suiteInputs(t testing.TB) []string {
 // allocBytes returns the bytes allocated by the process so far. A P adds
 // the objects it allocates from a cached span to the count only when the
 // span leaves its cache, so the value lags by up to the cached spans,
-// hundreds of KiB: it suits bounds with MiB of slack, and allocatedBy
+// hundreds of KiB: it suits bounds with MiB of slack, and allocs.Bytes
 // measures smaller amounts.
 func allocBytes() uint64 {
 	s := []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}}
 	metrics.Read(s)
 	return s[0].Value.Uint64()
-}
-
-// allocatedBy returns the bytes allocated while f runs, counted exactly.
-// Three things beside f would land in the count, and none does:
-//
-//   - a P adds the objects it allocates from a cached span only when the
-//     span leaves its cache, so runtime.GC flushes every P's cached spans
-//     into the count before and after f;
-//   - the process's first metrics.Read builds the runtime's table of
-//     metrics, about 19 KB on Go 1.26, and each Read needs its sample, so
-//     the sample is allocated and read once before the first runtime.GC,
-//     and the reads around f allocate nothing;
-//   - on many Ps, a collection's mark workers finish together and queue on
-//     the runtime's mark-done semaphore, and each worker that waits
-//     allocates a 112-byte sudog when its P has none cached, so the
-//     measurement runs at GOMAXPROCS 1, as testing.AllocsPerRun does.
-//
-// The package's tests run one at a time, so f is then all that allocates
-// in between.
-func allocatedBy(f func()) uint64 {
-	s := []metrics.Sample{{Name: "/gc/heap/allocs:bytes"}}
-	metrics.Read(s)
-	defer runtime.GOMAXPROCS(runtime.GOMAXPROCS(1))
-	runtime.GC()
-	metrics.Read(s)
-	before := s[0].Value.Uint64()
-	f()
-	runtime.GC()
-	metrics.Read(s)
-	return s[0].Value.Uint64() - before
 }
 
 // fuzzing reports whether the test binary runs the fuzzing engine (go
@@ -210,50 +180,6 @@ func allocatedBy(f func()) uint64 {
 func fuzzing() bool {
 	f := flag.Lookup("test.fuzz")
 	return f != nil && f.Value.String() != ""
-}
-
-// TestAllocatedByIsExact checks the measure the linearity tests compare:
-// a known number of small allocations is counted in full, one or many,
-// where the unflushed counter reports none until a span leaves its
-// cache.
-func TestAllocatedByIsExact(t *testing.T) {
-	for _, n := range []uint64{1, 100, 10000} {
-		keep := make([][]byte, n)
-		got := allocatedBy(func() {
-			for i := range keep {
-				keep[i] = make([]byte, 64)
-			}
-		})
-		runtime.KeepAlive(keep)
-		if want := 64 * n; got < want || got > want+16<<10 {
-			t.Errorf("allocatedBy(%d allocations of 64 bytes) = %d, want %d to %d", n, got, want, want+16<<10)
-		}
-	}
-}
-
-// TestAllocatedByCountsOnlyF checks that the measure adds nothing of its
-// own: no sample, no metrics table and no mark worker on another P
-// reaches the count, so a function that allocates nothing measures 0 and
-// a tiny allocation measures its size class. A stray runtime allocation,
-// such as the scavenger growing its timer heap, may still land in one
-// measurement in hundreds, so the smallest of three is checked; a measure
-// that counts its own sample never reaches 0.
-func TestAllocatedByCountsOnlyF(t *testing.T) {
-	smallest := func(f func()) uint64 {
-		low := allocatedBy(f)
-		for range 2 {
-			low = min(low, allocatedBy(f))
-		}
-		return low
-	}
-	if got := smallest(func() {}); got != 0 {
-		t.Errorf("allocatedBy(nothing) = %d, want 0", got)
-	}
-	var keep []byte
-	if got := smallest(func() { keep = make([]byte, 48) }); got != 48 {
-		t.Errorf("allocatedBy(one 48-byte allocation) = %d, want 48", got)
-	}
-	runtime.KeepAlive(keep)
 }
 
 func itoa(i int) string { return strconv.Itoa(i) }

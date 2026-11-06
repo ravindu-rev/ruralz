@@ -9,6 +9,8 @@ import (
 	"net"
 	"strconv"
 	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // TestAdminSocketSuccessorListensOnlyWhenAccepted: a handover successor
@@ -17,7 +19,7 @@ import (
 // new port and closes the old one.
 func TestAdminSocketSuccessorListensOnlyWhenAccepted(t *testing.T) {
 	a, _ := newAdminSocket(t, false, nil)
-	port := freePort(t)
+	port := proc.FreePort(t)
 	if err := a.Bind(t.Context(), port); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +27,7 @@ func TestAdminSocketSuccessorListensOnlyWhenAccepted(t *testing.T) {
 	if got := get(t, addr); got != "" {
 		t.Fatalf("a successor's admin port answers %q before Listen", got)
 	}
-	newPort := freePort(t)
+	newPort := proc.FreePort(t)
 	sw, err := a.Prepare(t.Context(), adminCompiled(newPort))
 	if err != nil {
 		t.Fatal(err)

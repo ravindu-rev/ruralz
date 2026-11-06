@@ -51,8 +51,8 @@ func schemaDiagnostics(t *testing.T, src string) diag.List {
 
 // TestSchemaClosedConfig checks the registered config at stage F: the
 // fields of the Configuration model pass, an unknown member of config or
-// of a limit is refused, responseHeaders takes ietf or none, and cost and
-// when are CEL strings.
+// of a limit is refused, responseHeaders takes ietf or none, and key, cost
+// and when are CEL strings, never empty.
 func TestSchemaClosedConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name, config string
@@ -65,6 +65,9 @@ func TestSchemaClosedConfig(t *testing.T) {
 		{"responseHeaders value", `{"limits": [{"requests": 10, "window": "1s"}], "responseHeaders": "draft"}`, true},
 		{"cost not a string", `{"limits": [{"requests": 10, "window": "1s"}], "cost": 2}`, true},
 		{"when not a string", `{"limits": [{"requests": 10, "window": "1s", "when": true}]}`, true},
+		{"empty key", `{"key": "", "limits": [{"requests": 10, "window": "1s"}]}`, true},
+		{"empty cost", `{"limits": [{"requests": 10, "window": "1s"}], "cost": ""}`, true},
+		{"empty when", `{"limits": [{"requests": 10, "window": "1s", "when": ""}]}`, true},
 	} {
 		src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "rl"},` +
 			`"spec": {"type": "ratelimit", "config": ` + tc.config + `}}`

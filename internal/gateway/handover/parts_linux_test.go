@@ -50,6 +50,10 @@ var (
 // hashed reuseport group would spread them over its sockets.
 const fresh = 16
 
+// partsWatchdog is the holder's watchdog interval in the real-parts tests,
+// the T5 unit's WatchdogSec=30s.
+const partsWatchdog = 30 * time.Second
+
 // tagHandler answers every request with tag.
 func tagHandler(tag string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, tag) })
@@ -290,6 +294,7 @@ func newPartsRig(t *testing.T) *partsRig {
 		Sockets:     []Sockets{r.holder.set, r.holder.admin},
 		Admin:       r.holderPage,
 		Meter:       Meter{Conns: r.holder.conns, RSS: func() (int64, error) { return 1 << 30, nil }},
+		Watchdog:    partsWatchdog,
 		Clock:       r.clk,
 	})
 	if err != nil {
@@ -346,9 +351,10 @@ func (r *partsRig) run(ctx context.Context) <-chan runResult {
 // group, admin port included, to it; it admits its ceiling minus the
 // holder's connection; at the linger's end the holder stops accepting and
 // its handover Drain releases the lock, which the new process takes,
-// pinning its groups, writing holder.json and sending MAINPID=; the
-// holder's keep-alive connection keeps being served by the holder, and
-// once the holder is gone the new process's ceiling is whole again.
+// pinning its groups, writing holder.json and sending MAINPID=, with the
+// holder's watchdog interval from accepted; the holder's keep-alive
+// connection keeps being served by the holder, and once the holder is gone
+// the new process's ceiling is whole again.
 func TestHandoverOverRealParts(t *testing.T) {
 	r := newPartsRig(t)
 	if got := routes(t, r.webAddr); got["holder"] != fresh {
@@ -387,6 +393,9 @@ func TestHandoverOverRealParts(t *testing.T) {
 	}
 	if r.successor.lock.Held() == nil {
 		t.Error("the new process's Lock does not hold the lock")
+	}
+	if got := r.succ.HolderWatchdog(); got != partsWatchdog {
+		t.Errorf("the new process's HolderWatchdog() = %v, want the holder's %v", got, partsWatchdog)
 	}
 	if got := routes(t, r.webAddr); got["successor"] != fresh {
 		t.Fatalf("after the handover: %v, want every connection on the new process", got)

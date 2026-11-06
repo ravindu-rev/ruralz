@@ -10,10 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
 // Saturation is the record name of the measurement of the topology's
@@ -34,17 +36,22 @@ const (
 	PreSearchMax = 1_000_000.0
 )
 
+// stepFunc runs one open-loop step of the saturation measurement at rate,
+// warmup then duration, and returns its result.
+type stepFunc func(rate float64, warmup, duration time.Duration) (*loadgen.Result, error)
+
 // MeasureSaturation measures the topology's saturation S once per job
 // (docs/engineering/03-testing-and-quality-strategy.md "Scale profiles"):
 // the profile's Nodes behind the L4 balancer offered /plain over HTTP/1.1
-// by the load generator, first in short steps doubling from
-// PreSearchStart until a step misses the saturation rule, that step's
-// rate being the expected saturation, then the load generator's rate
-// ladder of 5% steps from 50% to 110% of it, ending after the first step
-// that misses the rule; S is the highest offered rate meeting it
-// (loadgen.Saturation, loadgen.BenchmarkSaturation). The run writes a
-// "saturation" record, one phase per step, which a later package of the
-// same job reads instead of measuring again (ReadSaturation).
+// by the load generator, on the harness's host or at the target profile on
+// the load host, first in short steps doubling from PreSearchStart until
+// a step misses the saturation rule, that step's rate being the expected
+// saturation, then the load generator's rate ladder of 5% steps from 50%
+// to 110% of it, ending after the first step that misses the rule; S is
+// the highest offered rate meeting it (loadgen.Saturation,
+// loadgen.BenchmarkSaturation). The run writes a "saturation" record, one
+// phase per step, which a later package of the same job reads instead of
+// measuring again (ReadSaturation).
 func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 	t.Helper()
 	if s, err := h.ReadSaturation(); err == nil {
@@ -52,19 +59,18 @@ func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 		h.SetSaturation(s)
 		return s
 	}
-	r := h.Start(t, Spec{Name: Saturation})
+	r := h.Start(t, saturationSpec())
 	crit := loadgen.BenchmarkSaturation()
-	// Round-robin connections spread the steps over every Node, as the
-	// runs' loads are spread.
-	target, err := loadgen.NewHTTP(loadgen.HTTPConfig{URL: "http://" + r.HTTP.Addr() + PathPlain, RoundRobin: true})
+	run, err := r.saturationSteps()
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = target.Close() }()
 	meets := func(res *loadgen.Result) bool {
 		sum := res.Summary()
 		return sum.RateError <= crit.MaxRateError && sum.P99 <= crit.MaxP99 && sum.ErrorRate <= crit.MaxErrorRate
 	}
+	// steps describes every step so far, which the log and a failure state.
+	var steps []string
 	step := func(name string, res *loadgen.Result) {
 		r.mu.Lock()
 		r.rec.Phases = append(r.rec.Phases, Phase{Name: name, Start: res.MeasureStart, End: res.MeasureEnd})
@@ -73,10 +79,13 @@ func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 		r.Breakdown(name+"_p99_us", float64(sum.P99.Microseconds()))
 		r.Breakdown(name+"_error_rate", sum.ErrorRate)
 		r.Breakdown(name+"_rate_error", sum.RateError)
+		line := describeStep(name, res, meets(res))
+		steps = append(steps, line)
+		t.Logf("chaos: saturation: %s", line)
 	}
 	expected, lastPass := 0.0, 0.0
 	for rate := PreSearchStart; rate <= PreSearchMax; rate *= 2 {
-		res, err := loadgen.Run(r.Context(), target, loadgen.Config{Rate: rate, Warmup: PreSearchWarmup, Duration: PreSearchDuration})
+		res, err := run(rate, PreSearchWarmup, PreSearchDuration)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -88,11 +97,11 @@ func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 		lastPass = rate
 	}
 	if expected == 0 {
-		t.Fatalf("chaos: saturation: no pre-search step up to %.0f rps missed the saturation rule", PreSearchMax)
+		t.Fatalf("chaos: saturation: no pre-search step up to %.0f rps missed the saturation rule; steps: %s", PreSearchMax, strings.Join(steps, "; "))
 	}
 	ladder := loadgen.BenchmarkLadder(expected)
 	ladder.Stop = func(res *loadgen.Result) bool { return !meets(res) }
-	results, err := loadgen.RunLadder(r.Context(), target, loadgen.Config{}, ladder)
+	results, err := runLadder(run, ladder)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +117,7 @@ func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 		s = lastPass
 	}
 	if s <= 0 {
-		t.Fatal("chaos: saturation: no step met the saturation rule")
+		t.Fatalf("chaos: saturation: no step met the saturation rule; steps: %s", strings.Join(steps, "; "))
 	}
 	r.Breakdown(SaturationBreakdown, s)
 	r.Breakdown("expected_rps", expected)
@@ -116,6 +125,95 @@ func (h *Harness) MeasureSaturation(t testing.TB) float64 {
 	h.SetSaturation(s)
 	t.Logf("chaos: saturation S = %.0f rps (expected %.0f)", s, expected)
 	return s
+}
+
+// describeStep states a saturation step's measured phase: what the rule
+// reads, the latency from the intended send and, where the platform
+// records it, from the actual send, which tells a late send from a slow
+// answer, and the connections the step opened.
+func describeStep(name string, res *loadgen.Result, met bool) string {
+	m := &res.Measured
+	verdict := "meets the rule"
+	if !met {
+		verdict = "misses the rule"
+	}
+	service := ""
+	if m.Service != nil {
+		service = fmt.Sprintf(", from the send p99 %v", m.Service.ValueAtPercentile(99))
+	}
+	return fmt.Sprintf("%s offered %d at %.0f rps, %d failed (rate error %.4f, error rate %.4f), latency p50 %v p99 %v max %v%s, %d new connections: %s",
+		name, m.Offered, res.Rate, m.Errors(), res.RateError(), m.ErrorRate(),
+		m.Latency.ValueAtPercentile(50), m.Latency.ValueAtPercentile(99), m.Latency.Max(), service, m.NewConns, verdict)
+}
+
+// saturationSpec is the saturation measurement's run. It samples no
+// /metrics: S is the load generator's measure alone, and a sampling
+// round, every Node's exposition scraped and parsed at once, is a burst
+// of work on the host that shows in the steps' latency.
+func saturationSpec() Spec { return Spec{Name: Saturation, SampleEvery: -1} }
+
+// saturationSteps returns how the run offers the saturation steps: /plain
+// over HTTP/1.1 connections taken in turn, which spread the steps over
+// every Node as the runs' loads are spread, from the harness's host, or
+// at the target profile from the load host, which keeps no record of a
+// step, its result being all the rule reads, as on the harness's host.
+func (r *Run) saturationSteps() (stepFunc, error) {
+	if r.H.place != nil {
+		s, err := r.loadSession()
+		if err != nil {
+			return nil, err
+		}
+		addr := r.HTTP.Addr()
+		return func(rate float64, warmup, duration time.Duration) (*loadgen.Result, error) {
+			return s.runStep(saturationStream(addr, rate), warmup, duration)
+		}, nil
+	}
+	target, err := loadgen.NewHTTP(loadgen.HTTPConfig{URL: "http://" + r.HTTP.Addr() + PathPlain, RoundRobin: true})
+	if err != nil {
+		return nil, err
+	}
+	r.T.Cleanup(func() { _ = target.Close() })
+	return func(rate float64, warmup, duration time.Duration) (*loadgen.Result, error) {
+		return loadgen.Run(r.Context(), target, loadgen.Config{Rate: rate, Warmup: warmup, Duration: duration})
+	}, nil
+}
+
+// saturationStream returns a saturation step's stream on the load host:
+// /plain at addr over HTTP/1.1 connections taken in turn, at rate.
+func saturationStream(addr string, rate float64) lab.LoadStream {
+	return lab.LoadStream{Name: "plain", URL: "http://" + addr + PathPlain, Protocol: "http1", RoundRobin: true, Rate: rate}
+}
+
+// runLadder runs every step of l with run, as loadgen.RunLadder does:
+// each step lasts StepDuration, only the first has the warm-up, and the
+// climb ends after a step Stop reports. It returns the step results so far
+// and the first error.
+func runLadder(run stepFunc, l loadgen.Ladder) ([]*loadgen.Result, error) {
+	rates, err := l.Rates()
+	if err != nil {
+		return nil, err
+	}
+	if l.StepDuration <= 0 {
+		return nil, errors.New("chaos: saturation: the ladder's step duration must be positive")
+	}
+	var out []*loadgen.Result
+	for k, rate := range rates {
+		warmup := time.Duration(0)
+		if k == 0 {
+			warmup = l.Warmup
+		}
+		res, err := run(rate, warmup, l.StepDuration)
+		if res != nil {
+			out = append(out, res)
+		}
+		if err != nil {
+			return out, err
+		}
+		if l.Stop != nil && l.Stop(res) {
+			break
+		}
+	}
+	return out, nil
 }
 
 // ReadSaturation returns S from this job's saturation record in the

@@ -196,8 +196,8 @@ func TestRenderNotes(t *testing.T) {
 		"gh attestation verify oci://ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + " --repo ravindu-rev/ruralz",
 		"xattr -d com.apple.quarantine ruralzd",
 		"A download with `curl` never carries the flag.",
-		"| Benchmarks | Within 5% p99 and 3% alloc/op of the previous release (target)",
-		"For 0.1.0 no maintainer skips this gate: the release waits for RH-1 and passing budgets | @octocat | maintain | RH-1 is being rebuilt |",
+		"| Benchmarks | Stage 9's alloc/op, size and idle RSS gates; from M6, within 5% p99 and 3% alloc/op of the previous release (target)",
+		"zero telemetry drops, PB-2 and PB-3 | @octocat | maintain | RH-1 is being rebuilt |",
 		"[release gates](https://github.com/ravindu-rev/ruralz/blob/v0.1.0/docs/engineering/03-testing-and-quality-strategy.md#release-gates)",
 	} {
 		if !strings.Contains(got, want) {

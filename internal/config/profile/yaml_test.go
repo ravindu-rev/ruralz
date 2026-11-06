@@ -513,6 +513,12 @@ func TestMultiLineImplicitKey(t *testing.T) {
 		{"- >\n  - x\n:\n", "RZ-CFG-001@3:1", msgMultiLineKey},
 		{"!!str |\n  k\n: v\n", "RZ-CFG-001@3:1", msgMultiLineKey},
 		{"a: 1\n b: 2\n", "RZ-CFG-001@2:3", msgMultiLineKey},
+		// A quoted key over lines, in a block mapping and in a flow pair,
+		// with its tag on its first line or none (YAML Test Suite D49Q,
+		// JKF3).
+		{"'c\n d': 1\n", "RZ-CFG-001@2:4", msgMultiLineKey},
+		{"- [\"a\n  b\": c]\n", "RZ-CFG-001@2:5", msgMultiLineKey},
+		{"- [!!str 'a\n  b': c]\n", "RZ-CFG-001@2:5", msgMultiLineKey},
 		{"[a,\n b]: c\n", "RZ-CFG-001@1:1", msgComplexKey},
 		{"a:\n  - [\n  ]\n  :\n", "RZ-CFG-001@3:3", msgFlowClose},
 		{"a:\n  - - \"\"\n  :\n", "RZ-CFG-001@3:3", msgIndentMoreMap},

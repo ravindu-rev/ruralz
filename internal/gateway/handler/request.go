@@ -494,7 +494,7 @@ func (st *state) proxy(ctx context.Context, rt *snapshot.Route) {
 	st.route = rt
 	st.deadline = st.start.Add(rt.Timeout)
 	st.armDeadline(rt.Timeout)
-	if !st.extendDeadlines(st.deadline) {
+	if !st.extendDeadlines(st.deadline.Add(RouteGrace)) {
 		st.respondEnded(ctx)
 		return
 	}
@@ -558,13 +558,12 @@ func (st *state) armDeadline(timeout time.Duration) {
 	if timeout <= 0 {
 		return
 	}
-	wait := st.deadline.Sub(st.h.clk.Now())
 	cancel := st.cancel
-	if wait <= 0 {
+	if !st.h.clk.Now().Before(st.deadline) {
 		cancel(context.DeadlineExceeded)
 		return
 	}
-	st.deadlineTimer = st.h.clk.AfterFunc(wait, func() { cancel(context.DeadlineExceeded) })
+	st.deadlineTimer = st.h.clk.AfterFuncAt(st.deadline, func() { cancel(context.DeadlineExceeded) })
 }
 
 // storeOf returns the snapshot's main State Store, nil without one.
@@ -739,9 +738,15 @@ func (st *state) gateCode(ctx context.Context, err error) string {
 }
 
 // clientGone reports whether the client went away: its request context
-// ended without the Route deadline or the ending protocol ending it.
+// ended without the Route deadline or the ending protocol ending it. A
+// request past its Route deadline was ended by that deadline, whose
+// response the client still gets, whatever else ended its context
+// meanwhile.
 func (st *state) clientGone() bool {
 	if st.r.Context().Err() == nil {
+		return false
+	}
+	if !st.deadline.IsZero() && !st.h.clk.Now().Before(st.deadline) {
 		return false
 	}
 	st.rec.Mu.Lock()

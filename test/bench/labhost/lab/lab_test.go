@@ -279,20 +279,6 @@ func TestHostFacts(t *testing.T) {
 	}
 }
 
-// TestParseCPUList parses cpuset lists.
-func TestParseCPUList(t *testing.T) {
-	for in, want := range map[string][]int{"0-3": {0, 1, 2, 3}, "2,4-5": {2, 4, 5}, "7": {7}} {
-		if got, ok := ParseCPUList(in); !ok || !slices.Equal(got, want) {
-			t.Errorf("ParseCPUList(%q) = %v, %v", in, got, ok)
-		}
-	}
-	for _, in := range []string{"", "3-1", "x", "-1"} {
-		if _, ok := ParseCPUList(in); ok {
-			t.Errorf("ParseCPUList(%q) accepted", in)
-		}
-	}
-}
-
 // TestMainUsage checks Main's usage errors and the facts command.
 func TestMainUsage(t *testing.T) {
 	var out, errb bytes.Buffer

@@ -101,6 +101,7 @@ func advisoryFloors() map[string]string {
 		"github.com/lestrrat-go/jwx/v4":       "v4.5.0",
 		"github.com/hashicorp/raft-boltdb/v2": "v2.4.2",
 		"github.com/moby/go-archive":          "v0.3.0",
+		"github.com/klauspost/compress":       "v1.20.2",
 	}
 }
 

@@ -105,10 +105,19 @@ func splitJob(full string) (caller, name string) {
 }
 
 // gateJobs lists the jobs each gate reads (the testing document's second
-// Release gates table), besides the issues and records it also reads.
-func gateJobs() map[string][]jobSel {
+// Release gates table), besides the issues and records it also reads. The
+// rh-1 jobs, chaos-scale.yml's chaos job, the Latency job and the soak,
+// join the Chaos and Benchmarks gates only with rh1, from M6: before it
+// GitHub skips them.
+func gateJobs(rh1 bool) map[string][]jobSel {
 	unit := jobSel{Caller: "pr-fast", Name: "5. Unit tests"}
 	stage8 := jobSel{Caller: "pr-full", Name: "8. Integration and conformance (", Prefix: true}
+	chaos := []jobSel{{Caller: "nightly", Name: "11. Chaos (", Prefix: true}}
+	bench := []jobSel{{Caller: "pr-full", Name: "9. Regression gates (", Prefix: true}}
+	if rh1 {
+		chaos = append(chaos, jobSel{Caller: "chaos-scale", Name: chaosScaleJob})
+		bench = append([]jobSel{{Caller: "nightly", Name: "11. Latency"}, {Name: soakJob}}, bench...)
+	}
 	return map[string][]jobSel{
 		// Stage 5's untagged configuration conformance suite on linux,
 		// darwin and windows and in the floor job, and stage 8's
@@ -123,16 +132,12 @@ func gateJobs() map[string][]jobSel {
 		gateConformance: {stage8},
 		// Every 11. Fuzz shard job.
 		gateFuzzing: {{Caller: "nightly", Name: "11. Fuzz shard ", Prefix: true}},
-		// The 11. Chaos job and chaos-scale.yml's chaos job, whose issue
-		// job a release run skips.
-		gateChaos: {{Caller: "nightly", Name: "11. Chaos"}, {Caller: "chaos-scale", Name: chaosScaleJob}},
-		// The release's Latency and soak jobs, whose records the gate also
-		// reads, and stage 9's alloc/op, size and idle RSS gates.
-		gateBenchmarks: {
-			{Caller: "nightly", Name: "11. Latency"},
-			{Name: soakJob},
-			{Caller: "pr-full", Name: "9. Regression gates (", Prefix: true},
-		},
+		// The three 11. Chaos jobs and, from M6, chaos-scale.yml's job,
+		// whose issue job a release run skips.
+		gateChaos: chaos,
+		// From M6, the release's Latency and soak jobs, whose records the
+		// gate also reads; stage 9's alloc/op, size and idle RSS gates.
+		gateBenchmarks: bench,
 		// Stage 6, the stage 1 no-license-check scan, stage 5's redaction
 		// unit tests and the secret leak tests of main's 10. End-to-end.
 		gateSecurity: {

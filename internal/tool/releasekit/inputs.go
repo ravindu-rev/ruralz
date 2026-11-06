@@ -179,10 +179,10 @@ func releaseGateRows() [][2]string {
 		{"Conformance", "100% of cases for shipped features (target); every PDK passes the Plugin ABI suite of every supported release line"},
 		{"Fuzzing", "Zero open crashers; every fixed crasher has a regression seed"},
 		{"Chaos", "Every chaos scenario, CE experiment, game day drill and failure catalog row shipped by the candidate's milestone passed on the candidate commit"},
-		{"Benchmarks", "Within 5% p99 and 3% alloc/op of the previous release (target), or absolute budgets only for 0.1.0; " +
-			"every seed budget met from the milestone introducing its component, read from the release run's summary records; " +
-			"the 2-hour S2 soak at half saturation under the soak rule: RSS drift 2% or less and flat goroutines (target), " +
-			"S2's validity rules, zero telemetry drops, PB-2 and PB-3. For 0.1.0 no maintainer skips this gate: the release waits for RH-1 and passing budgets"},
+		{"Benchmarks", "Stage 9's alloc/op, size and idle RSS gates; from M6, within 5% p99 and 3% alloc/op of the previous release (target), " +
+			"or absolute budgets alone without a previous release, every seed budget met from the milestone introducing its component, " +
+			"read from the release run's summary records, and the 2-hour S2 soak at half saturation under the soak rule: " +
+			"RSS drift 2% or less and flat goroutines (target), S2's validity rules, zero telemetry drops, PB-2 and PB-3"},
 		{"Security scanning", "Every check in Security scanning green"},
 		{"Release candidate", "For vX.Y.0, a vX.Y.0-rc.N tag on the same commit whose release run passed, published at least 14 days earlier (target); " +
 			"a patch vX.Y.Z needs no candidate (Release cadence)"},

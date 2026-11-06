@@ -394,12 +394,13 @@ func TestDockerfile(t *testing.T) {
 		}
 	}
 	wantCopies := map[string]dockerCopy{
+		"/":                                           {From: "certs", Src: "/work/dirs/"},
 		"/etc/ssl/certs/ca-certificates.crt":          {From: "certs", Chmod: "0644", Src: "/work/ca-certificates.crt"},
 		"/usr/local/bin/ruralzd":                      {Chmod: "0755", Src: "dist/linux_${TARGETARCH}/ruralzd"},
 		"/usr/share/doc/ruralzd/LICENSE":              {Chmod: "0644", Src: "LICENSE"},
 		"/usr/share/doc/ruralzd/NOTICE":               {Chmod: "0644", Src: "dist/notices/ruralzd_linux_${TARGETARCH}/NOTICE"},
 		"/usr/share/doc/ruralzd/THIRD_PARTY_LICENSES": {From: "certs", Chmod: "0644", Src: "/work/THIRD_PARTY_LICENSES"},
-		"/var/lib/": {From: "certs", Chown: "65532:65532", Src: "/work/varlib/"},
+		"/var/lib/":                                   {From: "certs", Chown: "65532:65532", Src: "/work/varlib/"},
 	}
 	for dst, w := range wantCopies {
 		w.Dst = dst
@@ -415,6 +416,44 @@ func TestDockerfile(t *testing.T) {
 	}
 	if !slices.Equal(exposed, []string{"8080/tcp", "8443/tcp", "9901/tcp"}) {
 		t.Errorf("EXPOSE %q", exposed)
+	}
+}
+
+// TestDockerfileMakesTheDirectoriesFirst: the final stage's first COPY
+// brings the image's directories from the certs stage's /work/dirs, made
+// 0755 there, and every later COPY goes into one of them. BuildKit gives a
+// directory a COPY creates that COPY's --chmod mode and --chown owner, so
+// copying a 0644 file into a missing directory would leave the directory
+// untraversable for user 65532.
+func TestDockerfileMakesTheDirectoriesFirst(t *testing.T) {
+	text := readRepo(t, "deploy/container/Dockerfile")
+	m := regexp.MustCompile(`mkdir -p((?: /work/dirs/\S+)+);`).FindStringSubmatch(text)
+	if m == nil || !strings.Contains(text, "chmod -R 0755 /work/dirs;") {
+		t.Fatal("the certs stage does not make /work/dirs with mkdir -p and chmod -R 0755")
+	}
+	dirs := map[string]bool{"/": true}
+	for _, d := range strings.Fields(m[1]) {
+		for p := strings.TrimPrefix(d, "/work/dirs"); p != "/"; p = path.Dir(p) {
+			dirs[p] = true
+		}
+	}
+	froms := 0
+	var copies []dockerCopy
+	for _, in := range dockerfile(t, text) {
+		switch {
+		case in.Cmd == "FROM":
+			froms++
+		case froms == 2 && in.Cmd == "COPY":
+			copies = append(copies, parseCopy(t, in.Args))
+		}
+	}
+	if want := (dockerCopy{From: "certs", Src: "/work/dirs/", Dst: "/"}); len(copies) == 0 || copies[0] != want {
+		t.Fatalf("the final stage's COPY instructions %+v, want %+v first", copies, want)
+	}
+	for _, c := range copies[1:] {
+		if d := path.Dir(c.Dst); !dirs[d] {
+			t.Errorf("COPY to %s creates %s, which /work/dirs does not hold", c.Dst, d)
+		}
 	}
 }
 

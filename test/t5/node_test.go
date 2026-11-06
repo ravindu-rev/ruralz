@@ -11,7 +11,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"os"
 	"os/exec"
@@ -25,6 +24,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/admin"
 	"github.com/ravindu-rev/ruralz/internal/gateway/setting"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	testproc "github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // Real-time bounds of the waits on a Node (targets of
@@ -112,18 +112,6 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 		return err
 	}
 	return os.Rename(tmp, path)
-}
-
-// freePort returns a TCP port free on 127.0.0.1 when it returns.
-func freePort(t *testing.T) int {
-	t.Helper()
-	var lc net.ListenConfig
-	ln, err := lc.Listen(t.Context(), "tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = ln.Close() }()
-	return ln.Addr().(*net.TCPAddr).Port
 }
 
 // adminClient sends one request per connection, so it holds no
@@ -262,7 +250,7 @@ func newNodeDir(t *testing.T, upstream string) *nodeDir {
 	dir := t.TempDir()
 	d := &nodeDir{
 		dir: dir, config: filepath.Join(dir, "bundle"), data: filepath.Join(dir, "data"),
-		token: filepath.Join(dir, "admin-token"), web: freePort(t), admin: freePort(t),
+		token: filepath.Join(dir, "admin-token"), web: testproc.FreePort(t), admin: testproc.FreePort(t),
 	}
 	if err := os.Mkdir(d.config, 0o700); err != nil {
 		t.Fatal(err)

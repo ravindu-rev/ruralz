@@ -216,6 +216,49 @@ func TestCommandedChannelTimer(t *testing.T) {
 	}
 }
 
+// The Commanded deadline timers hold their deadline across an advance
+// that comes between the caller's clock read and the arming, fire at once
+// for a deadline already reached, and ResetAt and AfterFuncAt arm the
+// same way.
+func TestCommandedDeadlineTimers(t *testing.T) {
+	h := newCommander(t, epoch())
+	deadline := h.c.Now().Add(10 * time.Second)
+	h.at("advance 4s")
+	tm := h.c.NewTimerAt(deadline)
+	h.at("advance 6s")
+	select {
+	case at := <-tm.C():
+		if !at.Equal(deadline) {
+			t.Errorf("NewTimerAt delivered %v, want its deadline %v", at, deadline)
+		}
+	default:
+		t.Fatal("NewTimerAt did not fire at its deadline")
+	}
+	select {
+	case <-h.c.NewTimerAt(epoch()).C():
+	default:
+		t.Error("NewTimerAt of a reached deadline did not fire at once")
+	}
+	var ran atomic.Bool
+	h.c.AfterFuncAt(h.c.Now().Add(time.Second), func() { ran.Store(true) })
+	r := h.c.NewTimer(time.Hour)
+	if !r.ResetAt(h.c.Now().Add(500 * time.Millisecond)) {
+		t.Error("ResetAt of an armed timer reported inactive")
+	}
+	h.at("advance 1s")
+	if !ran.Load() {
+		t.Error("AfterFuncAt did not run by its deadline")
+	}
+	select {
+	case at := <-r.C():
+		if want := epoch().Add(10*time.Second + 500*time.Millisecond); !at.Equal(want) {
+			t.Errorf("ResetAt delivered %v, want %v", at, want)
+		}
+	default:
+		t.Error("ResetAt's timer did not fire")
+	}
+}
+
 func TestCommandedStopAndReset(t *testing.T) {
 	h := newCommander(t, epoch())
 	tm := h.c.NewTimer(time.Minute)

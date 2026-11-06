@@ -103,6 +103,7 @@
         },
         "when": {
           "description": "When skips the candidate when false.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -301,6 +302,7 @@
       "properties": {
         "key": {
           "description": "Key partitions entries, for example per Consumer.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -395,6 +397,7 @@
       "properties": {
         "when": {
           "description": "When writes an entry only when the expression is true.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -1040,6 +1043,7 @@
       "properties": {
         "key": {
           "description": "Key partitions entries, for example per Consumer.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1237,6 +1241,7 @@
         },
         "failureWhen": {
           "description": "FailureWhen decides whether an attempt or leg counts as a failure; default any error, or status 502, 503 or 504.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -1505,6 +1510,7 @@
         },
         "pathExpression": {
           "description": "PathExpression computes the path, under the rules of path; splice decoded captures with url.pathEscape or url.queryEscape, or read request.rawPathParams.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -1547,6 +1553,7 @@
         },
         "when": {
           "description": "When runs the step only when true; conditional and sequential modes.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -2617,6 +2624,7 @@
         },
         "hashKey": {
           "description": "HashKey is the ring-hash key; required when algorithm is ring-hash.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -2649,6 +2657,7 @@
       "properties": {
         "key": {
           "description": "Key computes the message key.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -3637,6 +3646,7 @@
         },
         "when": {
           "description": "When skips the Policy when false.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -3872,6 +3882,7 @@
         "cost": {
           "default": "1",
           "description": "Cost is the number of units a request reserves, at least 1, and a refund returns; a runtime error or a smaller value applies failureMode, and a cost above the units left in the window is denied, reserving nothing.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "int",
@@ -3888,6 +3899,7 @@
         "key": {
           "default": "consumer.name",
           "description": "Key partitions the quota.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -3957,6 +3969,7 @@
         },
         "when": {
           "description": "When applies the limit only to requests for which it is true; absent, the limit always applies.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -3995,6 +4008,7 @@
         "cost": {
           "default": "1",
           "description": "Cost is the number of tokens a request takes from every applied limit, at least 1; a runtime error or a smaller value applies failureMode.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "int",
@@ -4010,6 +4024,7 @@
         },
         "key": {
           "description": "Key partitions the limit, for example per Consumer; absent, or an empty result, puts every request of the Policy in one partition.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "string",
@@ -4136,6 +4151,7 @@
         },
         "retryOn": {
           "description": "RetryOn decides whether an attempt is retried; default a method-dependent rule over connect and reset errors and status 503.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -4238,6 +4254,7 @@
         },
         "when": {
           "description": "When is a CEL condition over the request without its body.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "bool",
@@ -4741,6 +4758,7 @@
         },
         "body": {
           "description": "Body computes the forwarded request body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",
@@ -4941,6 +4959,7 @@
         },
         "body": {
           "description": "Body computes the response body: a top-level string is written as its UTF-8 bytes, bytes as they are, and any other value as JSON. A string under a JSON contentType must be one JSON value.",
+          "minLength": 1,
           "type": "string",
           "x-ruralz-cel": {
             "result": "dyn",

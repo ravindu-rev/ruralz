@@ -32,31 +32,29 @@ func TestParseTag(t *testing.T) {
 	}
 }
 
-// TestVersionRules: kinds, the candidate rule (vX.Y.0 only), the
-// unskippable Benchmarks gate of 0.1.0 and its candidates, and the image
+// TestVersionRules: kinds, the candidate rule (vX.Y.0 only) and the image
 // tags (X.Y.Z and X.Y, or X.Y.Z-rc.N, never latest).
 func TestVersionRules(t *testing.T) {
 	cases := []struct {
 		tag            string
 		kind           string
 		needsCandidate bool
-		benchFixed     bool
 		tags           []string
 	}{
-		{"v0.1.0", kindRelease, true, true, []string{"0.1.0", "0.1"}},
-		{"v0.1.0-rc.2", kindCandidate, false, true, []string{"0.1.0-rc.2"}},
-		{"v0.1.1", kindRelease, false, false, []string{"0.1.1", "0.1"}},
-		{"v0.2.0", kindRelease, true, false, []string{"0.2.0", "0.2"}},
-		{"v1.0.0-rc.1", kindCandidate, false, false, []string{"1.0.0-rc.1"}},
+		{"v0.1.0", kindRelease, true, []string{"0.1.0", "0.1"}},
+		{"v0.1.0-rc.2", kindCandidate, false, []string{"0.1.0-rc.2"}},
+		{"v0.1.1", kindRelease, false, []string{"0.1.1", "0.1"}},
+		{"v0.2.0", kindRelease, true, []string{"0.2.0", "0.2"}},
+		{"v1.0.0-rc.1", kindCandidate, false, []string{"1.0.0-rc.1"}},
 	}
 	for _, c := range cases {
 		v, err := parseTag(c.tag)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if v.kind() != c.kind || v.needsCandidate() != c.needsCandidate || v.benchmarksUnskippable() != c.benchFixed || !slices.Equal(v.imageTags(), c.tags) {
-			t.Errorf("%s: kind %s, needsCandidate %t, benchmarksUnskippable %t, image tags %q; want %s, %t, %t, %q",
-				c.tag, v.kind(), v.needsCandidate(), v.benchmarksUnskippable(), v.imageTags(), c.kind, c.needsCandidate, c.benchFixed, c.tags)
+		if v.kind() != c.kind || v.needsCandidate() != c.needsCandidate || !slices.Equal(v.imageTags(), c.tags) {
+			t.Errorf("%s: kind %s, needsCandidate %t, image tags %q; want %s, %t, %q",
+				c.tag, v.kind(), v.needsCandidate(), v.imageTags(), c.kind, c.needsCandidate, c.tags)
 		}
 	}
 }

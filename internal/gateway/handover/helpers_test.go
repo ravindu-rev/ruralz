@@ -390,14 +390,34 @@ func (w *wire) read() inbound {
 
 // tryRead reads one message or returns the read error.
 func (w *wire) tryRead() (inbound, error) {
-	if err := w.c.SetReadDeadline(time.Now().Add(bound)); err != nil {
-		return inbound{}, err
-	}
-	b, err := w.br.ReadBytes('\n')
+	b, err := w.tryReadLine()
 	if err != nil {
 		return inbound{}, err
 	}
-	return decode(bytes.TrimSuffix(b, []byte("\n")))
+	return decode(b)
+}
+
+// readLine reads one message line as written, without its newline.
+func (w *wire) readLine() string {
+	w.t.Helper()
+	b, err := w.tryReadLine()
+	if err != nil {
+		w.t.Fatalf("read: %v", err)
+	}
+	return string(b)
+}
+
+// tryReadLine reads one message line, without its newline, or returns the
+// read error.
+func (w *wire) tryReadLine() ([]byte, error) {
+	if err := w.c.SetReadDeadline(time.Now().Add(bound)); err != nil {
+		return nil, err
+	}
+	b, err := w.br.ReadBytes('\n')
+	if err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(b, []byte("\n")), nil
 }
 
 // expect reads one message and checks its type.

@@ -4,6 +4,7 @@
 package benchhost
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -48,16 +49,21 @@ func jobs(t *testing.T, wf string) map[string]string {
 	return out
 }
 
-// rh1Runner is the runs-on expression of a job that runs on rh-1 once
-// RH1_PROVISIONED is true.
-const rh1Runner = `runs-on: ${{ vars.RH1_PROVISIONED == 'true' && fromJSON('["self-hosted", "rh-1"]') || 'ubuntu-latest' }}`
+// rh1Runner is the runs-on expression of a job that runs on rh-1.
+const rh1Runner = `runs-on: ${{ fromJSON('["self-hosted", "rh-1"]') }}`
+
+// rh1Only is the job condition of a job that runs only once
+// RH1_PROVISIONED is true, alone or after the job's other conditions.
+func rh1Only() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^    if: (.* && )?vars\.RH1_PROVISIONED == 'true'$`)
+}
 
 // TestRH1Jobs: the jobs on rh-1 are nightly's Latency job, the release
 // soak job and chaos-scale.yml's job (docs/architecture/12-performance-budgets-and-benchmarking.md
 // "Reference hardware"); each runs alone in the rh-1 concurrency group,
 // which never cancels a running job, for at most 180 minutes, first
-// refuses an unprotected ref or a pull-request event, and fails with an
-// "RH-1 not provisioned" annotation until RH1_PROVISIONED is true.
+// refuses an unprotected ref or a pull-request event, and runs only once
+// RH1_PROVISIONED is true, from M6: until then GitHub skips it.
 func TestRH1Jobs(t *testing.T) {
 	want := map[string]string{"nightly.yml": "latency", "release.yml": "soak", "chaos-scale.yml": "chaos"}
 	for file, id := range want {
@@ -77,8 +83,6 @@ func TestRH1Jobs(t *testing.T) {
 				rh1Runner,
 				"    concurrency:\n      group: rh-1\n      cancel-in-progress: false\n",
 				"    timeout-minutes: 180\n",
-				"        if: vars.RH1_PROVISIONED != 'true'\n",
-				"title=RH-1 not provisioned::",
 				"PROTECTED: ${{ github.ref_protected }}",
 				`if [[ "$EVENT" == pull_request* || "$PROTECTED" != true ]]; then`,
 			} {
@@ -86,7 +90,13 @@ func TestRH1Jobs(t *testing.T) {
 					t.Errorf("job %s lacks %q", id, s)
 				}
 			}
-			_, steps, _ := strings.Cut(block, "    steps:\n")
+			head, steps, _ := strings.Cut(block, "    steps:\n")
+			if !rh1Only().MatchString(head) {
+				t.Errorf("job %s does not run only once RH1_PROVISIONED is true:\n%s", id, head)
+			}
+			if strings.Contains(block, "RH-1 not provisioned") {
+				t.Errorf("job %s fails until RH1_PROVISIONED is true instead of being skipped", id)
+			}
 			if !strings.HasPrefix(steps, "      - name: Protected ref\n") {
 				t.Errorf("job %s does not check its ref first:\n%s", id, steps)
 			}
@@ -94,27 +104,74 @@ func TestRH1Jobs(t *testing.T) {
 	}
 }
 
-// TestChaosScaleWorkflow: chaos-scale.yml runs every Sunday at 07:17 UTC,
-// on demand and when release.yml calls it, runs `make chaos-scale` on the
-// RH-1 inventory, and opens or updates a nightly-failure issue only for a
-// failed scheduled run, from a GitHub-hosted runner.
+// TestReleaseBaselineWithRH1: release.yml downloads the previous release
+// for the Latency job's baseline only once RH1_PROVISIONED is true, and
+// passes the baseline artifact only when that job made it.
+func TestReleaseBaselineWithRH1(t *testing.T) {
+	all := jobs(t, workflow(t, "release.yml"))
+	if head, _, _ := strings.Cut(all["baseline"], "    steps:\n"); !rh1Only().MatchString(head) {
+		t.Errorf("the baseline job does not run only once RH1_PROVISIONED is true:\n%s", head)
+	}
+	if want := "baseline-artifact: ${{ needs.baseline.result == 'success' && 'bench-baseline' || '' }}"; !strings.Contains(all["nightly"], want) {
+		t.Errorf("the nightly call lacks %q", want)
+	}
+}
+
+// TestChaosScaleWorkflow: chaos-scale.yml runs on demand and when
+// release.yml calls it and runs `make chaos-scale` on the RH-1 inventory;
+// its one job is the chaos job, since the run that started it, a
+// maintainer's dispatch or the release run, reports a failure.
 func TestChaosScaleWorkflow(t *testing.T) {
 	wf := workflow(t, "chaos-scale.yml")
 	for _, s := range []string{
-		"  schedule:\n    - cron: \"17 7 * * 0\"\n", "\n  workflow_dispatch:\n", "\n  workflow_call:\n",
+		"\n  workflow_dispatch:\n", "\n  workflow_call:\n",
 		"BENCH_PROFILE: ${{ github.workspace }}/deploy/benchhost/rh-1.json", "run: make chaos-scale",
 	} {
 		if !strings.Contains(wf, s) {
 			t.Errorf("chaos-scale.yml lacks %q", s)
 		}
 	}
-	issues := jobs(t, wf)["issues"]
-	for _, s := range []string{
-		"needs: chaos", "runs-on: ubuntu-latest", "issues: write", "--label nightly-failure",
-		"if: failure() && github.workflow == 'chaos-scale' && github.event_name == 'schedule'",
+	if got := slices.Sorted(maps.Keys(jobs(t, wf))); !slices.Equal(got, []string{"chaos"}) {
+		t.Errorf("chaos-scale.yml jobs = %q, want only chaos", got)
+	}
+}
+
+// TestSchedules: release-verify.yml, the weekly re-verification of the
+// newest release of each supported line, is the only workflow on a
+// schedule. nightly.yml and chaos-scale.yml run on demand and in the
+// release run, and image-checks.yml and t5-systemd.yml also on the pushes
+// to main that change their inputs
+// (docs/engineering/02-repository-layout-and-conventions.md, "CI
+// stages").
+func TestSchedules(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	files, err := filepath.Glob(filepath.Join(root, ".github", "workflows", "*.yml"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("workflows: %v, %v", files, err)
+	}
+	var scheduled []string
+	for _, f := range files {
+		if strings.Contains(workflow(t, filepath.Base(f)), "\n  schedule:\n") {
+			scheduled = append(scheduled, filepath.Base(f))
+		}
+	}
+	if !slices.Equal(scheduled, []string{"release-verify.yml"}) {
+		t.Errorf("scheduled workflows = %q, want only release-verify.yml", scheduled)
+	}
+	for name, triggers := range map[string][]string{
+		"nightly.yml":      {"workflow_dispatch", "workflow_call"},
+		"chaos-scale.yml":  {"workflow_dispatch", "workflow_call"},
+		"image-checks.yml": {"push", "workflow_dispatch", "workflow_call"},
+		"t5-systemd.yml":   {"push", "workflow_dispatch", "workflow_call"},
 	} {
-		if !strings.Contains(issues, s) {
-			t.Errorf("chaos-scale.yml's issues job lacks %q", s)
+		wf := workflow(t, name)
+		for _, tr := range triggers {
+			if !strings.Contains(wf, "\n  "+tr+":\n") {
+				t.Errorf("%s lacks the %s trigger", name, tr)
+			}
 		}
 	}
 }

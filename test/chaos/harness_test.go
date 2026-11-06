@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"math"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest/redisserver"
 	"github.com/ravindu-rev/ruralz/internal/testkit/l4lb"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
+	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 )
 
 var t0 = time.Unix(1_000_000, 0)
@@ -140,6 +142,22 @@ func TestSaturationState(t *testing.T) {
 	h.FailSaturation(failed)
 	if s, err := h.Saturation(); err != nil || s != 1234 {
 		t.Errorf("a failure after a measurement replaced it: %v, %v", s, err)
+	}
+}
+
+// TestSaturationSamplesNothing: the saturation measurement's run samples
+// no /metrics, whose rounds would show in the steps' latency, and a run
+// without a sampler stops its background work and records its
+// breakdowns.
+func TestSaturationSamplesNothing(t *testing.T) {
+	if s := saturationSpec(); s.Name != Saturation || s.SampleEvery >= 0 {
+		t.Errorf("saturationSpec() = %+v, want the %q run with a negative SampleEvery", s, Saturation)
+	}
+	r := &Run{rec: Record{Breakdowns: map[string]float64{}}}
+	r.stopBackground()
+	r.counterBreakdowns()
+	if len(r.rec.Breakdowns) != 0 {
+		t.Errorf("breakdowns of a run without a sampler or pump = %v", r.rec.Breakdowns)
 	}
 }
 
@@ -592,6 +610,59 @@ func TestPlanLimits(t *testing.T) {
 	}
 	if got := len(p.Streams()); got != 4 {
 		t.Errorf("%d streams", got)
+	}
+}
+
+// TestReasonClearedAtDatesTheAnswer: a reason a sample shows cleared is
+// dated by the sample's answer, by when the Node had rendered it cleared,
+// not by the scrape's start, when the reason may still have held.
+func TestReasonClearedAtDatesTheAnswer(t *testing.T) {
+	s := &Sampler{keep: DefaultKeep(), ids: map[string]int{}, samples: map[string][]Sample{}}
+	expo := func(v int) promtext.Set {
+		text := "# TYPE " + DegradedMetric + " gauge\n" + DegradedMetric + `{reason="` + BreakerReason + `"} ` + strconv.Itoa(v) + "\n"
+		set, err := promtext.ParseBytes([]byte(text))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return set
+	}
+	s.record("node-1", at(0), at(0), at(4), expo(1), nil)
+	s.record("node-1", at(1000), at(1000), at(1012), expo(0), nil)
+	s.record("node-2", at(0), at(0), at(3), expo(0), nil)
+	if got, ok := s.ReasonClearedAt([]string{"node-1", "node-2"}, BreakerReason, at(0)); !ok || !got.Equal(at(1012)) {
+		t.Errorf("ReasonClearedAt = %v, %v; want the clearing sample's answer %v", got, ok, at(1012))
+	}
+	s.record("node-2", at(2000), at(2000), at(2010), expo(1), nil)
+	if _, ok := s.ReasonClearedAt([]string{"node-1", "node-2"}, BreakerReason, at(0)); ok {
+		t.Error("ReasonClearedAt reported a reason a Node's last sample still raises as cleared")
+	}
+}
+
+// TestStreamKeepAttributesEveryRequest: a stream attributes every
+// finished request to its Node as it ends, an answered one as well as a
+// failed one, before a later connection from the same client address, as
+// a stream opening a connection per request makes, takes the address
+// over.
+func TestStreamKeepAttributesEveryRequest(t *testing.T) {
+	st := &Stream{Spec: StreamSpec{Name: "closed-fresh", DisableKeepAlives: true}}
+	const local = "127.0.0.1:40000"
+	carrier := "node-1"
+	attr := func(_ bool, client string) string {
+		if client != local {
+			return ""
+		}
+		return carrier
+	}
+	st.keep(Request{Seq: 1, Outcome: loadgen.Success, Status: 200, Local: local}, attr)
+	st.keep(Request{Seq: 2, Outcome: loadgen.Reset, Local: local}, attr)
+	carrier = "node-2" // a later connection from the same address
+	st.keep(Request{Seq: 3, Outcome: loadgen.Success, Status: 200, Local: local}, attr)
+	st.keep(Request{Seq: 4, Outcome: loadgen.Success, Status: 200}, attr)
+	want := []string{"node-1", "node-1", "node-2", ""}
+	for i, q := range st.Requests() {
+		if q.Node != want[i] {
+			t.Errorf("request %d attributed to %q, want %q", q.Seq, q.Node, want[i])
+		}
 	}
 }
 

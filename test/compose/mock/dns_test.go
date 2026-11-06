@@ -251,6 +251,74 @@ func TestDNSSinkClose(t *testing.T) {
 	}
 }
 
+// gatedListener hands out each connection its listener accepted only
+// once the test releases it.
+type gatedListener struct {
+	net.Listener
+	accepted chan struct{}
+	release  chan struct{}
+}
+
+func (l *gatedListener) Accept() (net.Conn, error) {
+	c, err := l.Listener.Accept()
+	if err != nil {
+		return nil, err
+	}
+	l.accepted <- struct{}{}
+	<-l.release
+	return c, nil
+}
+
+// A TCP connection the sink accepted before Close but registers after
+// Close closed the open ones is closed at once, so Close returns.
+func TestDNSSinkCloseClosesALateConnection(t *testing.T) {
+	gl := &gatedListener{accepted: make(chan struct{}, 1), release: make(chan struct{})}
+	s, err := startDNSSinkWith(t.Context(), "127.0.0.1:0", func(ctx context.Context, addr string) (net.PacketConn, net.Listener, error) {
+		udp, tcp, err := listenBoth(ctx, addr)
+		if err != nil {
+			return nil, nil, err
+		}
+		gl.Listener = tcp
+		return udp, gl, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", s.Addr())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = c.Close() }()
+	select {
+	case <-gl.accepted:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the sink accepted no connection")
+	}
+	done := make(chan error, 1)
+	go func() { done <- s.Close() }()
+	for deadline := time.Now().Add(10 * time.Second); ; {
+		s.mu.Lock()
+		closed := s.closed
+		s.mu.Unlock()
+		if closed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Close did not close the open connections")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	close(gl.release)
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Errorf("Close = %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("Close did not return while a connection accepted before it stayed open")
+	}
+}
+
 // newTestSink starts a sink on loopback, closed with the test.
 func newTestSink(t *testing.T) *dnsSink {
 	t.Helper()

@@ -65,8 +65,9 @@ func wantSchema(t *testing.T, what string, ds diag.List, code string) {
 }
 
 // TestSchemaClosedConfig checks the quota config at stage F: its
-// registered fields pass, cost is a CEL string, and an unknown member is
-// refused (RZ-CFG-006).
+// registered fields pass, cost is a CEL string, an empty key or cost is
+// refused (RZ-CFG-005), as an empty expression in any CEL field is, and an
+// unknown member is refused (RZ-CFG-006).
 func TestSchemaClosedConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name, config, code string
@@ -74,6 +75,8 @@ func TestSchemaClosedConfig(t *testing.T) {
 		{"every field", `{"consumerQuota": "daily", "key": "consumer.name", "cost": "request.method == \"POST\" ? 5 : 1"}`, ""},
 		{"unknown member", `{"consumerQuota": "daily", "units": 2}`, codeUnknown},
 		{"cost not a string", `{"consumerQuota": "daily", "cost": 2}`, CodeConfig},
+		{"empty key", `{"consumerQuota": "daily", "key": ""}`, CodeConfig},
+		{"empty cost", `{"consumerQuota": "daily", "cost": ""}`, CodeConfig},
 		{"no consumerQuota", `{"cost": "1"}`, CodeConfig},
 	} {
 		src := `{"apiVersion": "ruralz/v1alpha1", "kind": "Policy", "metadata": {"name": "q"},` +

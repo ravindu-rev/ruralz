@@ -80,7 +80,11 @@ type dnsSink struct {
 	mu    sync.Mutex
 	log   DNSLog
 	conns map[net.Conn]struct{}
-	slots chan struct{} // bounds the TCP connections served at once
+	// closed is set when Close closes the open TCP connections: a
+	// connection accepted before Close but registered after it is closed
+	// at once, else its reader would hold Close until it went idle.
+	closed bool
+	slots  chan struct{} // bounds the TCP connections served at once
 
 	wg        sync.WaitGroup
 	closeOnce sync.Once
@@ -170,6 +174,7 @@ func (s *dnsSink) Close() error {
 	s.closeOnce.Do(func() {
 		err = errors.Join(s.udp.Close(), s.tcp.Close())
 		s.mu.Lock()
+		s.closed = true
 		for c := range s.conns {
 			_ = c.Close()
 		}
@@ -213,6 +218,12 @@ func (s *dnsSink) serveTCP() {
 			continue
 		}
 		s.mu.Lock()
+		if s.closed {
+			s.mu.Unlock()
+			<-s.slots
+			_ = c.Close()
+			continue
+		}
 		s.conns[c] = struct{}{}
 		s.mu.Unlock()
 		s.wg.Add(1)

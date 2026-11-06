@@ -51,6 +51,7 @@ func areas() []string {
 		`Ruleset "main and release-*"`,
 		`Ruleset "v* tag creation"`,
 		`Ruleset "v* tag updates and deletion"`,
+		`Ruleset "develop"`,
 		`Environment "release"`,
 		`Environment "release" deployment branches`,
 	}
@@ -75,6 +76,7 @@ func freshState() *ghState {
 		OwnerType:        "User",
 		AllowSquashMerge: true, AllowMergeCommit: true, AllowRebaseMerge: true,
 		SquashMergeCommitTitle: "COMMIT_OR_PR_TITLE", SquashMergeCommitMessage: "COMMIT_MESSAGES",
+		MergeCommitTitle: "MERGE_MESSAGE", MergeCommitMessage: "PR_TITLE",
 		SecretScanning: "disabled", PushProtection: "disabled",
 		ActionsEnabled: true, AllowedActions: "all",
 		DefaultWorkflowPermissions: "write", CanApprovePullRequests: true,
@@ -94,7 +96,7 @@ func adminActor() bypassActor {
 // settings"), as GitHub stores them.
 func branchesRuleset() ruleset {
 	checks := []any{}
-	for _, c := range []string{"pr-fast", "pr-full", "pr-title"} {
+	for _, c := range []string{"pr-fast", "pr-full"} {
 		checks = append(checks, map[string]any{"context": c, "integration_id": float64(actionsApp)})
 	}
 	return ruleset{
@@ -104,7 +106,7 @@ func branchesRuleset() ruleset {
 			{Type: "deletion"},
 			{Type: "non_fast_forward"},
 			{Type: "pull_request", Parameters: map[string]any{
-				"allowed_merge_methods": []any{"squash"}, "dismiss_stale_reviews_on_push": false,
+				"allowed_merge_methods": []any{"merge"}, "dismiss_stale_reviews_on_push": false,
 				"require_code_owner_review": false, "require_last_push_approval": false,
 				"required_approving_review_count": float64(0), "required_review_thread_resolution": false,
 			}},
@@ -132,21 +134,28 @@ func tagChangesRuleset() ruleset {
 	}
 }
 
+func developRuleset() ruleset {
+	return ruleset{
+		Name: "develop", Target: "branch", Enforcement: "active",
+		Include: []string{"refs/heads/develop"}, Exclude: []string{}, BypassActors: []bypassActor{},
+		Rules: []rule{{Type: "deletion"}},
+	}
+}
+
 // desiredState is the repository with every setting of the table.
 func desiredState() *ghState {
 	s := freshState()
-	s.AllowMergeCommit, s.AllowRebaseMerge, s.DeleteBranchOnMerge = false, false, true
-	s.SquashMergeCommitTitle, s.SquashMergeCommitMessage = "PR_TITLE", "COMMIT_MESSAGES"
+	s.AllowSquashMerge, s.AllowRebaseMerge, s.DeleteBranchOnMerge = false, false, true
 	s.SecretScanning, s.PushProtection = "enabled", "enabled"
 	s.SHAPinningRequired = true
 	s.DefaultWorkflowPermissions, s.CanApprovePullRequests = "read", false
 	s.ApprovalPolicy = "all_external_contributors"
 	s.PrivateVulnerabilityReporting, s.DependabotAlerts, s.SecurityUpdates, s.ImmutableReleases = true, true, true, true
-	s.Rulesets = []ruleset{branchesRuleset(), tagCreationRuleset(), tagChangesRuleset()}
+	s.Rulesets = []ruleset{branchesRuleset(), tagCreationRuleset(), tagChangesRuleset(), developRuleset()}
 	for i := range s.Rulesets {
 		s.Rulesets[i].ID = i + 1
 	}
-	s.NextRulesetID = 4
+	s.NextRulesetID = 5
 	s.Environment = &environment{
 		Reviewers:    []int{ownerID},
 		BranchPolicy: &branchScheme{ProtectedBranches: false, CustomBranchPolicies: true},
@@ -469,9 +478,10 @@ func TestCheckReportsDrift(t *testing.T) {
 		branches   = `Ruleset "main and release-*"`
 		creation   = `Ruleset "v* tag creation"`
 		changes    = `Ruleset "v* tag updates and deletion"`
+		develop    = `Ruleset "develop"`
 		env        = `Environment "release"`
 		envBranch  = `Environment "release" deployment branches`
-		checksWant = `[{"context":"pr-fast","integration_id":15368},{"context":"pr-full","integration_id":15368},{"context":"pr-title","integration_id":15368}]`
+		checksWant = `[{"context":"pr-fast","integration_id":15368},{"context":"pr-full","integration_id":15368}]`
 		adminByp   = `[{"actor_id":5,"actor_type":"RepositoryRole","bypass_mode":"always"}]`
 	)
 	cases := []struct {
@@ -479,20 +489,20 @@ func TestCheckReportsDrift(t *testing.T) {
 		mutate func(t *testing.T, s *ghState)
 		drift  []string
 	}{
-		{"merge commits and rebase merging", func(_ *testing.T, s *ghState) {
-			s.AllowMergeCommit, s.AllowRebaseMerge = true, true
+		{"squash and rebase merging", func(_ *testing.T, s *ghState) {
+			s.AllowSquashMerge, s.AllowRebaseMerge = true, true
 		}, []string{
-			"drift: Merging: allow_merge_commit is true, want false",
+			"drift: Merging: allow_squash_merge is true, want false",
 			"drift: Merging: allow_rebase_merge is true, want false",
 		}},
-		{"no squash merging", func(_ *testing.T, s *ghState) { s.AllowSquashMerge = false }, []string{
-			"drift: Merging: allow_squash_merge is false, want true",
+		{"no merge commits", func(_ *testing.T, s *ghState) { s.AllowMergeCommit = false }, []string{
+			"drift: Merging: allow_merge_commit is false, want true",
 		}},
-		{"squash commit title and message", func(_ *testing.T, s *ghState) {
-			s.SquashMergeCommitTitle, s.SquashMergeCommitMessage = "COMMIT_OR_PR_TITLE", "PR_BODY"
+		{"merge commit title and message", func(_ *testing.T, s *ghState) {
+			s.MergeCommitTitle, s.MergeCommitMessage = "PR_TITLE", "PR_BODY"
 		}, []string{
-			`drift: Merging: squash_merge_commit_title is "COMMIT_OR_PR_TITLE", want "PR_TITLE"`,
-			`drift: Merging: squash_merge_commit_message is "PR_BODY", want "COMMIT_MESSAGES"`,
+			`drift: Merging: merge_commit_title is "PR_TITLE", want "MERGE_MESSAGE"`,
+			`drift: Merging: merge_commit_message is "PR_BODY", want "PR_TITLE"`,
 		}},
 		{"head branches kept", func(_ *testing.T, s *ghState) { s.DeleteBranchOnMerge = false }, []string{
 			"drift: Merging: delete_branch_on_merge is false, want true",
@@ -574,32 +584,37 @@ func TestCheckReportsDrift(t *testing.T) {
 			"drift: " + branches + ": pull_request.require_code_owner_review is true, want false",
 			"drift: " + branches + ": pull_request.required_approving_review_count is 1, want 0",
 		}},
-		{"merge commits through the ruleset", func(t *testing.T, s *ghState) {
+		{"squash merging through the ruleset", func(t *testing.T, s *ghState) {
 			ruleOf(t, s, "main and release-*", "pull_request").Parameters["allowed_merge_methods"] = []any{"squash", "merge"}
 		}, []string{
-			"drift: " + branches + `: pull_request.allowed_merge_methods is ["merge","squash"], want ["squash"]`,
+			"drift: " + branches + `: pull_request.allowed_merge_methods is ["merge","squash"], want ["merge"]`,
 		}},
 		{"resolved conversations required", func(t *testing.T, s *ghState) {
 			ruleOf(t, s, "main and release-*", "pull_request").Parameters["required_review_thread_resolution"] = true
 		}, []string{
 			"drift: " + branches + ": pull_request.required_review_thread_resolution is true, want false",
 		}},
-		{"pr-title from any source", func(t *testing.T, s *ghState) {
+		{"pr-full from any source", func(t *testing.T, s *ghState) {
 			ruleOf(t, s, "main and release-*", "required_status_checks").Parameters["required_status_checks"] = []any{
 				map[string]any{"context": "pr-fast", "integration_id": float64(actionsApp)},
-				map[string]any{"context": "pr-full", "integration_id": float64(actionsApp)},
-				map[string]any{"context": "pr-title"},
+				map[string]any{"context": "pr-full"},
 			}
 		}, []string{
-			"drift: " + branches + `: required_status_checks.required_status_checks is [{"context":"pr-title"},{"context":"pr-fast","integration_id":15368},{"context":"pr-full","integration_id":15368}], want ` + checksWant,
+			"drift: " + branches + `: required_status_checks.required_status_checks is [{"context":"pr-full"},{"context":"pr-fast","integration_id":15368}], want ` + checksWant,
 		}},
 		{"pr-full not required", func(t *testing.T, s *ghState) {
 			ruleOf(t, s, "main and release-*", "required_status_checks").Parameters["required_status_checks"] = []any{
 				map[string]any{"context": "pr-fast", "integration_id": float64(actionsApp)},
-				map[string]any{"context": "pr-title", "integration_id": float64(actionsApp)},
 			}
 		}, []string{
-			"drift: " + branches + `: required_status_checks.required_status_checks is [{"context":"pr-fast","integration_id":15368},{"context":"pr-title","integration_id":15368}], want ` + checksWant,
+			"drift: " + branches + `: required_status_checks.required_status_checks is [{"context":"pr-fast","integration_id":15368}], want ` + checksWant,
+		}},
+		{"a pr-title check still required", func(t *testing.T, s *ghState) {
+			p := ruleOf(t, s, "main and release-*", "required_status_checks").Parameters
+			p["required_status_checks"] = append(p["required_status_checks"].([]any),
+				map[string]any{"context": "pr-title", "integration_id": float64(actionsApp)})
+		}, []string{
+			"drift: " + branches + `: required_status_checks.required_status_checks is [{"context":"pr-fast","integration_id":15368},{"context":"pr-full","integration_id":15368},{"context":"pr-title","integration_id":15368}], want ` + checksWant,
 		}},
 		{"branches merge out of date", func(t *testing.T, s *ghState) {
 			ruleOf(t, s, "main and release-*", "required_status_checks").Parameters["strict_required_status_checks_policy"] = false
@@ -637,6 +652,22 @@ func TestCheckReportsDrift(t *testing.T) {
 			rulesetNamed(t, s, "v* tag updates and deletion").BypassActors = []bypassActor{adminActor()}
 		}, []string{
 			"drift: " + changes + ": bypass_actors is " + adminByp + ", want []",
+		}},
+		{"develop ruleset missing", func(_ *testing.T, s *ghState) {
+			i := slices.IndexFunc(s.Rulesets, func(rs ruleset) bool { return rs.Name == "develop" })
+			s.Rulesets = slices.Delete(s.Rulesets, i, i+1)
+		}, []string{
+			"drift: " + develop + ": missing",
+		}},
+		{"develop without the deletion rule", func(t *testing.T, s *ghState) {
+			rulesetNamed(t, s, "develop").Rules = []rule{{Type: "non_fast_forward"}}
+		}, []string{
+			"drift: " + develop + `: rules is ["non_fast_forward"], want ["deletion"]`,
+		}},
+		{"admins delete develop", func(t *testing.T, s *ghState) {
+			rulesetNamed(t, s, "develop").BypassActors = []bypassActor{adminActor()}
+		}, []string{
+			"drift: " + develop + ": bypass_actors is " + adminByp + ", want []",
 		}},
 		{"the tag rulesets on branches", func(t *testing.T, s *ghState) {
 			rulesetNamed(t, s, "v* tag creation").Target = "branch"
@@ -724,6 +755,7 @@ func TestApplyConfiguresAFreshRepository(t *testing.T) {
 		"POST " + repoPath + "/rulesets",
 		"POST " + repoPath + "/rulesets",
 		"POST " + repoPath + "/rulesets",
+		"POST " + repoPath + "/rulesets",
 		"PUT " + repoPath + "/environments/release",
 		"POST " + repoPath + "/environments/release/deployment-branch-policies",
 	})
@@ -732,7 +764,7 @@ func TestApplyConfiguresAFreshRepository(t *testing.T) {
 		updated = append(updated, "updated: "+a)
 	}
 	wantLines(t, "updated areas", linesWithPrefix(r.stdout, "updated: "), updated)
-	wantContains(t, r, "stdout", "repo-settings: 14 area(s) updated, 0 unchanged\n")
+	wantContains(t, r, "stdout", "repo-settings: 15 area(s) updated, 0 unchanged\n")
 	if got, want := normalized(t, r.state), normalized(t, desiredState()); got != want {
 		t.Errorf("settings after apply:\n%s\nwant\n%s", got, want)
 	}
@@ -768,7 +800,7 @@ func TestApplyWritesNothingWhenSettingsMatch(t *testing.T) {
 		unchanged = append(unchanged, "unchanged: "+a)
 	}
 	wantLines(t, "unchanged areas", linesWithPrefix(r.stdout, "unchanged: "), unchanged)
-	wantContains(t, r, "stdout", "repo-settings: 0 area(s) updated, 14 unchanged\n")
+	wantContains(t, r, "stdout", "repo-settings: 0 area(s) updated, 15 unchanged\n")
 }
 
 // TestApplyUpdatesOnlyDriftedAreas: apply writes just the areas that
@@ -916,15 +948,15 @@ func TestErrors(t *testing.T) {
 		},
 		{
 			name: "drift and a failed read", args: []string{"--check"},
-			state: func() *ghState { s := desiredState(); s.AllowMergeCommit = true; return s },
+			state: func() *ghState { s := desiredState(); s.AllowSquashMerge = true; return s },
 			faults: faults{fail: map[string]failure{
 				"GET " + repoPath + "/immutable-releases": {http.StatusServiceUnavailable, "Service Unavailable"},
 			}},
 			stderr: []string{"repo-settings: GET repos/ravindu-rev/ruralz/immutable-releases: Service Unavailable (HTTP 503)"},
-			drift:  []string{"drift: Merging: allow_merge_commit is true, want false"},
+			drift:  []string{"drift: Merging: allow_squash_merge is true, want false"},
 		},
 		{
-			name: "settings hidden from apply", state: func() *ghState { s := desiredState(); s.AllowMergeCommit = true; return s },
+			name: "settings hidden from apply", state: func() *ghState { s := desiredState(); s.AllowSquashMerge = true; return s },
 			faults: faults{hideMerge: true},
 			stderr: []string{"repo-settings: Merging: cannot read allow_squash_merge: the response leaves it out, so the token may not read it"},
 			writes: []string{},
@@ -974,9 +1006,8 @@ func TestErrors(t *testing.T) {
 	}
 }
 
-// TestCheckSkipsHiddenSettings: --check, run with the weekly workflow's
-// read-only token, notes each setting GitHub leaves out of the response
-// to that token (docs/engineering/02-repository-layout-and-conventions.md,
+// TestCheckSkipsHiddenSettings: --check, run with a read-only token,
+// notes each setting GitHub leaves out of the response to that token (docs/engineering/02-repository-layout-and-conventions.md,
 // "Repository settings") and checks every other one: no error, exit 0
 // when the rest matches, exit 1 on drift elsewhere.
 func TestCheckSkipsHiddenSettings(t *testing.T) {
@@ -990,6 +1021,7 @@ func TestCheckSkipsHiddenSettings(t *testing.T) {
 		`notice: Ruleset "main and release-*": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 		`notice: Ruleset "v* tag creation": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 		`notice: Ruleset "v* tag updates and deletion": bypass_actors not checked: GitHub leaves it out of the response to this token`,
+		`notice: Ruleset "develop": bypass_actors not checked: GitHub leaves it out of the response to this token`,
 	}
 	r := run(t, desiredState(), hidden, true, "--check")
 	wantCode(t, r, 0)
@@ -1021,7 +1053,7 @@ func TestApplyContinuesPastAFailedArea(t *testing.T) {
 	if got, want := normalized(t, r.state), normalized(t, wantState); got != want {
 		t.Errorf("settings after apply:\n%s\nwant\n%s", got, want)
 	}
-	wantContains(t, r, "stderr", "repo-settings: 3 error(s)\n")
+	wantContains(t, r, "stderr", "repo-settings: 4 error(s)\n")
 }
 
 func nonNil(s []string) []string {

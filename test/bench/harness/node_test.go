@@ -4,8 +4,32 @@
 package harness
 
 import (
+	"slices"
 	"testing"
 )
+
+// TestScopedEnv: the Node's scope on RH-1 reaches the user manager
+// through the harness's XDG_RUNTIME_DIR and DBUS_SESSION_BUS_ADDRESS,
+// which systemd-run --user needs, and which the Node's own explicit
+// environment lacks; the Node's settings follow them, and a Node without
+// a scope, as on the loopback profile, keeps its environment alone.
+func TestScopedEnv(t *testing.T) {
+	getenv := func(k string) string {
+		return map[string]string{"XDG_RUNTIME_DIR": "/run/user/998", "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/998/bus", "HOME": "/home/b"}[k]
+	}
+	nodeEnv := []string{"RURALZ_CONFIG=/var/lib/ruralz-bench/config/s1.yaml", "GOMAXPROCS=4"}
+	rh1 := &Profile{Name: ProfileRH1, Scope: true, Hosts: map[Role]Host{RoleGateway: {Address: "gateway.bench.example", CPUs: "2-5", Dir: "/var/lib/ruralz-bench"}}}
+	argv := rh1.Runner(RoleGateway).Argv([]string{"/bin/ruralzd"}, "2-5")
+	want := append([]string{"XDG_RUNTIME_DIR=/run/user/998", "DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/998/bus"}, nodeEnv...)
+	if got := scopedEnv(argv, nodeEnv, getenv); !slices.Equal(got, want) {
+		t.Errorf("scopedEnv(%q) = %q, want %q", argv, got, want)
+	}
+	loop := Loopback(t.TempDir())
+	argv = loop.Runner(RoleGateway).Argv([]string{"/bin/ruralzd"}, "")
+	if got := scopedEnv(argv, nodeEnv, getenv); !slices.Equal(got, nodeEnv) {
+		t.Errorf("scopedEnv(%q) without a scope = %q, want the Node's own %q", argv, got, nodeEnv)
+	}
+}
 
 // TestParseHeapAlloc covers the live heap R1 reads from a debug=1 heap
 // profile after a forced collection: the "# HeapAlloc = N" total among

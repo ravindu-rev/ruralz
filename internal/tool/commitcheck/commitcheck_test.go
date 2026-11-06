@@ -93,6 +93,37 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
+// TestTitleRange checks every non-merge commit title of a range, as main
+// takes develop's commits through merge commits: a title off the rules
+// fails, a merge commit is skipped, and so is a Dependabot commit, whose
+// title Dependabot words and capitalizes itself after its configured
+// prefix.
+func TestTitleRange(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
+	}
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "feat(cli): add version")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "build(deps): Bump x from 1.0.0 to 1.0.1",
+		"--author", "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
+	git(t, dir, "checkout", "-q", "-b", "side", "HEAD~2")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: side change")
+	git(t, dir, "checkout", "-q", "main")
+	git(t, dir, "merge", "-q", "--no-ff", "-m", "Merge branch 'side'", "side")
+	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", dir, "-range", "HEAD~3..HEAD"}); code != 0 {
+		t.Errorf("title on conventional, Dependabot and merge commits = %d, want 0", code)
+	}
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "Add version")
+	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", dir, "-range", "HEAD~1..HEAD"}); code != 1 {
+		t.Errorf("title on a title off the rules = %d, want 1", code)
+	}
+	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", filepath.Join(dir, "missing"), "-range", "HEAD~1..HEAD"}); code != 2 {
+		t.Errorf("title on a missing repository = %d, want 2", code)
+	}
+}
+
 func TestGitCommits(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -139,15 +170,13 @@ func TestRunUsage(t *testing.T) {
 	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "Add version"}) != 1 {
 		t.Error("invalid title accepted")
 	}
-	t.Setenv("PR_TITLE", "")
 	if run(t.Context(), []string{"title", "-docs", repoDocs}) != 2 {
-		t.Error("missing title must exit 2")
+		t.Error("title without -range or -title must exit 2")
 	}
-	t.Setenv("PR_TITLE", "docs(roadmap-and-milestones): mark M0 done")
-	if run(t.Context(), []string{"title", "-docs", repoDocs}) != 0 {
-		t.Error("PR_TITLE not read")
+	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat: x", "-range", "HEAD~1..HEAD"}) != 2 {
+		t.Error("title with both -range and -title must exit 2")
 	}
-	if run(t.Context(), []string{"title", "-docs", filepath.Join(t.TempDir(), "missing")}) != 2 {
+	if run(t.Context(), []string{"title", "-docs", filepath.Join(t.TempDir(), "missing"), "-title", "feat: x"}) != 2 {
 		t.Error("unreadable docs directory must exit 2")
 	}
 }

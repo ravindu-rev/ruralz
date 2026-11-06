@@ -765,7 +765,7 @@ func (s *Session) baseRecord(sc Scenario, spec RunSpec, started time.Time, kind 
 	}
 	procs := s.Profile.GOMAXPROCS
 	if procs == 0 {
-		if list, ok := lab.ParseCPUList(f.Cpuset); ok {
+		if list, ok := proc.ParseCPUList(f.Cpuset); ok {
 			procs = len(list)
 		} else {
 			procs = 1

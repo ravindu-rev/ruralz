@@ -437,7 +437,8 @@ func (l *Loader) writeLKG(ctx context.Context) {
 	}
 }
 
-// initPointers reads the digests lkg/ names at start.
+// initPointers reads the digests lkg/ names at start, and again once a
+// handover successor took the lock.
 func (l *Loader) initPointers(ctx context.Context) {
 	cand, last, err := l.cfg.LKG.Pointers()
 	if err != nil {

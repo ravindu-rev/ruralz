@@ -10,7 +10,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -77,7 +76,8 @@ type NodeOptions struct {
 	MACKey []byte
 	// Env is added to the Node process's environment after Config.Env.
 	Env []string
-	// GOMAXPROCS overrides max(1, CPUs / Nodes); 0 keeps the rule.
+	// GOMAXPROCS overrides max(1, CPUs / Nodes), CPUs being the
+	// Config.CPUs cpuset's when set; 0 keeps the rule.
 	GOMAXPROCS int
 	// NoWait returns once the process started, without waiting for
 	// /readyz.
@@ -114,7 +114,8 @@ type Node struct {
 // on in creation order, starts them and, unless o.NoWait, waits until each
 // is ready. Nodes added after a balancer started join it. With more than
 // one Node in the topology, each new Node runs with GOMAXPROCS
-// max(1, CPUs / Nodes) unless o.GOMAXPROCS overrides it.
+// max(1, CPUs / Nodes), CPUs being those of the Config.CPUs cpuset when
+// set, unless o.GOMAXPROCS overrides it.
 func (t *Topology) AddNodes(ctx context.Context, n int, o NodeOptions) ([]*Node, error) {
 	if n < 1 {
 		return nil, fmt.Errorf("topology: AddNodes(%d)", n)
@@ -147,7 +148,7 @@ func (t *Topology) AddNodes(ctx context.Context, n int, o NodeOptions) ([]*Node,
 	for _, node := range nodes {
 		node.gomaxprocs = o.GOMAXPROCS
 		if node.gomaxprocs == 0 && count > 1 {
-			node.gomaxprocs = max(1, runtime.NumCPU()/count)
+			node.gomaxprocs = max(1, t.cpuCount()/count)
 		}
 		if err := node.prepare(ctx); err != nil {
 			return nil, err
@@ -313,12 +314,20 @@ func (n *Node) Setenv(key, value string) error {
 	return nil
 }
 
-// startProcess starts one process of the Node from binary, passes it its
-// clock command socket on a controllable-clock topology and attaches it to
-// the topology's clock.
+// startProcess starts one process of the Node from binary, in a scope on
+// Config.CPUs when set, passes it its clock command socket on a
+// controllable-clock topology and attaches it to the topology's clock.
 func (n *Node) startProcess(ctx context.Context, binary, name string) (*proc.Process, error) {
 	t := n.t
 	spec := proc.Spec{Name: name, Path: binary, Args: t.cfg.Args, Env: n.env(), LogDir: n.logDir}
+	if sc := t.scope; sc != nil {
+		// systemd-run executes the Node in place, so the process proc
+		// starts, signals and samples is the Node's, file descriptor 3
+		// included; the Node's own settings follow the user manager's
+		// variables, so they win.
+		spec.Path, spec.Args = sc.run, ScopeArgs(t.cfg.CPUs, append([]string{binary}, t.cfg.Args...)...)
+		spec.Env = append(slices.Clone(sc.env), spec.Env...)
+	}
 	var conn net.Conn
 	var child *os.File
 	if t.cfg.TestClock {

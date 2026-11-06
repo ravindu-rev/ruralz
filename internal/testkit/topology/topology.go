@@ -11,7 +11,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -24,6 +26,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/otlpsink"
 	"github.com/ravindu-rev/ruralz/internal/testkit/pki"
+	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // Runtime defaults (docs/engineering/03-testing-and-quality-strategy.md
@@ -94,6 +97,64 @@ type Config struct {
 	// $RURALZ_TEST_ARTIFACT_DIR as the teardown finds it, and none when
 	// both are empty.
 	ArtifactDir string
+	// CPUs, when set, is the cgroup v2 cpuset every Node process shares,
+	// such as "2-5", as the target chaos profile runs its Nodes on RH-1's
+	// gateway cpuset (docs/engineering/03-testing-and-quality-strategy.md
+	// "Scale profiles"): each Node process, handover successors included,
+	// starts in a systemd-run scope of the user manager with AllowedCPUs
+	// set to it, as the benchmark harness starts ruralzd, and the
+	// GOMAXPROCS rule divides the cpuset's CPUs among the Nodes. The scope
+	// reaches the user manager through the harness's XDG_RUNTIME_DIR and
+	// DBUS_SESSION_BUS_ADDRESS, which the Node process then holds too.
+	CPUs string
+}
+
+// ScopeArgs returns the systemd-run arguments that start argv in place in
+// a scope of the user manager on cpus, as Config.CPUs starts each Node
+// process: systemd-run creates the scope and then executes argv itself,
+// so the process it started is argv's, the PID the harness signals.
+func ScopeArgs(cpus string, argv ...string) []string {
+	return append([]string{"--user", "--scope", "--quiet", "--collect", "-p", "AllowedCPUs=" + cpus, "--"}, argv...)
+}
+
+// scope is how a topology with Config.CPUs starts its Node processes.
+type scope struct {
+	// run is the systemd-run executable.
+	run string
+	// env holds the harness's user manager variables.
+	env []string
+	// cpus is the number of CPUs in the cpuset.
+	cpus int
+}
+
+// newScope checks Config.CPUs and finds systemd-run and the user
+// manager's variables; nil without CPUs.
+func newScope(cpus string, getenv func(string) string, lookPath func(string) (string, error)) (*scope, error) {
+	if cpus == "" {
+		return nil, nil
+	}
+	list, ok := proc.ParseCPUList(cpus)
+	if !ok {
+		return nil, fmt.Errorf("Config.CPUs %q is not a cpuset list", cpus)
+	}
+	run, err := lookPath("systemd-run")
+	if err != nil {
+		return nil, fmt.Errorf("Config.CPUs %q: the Nodes' scopes need systemd-run: %w", cpus, err)
+	}
+	s := &scope{run: run, cpus: len(list), env: proc.UserManagerEnv(getenv)}
+	if len(s.env) == 0 {
+		return nil, fmt.Errorf("Config.CPUs %q: systemd-run --user reaches the user manager through XDG_RUNTIME_DIR or DBUS_SESSION_BUS_ADDRESS, and neither is set", cpus)
+	}
+	return s, nil
+}
+
+// cpuCount returns the CPUs the Nodes run on: the cpuset's with
+// Config.CPUs, else the harness's.
+func (t *Topology) cpuCount() int {
+	if t.scope != nil {
+		return t.scope.cpus
+	}
+	return runtime.NumCPU()
 }
 
 // Transport turns off what the harness otherwise chooses on the hops it
@@ -124,6 +185,8 @@ type Topology struct {
 	ca     *pki.CA
 	bundle string // SSL_CERT_FILE: the CAs Nodes trust
 	clock  *Clock
+	// scope starts the Node processes on Config.CPUs; nil without it.
+	scope *scope
 	// canaries are the values the leak scan looks for.
 	canaries *canarySet
 	captures *captureStore
@@ -177,6 +240,10 @@ func newTopology(t testing.TB, c Config) (*Topology, error) {
 	if _, err := os.Stat(c.Binary); err != nil {
 		return nil, fmt.Errorf("Config.Binary: %w", err)
 	}
+	sc, err := newScope(c.CPUs, os.Getenv, exec.LookPath)
+	if err != nil {
+		return nil, err
+	}
 	if c.ReadyTimeout == 0 {
 		c.ReadyTimeout = DefaultReadyTimeout
 	}
@@ -204,6 +271,7 @@ func newTopology(t testing.TB, c Config) (*Topology, error) {
 		ca:       ca,
 		bundle:   filepath.Join(root, "ca-bundle.pem"),
 		clock:    newClock(c.TestClock, c.ReadyTimeout),
+		scope:    sc,
 		canaries: &canarySet{},
 		captures: &captureStore{dir: filepath.Join(root, "captures")},
 		ports:    map[int]bool{},

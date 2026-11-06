@@ -505,12 +505,10 @@ func TestLive(t *testing.T) {
 
 	// The watchdog after a reload. A handover successor, a child of the
 	// ExecReload= helper, gets no WATCHDOG_USEC from systemd, which sets it
-	// for the ExecStart= process only, and today reads only its own
-	// environment, so it sends no WATCHDOG=1 and the unit's watchdog ends
-	// it WatchdogSec after the old process's last ping. Which interval the
-	// successor uses is OQ-zero-downtime-upgrades-and-hot-reload-12; until
-	// the owner answers, this case states the gap when it sees it and
-	// passes when the successor pings.
+	// for the ExecStart= process only: it runs its watchdog with the
+	// interval the old process's accepted message carried, from when it
+	// took the lock, and sends WATCHDOG=1 every half interval, so the
+	// unit's watchdog keeps it as the main process past WatchdogSec.
 	t.Run("watchdog after reload", func(t *testing.T) {
 		evidence(ctx, t, time.Now())
 		in.restartReady(ctx, t)
@@ -522,6 +520,7 @@ func TestLive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		since := time.Now()
 		next, released := reload(ctx, t, old)
 		// The old process sends nothing from its Drain's start, before it
 		// released the lock, so a ping from here on is the successor's.
@@ -529,46 +528,58 @@ func TestLive(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		pinged := waitFor(ctx, watchdogInterval/2+10*time.Second, func() (bool, string) {
+		environ, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(next.PID), "environ"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, v := range strings.Split(string(environ), "\x00") {
+			if strings.HasPrefix(v, "WATCHDOG_USEC=") || strings.HasPrefix(v, "WATCHDOG_PID=") {
+				t.Errorf("the successor %v has %s, which systemd gives the ExecStart= process only: the case needs a successor without its own interval", next, v)
+			}
+		}
+		// Two pings past the old process's last, half an interval apart.
+		// Had the successor's first come later than WatchdogSec after the
+		// old process's last, the unit's watchdog would have restarted the
+		// unit first: the main process and the restart count tell.
+		pings := map[string]bool{before[propWatchdogMono]: true}
+		err = waitFor(ctx, watchdogInterval+10*time.Second, func() (bool, string) {
 			v, err := show(ctx, propWatchdogMono)
 			if err != nil {
 				return false, err.Error()
 			}
-			return v[propWatchdogMono] != before[propWatchdogMono], "no WATCHDOG=1 from the successor"
-		}) == nil
-		if pinged {
-			unitState(ctx, t, restarts)
-			return
-		}
-		// Observe what the gap costs: the watchdog ends the successor and
-		// Restart=on-failure starts a new process.
-		var observed string
-		_ = waitFor(ctx, time.Until(released.Add(watchdogInterval+15*time.Second)), func() (bool, string) {
-			props, err := show(ctx, propNRestarts, propMainPID)
-			if err != nil {
-				return false, err.Error()
-			}
-			observed = fmt.Sprintf("NRestarts=%s (was %d), MainPID=%s (successor %d)",
-				props[propNRestarts], restarts, props[propMainPID], next.PID)
-			return props[propNRestarts] != strconv.FormatInt(restarts, 10), observed
+			pings[v[propWatchdogMono]] = true
+			return len(pings) >= 3, fmt.Sprintf("%s values %v", propWatchdogMono, pings)
 		})
-		if text, err := journalText(ctx, released); err == nil && strings.Contains(text, "Watchdog timeout") {
-			observed = "systemd logged a watchdog timeout and restarted the unit: " + observed
+		if err != nil {
+			t.Errorf("want two WATCHDOG=1 pings from the successor %v within %v: %v", next, watchdogInterval, err)
 		}
-		in.restartReady(ctx, t)
-		t.Skipf("open gap, OQ-zero-downtime-upgrades-and-hot-reload-12: the successor %v sent no WATCHDOG=1 within %v of taking over, as it has no watchdog interval (systemd sets WATCHDOG_USEC for ExecStart= only); then %s. The recommendation awaiting the owner: the holder sends its watchdog interval in the handover accepted message",
-			next, watchdogInterval/2+10*time.Second, observed)
+		unitState(ctx, t, restarts)
+		if p, err := mainProc(ctx); err != nil || p != next {
+			t.Errorf("the main process is %v (%v) %v after the release, want the successor %v", p, err, time.Since(released).Round(time.Second), next)
+		}
+		text, err := journalText(ctx, since)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !slices.ContainsFunc(strings.Split(text, "\n"), func(l string) bool {
+			return strings.Contains(l, `"msg":"watchdog enabled"`) && strings.Contains(l, `"from":"holder"`) &&
+				strings.Contains(l, `"interval":"`+watchdogInterval.String()+`"`)
+		}) {
+			t.Errorf("no record of the successor's watchdog enabled with the holder's interval %v", watchdogInterval)
+		}
+		if strings.Contains(text, "Watchdog timeout") {
+			t.Error("systemd logged a watchdog timeout after the reload")
+		}
 	})
 
 	// 20 reload handovers under open-loop load of HTTP/1.1 keep-alive and
 	// h2c clients, with a keep-alive checker on 9901: no request or probe
 	// fails, MainPID moves to each successor and each old process exits
-	// within 28 s (target). The drop-in turns the watchdog off while
-	// OQ-zero-downtime-upgrades-and-hot-reload-12 is open, since no
-	// successor would answer it.
+	// within 28 s (target). The unit's watchdog runs throughout, each
+	// successor feeding it with the interval its holder passed on, so the
+	// unit is never restarted.
 	t.Run("reload handovers", func(t *testing.T) {
 		evidence(ctx, t, time.Now())
-		in.setWatchdogOff(ctx, t, true)
 		in.restartReady(ctx, t)
 		restarts, err := showInt(ctx, propNRestarts)
 		if err != nil {
@@ -652,7 +663,6 @@ func TestLive(t *testing.T) {
 	// serving it under degraded reason lkg_boot.
 	t.Run("SIGKILL restart boots Last-Known-Good", func(t *testing.T) {
 		evidence(ctx, t, time.Now())
-		in.setWatchdogOff(ctx, t, false)
 		in.restartReady(ctx, t)
 		code, v, err := readyz(ctx, in.adminURL())
 		if err != nil || code != http.StatusOK {

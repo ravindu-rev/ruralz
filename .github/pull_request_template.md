@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] The title follows Conventional Commits: `<type>(<scope>): <subject>`.
+- [ ] Every commit title follows Conventional Commits: `<type>(<scope>): <subject>`.
 - [ ] Every commit is signed off (`git commit -s`).
 - [ ] Tests cover the change; `make hygiene lint generate build test supply-chain` passes locally.
 - [ ] Generated files are regenerated and committed (`make generate`).

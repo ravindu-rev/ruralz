@@ -12,7 +12,8 @@
 // On Linux, Sample reads CPU time, RSS and thread count from /proc, and
 // InNetNS re-executes a test inside a fresh network namespace holding only
 // a loopback interface, with per-namespace sysctls such as
-// net.ipv4.tcp_migrate_req.
+// net.ipv4.tcp_migrate_req. FreePort gives a test a loopback port for its
+// processes, which on Linux no other socket takes until the test ends.
 package proc
 
 import (

@@ -4,11 +4,13 @@
 package gameday
 
 import (
+	"context"
 	"math"
 	"slices"
 	"testing"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/test/chaos"
 )
@@ -170,5 +172,52 @@ func TestCPU(t *testing.T) {
 		if n, ok := GOMAXPROCSOf([]byte(bad)); ok {
 			t.Errorf("GOMAXPROCSOf(%q) = %d, want none", bad, n)
 		}
+	}
+}
+
+// TestWaitNodeTime checks that the wait ends by the Nodes' clock, not by
+// real time: with Node time at 90% of real time, a condition that holds
+// 55 s of Node time in, past 60 s of real time, is met under a 60 s bound,
+// a condition past the bound is not, and a Node clock that stopped ends
+// the wait at the real-time guard.
+func TestWaitNodeTime(t *testing.T) {
+	start := time.Date(2026, 11, 1, 0, 0, 0, 0, time.UTC)
+	const poll = 100 * time.Millisecond
+	tests := []struct {
+		name  string
+		speed float64 // Node time per real time
+		met   time.Duration
+		want  bool
+	}{
+		{"Node clock at 90%", 0.9, 55 * time.Second, true},
+		{"condition past the bound", 1, 61 * time.Second, false},
+		{"stopped Node clock", 0, time.Second, false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wall := clocktest.New(start)
+			node := func() time.Time {
+				return start.Add(time.Duration(float64(wall.Now().Sub(start)) * tc.speed))
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			var got bool
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				got = WaitNodeTime(t.Context(), wall, node, poll, time.Minute, func() bool { return !node().Before(start.Add(tc.met)) })
+				cancel()
+			}()
+			for wall.BlockUntil(ctx, 1) == nil {
+				wall.Advance(poll)
+			}
+			<-finished
+			if got != tc.want {
+				t.Errorf("WaitNodeTime = %v at %v of real time, want %v", got, wall.Now().Sub(start), tc.want)
+			}
+			if tc.speed == 0 && wall.Now().Sub(start) > 90*time.Second+poll {
+				t.Errorf("a stopped Node clock waited %v of real time, past the 90 s guard", wall.Now().Sub(start))
+			}
+		})
 	}
 }

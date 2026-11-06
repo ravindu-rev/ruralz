@@ -20,7 +20,9 @@ import (
 
 // clockProbe is the fixture ruralzd: it starts as ruralzd's Run does, with
 // the process clock first and exit 2 without it, then waits for a 10 s
-// timer that only the harness's clock commands fire.
+// timer that only the harness's clock commands fire. The test build arms
+// the timer before it writes its build line, so a harness that advances
+// the clock once it read the line never arms the timer past an advance.
 const clockProbe = `package main
 
 import (
@@ -37,12 +39,14 @@ func main() {
 		_, _ = os.Stderr.WriteString(err.Error() + "\n")
 		os.Exit(2)
 	}
-	_, _ = os.Stdout.WriteString("testclock " + strconv.FormatBool(clock.TestClockBuild) + "\n")
 	if !clock.TestClockBuild {
+		_, _ = os.Stdout.WriteString("testclock " + strconv.FormatBool(clock.TestClockBuild) + "\n")
 		return
 	}
 	start := c.Now()
-	<-c.NewTimer(10 * time.Second).C()
+	timer := c.NewTimer(10 * time.Second)
+	_, _ = os.Stdout.WriteString("testclock " + strconv.FormatBool(clock.TestClockBuild) + "\n")
+	<-timer.C()
 	_, _ = os.Stdout.WriteString("fired after " + c.Since(start).String() + "\n")
 }
 `

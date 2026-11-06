@@ -85,6 +85,7 @@ func TestLastKnownGoodServesWhileTheSourceRetries(t *testing.T) {
 	if r.active() != rev("L").Digest || !r.status.raised("lkg_boot") {
 		t.Fatal("Last-Known-Good is not serving")
 	}
+	r.armed(RetryMin)
 	r.clk.Advance(RetryMin)
 	r.waitActive("A")
 	if r.status.raised("lkg_boot") {
@@ -333,6 +334,33 @@ func TestSuccessorWatchesAndWritesOnceItTookTheLock(t *testing.T) {
 	})
 }
 
+// A successor compares its active Revision with what lkg/ names once it
+// took the lock, not at its start: the holder may write lkg/ while the
+// successor boots, and the successor writes its active Revision when lkg/
+// then names another. The source serves the active Revision, so only that
+// write moves lkg/ back.
+func TestSuccessorRereadsLastKnownGoodWhenItTakesTheLock(t *testing.T) {
+	r := newRig(t, withSuccessorBoot(), withSource(load(result("H"))))
+	r.held.Store(false)
+	r.writeLKG("H")
+	r.start()
+	r.booted()
+	if r.active() != rev("H").Digest {
+		t.Fatalf("active %s, want the holder's candidate H", r.active().Short())
+	}
+	// The holder activates and writes Y while the successor boots.
+	r.writeLKG("Y")
+	if err := r.l.Bound().Listen(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	r.held.Store(true)
+	r.l.TookLock()
+	waitFor(t, "lkg/ to name the successor's active Revision H", func() bool {
+		cand, last, _ := r.store.Pointers()
+		return cand == rev("H").Digest && last == rev("H").Digest
+	})
+}
+
 func TestBoundCloseClosesEverything(t *testing.T) {
 	r := newRig(t, withSuccessorBoot())
 	r.held.Store(false)
@@ -381,6 +409,7 @@ func TestLKGWriteFailureRetries(t *testing.T) {
 		t.Fatalf("records %+v", recs)
 	}
 	// The second failure waits 2 s.
+	r.armed(time.Second)
 	r.clk.Advance(time.Second)
 	waitFor(t, "the first retry", func() bool { return len(r.logs.find("Last-Known-Good write failed")) == 2 })
 	r.idle()
@@ -390,6 +419,7 @@ func TestLKGWriteFailureRetries(t *testing.T) {
 	if err := os.Remove(r.store.Path(lkg.CandidateFile)); err != nil {
 		t.Fatal(err)
 	}
+	r.armed(2 * time.Second)
 	r.clk.Advance(2 * time.Second)
 	waitFor(t, "the write and lkg_write_failed cleared", func() bool {
 		cand, last, _ := r.store.Pointers()

@@ -229,7 +229,7 @@ func TestFC16KeyRemoved(t *testing.T) {
 	refreshes := func() []time.Time {
 		return FC16Fetched(idp.JWKSFetches(), http.StatusOK, removeAt, time.Now().Add(time.Hour))
 	}
-	if !waitUntil(ctx, FC16HalfLife+FC16FetchBound+FC16Retry, func() bool { return len(refreshes()) >= r.Nodes }) {
+	if !waitNodeTime(ctx, r, FC16HalfLife+FC16FetchBound+FC16Retry, func() bool { return len(refreshes()) >= r.Nodes }) {
 		t.Logf("gameday: %d of %d Nodes refreshed the key set after the removal", len(refreshes()), r.Nodes)
 	}
 	if err := l.WaitUntil(ctx, time.Now().Add(FC16FetchBound+fc16Evidence)); err != nil {

@@ -230,16 +230,47 @@ func TestRouteTimeoutCancelsContext(t *testing.T) {
 	}
 }
 
+// TestRouteTimeoutAnsweredThoughTheRequestContextEnded checks the
+// response a Route deadline produces when the request's context also ends
+// at that instant, as net/http's background read of an HTTP/1.1
+// connection ends it when a body read deadline expires: the client is not
+// gone, and it gets 504 RZ-UP-003, not an abort.
+func TestRouteTimeoutAnsweredThoughTheRequestContextEnded(t *testing.T) {
+	k := newKit(t)
+	entered := make(chan struct{})
+	reqCtx, endRequest := context.WithCancel(t.Context())
+	defer endRequest()
+	k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "slow", Timeout: 2 * time.Second, Forward: handlertest.ForwardFunc(func(ctx context.Context, _ *snapshot.Outbound) (*snapshot.UpstreamResponse, error) {
+		close(entered)
+		<-ctx.Done()
+		endRequest() // net/http's read deadline at the same instant
+		return nil, errcode.Wrap("RZ-UP-003", context.Cause(ctx))
+	})}}})
+	done := make(chan result, 1)
+	go func() { done <- k.do(httptest.NewRequestWithContext(reqCtx, http.MethodGet, "/", nil)) }()
+	<-entered
+	k.clk.Advance(2 * time.Second)
+	res := <-done
+	if res.aborted {
+		t.Fatal("the request aborted at its Route deadline, want 504 RZ-UP-003")
+	}
+	wantProblem(t, res, http.StatusGatewayTimeout, "RZ-UP-003")
+}
+
 // TestDeadlines checks the connection deadlines: 10 s from admission, then
-// the Route timeout from the request start once the Route is fixed.
+// the Route timeout plus RouteGrace from the request start once the Route
+// is fixed, so the 504 the Route deadline produces can still be written.
 func TestDeadlines(t *testing.T) {
 	k := newKit(t)
 	k.publish(handlertest.Spec{Routes: []handlertest.Route{{Name: "r", Timeout: 5 * time.Second, Forward: ok()}}})
 	w := newRecordingWriter()
 	k.h.ServeHTTP(w, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil))
-	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5 * time.Second)}
+	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5*time.Second + RouteGrace)}
 	if !slices.EqualFunc(w.reads, want, time.Time.Equal) || !slices.EqualFunc(w.writes, want, time.Time.Equal) {
 		t.Errorf("read deadlines %v, write deadlines %v, want both %v", w.reads, w.writes, want)
+	}
+	if RouteGrace != 5*time.Second {
+		t.Errorf("RouteGrace = %v, want the 5 s pre-routing write deadline", RouteGrace)
 	}
 }
 
@@ -299,7 +330,7 @@ func TestSplitClocks(t *testing.T) {
 	if w.Code != http.StatusGatewayTimeout {
 		t.Errorf("status = %d, want 504", w.Code)
 	}
-	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5 * time.Second)}
+	want := []time.Time{epoch().Add(AdmissionWindow), epoch().Add(5*time.Second + RouteGrace)}
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if !slices.EqualFunc(w.reads, want, time.Time.Equal) || !slices.EqualFunc(w.writes, want, time.Time.Equal) {

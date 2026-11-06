@@ -192,12 +192,11 @@ func (m *Manager) Run(ctx context.Context) error {
 		next, ok := m.rebuild(ctx, &wg)
 		var due <-chan time.Time
 		if ok {
-			d := max(next.Sub(m.clk.Now()), 0)
 			if timer == nil {
-				timer = m.clk.NewTimer(d)
+				timer = m.clk.NewTimerAt(next)
 			} else {
 				timer.Stop()
-				timer.Reset(d)
+				timer.ResetAt(next)
 			}
 			due = timer.C()
 		}

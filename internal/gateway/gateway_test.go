@@ -273,6 +273,33 @@ func TestSupervisorWaitBounded(t *testing.T) {
 	}
 }
 
+// TestSuccessorWatchdog checks the interval a handover successor's
+// watchdog runs with once it took the lock: its own when its environment
+// enables one, even beside its holder's; else the one its holder's
+// accepted carried, as for a child of systemd's ExecReload= helper; none
+// when neither gives one, as from a holder without a watchdog.
+func TestSuccessorWatchdog(t *testing.T) {
+	tests := []struct {
+		name        string
+		own, holder time.Duration
+		want        time.Duration
+		wantFrom    string
+	}{
+		{"own environment beside the holder's", 6 * time.Second, 30 * time.Second, 6 * time.Second, watchdogFromEnvironment},
+		{"own environment alone", 6 * time.Second, 0, 6 * time.Second, watchdogFromEnvironment},
+		{"the holder's for a child of ExecReload=", 0, 30 * time.Second, 30 * time.Second, watchdogFromHolder},
+		{"neither", 0, 0, 0, watchdogFromHolder},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, from := successorWatchdog(tt.own, tt.holder)
+			if got != tt.want || from != tt.wantFrom {
+				t.Errorf("successorWatchdog(%v, %v) = %v, %q; want %v, %q", tt.own, tt.holder, got, from, tt.want, tt.wantFrom)
+			}
+		})
+	}
+}
+
 func TestProbeAddr(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"0.0.0.0:9901", "127.0.0.1:9901"},

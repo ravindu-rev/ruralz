@@ -13,12 +13,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/clock"
 )
 
-// Fake is a clock.Clock whose time moves only through Advance and Set.
-// Timers with a positive duration fire synchronously inside Advance, in
+// Fake is a clock.Clock whose time moves only through Advance, Set and
+// Jump. Timers with a positive duration fire synchronously inside them, in
 // deadline order, and their AfterFunc callbacks run on the goroutine that
-// calls Advance. Like clock.Real, a zero or negative duration fires at
-// once: NewTimer's channel is already filled, AfterFunc runs its callback
-// in a new goroutine, and Sleep returns without waiting.
+// calls them. Like clock.Real, a zero or negative duration, or a deadline
+// not after the time, fires at once: NewTimer's and NewTimerAt's channel
+// is already filled, AfterFunc and AfterFuncAt run their callback in a new
+// goroutine, and Sleep returns without waiting.
 type Fake struct {
 	mu     sync.Mutex
 	now    time.Time
@@ -51,6 +52,19 @@ func (f *Fake) NewTimer(d time.Duration) clock.Timer {
 // goroutine when d <= 0.
 func (f *Fake) AfterFunc(d time.Duration, fn func()) clock.Timer {
 	return f.add(&fakeTimer{f: f, fn: fn}, d)
+}
+
+// NewTimerAt returns a timer whose channel receives once the time reaches
+// t, at once when it already has: the deadline holds whatever Advance ran
+// since the caller computed it.
+func (f *Fake) NewTimerAt(t time.Time) clock.Timer {
+	return f.arm(&fakeTimer{f: f, ch: make(chan time.Time, 1)}, func(time.Time) time.Time { return t })
+}
+
+// AfterFuncAt returns a timer that calls fn once the time reaches t, or at
+// once in a new goroutine when it already has.
+func (f *Fake) AfterFuncAt(t time.Time, fn func()) clock.Timer {
+	return f.arm(&fakeTimer{f: f, fn: fn}, func(time.Time) time.Time { return t })
 }
 
 // Sleep blocks until Advance passes d or ctx is done; d <= 0 returns at
@@ -95,6 +109,32 @@ func (f *Fake) Set(t time.Time) {
 	}
 }
 
+// Jump moves time forward by d at once, as after a stall: the clock reads
+// the new time before the timers due by then fire, in deadline order, so a
+// goroutine a timer wakes, or a callback, sees only the end of the jump,
+// where Advance shows each timer's deadline while it fires. A timer armed
+// while they fire is due after the new time and waits.
+func (f *Fake) Jump(d time.Duration) {
+	f.mu.Lock()
+	f.now = f.now.Add(max(d, 0))
+	t := f.now
+	f.mu.Unlock()
+	for {
+		f.mu.Lock()
+		slices.SortStableFunc(f.timers, func(a, b *fakeTimer) int { return a.at.Compare(b.at) })
+		if len(f.timers) == 0 || f.timers[0].at.After(t) {
+			f.mu.Unlock()
+			return
+		}
+		ft := f.timers[0]
+		f.timers = f.timers[1:]
+		f.changedLocked()
+		at := ft.at
+		f.mu.Unlock()
+		ft.fire(false, at)
+	}
+}
+
 // Pending returns the number of armed timers.
 func (f *Fake) Pending() int {
 	f.mu.Lock()
@@ -128,8 +168,34 @@ func (f *Fake) BlockUntil(ctx context.Context, n int) error {
 	}
 }
 
-// changedLocked wakes the BlockUntil callers after the armed timers
-// changed; the caller holds f.mu.
+// BlockUntilDue blocks until a timer due at at is armed, or until ctx is
+// done, returning ctx.Err() then. A goroutine that arms a timer for work
+// due at a known time reads the clock, then arms the timer for what is
+// left: an Advance between the two arms it that much late. A test calls
+// BlockUntilDue before that Advance, which then fires the timer, however
+// many other timers come and go meanwhile.
+func (f *Fake) BlockUntilDue(ctx context.Context, at time.Time) error {
+	for {
+		f.mu.Lock()
+		if slices.ContainsFunc(f.timers, func(ft *fakeTimer) bool { return ft.at.Equal(at) }) {
+			f.mu.Unlock()
+			return nil
+		}
+		if f.changed == nil {
+			f.changed = make(chan struct{})
+		}
+		changed := f.changed
+		f.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
+	}
+}
+
+// changedLocked wakes the BlockUntil and BlockUntilDue callers after the
+// armed timers changed; the caller holds f.mu.
 func (f *Fake) changedLocked() {
 	if f.changed != nil {
 		close(f.changed)
@@ -138,18 +204,29 @@ func (f *Fake) changedLocked() {
 }
 
 // add arms ft to fire after d; d <= 0 fires it at once without arming.
-// ft.at is written only under f.mu, and the fire time is read under it too,
-// so a Reset on one goroutine never races an Advance on another.
 func (f *Fake) add(ft *fakeTimer, d time.Duration) *fakeTimer {
+	return f.arm(ft, func(now time.Time) time.Time { return now.Add(d) })
+}
+
+// arm arms ft to fire at the deadline deadline returns for the time, read
+// under f.mu; a deadline not after the time fires ft at once without
+// arming it. ft.at is written only under f.mu, and the fire time is read
+// under it too, so a Reset on one goroutine never races an Advance on
+// another.
+func (f *Fake) arm(ft *fakeTimer, deadline func(now time.Time) time.Time) *fakeTimer {
 	f.mu.Lock()
-	ft.at = f.now.Add(max(d, 0))
-	at := ft.at
-	if d > 0 {
+	at := deadline(f.now)
+	due := at.After(f.now)
+	if !due {
+		at = f.now
+	}
+	ft.at = at
+	if due {
 		f.timers = append(f.timers, ft)
 		f.changedLocked()
 	}
 	f.mu.Unlock()
-	if d <= 0 {
+	if !due {
 		ft.fire(true, at)
 	}
 	return ft
@@ -197,5 +274,11 @@ func (t *fakeTimer) Stop() bool          { return t.f.remove(t) }
 func (t *fakeTimer) Reset(d time.Duration) bool {
 	active := t.f.remove(t)
 	t.f.add(t, d)
+	return active
+}
+
+func (t *fakeTimer) ResetAt(at time.Time) bool {
+	active := t.f.remove(t)
+	t.f.arm(t, func(time.Time) time.Time { return at })
 	return active
 }

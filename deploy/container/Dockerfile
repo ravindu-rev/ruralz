@@ -34,11 +34,13 @@
 #                                                 the CA bundle's (MPL-2.0)
 #   /var/lib/ruralz                               the data directory, 0700
 #
-# and runs as user and group 65532, never root. Set RURALZ_CONFIG; give the
-# container a stop grace period above the 30 s Drain exit bound (target).
+# and every other directory at 0755, owned by root, so user and group
+# 65532, as which it runs, never root, can reach the files. Set
+# RURALZ_CONFIG; give the container a stop grace period above the 30 s
+# Drain exit bound (target).
 
-# The CA bundle, its notice and the data directory are the same on every
-# platform, so this stage runs on the build platform.
+# The CA bundle, its notice, the directories and the data directory are the
+# same on every platform, so this stage runs on the build platform.
 FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm@sha256:8d48e12ec56735e9358640898b9d9b9fcca110612ed8a5567438c0a1baa24e66 AS certs
 ARG TARGETARCH
 COPY dist/notices/ruralzd_linux_${TARGETARCH}/THIRD_PARTY_LICENSES /work/THIRD_PARTY_LICENSES.binary
@@ -56,12 +58,18 @@ RUN set -eu; \
       cat /usr/share/doc/ca-certificates/copyright; \
     } > /work/THIRD_PARTY_LICENSES; \
     cp /etc/ssl/certs/ca-certificates.crt /work/ca-certificates.crt; \
+    mkdir -p /work/dirs/etc/ssl/certs /work/dirs/usr/local/bin /work/dirs/usr/share/doc/ruralzd /work/dirs/var/lib; \
+    chmod -R 0755 /work/dirs; \
     install -d -m 0700 /work/varlib/ruralz
 
 FROM scratch AS ruralzd
 ARG TARGETARCH
 ARG VERSION=0.0.0-dev
 ARG COMMIT=unknown
+# The directories come first: a COPY --chmod gives a directory it creates
+# its mode, so a 0644 file would leave its directories untraversable, and
+# a COPY --chown gives one its owner.
+COPY --from=certs /work/dirs/ /
 COPY --from=certs --chmod=0644 /work/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --chmod=0755 dist/linux_${TARGETARCH}/ruralzd /usr/local/bin/ruralzd
 COPY --chmod=0644 LICENSE /usr/share/doc/ruralzd/LICENSE

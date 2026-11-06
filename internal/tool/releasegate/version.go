@@ -79,11 +79,6 @@ func compareBase(a, b version) int {
 // "Release cadence and support windows").
 func (v version) needsCandidate() bool { return v.RC == 0 && v.Patch == 0 }
 
-// benchmarksUnskippable reports whether no maintainer may skip the
-// Benchmarks gate: for 0.1.0, its candidates included, the release waits
-// for RH-1 and passing budgets (M1 exit criterion 1).
-func (v version) benchmarksUnskippable() bool { return v.Major == 0 && v.Minor == 1 && v.Patch == 0 }
-
 // imageTags are the tags of the version's images: X.Y.Z and X.Y for a
 // release, X.Y.Z-rc.N for a candidate, never latest. The first is
 // immutable; X.Y moves to the newest patch of its line.

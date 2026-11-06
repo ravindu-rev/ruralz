@@ -264,9 +264,9 @@ func fc19(t *testing.T) {
 	held := r.Hold(l, "sets-empty", fc19EmptyHold)
 
 	// The server answers again: an emptied set is looked up again on the
-	// failure backoff, at most 60 s later, so wait in real time.
+	// failure backoff, at most 60 s of Node time later.
 	end := r.Inject("answer", "dns", func() error { return dns.SetModes(DNSAnswer, nil) })
-	waitUntil(ctx, discovery.BackoffMax+fc19Slack, func() bool {
+	waitNodeTime(ctx, r, discovery.BackoffMax+fc19Slack, func() bool {
 		track.pollIfDue(ctx)
 		return track.back(nodes, want)
 	})

@@ -237,8 +237,10 @@ func DockerValkey(p *Profile, owner string) []string {
 	return append(argv, redisserver.ImageValkey9, "valkey-server")
 }
 
-// owner returns the "uid:gid" of the user running the commands of r.
-func owner(ctx context.Context, r *Runner) (string, error) {
+// Owner returns the "uid:gid" of the user running the commands of r: the
+// user a container of the pinned Valkey image runs as on the State Store
+// host, the owner of the run's key files there.
+func Owner(ctx context.Context, r *Runner) (string, error) {
 	var ids []string
 	for _, flag := range []string{"-u", "-g"} {
 		out, err := r.Output(ctx, []string{"id", flag}, nil)
@@ -263,7 +265,7 @@ func (l *Lab) StartStateStore(ctx context.Context, s Scenario) (string, error) {
 	h := l.p.Hosts[RoleStateStore]
 	server := []string{l.p.Services.StateStoreServer}
 	if l.p.Services.StateStoreServer == "" {
-		who, err := owner(ctx, ss)
+		who, err := Owner(ctx, ss)
 		if err != nil {
 			return "", err
 		}

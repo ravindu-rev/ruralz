@@ -31,6 +31,10 @@ const (
 	idleTimeout       = 120 * time.Second
 	routeDeadline     = 10 * time.Second
 	preRoutingWrite   = 5 * time.Second
+	// routeGrace is how far past the Route deadline the body read and
+	// response write deadlines lie, the pre-routing write deadline's 5 s,
+	// so the Node writes the 504 the Route deadline produces.
+	routeGrace = preRoutingWrite
 	// expirySlack is how late an expiry may come (target).
 	expirySlack = 2 * time.Second
 	// deadlineWait bounds the wait for one expiry, a hang guard only.
@@ -42,8 +46,10 @@ const (
 // value and its value plus 2 s: ReadHeaderTimeout 10 s (which net/http also
 // applies to the TLS handshake), IdleTimeout 120 s, the body read and
 // response write deadlines (10 s from admission, then the Route timeout,
-// here 10 s), whose expiry resets the HTTP/2 stream or closes the HTTP/1.1
-// connection, and the 5 s pre-routing write deadline. The Go runtime
+// here 10 s, plus 5 s), whose expiry resets the HTTP/2 stream or closes
+// the HTTP/1.1 connection, the 504 RZ-UP-003 an Upstream that never
+// answers gets at the Route timeout, and the 5 s pre-routing write
+// deadline. The Go runtime
 // enforces socket deadlines on the real clock in every build, so the
 // controllable-clock build changes nothing here. Afterwards no request
 // holds a pin: every blocked handler was freed. The test is not parallel
@@ -71,11 +77,12 @@ func TestTimeouts(t *testing.T) {
 			{"response-write/h1", func(t *testing.T, g *gateway) { caseWriteH1(t, g, h1) }},
 			{"response-write/h1tls", func(t *testing.T, g *gateway) { caseWriteH1(t, g, h1TLS) }},
 			{"response-write/h2c", func(t *testing.T, g *gateway) {
-				caseWriteH2(t, g, h2c, "/deadline/"+bBig+"?size=67108864", routeDeadline)
+				caseWriteH2(t, g, h2c, "/deadline/"+bBig+"?size=67108864", routeDeadline+routeGrace)
 			}},
 			{"response-write/h2", func(t *testing.T, g *gateway) {
-				caseWriteH2(t, g, h2TLS, "/deadline/"+bBig+"?size=67108864", routeDeadline)
+				caseWriteH2(t, g, h2TLS, "/deadline/"+bBig+"?size=67108864", routeDeadline+routeGrace)
 			}},
+			{"route-timeout", caseRouteTimeout},
 			{"pre-routing-write/h2c", func(t *testing.T, g *gateway) { caseWriteH2(t, g, h2c, "/no-route", preRoutingWrite) }},
 			{"pre-routing-write/h2", func(t *testing.T, g *gateway) { caseWriteH2(t, g, h2TLS, "/no-route", preRoutingWrite) }},
 		} {
@@ -176,8 +183,8 @@ func caseIdleH2(t *testing.T, g *gateway, p proto) {
 }
 
 // caseBodyReadH1 checks the body read deadline on HTTP/1.1: a body that
-// stops arriving is cut at the Route timeout, and the request aborts with
-// the connection closed and no response.
+// stops arriving is cut 5 s after the Route timeout, and the request aborts
+// with the connection closed and no response.
 func caseBodyReadH1(t *testing.T, g *gateway, p proto) {
 	start := time.Now()
 	c := g.dialH1(t, p)
@@ -189,12 +196,12 @@ func caseBodyReadH1(t *testing.T, g *gateway, p proto) {
 	if r.Status != 0 {
 		t.Errorf("response %v to a stalled body, want the connection closed without one", r)
 	}
-	wantExpiry(t, "the body read deadline", took, routeDeadline)
+	wantExpiry(t, "the body read deadline", took, routeDeadline+routeGrace)
 }
 
-// caseBodyReadH2 checks the body read deadline on HTTP/2: a body that stops
-// arriving resets its stream at the Route timeout, RST_STREAM on deadline
-// expiry.
+// caseBodyReadH2 checks the body read deadline on HTTP/2: a body that
+// stops arriving resets its stream 5 s after the Route timeout, RST_STREAM
+// on deadline expiry.
 func caseBodyReadH2(t *testing.T, g *gateway, p proto) {
 	start := time.Now()
 	c := g.dialH2(t, p)
@@ -211,12 +218,12 @@ func caseBodyReadH2(t *testing.T, g *gateway, p proto) {
 	if !r.WasReset {
 		t.Fatalf("response %v to a stalled body, want RST_STREAM", r)
 	}
-	wantExpiry(t, "the body read deadline", time.Since(start), routeDeadline)
+	wantExpiry(t, "the body read deadline", time.Since(start), routeDeadline+routeGrace)
 }
 
 // caseWriteH1 checks the response write deadline on HTTP/1.1: a client
-// that stops reading a response larger than the socket buffers is cut at
-// the Route timeout, the connection closed. The client must not read
+// that stops reading a response larger than the socket buffers is cut 5 s
+// after the Route timeout, the connection closed. The client must not read
 // meanwhile, so the expiry is when the request's access record appears,
 // which the Node writes as the request ends; the record's own duration is
 // on the Node's clock, which the controllable-clock build holds still. The
@@ -235,7 +242,7 @@ func caseWriteH1(t *testing.T, g *gateway, p proto) {
 	if _, err := g.node.Process().WaitOutput(guard(t, deadlineWait), re); err != nil {
 		t.Fatalf("no access record of the stalled response: %v", err)
 	}
-	wantExpiry(t, "the response write deadline", time.Since(start), routeDeadline)
+	wantExpiry(t, "the response write deadline", time.Since(start), routeDeadline+routeGrace)
 	if !c.waitClosed(exchangeGuard) {
 		t.Error("the connection stayed open after the write deadline")
 	}
@@ -243,9 +250,9 @@ func caseWriteH1(t *testing.T, g *gateway, p proto) {
 
 // caseWriteH2 checks a write deadline on HTTP/2: with a zero stream window
 // the response's DATA cannot go out, and the stream resets when the
-// deadline expires, RST_STREAM on deadline expiry: the Route timeout for a
-// matched Route, the 5 s pre-routing deadline for a request that matches
-// none.
+// deadline expires, RST_STREAM on deadline expiry: 5 s after the Route
+// timeout for a matched Route, the 5 s pre-routing deadline for a request
+// that matches none.
 func caseWriteH2(t *testing.T, g *gateway, p proto, target string, deadline time.Duration) {
 	start := time.Now()
 	c := g.dialH2(t, p, h2Options{Settings: []http2.Setting{{ID: http2.SettingInitialWindowSize, Val: 0}}, NoWindowUpdate: true})
@@ -259,6 +266,70 @@ func caseWriteH2(t *testing.T, g *gateway, p proto, target string, deadline time
 		t.Fatalf("response %v, want response headers, then RST_STREAM", r)
 	}
 	wantExpiry(t, "the write deadline", time.Since(start), deadline)
+}
+
+// caseRouteTimeout checks the response a Route timeout produces: the
+// origin holds each request, the attempt runs until the Route deadline, as
+// the origin Upstreams make no retry, and the client gets 504 RZ-UP-003
+// then, on HTTP/1.1 and HTTP/2, which the write deadline 5 s later leaves
+// time to write, and no RST_STREAM. The Route deadline fires on the Node's
+// clock and the socket deadlines on the real one, which a release build's
+// one clock reaches together; on the controllable clock the case moves the
+// Node's clock to the Route deadline once that much real time passed. The
+// four requests go out together from this one case, their answers read on
+// goroutines rather than in subtests, which the test's parallelism could
+// start later, so the one move fires every request's deadline, none early.
+func caseRouteTimeout(t *testing.T, g *gateway) {
+	type outcome struct {
+		p    proto
+		r    *response
+		took time.Duration
+	}
+	start := time.Now()
+	ctx := guard(t, deadlineWait)
+	out := make(chan outcome, 4)
+	for _, p := range []proto{h1, h1TLS} {
+		c := g.dialH1(t, p)
+		defer c.close()
+		req := request{Target: "/deadline/" + bHold, Header: withCase(g.origin.newCase())}
+		c.write(req.h1Bytes(g.addr(p)))
+		go func() {
+			r := c.read(ctx, req.method())
+			out <- outcome{p: p, r: r, took: time.Since(start)}
+		}()
+	}
+	for _, p := range []proto{h2c, h2TLS} {
+		c := g.dialH2(t, p)
+		id := c.newStream()
+		if err := c.writeHeaders(id, request{Target: "/deadline/" + bHold, Header: withCase(g.origin.newCase())}.h2Fields(p, g.addr(p)), true); err != nil {
+			t.Fatal(err)
+		}
+		go func() {
+			r := c.collect(ctx, id)
+			out <- outcome{p: p, r: r, took: time.Since(start)}
+		}()
+	}
+	if g.top.TestClock() {
+		timer := time.NewTimer(time.Until(start.Add(routeDeadline)))
+		select {
+		case <-ctx.Done():
+		case <-timer.C:
+			if err := g.top.Advance(ctx, routeDeadline); err != nil {
+				t.Errorf("advance the Node's clock to the Route deadline: %v", err)
+			}
+		}
+		timer.Stop()
+	}
+	for range 4 {
+		o := <-out
+		t.Run(o.p.String(), func(t *testing.T) {
+			if o.r.WasReset {
+				t.Fatalf("response %v at the Route timeout, want 504 without RST_STREAM", o.r)
+			}
+			wantProblem(t, o.r, http.StatusGatewayTimeout, "RZ-UP-003")
+			wantExpiry(t, "the Route timeout", o.took, routeDeadline)
+		})
+	}
 }
 
 // newTraceID returns a random W3C trace ID.

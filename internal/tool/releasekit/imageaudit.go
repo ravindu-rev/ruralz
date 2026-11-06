@@ -151,7 +151,9 @@ func verifyImage(a *audit, dir, layout string, m *manifest, repo repoFiles, linu
 // platform, USER 65532:65532, the exposed ports, the entrypoint, the OCI
 // labels) and its exported file system (ruralzd byte-equal to the linux
 // archive's binary, the CA bundle, LICENSE, NOTICE and THIRD_PARTY_LICENSES
-// as built, the data directory owner-only for 65532, and no other file).
+// as built, the data directory owner-only for 65532, every directory above
+// them 0755 and owned by root, so user 65532 reaches the files and writes
+// none of the directories, and no other file).
 func platformProblems(p *imagePlatform, platform string, m *manifest, repo repoFiles, arch archived) []string {
 	var out []string
 	c := p.Config
@@ -189,8 +191,8 @@ func platformProblems(p *imagePlatform, platform string, m *manifest, repo repoF
 				out = append(out, fmt.Sprintf("%s differs from %s", name, imageSource(name)))
 			}
 		case dirs[name]:
-			if !e.Dir {
-				out = append(out, fmt.Sprintf("%s is %s, want a directory", name, describe(e)))
+			if !e.Dir || e.Mode != 0o755 || e.UID != 0 || e.GID != 0 {
+				out = append(out, fmt.Sprintf("%s is %s, want a directory of mode 0755 owned by 0:0", name, describe(e)))
 			}
 		default:
 			out = append(out, fmt.Sprintf("unexpected %s", name))

@@ -19,14 +19,25 @@ import (
 // costFacts are what the cost bounds of docs/architecture/02-configuration-model.md
 // "Limits" need of a checked expression beyond cel-go's estimate: the
 // values reached from a Ruralz variable, the only values an input cap
-// bounds, and the field selections cel-go's estimator does not charge.
+// bounds, and the units cel-go's runtime charges and its estimator does
+// not.
 //
 // cel-go's runtime charges one unit for every field selection, but its
 // estimator charges none for selecting a field of a dyn value, such as a
 // JSON body or the claims (checker's costSelect charges map, object and
 // type-parameter operands only), so its estimate falls one unit short for
-// each such selection evaluated. bound adds them back, so both the static
-// estimate and the capped bound are upper bounds of the runtime cost.
+// each such selection evaluated. Its planner qualifies an attribute
+// operand, an identifier, a selection, an index or a conditional, in
+// place, but evaluates a selection, presence test or index of any other
+// operand, such as a list or map literal, a call or a comprehension, as a
+// relative attribute over that operand (interpreter's planSelect and
+// planCallIndex), and its runtime charges that attribute one more unit per
+// evaluation, which the estimator leaves out: `[][0]` costs 12 units and
+// is estimated at 11. bound adds these units back, so the static estimate
+// and the capped bound are both upper bounds of the runtime cost. A
+// relative attribute that cel-go evaluates without charging its unit, as
+// an index key or a conditional branch, is counted all the same, which
+// only raises the bounds.
 type costFacts struct {
 	// paths maps the ID of each expression whose value is reached from an
 	// unshadowed Ruralz variable through field selections, indexing and
@@ -39,17 +50,20 @@ type costFacts struct {
 	paths map[int64][]string
 	// ranges maps each comprehension's ID to its range.
 	ranges map[int64]ast.Expr
-	// uncounted are the selections the estimator does not charge.
-	uncounted []uncountedSelect
+	// uncounted are the units the estimator does not charge.
+	uncounted []uncountedUnit
 }
 
-// uncountedSelect is one selection the estimator does not charge.
-type uncountedSelect struct {
-	// loops are the comprehensions whose loop evaluates the selection once
-	// per iteration, outermost first.
+// uncountedUnit is one unit the estimator does not charge: a selection of
+// a field of a dyn value or a relative attribute.
+type uncountedUnit struct {
+	// loops are the comprehensions whose loop evaluates the unit once per
+	// iteration, outermost first.
 	loops []int64
-	// chain counts the uncounted selections from this one down through its
-	// operands, itself included: in a.b.c over a dyn a, c's chain is two.
+	// chain counts the uncounted units from this one down through its
+	// operands, itself included: in a.b.c over a dyn a, c's chain is two,
+	// and in dyn(m).a.b over a map m, b's chain is three, counting the
+	// relative attribute over dyn(m).
 	chain uint64
 }
 
@@ -72,7 +86,8 @@ type factWalker struct {
 	locals []local
 	// loops are the comprehensions whose loop encloses the walk.
 	loops []int64
-	// chains holds the chain of each uncounted selection by ID.
+	// chains holds the chain of each uncounted selection, and of each
+	// operand a relative attribute is built over, by ID.
 	chains map[int64]uint64
 }
 
@@ -101,6 +116,7 @@ func (w *factWalker) walk(e ast.Expr) {
 			w.walk(arg)
 		}
 		if c.FunctionName() == operators.Index && len(args) == 2 {
+			w.relative(args[0])
 			if p, ok := w.facts.paths[args[0].ID()]; ok {
 				entry := "@items"
 				if t := w.a.GetType(args[0].ID()); t.Kind() == types.MapKind {
@@ -146,12 +162,14 @@ func (w *factWalker) ident(e ast.Expr) {
 	}
 }
 
-// selection extends its operand's path and records a selection the
-// estimator does not charge. A presence test is charged as at runtime.
+// selection records the relative attribute over its operand, extends the
+// operand's path and records a selection the estimator does not charge. A
+// presence test's own unit is charged as at runtime.
 func (w *factWalker) selection(e ast.Expr) {
 	sel := e.AsSelect()
 	op := sel.Operand()
 	w.walk(op)
+	w.relative(op)
 	if sel.IsTestOnly() {
 		return
 	}
@@ -163,7 +181,37 @@ func (w *factWalker) selection(e ast.Expr) {
 	}
 	chain := w.chains[op.ID()] + 1
 	w.chains[e.ID()] = chain
-	w.facts.uncounted = append(w.facts.uncounted, uncountedSelect{loops: slices.Clone(w.loops), chain: chain})
+	w.facts.uncounted = append(w.facts.uncounted, uncountedUnit{loops: slices.Clone(w.loops), chain: chain})
+}
+
+// relative records the relative attribute cel-go builds over op, the
+// operand of a selection or index, when op is not an attribute: a unit per
+// evaluation the estimator does not charge. The unit starts op's chain, as
+// the attribute is evaluated once per evaluation of op, with every
+// uncounted selection that qualifies it.
+func (w *factWalker) relative(op ast.Expr) {
+	if attribute(op) {
+		return
+	}
+	w.chains[op.ID()] = 1
+	w.facts.uncounted = append(w.facts.uncounted, uncountedUnit{loops: slices.Clone(w.loops), chain: 1})
+}
+
+// attribute reports an operand cel-go's planner qualifies in place: an
+// identifier, a selection, an index or a conditional. An identifier or
+// selection the checker resolves to a type or an enum constant plans as a
+// constant instead, but no such value type-checks as the operand of a
+// selection or index.
+func attribute(e ast.Expr) bool {
+	switch e.Kind() {
+	case ast.IdentKind, ast.SelectKind:
+		return true
+	case ast.CallKind:
+		fn := e.AsCall().FunctionName()
+		return fn == operators.Index || fn == operators.Conditional
+	default:
+		return false
+	}
 }
 
 // comprehension records the range and scopes the variables: the iteration
@@ -214,12 +262,13 @@ func appendPath(p []string, elem string) []string {
 }
 
 // bound returns the most an evaluation can cost: est, cel-go's estimate
-// with sizes from e, plus one unit per evaluation of an uncounted
-// selection. A selection inside loops whose ranges e sizes is evaluated at
-// most once per iteration of each. For one inside a loop e cannot size,
-// the base its chain selects from, an identifier, a charged selection or a
-// call, costs at least one unit per evaluation in est, so the chain's
-// length times est bounds those evaluations.
+// with sizes from e, plus one unit per evaluation of an uncounted unit. A
+// unit inside loops whose ranges e sizes is evaluated at most once per
+// iteration of each. For one inside a loop e cannot size, the base its
+// chain starts from, an identifier, a charged selection, a call, a list,
+// map or object literal or a comprehension, costs at least one unit per
+// evaluation in est, so the chain's length times est bounds those
+// evaluations.
 func (f *costFacts) bound(a *ast.AST, est checker.CostEstimate, e checker.CostEstimator) uint64 {
 	if len(f.uncounted) == 0 {
 		return est.Max

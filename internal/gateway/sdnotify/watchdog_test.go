@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -136,14 +137,8 @@ func (d *dog) tick(t *testing.T) {
 // wantPings checks the ping times, as offsets from the start.
 func (d *dog) wantPings(t *testing.T, offsets ...time.Duration) {
 	t.Helper()
-	got := d.pinger.pings()
-	if len(got) != len(offsets) {
-		t.Fatalf("%d pings at %v, want %d at %v", len(got), d.offsets(got), len(offsets), offsets)
-	}
-	for i, at := range got {
-		if at.Sub(d.start) != offsets[i] {
-			t.Fatalf("pings at %v, want %v", d.offsets(got), offsets)
-		}
+	if got := d.offsets(d.pinger.pings()); !slices.Equal(got, offsets) {
+		t.Fatalf("%d pings at %v, want %d at %v", len(got), got, len(offsets), offsets)
 	}
 }
 
@@ -255,20 +250,42 @@ func TestWatchdogPingsEveryHalfInterval(t *testing.T) {
 }
 
 // TestWatchdogPingsWhileEveryPartRuns checks the condition of the T5
-// watchdog: no ping before every part ran, then a ping every half
+// watchdog: the first ping once every part ran, then a ping every half
 // interval while every part's probe succeeds.
 func TestWatchdogPingsWhileEveryPartRuns(t *testing.T) {
 	admin, retirer := newProbeCtl(), newProbeCtl()
 	d := runDog(t, Part{Name: "admin", Probe: admin.probe}, Part{Name: "retirer", Probe: retirer.probe})
 	d.answer(t, "admin", admin)
 	d.answer(t, "retirer", retirer)
-	d.wantPings(t)
+	waitFor(t, "the first ping", func() bool { return len(d.pinger.pings()) == 1 })
 	for range 3 {
 		d.tick(t)
 		d.answer(t, "admin", admin)
 		d.answer(t, "retirer", retirer)
 	}
-	d.wantPings(t, 15*time.Second, 30*time.Second, 45*time.Second)
+	d.wantPings(t, 0, 15*time.Second, 30*time.Second, 45*time.Second)
+}
+
+// TestWatchdogFirstPingOnceEveryPartRan checks the first ping: it goes as
+// soon as the last part's first probe succeeded, within the first half
+// interval, not at the next tick, so a handover successor's watchdog,
+// started once it took the lock, pings before the service manager's timer
+// that its predecessor's last ping set runs out; the half-interval
+// cadence follows.
+func TestWatchdogFirstPingOnceEveryPartRan(t *testing.T) {
+	admin, retirer := newProbeCtl(), newProbeCtl()
+	d := runDog(t, Part{Name: "admin", Probe: admin.probe}, Part{Name: "retirer", Probe: retirer.probe})
+	d.answer(t, "admin", admin) // 0 s: the retirer has not run
+	reply := recv(t, "a retirer probe", retirer.calls)
+	d.clk.Advance(5 * time.Second)
+	reply <- nil // 5 s: every part ran
+	d.settle(t, "retirer")
+	waitFor(t, "the first ping", func() bool { return len(d.pinger.pings()) == 1 })
+	d.wantPings(t, 5*time.Second)
+	waitFor(t, "the tick timer", func() bool { return d.clk.Pending() == 1 })
+	d.clk.Advance(10 * time.Second) // 15 s: the second tick
+	waitFor(t, "the second ping", func() bool { return len(d.pinger.pings()) == 2 })
+	d.wantPings(t, 5*time.Second, 15*time.Second)
 }
 
 // TestWatchdogStopsWhileAPartHangs checks that a part whose probe stops
@@ -278,7 +295,8 @@ func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 	fine, stuck := newProbeCtl(), newProbeCtl()
 	d := runDog(t, Part{Name: "fine", Probe: fine.probe}, Part{Name: "stuck", Probe: stuck.probe})
 	d.answer(t, "fine", fine)
-	d.answer(t, "stuck", stuck) // last success at 0 s
+	d.answer(t, "stuck", stuck) // last success at 0 s: the first ping
+	waitFor(t, "the first ping", func() bool { return len(d.pinger.pings()) == 1 })
 
 	d.tick(t) // 15 s: ping; the stuck probe hangs from here
 	d.answer(t, "fine", fine)
@@ -289,7 +307,7 @@ func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 	d.answer(t, "fine", fine)
 	d.tick(t) // 60 s: no ping
 	d.answer(t, "fine", fine)
-	d.wantPings(t, 15*time.Second, 30*time.Second)
+	d.wantPings(t, 0, 15*time.Second, 30*time.Second)
 	if n := d.logs.count("ERROR", "watchdog part has not run within the interval", "part=stuck"); n != 1 {
 		t.Errorf("%d records of the stuck part, want 1", n)
 	}
@@ -299,7 +317,7 @@ func TestWatchdogStopsWhileAPartHangs(t *testing.T) {
 	d.tick(t) // 75 s: ping
 	d.answer(t, "fine", fine)
 	d.answer(t, "stuck", stuck)
-	d.wantPings(t, 15*time.Second, 30*time.Second, 75*time.Second)
+	d.wantPings(t, 0, 15*time.Second, 30*time.Second, 75*time.Second)
 }
 
 // TestWatchdogNeverRunPartBlocksPings checks that a part that never ran
@@ -401,8 +419,9 @@ func (p *attemptPinger) Watchdog(ctx context.Context) error {
 	return err
 }
 
-// TestWatchdogThroughHeldNotifier checks a handover successor's watchdog:
-// its pings are held back until MainPID, then reach the service manager.
+// TestWatchdogThroughHeldNotifier checks a Watchdog pinging through a held
+// Notifier, as a handover successor's is until it takes the lock: its
+// pings are held back until MainPID, then reach the service manager.
 func TestWatchdogThroughHeldNotifier(t *testing.T) {
 	s := newSink(t)
 	n, _ := openNotifier(t, s, true)

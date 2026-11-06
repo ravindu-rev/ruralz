@@ -89,11 +89,11 @@ type Factory struct {
 var _ filter.Factory = Factory{}
 
 // Build compiles one quota Policy: config.key and config.cost at their
-// places (RZ-CFG-014, RZ-CFG-015), and a placement where the Policy
-// decides, onRequestHeaders at Gateway or Route scope (RZ-CFG-020). The
-// default key, consumer.name, reads the Consumer's name without a
-// program, and the default cost needs none. An ended ctx is its error,
-// without a code.
+// places (RZ-CFG-014, RZ-CFG-015), either empty being RZ-CFG-005, and a
+// placement where the Policy decides, onRequestHeaders at Gateway or Route
+// scope (RZ-CFG-020). The default key, consumer.name, reads the Consumer's
+// name without a program, and the default cost needs none. An ended ctx is
+// its error, without a code.
 func (f Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -117,7 +117,7 @@ func (f Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter,
 	}
 	flt := &Filter{
 		name: name, quota: cfg.ConsumerQuota, cache: f.Cache, store: env.StateStore, enqueue: env.Enqueuer,
-		timeout: env.StateStoreTimeout, clock: env.Clock, open: true, emptyKey: statestore.DigestOf(""),
+		timeout: env.StateStoreTimeout, clock: env.Clock, open: true,
 	}
 	if flt.clock == nil {
 		flt.clock = clock.Real()
@@ -141,8 +141,11 @@ func (f Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter,
 }
 
 // compile compiles config.key and config.cost: the default key reads the
-// Consumer's name, an empty key puts every request in one partition, and
-// the default cost is 1; none of them needs a program.
+// Consumer's name and the default cost is 1, neither with a program. An
+// empty key or cost is RZ-CFG-005, the finding stage F reports for an
+// empty expression in any CEL field
+// (docs/architecture/02-configuration-model.md "Allowed places"), so
+// Build never reads one as a default or as a key value.
 func (flt *Filter) compile(env filter.BuildEnv, cfg *v1alpha1.QuotaConfig) error {
 	key, cost := defaultKey, defaultCost
 	if cfg.Key != nil {
@@ -151,16 +154,21 @@ func (flt *Filter) compile(env filter.BuildEnv, cfg *v1alpha1.QuotaConfig) error
 	if cfg.Cost != nil {
 		cost = *cfg.Cost
 	}
+	switch {
+	case key == "":
+		return errcode.Errorf(CodeConfig, "quota: config.key is empty")
+	case cost == "":
+		return errcode.Errorf(CodeConfig, "quota: config.cost is empty")
+	}
 	flt.keyIsName = key == defaultKey
-	needKey := !flt.keyIsName && key != ""
-	if !needKey && cost == defaultCost {
+	if flt.keyIsName && cost == defaultCost {
 		return nil
 	}
 	if env.CEL == nil {
 		return ErrNoCEL
 	}
 	var err error
-	if needKey {
+	if !flt.keyIsName {
 		if flt.key, err = compileAt(env, expr.PlaceQuotaKey, "config.key", key); err != nil {
 			return err
 		}
@@ -210,12 +218,10 @@ type Filter struct {
 	// open is failureMode open.
 	open bool
 	// keyIsName reads the Consumer's name for the default key; key is the
-	// compiled config.key otherwise, nil for an empty key (emptyKey). cost
-	// is nil for the default cost.
+	// compiled config.key otherwise. cost is nil for the default cost.
 	keyIsName bool
 	key       expr.Program
 	cost      expr.Program
-	emptyKey  statestore.Digest
 	// nameHash identifies config.consumerQuota in the denial cache.
 	nameHash uint64
 	// The registered statuses of the 429 and 403 codes.
@@ -479,17 +485,14 @@ func quotaOf(c *expr.Consumer, name string) (v1alpha1.Quota, bool) {
 // window of at least 1 ms or a calendar month.
 func (flt *Filter) evaluate(ctx context.Context, v *expr.Vars, c *expr.Consumer, st *reqState) error {
 	var first error
-	switch {
-	case flt.keyIsName:
+	if flt.keyIsName {
 		st.digest = digestOf(c.Name)
-	case flt.key != nil:
+	} else {
 		s, err := flt.key.EvalString(ctx, v)
 		if err != nil {
 			first = classify(err)
 		}
 		st.digest = digestOf(s)
-	default:
-		st.digest = flt.emptyKey
 	}
 	st.cost = 1
 	if flt.cost != nil {

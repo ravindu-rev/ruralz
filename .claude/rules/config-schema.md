@@ -42,7 +42,7 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 | `required` | field | Adds to the parent's `required` |
 | `secret` | field | `x-ruralz-secret`; no `${VAR}` substitution |
 | `ref=<Kind>` | field | `x-ruralz-ref`; value must be a Kind constant |
-| `cel=<vars>:<bool\|string\|int\|dyn>` | field | `x-ruralz-cel` |
+| `cel=<vars>:<bool\|string\|int\|dyn>` | field | `x-ruralz-cel` and `minLength: 1`: an empty expression is RZ-CFG-005; a CEL field takes no `minLength` marker of its own |
 | `list=<map\|orderedMap\|set\|atomic>[,key=<field>]` | slice field | `x-ruralz-list`; `map` and `orderedMap` need a key, `set` and `atomic` must not have one |
 | `impact=<classes>` | field | `x-ruralz-impact` |
 | `since=<n>` | field | `x-ruralz-since`, n of 1 or more |

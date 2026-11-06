@@ -54,15 +54,19 @@
 // when that Bundle's Gateway parses, else Last-Known-Good's, else 9901
 // (probe-bound, listening and pinned at once, so /healthz and /readyz
 // answer during the boot), boots by the file-mode order (the source, else
-// Last-Known-Good, else not ready) and sends READY=1 after its first boot
-// attempt, ready or not. A process that finds a live lock holder is a
-// handover successor (Linux): it binds the admin port of the holder's
-// candidate without listening, boots that candidate with its sockets
-// bound and not listening, then runs the handover gate
-// (internal/gateway/handover); once it takes the lock it watches the
-// source and serves the handover socket in its turn. A refused or lost
-// handover ends the process with exit 1. A boot that cannot bind its admin
-// port exits 1.
+// Last-Known-Good, else not ready), starts its watchdog when its
+// environment enables one and sends READY=1 after its first boot attempt,
+// ready or not. A process that finds a live lock holder is a handover
+// successor (Linux): it binds the admin port of the holder's candidate
+// without listening, boots that candidate with its sockets bound and not
+// listening, then runs the handover gate (internal/gateway/handover). Once
+// it has taken the lock and sent MAINPID=, it starts its watchdog, with
+// its own interval when its environment enables one, else with the
+// interval its holder's accepted message carried, since systemd gives the
+// ExecReload= helper's child none; it then watches the source and serves
+// the handover socket in its turn, passing that interval on. A refused or
+// lost handover ends the process with exit 1. A boot that cannot bind its
+// admin port exits 1.
 //
 // # Supervision
 //
@@ -73,10 +77,10 @@
 // outside shutdown, is logged at error and starts a Drain on the
 // stop-signal timeline that ends with exit 1, so the process manager
 // restarts the Node (docs/architecture/03-data-plane.md "Process and
-// concurrency model"). The watchdog sends WATCHDOG=1 while the admin
-// server, the retirer and the activation loop each answered its probe
-// within the interval: the admin server's probe is a GET /healthz over
-// the admin socket.
+// concurrency model"). The watchdog sends WATCHDOG=1 as soon as the admin
+// server, the retirer and the activation loop each answered its probe,
+// then every half interval while each answered within the interval: the
+// admin server's probe is a GET /healthz over the admin socket.
 //
 // # Stop
 //

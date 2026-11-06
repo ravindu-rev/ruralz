@@ -52,28 +52,40 @@ func TestTargetHosts(t *testing.T) {
 	}
 }
 
-// TestCheckProfile: the reduced and nightly profiles run on the harness's
-// own host; the target profile needs its RH-1 inventory and then stops at
-// ErrTargetPlacement instead of gating target results on a placement it
-// does not have.
-func TestCheckProfile(t *testing.T) {
+// TestPlacementFor: the reduced and nightly profiles run on the harness's
+// own host; the target profile places its runs on the RH-1 inventory,
+// which it needs, rather than stopping before its first run.
+func TestPlacementFor(t *testing.T) {
+	var placed []*harness.Profile
+	place := func(p *harness.Profile) (*Placement, error) {
+		placed = append(placed, p)
+		return &Placement{Profile: p}, nil
+	}
 	for _, name := range []string{Reduced, Nightly} {
 		p, err := ParseProfile(name)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := checkProfile(p, inventoryEnv(t, "")); err != nil {
-			t.Errorf("checkProfile(%s) = %v, want nil", name, err)
+		if pl, err := placementFor(p, inventoryEnv(t, harness.ProfileRH1), place); pl != nil || err != nil {
+			t.Errorf("placementFor(%s) = %v, %v; want the harness's own host", name, pl, err)
 		}
+	}
+	if len(placed) != 0 {
+		t.Fatalf("placed %d inventories for the reduced and nightly profiles", len(placed))
 	}
 	target, err := ParseProfile(Target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := checkProfile(target, inventoryEnv(t, "")); err == nil || errors.Is(err, ErrTargetPlacement) {
-		t.Errorf("checkProfile(target) without an inventory = %v, want the missing inventory", err)
+	if _, err := placementFor(target, inventoryEnv(t, ""), place); err == nil || !strings.Contains(err.Error(), "names no inventory") {
+		t.Errorf("placementFor(target) without an inventory = %v, want the missing inventory", err)
 	}
-	if err := checkProfile(target, inventoryEnv(t, harness.ProfileRH1)); !errors.Is(err, ErrTargetPlacement) {
-		t.Errorf("checkProfile(target) on rh-1.json = %v, want ErrTargetPlacement", err)
+	pl, err := placementFor(target, inventoryEnv(t, harness.ProfileRH1), place)
+	if err != nil || pl == nil || len(placed) != 1 || placed[0].Name != harness.ProfileRH1 {
+		t.Fatalf("placementFor(target) on rh-1.json = %+v, %v (placed %d); want its placement on the RH-1 hosts", pl, err, len(placed))
+	}
+	failing := func(*harness.Profile) (*Placement, error) { return nil, errors.New("no ssh") }
+	if _, err := placementFor(target, inventoryEnv(t, harness.ProfileRH1), failing); err == nil || !strings.Contains(err.Error(), "no ssh") {
+		t.Errorf("placementFor with a failing placement = %v", err)
 	}
 }

@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore/keys"
-	"github.com/ravindu-rev/ruralz/internal/testkit/loadgen"
 	"github.com/ravindu-rev/ruralz/internal/testkit/promtext"
 	"github.com/ravindu-rev/ruralz/internal/testkit/topology"
+	"github.com/ravindu-rev/ruralz/test/bench/labhost/lab"
 )
 
 // FirstSeenBudget is the first-seen GCRA calls a file-mode Node makes per
@@ -48,12 +48,11 @@ func TestCE15KeyRotationFlood(t *testing.T) {
 	calls := r.StartCallLog(ctx, "main", PolicyFlood)
 	r.Begin(base)
 	bl := r.Hold(base, PhaseBaseline, Baseline)
-	floodKeys, err := loadgen.Rotate("flood-", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
 	fl := r.StartLoad(LoadSpec{Warmup: time.Millisecond, Duration: FaultPhase, Streams: []StreamSpec{
-		{Name: "flood", Path: PathFlood, Rate: flood, KeyHeader: KeyHeader, Keys: floodKeys, Counted: Decisions()},
+		{
+			Name: "flood", Path: PathFlood, Rate: flood, KeyHeader: KeyHeader,
+			Keys: &lab.KeySpec{Kind: lab.KeysRotate, Prefix: "flood-", PerKey: 1}, Counted: Decisions(),
+		},
 	}})
 	fault := r.Hold(base, PhaseFault, FaultPhase)
 	if err := fl.Wait(); err != nil {

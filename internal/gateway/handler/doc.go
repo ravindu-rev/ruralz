@@ -21,7 +21,9 @@
 // only around shutdown, gets 503 RZ-RT-016; one the ending protocol ends
 // as it pins, after the Drain deadline, gets 503 RZ-RT-016 without any
 // work. Body reads and response writes get 10 s deadlines at admission
-// (AdmissionWindow) and the Route timeout once the Route is fixed, set
+// (AdmissionWindow) and the Route timeout plus RouteGrace once the Route
+// is fixed, so the Route deadline alone ends the request and its 504 is
+// still written. They are set
 // through http.ResponseController under rec.Mu and never over deadlines
 // the ending protocol moved. The pin and metric stripe is the
 // connection's, offset by its request sequence.

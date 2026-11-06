@@ -153,7 +153,7 @@ func StartNode(ctx context.Context, p *Profile, s NodeSpec) (*Node, error) {
 	n.env = env
 	argv := p.Runner(RoleGateway).Argv([]string{s.Binary}, g.CPUs, s.ScopeProperties...)
 	n.cmd = exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // the harness starts the binary it built
-	n.cmd.Env = n.env
+	n.cmd.Env = scopedEnv(argv, n.env, os.Getenv)
 	n.cmd.Stdout, n.cmd.Stderr = io.Discard, n.errb
 	n.cmd.Cancel = func() error { return n.cmd.Process.Signal(syscall.SIGTERM) }
 	n.cmd.WaitDelay = nodeStopTimeout
@@ -538,6 +538,18 @@ func (n *Node) Stop(ctx context.Context) error {
 
 // Stderr returns the end of the Node's standard error.
 func (n *Node) Stderr() string { return n.errb.String() }
+
+// scopedEnv returns the environment of the local command argv, which
+// Runner.Argv composed: env, after the user manager's variables from
+// getenv when argv starts a systemd-run --user scope, which reaches the
+// user manager through them while env holds only the Node's own settings,
+// which follow so they win.
+func scopedEnv(argv, env []string, getenv func(string) string) []string {
+	if len(argv) == 0 || argv[0] != "systemd-run" {
+		return env
+	}
+	return append(proc.UserManagerEnv(getenv), env...)
+}
 
 // cgroupOf returns the cgroup v2 path of pid ("" when unknown).
 func cgroupOf(procRoot string, pid int) string {

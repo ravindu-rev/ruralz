@@ -36,6 +36,13 @@ const (
 	// gd5Tail is the end of the recovery over which the dropped writes
 	// return to the baseline's rate.
 	gd5Tail = 30 * time.Second
+	// gd5Await bounds the real time the env run waits, after a zone's
+	// restart, for each of its Nodes' first closed-Policy GCRA answer
+	// before it Drains the next zone. Node time runs no faster than real
+	// time meanwhile, so a Node still waiting then misses the bound.
+	gd5Await = 2 * ServingGCRA
+	// gd5AwaitPoll spaces that wait's reads of the stream's requests.
+	gd5AwaitPoll = 100 * time.Millisecond
 )
 
 // gd5Zones are the env run's zones, Drained and restarted in order.
@@ -95,9 +102,10 @@ func gd5(t *testing.T, variant string) {
 	r := suite.Start(t, spec)
 	ctx := r.Context()
 	// The env run's worst case: each zone's Drains and restarts, each
-	// bounded by the harness's kill time and readiness wait. The run stops
-	// the load after its recovery.
-	moves := time.Duration(len(gd5Zones())) * (topology.DefaultKillAfter + topology.DefaultReadyTimeout)
+	// bounded by the harness's kill time and readiness wait, and its wait
+	// for the zone's GCRA answers. The run stops the load after its
+	// recovery.
+	moves := time.Duration(len(gd5Zones())) * (topology.DefaultKillAfter + topology.DefaultReadyTimeout + gd5Await)
 	streams := plan.Streams()
 	if variant == gd5Env {
 		streams = append(streams, chaos.StreamSpec{
@@ -141,7 +149,7 @@ func gd5(t *testing.T, variant string) {
 	case gd5Env:
 		r.Inject("delete", primary.Name(), func() error { return primary.Kill(ctx) })
 		for _, zone := range gd5Zones() {
-			for n, at := range gd5Restart(ctx, t, r, zone, second.URL()) {
+			for n, at := range gd5Restart(ctx, t, r, l, zone, second.URL()) {
 				reached[n] = at
 			}
 		}
@@ -274,7 +282,9 @@ func gd5Serving(t *testing.T, r *chaos.Run, after string, closed []chaos.Request
 			worst = time.Duration(math.MaxInt64)
 			continue
 		}
-		worst = max(worst, r.NodeTime(first).Sub(r.NodeTime(at)))
+		d := r.NodeTime(first).Sub(r.NodeTime(at))
+		t.Logf("gameday: %s: %s first answered by GCRA %v of Node time (%v of real time) after %s", GD5, n, d, first.Sub(at), after)
+		worst = max(worst, d)
 		served = latest(served, first)
 	}
 	return chaos.Check("slowest Node's first GCRA answer after "+after+", seconds", chaos.Functional, worst.Seconds(), chaos.LE, ServingGCRA.Seconds()), served
@@ -346,8 +356,14 @@ func gd5Rotate(r *chaos.Run, url string) error {
 
 // gd5Restart Drains and restarts one zone's Nodes with the new URL in
 // their environment, as an env secret's value changes, and returns when
-// each was ready again, once the balancer has them all back.
-func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, zone, url string) map[string]time.Time {
+// each was ready again, once the balancer has them all back and each gave
+// its first closed-Policy GCRA answer since, or gd5Await passed. Stop
+// walks the one clock through a Drain in 1 s steps, so the next zone's
+// Drain inside the interval GD-5 bounds would count that walk, many times
+// faster than real time, as the Node's recovery; a returning Node takes
+// its first connections only as the balancer's slow start ramps it up.
+// An operator rolls the next zone once this one serves, too.
+func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, l *chaos.Load, zone, url string) map[string]time.Time {
 	t.Helper()
 	var ns []*topology.Node
 	for _, n := range r.Top.Nodes() {
@@ -379,6 +395,27 @@ func gd5Restart(ctx context.Context, t *testing.T, r *chaos.Run, zone, url strin
 	})
 	if err := r.HTTP.WaitHealthy(ctx, slices.Clone(names)...); err != nil {
 		t.Fatal(err)
+	}
+	// The gd5Fresh stream is the one whose requests reach a restarted
+	// Node; the criterion also counts the closed stream's.
+	node := nodeOf(r)
+	fresh := l.StreamNamed(gd5Fresh)
+	serving := func() bool {
+		reqs := fresh.Requests()
+		for n, at := range ready {
+			if _, ok := FirstGCRA(reqs, node, at)[n]; !ok {
+				return false
+			}
+		}
+		return true
+	}
+	deadline := time.Now().Add(gd5Await)
+	for !serving() && time.Now().Before(deadline) {
+		select {
+		case <-ctx.Done():
+			t.Fatal(ctx.Err())
+		case <-time.After(gd5AwaitPoll):
+		}
 	}
 	return ready
 }

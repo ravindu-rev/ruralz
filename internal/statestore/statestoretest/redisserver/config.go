@@ -120,9 +120,14 @@ type tlsFiles struct {
 
 // nodeConfig describes one redis-server process.
 type nodeConfig struct {
-	port     int
-	busPort  int // cluster bus port; 0 outside a cluster
-	dir      string
+	// bind is the address the server listens on; "" is loopback.
+	bind    string
+	port    int
+	busPort int // cluster bus port; 0 outside a cluster
+	dir     string
+	// base is the deployment's directory, which holds dir and the TLS
+	// files, and which a Host shares with a server it runs in a container.
+	base     string
 	tls      *tlsFiles
 	users    []User
 	primary  string // "host:port" of the primary of a replica
@@ -160,13 +165,21 @@ func (n nodeConfig) listener() []directive {
 	}
 }
 
+// bindAddr returns the address n listens on: bind, or loopback.
+func (n nodeConfig) bindAddr() string {
+	if n.bind == "" {
+		return loopback
+	}
+	return n.bind
+}
+
 // directives returns n's configuration, Config last.
 func (n nodeConfig) directives() ([]directive, error) {
 	if n.sentinel != nil {
 		return n.sentinelDirectives()
 	}
 	ds := []directive{
-		{"bind", "127.0.0.1"},
+		{"bind", n.bindAddr()},
 		{"dir", n.dir},
 		{"save", ""},
 		{"appendonly", "no"},
@@ -217,7 +230,7 @@ func (n nodeConfig) sentinelDirectives() ([]directive, error) {
 	if err != nil {
 		return nil, fmt.Errorf("redisserver: monitored address %q: %w", n.sentinel.primary, err)
 	}
-	ds := []directive{{"bind", "127.0.0.1"}, {"dir", n.dir}}
+	ds := []directive{{"bind", n.bindAddr()}, {"dir", n.dir}}
 	ds = append(ds, n.listener()...)
 	ds = append(ds, userDirectives(n.users)...)
 	ds = append(ds, sentinelMonitor(n.sentinel.masterSet, host, p)...)

@@ -5,11 +5,13 @@ package gameday
 
 import (
 	"bytes"
+	"context"
 	"maps"
 	"slices"
 	"strconv"
 	"time"
 
+	"github.com/ravindu-rev/ruralz/internal/clock"
 	"github.com/ravindu-rev/ruralz/test/chaos"
 )
 
@@ -231,4 +233,28 @@ func GOMAXPROCSOf(environ []byte) (int, bool) {
 		return n, err == nil && n > 0
 	}
 	return 0, false
+}
+
+// WaitNodeTime polls cond every poll of real time on wall until it holds
+// or node, the Nodes' clock, has moved d past its reading at the start,
+// and reports whether it held. A bound that comes from a timer on the
+// Nodes' clock, such as a failure backoff or a key set's half-life, holds
+// in Node time, which runs behind real time while the clock pump advances
+// late, so a real-time bound of d can end before the timer is due. A
+// real-time guard of half again d ends a wait on a clock that stopped.
+func WaitNodeTime(ctx context.Context, wall clock.Clock, node func() time.Time, poll, d time.Duration, cond func() bool) bool {
+	until, guard := node().Add(d), wall.Now().Add(d+d/2)
+	for !cond() {
+		if !node().Before(until) || !wall.Now().Before(guard) {
+			return false
+		}
+		t := wall.NewTimer(poll)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return false
+		case <-t.C():
+		}
+	}
+	return true
 }

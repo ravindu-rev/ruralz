@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 )
@@ -27,14 +26,18 @@ const (
 const usage = `usage: labhost <command> [flags]
 
 commands:
-  mock        the mock Upstream (-listen, -cert, -key, -body-size, -delay, -header)
+  mock        the mock Upstream (-listen, -cert, -key, -body-size, -delay, -header, -name)
   sink        the OTLP sink folding gateway_duration (-listen, -cert, -key)
   idp         the mock IdP (-listen, -cert, -key, -issuer, -keys)
   faultproxy  the fault proxy (-listen, -upstream, -mean, -stddev, -pass-first)
   conns       held client connections (-kind, -target, -count, -rate, -ca, -server-name, -host, -path, -header-bytes, -timeout)
   echo        the TCP echo of the round-trip check (-listen)
-  run         a supervised child that stops with the session (-ready ADDR -- COMMAND ARGS...)
+  run         a supervised child that stops with the session and takes signals on request
+              (-ready ADDR, -ready-line REGEXP, -container NAME -- COMMAND ARGS...)
+  load        the chaos runs' load: open-loop loads started on request, every request's record
+              kept until no load runs, then returned on request
   loadgen     one load generator run: a LoadSpec line on stdin, a LoadResult line on stdout
+  port        a TCP port free on the -listen address's host a moment ago, as JSON
   facts       the host's fingerprint and frequency and throttle state as JSON (-root)
   roundtrip   round trips to an echo service (-addr, -n): a histogram on stdout
 
@@ -68,8 +71,9 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 			header.Add(strings.TrimSpace(name), strings.TrimSpace(value))
 			return nil
 		})
+		name := fs.String("name", "", "the name every response carries in the mock's server header")
 		svc = func() (Service, error) {
-			return StartMock(ctx, MockConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, BodySize: *body, Delay: *delay, Header: header})
+			return StartMock(ctx, MockConfig{Listen: *listen, CertFile: *cert, KeyFile: *key, BodySize: *body, Delay: *delay, Header: header, Name: *name})
 		}
 	case "sink":
 		svc = func() (Service, error) {
@@ -106,6 +110,8 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 		svc = func() (Service, error) { return StartConns(ctx, c) }
 	case "run":
 		readyAddr := fs.String("ready", "", "TCP address the child serves on")
+		readyLine := fs.String("ready-line", "", "regular expression a line of the child's output matches once it serves")
+		container := fs.String("container", "", "the container the child runs (docker run --name), which signals reach through docker kill")
 		if err := fs.Parse(rest); err != nil {
 			return ExitUsage
 		}
@@ -114,7 +120,7 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 			return ExitUsage
 		}
 		argv := fs.Args()
-		s, err := StartChild(ctx, ChildConfig{Argv: argv, ReadyAddr: *readyAddr, Stderr: os.Stderr})
+		s, err := StartChild(ctx, ChildConfig{Argv: argv, ReadyAddr: *readyAddr, ReadyLine: *readyLine, Container: *container, Stderr: stderr})
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "labhost:", err)
 			return ExitError
@@ -124,6 +130,18 @@ func Main(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io
 			return ExitError
 		}
 		return ExitOK
+	case "load":
+		svc = func() (Service, error) { return NewLoadService(), nil }
+	case "port":
+		if err := fs.Parse(rest); err != nil {
+			return ExitUsage
+		}
+		port, err := FreePort(ctx, *listen)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "labhost:", err)
+			return ExitError
+		}
+		return writeJSON(stdout, stderr, map[string]int{"port": port})
 	case "loadgen":
 		if err := fs.Parse(rest); err != nil {
 			return ExitUsage

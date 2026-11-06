@@ -26,7 +26,7 @@ func TestSignalFreezesTheProcess(t *testing.T) {
 		t.Fatal(err)
 	}
 	s.mu.Lock()
-	pid := s.proc.PID()
+	pid := s.proc.(localProc).p.PID()
 	s.mu.Unlock()
 	waitStopped(t, pid)
 	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
@@ -45,6 +45,38 @@ func TestSignalFreezesTheProcess(t *testing.T) {
 	}
 	if err := s.Signal(os.Interrupt); err == nil {
 		t.Error("Signal to an exited redis-server succeeded")
+	}
+}
+
+// TestSignalOnHost checks Signal on a server a Host runs: SIGSTOP and
+// SIGCONT reach the server through its HostProcess, freezing and resuming
+// it with its socket open, and a signal after Kill fails.
+func TestSignalOnHost(t *testing.T) {
+	d := StartOn(t, newLabHost(t), Process, Options{})
+	s := d.Primary()
+	if err := s.Signal(syscall.SIGSTOP); err != nil {
+		t.Fatal(err)
+	}
+	s.mu.Lock()
+	pid := s.proc.(hostProc).p.(*labHostProc).p.PID()
+	s.mu.Unlock()
+	waitStopped(t, pid)
+	ctx, cancel := context.WithTimeout(t.Context(), 300*time.Millisecond)
+	defer cancel()
+	if v, err := s.Do(ctx, "PING"); err == nil {
+		t.Fatalf("PING to a stopped server on the host answered %+v", v)
+	}
+	if err := s.Signal(syscall.SIGCONT); err != nil {
+		t.Fatal(err)
+	}
+	if v := mustDo(t, s, "PING"); v.Str != "PONG" {
+		t.Errorf("PING after SIGCONT = %+v, want PONG", v)
+	}
+	if err := s.Kill(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Signal(syscall.SIGCONT); err == nil {
+		t.Error("Signal to a killed server on the host succeeded")
 	}
 }
 

@@ -429,7 +429,10 @@ func (c *ConsumerCaps) Add(cons *Consumer) {
 // Builder collects the programs of one snapshot. Compile is safe for
 // concurrent use by the loader's workers; Build is called once after.
 type Builder interface {
-	// Compile returns a program, or nil and at least one error Issue.
+	// Compile returns a program, or nil and at least one error Issue. An
+	// empty src is absent: nil and no Issue, so a caller compiles only a
+	// field that holds an expression, which validation requires of every
+	// CEL field present.
 	Compile(site Site, src string) (Program, []Issue)
 	// Build returns the set; the Builder is spent.
 	Build() ProgramSet

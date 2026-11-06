@@ -168,8 +168,13 @@ func (w *Watchdog) Interval() time.Duration { return w.interval }
 // once, it sends WATCHDOG=1 when every part's last probe succeeded within
 // the interval, the send bounded by the next tick, then starts the probe
 // of every part with none in flight, so a probe that hangs only keeps its
-// part from counting as run. Without an interval it returns at once. It
-// returns nil once ctx is done and every probe it started has returned.
+// part from counting as run. Until its first WATCHDOG=1, a tick sends one
+// as soon as every part has run, so the first follows the start by the
+// probes' time, not a half interval: a handover successor starts its
+// Watchdog once it took the lock, while the service manager's timer runs
+// from its predecessor's last ping, up to a half interval earlier.
+// Without an interval it returns at once. It returns nil once ctx is done
+// and every probe it started has returned.
 func (w *Watchdog) Run(ctx context.Context) error {
 	if w.interval <= 0 {
 		return nil
@@ -180,24 +185,23 @@ func (w *Watchdog) Run(ctx context.Context) error {
 	defer cancel()
 	half := w.interval / 2
 	started := w.clk.Now()
-	failing := false
+	// ran wakes the wait for the first ping when a probe succeeds.
+	ran := make(chan struct{}, 1)
+	pinged, failing := false, false
 	for {
 		// One timer per tick: it starts the next tick and ends this
 		// tick's send.
 		tick, endTick := context.WithCancel(ctx)
 		t := w.clk.AfterFunc(half, endTick)
-		if w.alive(ctx, started) {
-			err := w.pinger.Watchdog(tick)
-			switch {
-			case err != nil && !failing:
-				failing = true
-				w.log.WarnContext(ctx, "watchdog notification failed", catalog.KeyError, err.Error())
-			case err == nil && failing:
-				failing = false
-				w.log.InfoContext(ctx, "watchdog notification recovered")
-			}
+		sent := w.alive(ctx, started)
+		if sent {
+			failing = w.ping(ctx, tick, failing)
 		}
-		w.startProbes(ctx, &probes)
+		w.startProbes(ctx, &probes, ran)
+		if !sent && !pinged {
+			sent, failing = w.awaitFirst(ctx, tick, started, ran, failing)
+		}
+		pinged = pinged || sent
 		<-tick.Done()
 		if ctx.Err() != nil {
 			t.Stop()
@@ -205,6 +209,35 @@ func (w *Watchdog) Run(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+// awaitFirst waits, until tick ends, for every part to have run, then
+// sends the first WATCHDOG=1 within tick. It returns whether it sent one
+// and whether pings are failing.
+func (w *Watchdog) awaitFirst(ctx, tick context.Context, started time.Time, ran <-chan struct{}, failing bool) (sent, stillFailing bool) {
+	for {
+		select {
+		case <-ran:
+			if w.alive(ctx, started) {
+				return true, w.ping(ctx, tick, failing)
+			}
+		case <-tick.Done():
+			return false, failing
+		}
+	}
+}
+
+// ping sends WATCHDOG=1 within tick and returns whether it failed. A failure
+// is logged once until a ping succeeds again, which is logged too.
+func (w *Watchdog) ping(ctx, tick context.Context, failing bool) bool {
+	err := w.pinger.Watchdog(tick)
+	switch {
+	case err != nil && !failing:
+		w.log.WarnContext(ctx, "watchdog notification failed", catalog.KeyError, err.Error())
+	case err == nil && failing:
+		w.log.InfoContext(ctx, "watchdog notification recovered")
+	}
+	return err != nil
 }
 
 // alive reports whether every part's last probe succeeded within the
@@ -231,8 +264,9 @@ func (w *Watchdog) alive(ctx context.Context, started time.Time) bool {
 }
 
 // startProbes starts the probe of every part with none in flight; each
-// records its success time on the Watchdog's clock.
-func (w *Watchdog) startProbes(ctx context.Context, probes *sync.WaitGroup) {
+// records its success time on the Watchdog's clock and then signals ran
+// without blocking.
+func (w *Watchdog) startProbes(ctx context.Context, probes *sync.WaitGroup, ran chan<- struct{}) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	for _, p := range w.parts {
@@ -245,8 +279,13 @@ func (w *Watchdog) startProbes(ctx context.Context, probes *sync.WaitGroup) {
 			w.mu.Lock()
 			defer w.mu.Unlock()
 			p.running = false
-			if err == nil {
-				p.ok, p.last = true, w.clk.Now()
+			if err != nil {
+				return
+			}
+			p.ok, p.last = true, w.clk.Now()
+			select {
+			case ran <- struct{}{}:
+			default:
 			}
 		})
 	}
