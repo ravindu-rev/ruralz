@@ -23,7 +23,7 @@ import (
 // Differential tests against the standard library's RFC 8785
 // implementation, jsontext.Value.Canonicalize. Production code cannot
 // import jsontext under go 1.26.0, so it serves only as this go1.27
-// oracle; the Go 1.26 floor job skips the file.
+// oracle; a Go 1.26 build skips the file.
 
 // oracle canonicalizes data with jsontext.
 func oracle(data []byte) ([]byte, error) {

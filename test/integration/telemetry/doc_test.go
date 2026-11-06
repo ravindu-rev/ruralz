@@ -3,7 +3,8 @@
 
 // Package telemetry is the telemetry Node integration suite
 // (docs/engineering/03-testing-and-quality-strategy.md "Integration
-// tests"): under the integration build tag, in stage 8, it drives the
+// tests"): under the integration build tag, in the PR pipeline's
+// integration job, it drives the
 // controllable-clock ruralzd build of internal/testkit/binaries through the
 // process harness of internal/testkit/topology over real sockets, with
 // the in-process collector of internal/testkit/otlpsink. It covers a Hot

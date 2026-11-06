@@ -3,7 +3,8 @@
 
 // Package cel is the CEL Node integration suite
 // (docs/engineering/03-testing-and-quality-strategy.md "Integration
-// tests"): under the integration build tag, in stage 8, it drives the
+// tests"): under the integration build tag, in the PR pipeline's
+// integration job, it drives the
 // controllable-clock ruralzd build of internal/testkit/binaries through the
 // process harness of internal/testkit/topology over real sockets. Every M1
 // place of docs/architecture/02-configuration-model.md "Allowed places"

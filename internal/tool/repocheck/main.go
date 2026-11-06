@@ -1,8 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Command repocheck runs the repository checks no linter covers (CI stage 1,
-// docs/engineering/02-repository-layout-and-conventions.md):
+// Command repocheck runs the repository checks no linter covers, which the
+// unit tests run on the repository through TestRepositoryIsClean
+// (docs/engineering/02-repository-layout-and-conventions.md, "Ruralz-specific
+// checks"):
 //
 //   - cmd/ holds wiring only: one main.go per binary with only func main;
 //   - no file imports "C";

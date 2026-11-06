@@ -21,7 +21,7 @@ Authority: `docs/engineering/02-repository-layout-and-conventions.md`. The hard 
 package x
 ```
 
-- A build constraint goes after the header and a blank line. Build tags are only platform, Go version, `goexperiment`, the test-only tags `integration`, `e2e`, `t5` and `compose` on `_test.go` files, and `ruralz_testclock` on the `internal/clock` pair that picks the process clock for the controllable-clock `ruralzd` test build; never feature tags.
+- A build constraint goes after the header and a blank line. Build tags are only platform, Go version, `goexperiment`, the test-only tag `integration` on `_test.go` files, and `ruralz_testclock` on the `internal/clock` pair that picks the process clock for the controllable-clock `ruralzd` test build; never feature tags.
 - Packages are lower-case, singular, no underscores, never `util`, `common` or `misc`. Files are `lower_snake.go` with tests beside them.
 - Imports: standard library, third-party, then `github.com/ravindu-rev/ruralz/...`, groups separated by a blank line (`make fmt`: goimports, then gofumpt).
 - Doc comments are full sentences starting with the identifier; exported identifiers are documented. American spelling (`license`, never `licence`). Comments explain why.
@@ -59,10 +59,10 @@ A new module needs, in the same change, a row in `docs/engineering/01-tech-stack
 - Tests live beside the code in the same package, use only the standard `testing` package and carry the license header.
 - Style: table tests with named cases, `t.Errorf("Func(%q) = %v, want %v", ...)`, `t.Fatal` for setup failures, `t.Helper()`, `t.Context()`, `t.TempDir()`, `os.WriteFile(..., 0o600)`. Do not combine `t.Parallel()` with `t.Setenv`.
 - Inject time and randomness as fakes.
-- Repository-wide tests read the real tree: repocheck `TestRepositoryIsClean` (scans untracked files too, so keep scratch files out of the tree), errcode `TestMatchesDocs`, schemagen `TestCommittedSchemaIsCurrent`, depgate `TestRepositoryPasses`, commitcheck `TestDocSlugs` and `TestRunUsage`, registry tests that parse foundation pack section 10.
+- Repository-wide tests read the real tree: repocheck `TestRepositoryIsClean` (scans untracked files too, so keep scratch files out of the tree), errcode `TestMatchesDocs`, schemagen `TestCommittedSchemaIsCurrent`, depgate `TestRepositoryPasses`, registry tests that parse foundation pack section 10.
 - A fake `RZ` code in a test is split so it is not one string literal (`"RZ-RT-" + "999"`); prefer a registered code.
 - Golden files go under `testdata/` with LF endings.
 
 ## Go version
 
-`go.mod` says `go 1.26.10` and a `toolchain` line. The floor job builds and tests on Go 1.26 with `GOEXPERIMENT=jsonv2`, so never use standard library APIs added in Go 1.27; `internal/buildinfo/floor_guard.go` breaks a Go 1.26 build without `GOEXPERIMENT=jsonv2` on purpose.
+`go.mod` says `go 1.26.10` and a `toolchain` line, so never use standard library APIs added in Go 1.27: vet's `stdversion` check in `make lint` reports them. `internal/buildinfo/floor_guard.go` breaks a Go 1.26 build without `GOEXPERIMENT=jsonv2` on purpose.

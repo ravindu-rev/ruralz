@@ -9,18 +9,18 @@
 # checksum database verifies (docs/engineering/02-repository-layout-and-conventions.md,
 # docs/engineering/01-tech-stack-and-libraries.md "CI tooling").
 #
-#   golangci-lint  stage 2 lint and format
-#   govulncheck    stage 6 supply chain
-#   actionlint     stage 2 workflow lint
-#   shellcheck     stage 2, the shell checks actionlint runs on the workflows'
-#                  run steps, the same version on every host
-#   promtool       stage 8 alert rule checks (from the Prometheus release archive)
-#   oha, vegeta    stage 11 Latency job load tools
-#   cosign, syft   stage 12 keyless signing and CycloneDX SBOMs
+#   golangci-lint  make lint: lint and format
+#   govulncheck    make supply-chain
+#   actionlint     make lint: workflow lint, running the pinned shellcheck
+#                  on the workflows' run steps, the same version on every
+#                  host
+#   promtool       make integration: the alert rule tests (from the
+#                  Prometheus release archive)
+#   cosign, syft   the release: keyless signing and CycloneDX SBOMs
 #
 # Pins cover linux and darwin on amd64 and arm64. The SHA-256 values come
-# from each release's checksums file; oha and shellcheck publish none, so
-# their values were recorded from the release assets when the version was
+# from each release's checksums file; shellcheck publishes none, so its
+# values were recorded from the release assets when the version was
 # pinned. TOOLS_BIN overrides the install directory (default bin/).
 set -euo pipefail
 
@@ -29,8 +29,6 @@ GOVULNCHECK_VERSION=v1.8.0
 ACTIONLINT_VERSION=1.7.12
 SHELLCHECK_VERSION=0.11.0
 PROMETHEUS_VERSION=3.15.0
-OHA_VERSION=1.16.0
-VEGETA_VERSION=12.13.0
 COSIGN_VERSION=3.1.3
 SYFT_VERSION=1.52.0
 
@@ -53,14 +51,6 @@ pin() {
     "promtool linux-arm64") echo f1f90ec08e849d494ca66c611470afc50192f0355f1a61c33f2cbde02d067823 ;;
     "promtool darwin-amd64") echo 2d79e744c2d7e505db936fbc898e05abc74fcb6e437c25befd26e9c9f00aa58b ;;
     "promtool darwin-arm64") echo 920df4d17e78b3b0175af144eb318b0c74d1cf7b1d1251b326966f0e81977260 ;;
-    "oha linux-amd64") echo 620bb9e16fb53eabc9a3fc45f88bdb41fefa3fee5c05e75892011ce320391716 ;;
-    "oha linux-arm64") echo 99a790eb8c3e0feaca974bd6b32f0f8d4426a0c5b289f39e833e5b2c7529cd39 ;;
-    "oha darwin-amd64") echo 5ecbfc5233e3f1d30384e142a9a8dd7ebf9d3298ab22476fabac44a8f2117e08 ;;
-    "oha darwin-arm64") echo 7dea53ecb8342a7a067e1976fd0aef44ac33d9cc6b1e65c53637ffb932da63c4 ;;
-    "vegeta linux-amd64") echo e8759ce45c14e18374bdccd3ba6068197bc3a9f9b7e484db3837f701b9d12e61 ;;
-    "vegeta linux-arm64") echo 950381173a5575e25e8e086f36fc03bf65d61a2433329b48e41e1cb5e4133bba ;;
-    "vegeta darwin-amd64") echo 4e912c83ce07db4e1e394e1cbb657f2396dff2f7ed90f03869a184cc17d0f994 ;;
-    "vegeta darwin-arm64") echo fc408e242c4f4839e6fe536dbf1130bb02f430134827f6d831bf367a0929a799 ;;
     "cosign linux-amd64") echo 4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71 ;;
     "cosign linux-arm64") echo c5d324e091826b0d7a78eb16fef316450b4eb9aaec045611c08ba06f5e73220a ;;
     "cosign darwin-amd64") echo 2347488e5d5b25336644024dfeca5601b190e91197a71a917bda44744aff106c ;;
@@ -115,10 +105,9 @@ current() {
   [[ -x "$bin/$1" ]] || return 1
   case "$1" in
     golangci-lint) "$bin/$1" version 2>/dev/null | grep -q "version $2 " ;;
-    actionlint | oha | syft) "$bin/$1" --version 2>&1 | grep -q "$2" ;;
+    actionlint | syft) "$bin/$1" --version 2>&1 | grep -q "$2" ;;
     shellcheck) "$bin/$1" --version 2>&1 | grep -qx "version: $2" ;;
     cosign) "$bin/$1" version 2>&1 | grep -q "GitVersion: *v$2\$" ;;
-    vegeta) "$bin/$1" -version 2>&1 | grep -q "$2" ;;
     promtool) "$bin/$1" --version 2>&1 | grep -q "version $2 " ;;
     *) return 1 ;;
   esac
@@ -171,7 +160,7 @@ install_actionlint() {
 install_shellcheck() {
   local plat arch
   plat=$(platform)
-  # shellcheck names the architectures x86_64 and aarch64.
+  # The shellcheck release assets name the architectures x86_64 and aarch64.
   arch=${plat#*-}
   case "$arch" in
     amd64) arch=x86_64 ;;
@@ -188,22 +177,6 @@ install_promtool() {
   install_archive promtool "$PROMETHEUS_VERSION" \
     "https://github.com/prometheus/prometheus/releases/download/v$PROMETHEUS_VERSION/prometheus-$PROMETHEUS_VERSION.${plat}.tar.gz" \
     "prometheus-$PROMETHEUS_VERSION.${plat}/promtool"
-}
-
-install_oha() {
-  local plat
-  plat=$(platform)
-  # oha names its macOS assets "macos".
-  install_binary oha "$OHA_VERSION" \
-    "https://github.com/hatoo/oha/releases/download/v$OHA_VERSION/oha-${plat/darwin/macos}"
-}
-
-install_vegeta() {
-  local plat
-  plat=$(platform)
-  install_archive vegeta "$VEGETA_VERSION" \
-    "https://github.com/tsenart/vegeta/releases/download/v$VEGETA_VERSION/vegeta_${VEGETA_VERSION}_${plat/-/_}.tar.gz" \
-    vegeta
 }
 
 install_cosign() {
@@ -234,8 +207,8 @@ install_govulncheck() {
   echo "installed govulncheck $GOVULNCHECK_VERSION built with $gover"
 }
 
-# With no arguments install the tools of `make tools` (stages 2, 6 and 8);
-# otherwise only the named ones.
+# With no arguments install the tools of `make tools` (make lint,
+# supply-chain and integration); otherwise only the named ones.
 tools=("$@")
 (( ${#tools[@]} )) || tools=(golangci-lint govulncheck actionlint shellcheck promtool)
 for tool in "${tools[@]}"; do
@@ -245,8 +218,6 @@ for tool in "${tools[@]}"; do
     actionlint) install_actionlint ;;
     shellcheck) install_shellcheck ;;
     promtool) install_promtool ;;
-    oha) install_oha ;;
-    vegeta) install_vegeta ;;
     cosign) install_cosign ;;
     syft) install_syft ;;
     *) echo "install-tools: unknown tool $tool" >&2; exit 2 ;;

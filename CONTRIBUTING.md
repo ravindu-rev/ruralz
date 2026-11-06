@@ -11,16 +11,16 @@ git commit -s                  # adds the trailer
 git rebase --signoff main      # repairs a branch
 ```
 
-CI checks every non-merge commit of a pull request; Dependabot commits are exempt because Dependabot cannot sign off.
+`make dco` checks every non-merge commit of a range, by default the commits of your branch that `origin/main` lacks; the PR pipeline runs it on every pull request. Dependabot commits are exempt because Dependabot cannot sign off.
 
 ## Commit titles
 
-Pull requests merge with a merge commit, so every commit reaches `main` with its own title and sign-off, and merge only when the branch is up to date with `main` and the required `pr-fast` and `pr-full` checks pass. Every commit title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period; `make hygiene` checks each commit's title, Dependabot's aside. Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions. Announce each deprecated surface with a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, at least two minor releases after the release that ships it; `make hygiene` checks it ([Conventional Commits](docs/engineering/02-repository-layout-and-conventions.md#conventional-commits)).
+Pull requests merge with a merge commit, so every commit reaches `main` with its own title and sign-off, and merge only when the branch is up to date with `main` and the required `pr` check passes. Every commit title follows Conventional Commits: `<type>(<scope>): <subject>`, imperative mood, a lower-case first word, no trailing period. No check enforces the titles, but the release reads them: a merge to `main` releases a new version when its commits hold a breaking change, a `feat`, a `fix` or a `perf`, and their titles become the release notes ([Release pipeline](docs/engineering/04-release-versioning-and-compatibility.md#release-pipeline)). Add `!` after the scope and a `BREAKING CHANGE:` footer for a breaking change; `Refs: OQ-<docslug>-<n>` or `Refs: ADR-NNNN` footers link decisions. Announce each deprecated surface with a `Deprecated: <surface>; removed in MAJOR.MINOR.0` footer, at least two minor releases after the release that ships it ([Conventional Commits](docs/engineering/02-repository-layout-and-conventions.md#conventional-commits)).
 
 | Type | Scopes |
 |---|---|
 | `feat`, `fix`, `perf`, `refactor` | `gateway`, `control`, `cli`, `config`, `filter`, `plugin`, `ai`, `statestore`, `controlstream`, `console`, `sdk`, `api`, `deploy` |
-| `test` | The scopes above, `e2e`, `conformance` |
+| `test` | The scopes above, `conformance` |
 | `docs` | A document slug: the file name under `docs/` without its numeric prefix and extension, such as `docs(data-plane)` |
 | `build`, `ci` | `deps`, `tools`, `workflows` |
 | `chore`, `revert` | Any |
@@ -30,27 +30,21 @@ Pull requests merge with a merge commit, so every commit reaches `main` with its
 Go comes from the `go.mod` `toolchain` line: with the default `GOTOOLCHAIN=auto`, any Go 1.21 or newer downloads it. The Makefile needs bash, git and curl.
 
 ```sh
-make help                                            # list targets
-make tools                                           # pinned golangci-lint, govulncheck, actionlint and promtool into bin/
-make hygiene lint generate build test supply-chain   # what CI stages 1 to 6 run
-make floor FLOOR_GOTOOLCHAIN=go1.26.10               # the Go 1.26 floor job, with GOEXPERIMENT=jsonv2
+make help                                       # list targets
+make tools                                      # pinned golangci-lint, govulncheck, actionlint, shellcheck and promtool into bin/
+make lint dco supply-chain test integration     # what the PR pipeline runs
 ```
 
-| Target | CI stage | What it runs |
+| Target | PR pipeline job | What it runs |
 |---|---|---|
-| `make hygiene` | 1 | `repocheck`, including the no-license-check scan; with `DCO_RANGE` set, the DCO, commit title, `Deprecated:` footer and golden-corpus checks |
-| `make lint` | 2 | gofumpt, goimports and golangci-lint with `.golangci.yml`, and actionlint on the workflows |
-| `make generate` | 3 | `go generate ./...`, then fails if the generated JSON Schema, alert rules or Grafana dashboards (`deploy/grafana`) differ |
-| `make build` | 4 | Every binary for linux/amd64 and linux/arm64, the CLI also for darwin and windows, with `CGO_ENABLED=0`, `-trimpath` and `-s -w` into `dist/` |
-| `make test` | 5 | `go test -race -shuffle=on` with cgo, then the tests again with `CGO_ENABLED=0`, including `./test/conformance/config` |
-| `make supply-chain` | 6 | `go mod verify`, govulncheck, and `depgate`: license gate G2, crypto denylist G3, the `ruralzd` Raft denylist and advisory version floors |
-| `make integration` | 8 | Integration and conformance suites (tag `integration`), the State Store flavors and promtool rule checks |
-| `make gates` | 9 | The alloc/op A/B gate and the stripped size and idle RSS gate; `GATES=alloc` or `GATES=size` runs one |
-| `make e2e`, `make quickstart` | 10 | The end-to-end suite (tag `e2e`) and the quickstart timing check |
-| `make nightly` | 11 | One nightly job: `NIGHTLY_JOB=fuzz`, `chaos` or `latency` (also `make fuzz`, `make chaos` and `make bench-latency`) |
-| `make release-dry-run`, `make release`, `make release-gates` | 12 | Release packaging without signing, then keyless signing, and the release gates |
-
-`make chaos-scale`, `make soak`, `make t5` and `make image-checks` run from their own workflows. A target whose suite does not exist yet prints a skip line and exits 0.
+| `make lint` | `ci` | golangci-lint with `.golangci.yml`, gofumpt and goimports, and actionlint on the workflows |
+| `make dco` | `ci` | The DCO check of every non-merge commit of `DCO_RANGE` (default `origin/main..HEAD`) |
+| `make supply-chain` | `ci` | `go mod verify`, govulncheck, and `depgate`: license gate G2, crypto denylist G3, the `ruralzd` Raft and `ruralz` jwx denylists, no test support in a binary, and advisory version floors |
+| `make test` | `unit` | `go test -race -shuffle=on` with cgo, then the tests again with `CGO_ENABLED=0`, including the property tests, the fuzz seed corpora and `./test/conformance/config` |
+| `make integration` | `integration` | The integration tests (tag `integration`): the conformance suites and the State Store, CLI and Node suites, with promtool's alert rule tests; needs a local `redis-server`, and Docker for the State Store container kinds |
+| `make generate` | None | `go generate ./...`, then fails if the generated JSON Schema, served-feature table, alert rules or Grafana dashboards (`deploy/grafana`) differ from the index |
+| `make build` | None | Every binary for linux/amd64 and linux/arm64, the CLI also for darwin and windows, with `CGO_ENABLED=0`, `-trimpath` and `-s -w` into `dist/` |
+| `make release-dry-run`, `make release` | None: the release | Release packaging without signing, then with keyless signing |
 
 ## Code conventions
 
@@ -64,7 +58,7 @@ make floor FLOOR_GOTOOLCHAIN=go1.26.10               # the Go 1.26 floor job, wi
 ## Pull requests
 
 - A pull request brings its tests, regenerated files and documentation with it.
-- The required checks are `pr-fast` (stages 1 to 6) and `pr-full` (stages 8 and 9).
+- The one required check is `pr`, the last job of the PR pipeline, which passes once its `ci`, `unit` and `integration` jobs passed.
 - A design change updates the owning document in `docs/` in the same pull request.
 
 ## Reporting security issues

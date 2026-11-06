@@ -29,7 +29,8 @@ import (
 // tests"): on Linux a network namespace gives the client a non-loopback
 // address on a dummy device, or a veth pair where the kernel has no dummy
 // driver. The case skips with a reason without the privilege to create
-// the namespace or the device; stage 8 grants it.
+// the namespace or the device; the PR pipeline's integration job grants
+// it.
 
 func TestAdminPortCleartextFromNonLoopbackPeer(t *testing.T) {
 	if !proc.NetNSChild(t) {
@@ -45,7 +46,7 @@ func TestAdminPortCleartextFromNonLoopbackPeer(t *testing.T) {
 		case errors.Is(err, proc.ErrChildSkipped):
 			t.Skip(err)
 		case errors.Is(err, syscall.EPERM), errors.Is(err, syscall.EACCES), errors.Is(err, syscall.EINVAL):
-			t.Skipf("creating a network namespace needs CAP_SYS_ADMIN or unprivileged user namespaces, which stage 8 grants: %v", err)
+			t.Skipf("creating a network namespace needs CAP_SYS_ADMIN or unprivileged user namespaces, which the PR pipeline's integration job grants: %v", err)
 		case err != nil:
 			t.Fatal(err)
 		}

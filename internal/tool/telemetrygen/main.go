@@ -23,7 +23,7 @@
 // files under rules/ and dashboards/ that carry its generated-file marker
 // but are no longer generated (a renamed or dropped dashboard). The package
 // test TestGeneratedUpToDate regenerates in memory and compares with the
-// committed files, stale generated files included, so the test stage catches
+// committed files, stale generated files included, so the unit tests catch
 // drift; the promtool rule tests run under the integration build tag.
 package main
 
