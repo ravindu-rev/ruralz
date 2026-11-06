@@ -8,7 +8,7 @@ This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: co
 
 In scope: one Node, from socket accept to the last `onLog` call, plus configuration activation on it. "Pack N" cites the [foundation pack](../_meta/foundation-pack.md); boundaries come from the [System overview](01-system-overview.md), and kinds and fields from the [Configuration model](02-configuration-model.md), which wins on conflict.
 
-Non-goals, with owners: Policy `config` semantics and retry tuning ([Traffic management and resilience](09-traffic-management-and-resilience.md) and feature documents); Plugin ABI v1 ([WASM plugin system](05-wasm-plugin-system.md)); protocol Phase mappings ([Multi-protocol](07-multi-protocol.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md)); the Control Stream ([Control plane and GitOps](04-control-plane-and-gitops.md)); upgrade procedures ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)); performance values ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)).
+Non-goals, with owners: Policy `config` semantics and retry tuning ([Traffic management and resilience](09-traffic-management-and-resilience.md) and feature documents); Plugin ABI v1 ([WASM plugin system](05-wasm-plugin-system.md)); protocol Phase mappings ([Multi-protocol](07-multi-protocol.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md)); the Control Stream ([Control plane and GitOps](04-control-plane-and-gitops.md)); upgrade procedures ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)).
 
 ## Process and concurrency model
 
@@ -365,7 +365,7 @@ A side evaluates every `valueExpression` first, over the message as it reached t
 
 **Validators.** A response whose body a transform rewrote turns a strong `ETag` weak, prefixing `W/`, and loses `Accept-Ranges`, as its bytes no longer equal the Upstream's.
 
-**Limits.** Each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The header and query caps above bound the bytes such entries add to a message. The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store. [Performance budgets](12-performance-budgets-and-benchmarking.md#per-stage-latency-budget) measure every transform Phase on the `orders-shape` example below.
+**Limits.** Each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The header and query caps above bound the bytes such entries add to a message. The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store.
 
 **Failures.** A CEL runtime error, a JSON operation on a body that is null but not empty, a path error, an invalid result or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the message passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
 
@@ -637,10 +637,6 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-024 | 503 | No Revision is active yet, so this admin endpoint has nothing to serve |
 | RZ-RT-025 | 500 before commit; stream ended after | An internal fault in request handling outside the Filter Chain |
 | RZ-RT-026 | 416 | A Range request that the stored Response Cache entry cannot satisfy |
-
-## Performance budgets
-
-Latency, allocation, throughput and memory budgets live in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), which wins on conflict; this section restates none. Its suite also verifies this document's constants: Bounded resources ceilings, K and the grace period.
 
 ## Open questions
 

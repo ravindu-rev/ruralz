@@ -19,7 +19,7 @@ Which WebAssembly runtime executes Plugins in a `CGO_ENABLED=0` static binary ([
 - **Criterion S4**: memory caps and deadlines the host controls, since P6 limits are enforced per call.
 - **Isolation (TB-2)**: a trap fails the call, never the Node ([System overview](../architecture/01-system-overview.md#trust-boundaries)).
 - **One host everywhere**: `ruralzd` and `ruralz plugin test` MUST behave identically.
-- **Measured cost (P10)**: a pooled Phase call costs 50 µs or less at p99 (target), SM-6.
+- **Call cost**: a pooled Phase call costs 50 µs or less at p99 (target).
 - **Maintenance**: recent releases and a small transitive graph (S1, S6).
 
 ## Considered options
@@ -75,10 +75,10 @@ flowchart LR
 - Good, because the gateway stays one static `CGO_ENABLED=0` binary and wazero's only `go.mod` dependency is `golang.org/x/sys` ([source](https://github.com/wazero/wazero/blob/main/go.mod)), so G1, G2 and S6 hold.
 - Good, because `ruralz plugin test` links the same `internal/pluginhost`, enforcing Node limits exactly.
 - Good, because compiled code is shared across instances and runtimes in memory ([source](https://github.com/wazero/wazero/blob/main/cache.go)), so a Hot Reload keeping a digest reuses its compiled code, and unchanged pools carry over; Retire calls `CompiledModule.Close` so the cache frees unshared code.
-- Bad, because interruption costs 10 to 20x on loop-heavy guests, and no fix had merged by 2026-09-12 ([source](https://github.com/wazero/wazero/issues/2466)); SM-6 includes it and its fixed per-call cancellation cost; whether a wall clock suffices stays OQ-wasm-plugin-system-10.
+- Bad, because interruption costs 10 to 20x on loop-heavy guests, and no fix had merged by 2026-09-12 ([source](https://github.com/wazero/wazero/issues/2466)); the 50 µs call cost (target) includes it and its fixed per-call cancellation cost; whether a wall clock suffices stays OQ-wasm-plugin-system-10.
 - Bad, because a compile cannot be cancelled and compiled size has no API, so the owning document bounds abandoned compiles to 1 per Node (target) and accounts 4 × Wasm bytes per digest and memory limit (target; factor a hypothesis), conservative if the cache shares native code across limits, which OQ-wasm-plugin-system-16 SHOULD confirm.
-- Bad, because reserved linear memory is live Go heap that raises the `GOGC` heap goal ([source](https://go.dev/doc/gc-guide)), so without `GOMEMLIMIT` resident memory can exceed M_node by up to the live heap (hypothesis); OQ-wasm-plugin-system-16 SHOULD add an off-heap allocator benchmark.
-- Bad, because the only dated comparison (2023) has wazero trailing Wasmtime significantly ([source](https://00f.net/2023/01/04/webassembly-benchmark-2023/)), so Ruralz must publish its own numbers (P10).
+- Bad, because reserved linear memory is live Go heap that raises the `GOGC` heap goal ([source](https://go.dev/doc/gc-guide)), so without `GOMEMLIMIT` resident memory can exceed M_node by up to the live heap (hypothesis); OQ-wasm-plugin-system-16 SHOULD weigh the off-heap allocator.
+- Bad, because the only dated comparison (2023) has wazero trailing Wasmtime significantly ([source](https://00f.net/2023/01/04/webassembly-benchmark-2023/)), so the 50 µs call cost stays a (target).
 - Bad, because a compiler defect is a sandbox escape (threat PT-1), mitigated by pinning, `govulncheck`, fuzzing and SM-13 ([Threat model](../architecture/05-wasm-plugin-system.md#threat-model)).
 - Bad, because FIPS mode does not cover Wasm ([source](https://go.dev/doc/security/fips140)); FIPS builds, Planned (M5), offer Plugins approved cryptography only through `crypto.use` ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)).
 - Bad, because the project is small, with 14 commits in 90 days and 45 open issues and pull requests ([source](https://github.com/wazero/wazero)), so fixes such as #2466 may land slowly.
@@ -87,9 +87,8 @@ flowchart LR
 
 - **Import rule**, Planned (M0): depguard rejects `github.com/tetratelabs/wazero` outside `internal/pluginhost` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
 - **G1 cross-build and license gate**, Planned (M0): all three binaries build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64, and the gate reads the linked package set ([Admission](../engineering/01-tech-stack-and-libraries.md#admission)).
-- **Plugin ABI conformance suite** in `pr-full`, Planned (M2): trap, timeout and memory cases return the same `RZ-PLG` codes on both hosts in compiler mode; a parked `state_get` outlasting `limits.timeout` returns without `RZ-PLG-002`, and the guest then looping past its remaining time gets `RZ-PLG-002` ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
+- **Plugin ABI conformance suite** in the PR pipeline's `integration` job, Planned (M2): trap, timeout and memory cases return the same `RZ-PLG` codes on both hosts in compiler mode; a parked `state_get` outlasting `limits.timeout` returns without `RZ-PLG-002`, and the guest then looping past its remaining time gets `RZ-PLG-002` ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
 - **Node memory bound**, Planned (M2): at the Node cap, with every instance at its limit and `GOMEMLIMIT` = M_node, resident memory stays at or below `GOMEMLIMIT` / 0.9 (target).
-- **SM-6 microbenchmark gate**, Planned (M2): the `pr-full` run gates alloc/op; the `nightly` and `release` Macro latency gate fails a pooled Phase call, interruption on, above 50 µs at p99 (target) ([Benchmarks and regression gates](../engineering/03-testing-and-quality-strategy.md#benchmarks-and-regression-gates)).
 - **Fuzzing**, Planned (M2): one target per Host Function group; out-of-bounds guest pointers trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **`govulncheck`** on every pull request, Planned (M0); SM-13 keeps unpatched sandbox escapes older than 30 days at zero (target).
 - **Amendment trigger**: a pull request that uses `NewRuntimeConfig()`, enables `NewCompilationCacheWithDir`, disables `WithCloseOnContextDone`, gives it a deadline context, omits `WithMemoryLimitPages` or `WithMemoryCapacityFromMax`, or adds a second WebAssembly runtime MUST amend this ADR.

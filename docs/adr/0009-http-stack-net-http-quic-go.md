@@ -18,7 +18,7 @@ Which stack carries these protocols in a `CGO_ENABLED=0` binary ([ADR-0001](0001
 - **Composition with selected libraries**: soft criterion S3 favors `net/http` handlers and `context.Context` cancellation ([Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria)).
 - **Bounded resources**: stream, buffer, frame and deadline limits on every listener, HTTP/3 included, within the data plane's [Bounded resources](../architecture/03-data-plane.md#bounded-resources) budget.
 - **Gates G1 to G3**: pure Go, a G2 license, and cryptography from the Go Cryptographic Module or a named exception.
-- **Measured cost**: allocation overhead is accepted only as a (hypothesis) that the benchmark suite checks (P10).
+- **Accepted cost**: allocation overhead above a zero-copy stack is accepted, stated as a (hypothesis) (P10).
 
 ## Considered options
 
@@ -76,7 +76,7 @@ flowchart LR
 - Good, because since v0.63.0 quic-go `http3` leaves `URL.Scheme` and `URL.Host` empty, as `net/http` does ([source](https://github.com/quic-go/quic-go/releases/tag/v0.63.0)), so one Router and Filter Chain serve all four HTTP versions.
 - Good, because connect-go serves gRPC, gRPC-Web and Connect on `net/http` handlers ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)), so gRPC ingress shares the TCP listeners.
 - Good, because `HTTP2Config` has exposed stream, receive-buffer and frame-size limits since Go 1.24 ([source](https://go.dev/doc/go1.24)), the ceilings the data plane sets.
-- Bad, because `net/http` and quic-go allocate more than fasthttp (hypothesis), a cost [System overview](../architecture/01-system-overview.md#design-principles) accepts; the Planned (M1) PB-8 gate of 30 Ruralz-owned allocations per pass-through request (target) excludes `net/http` internals ([Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md)).
+- Bad, because `net/http` and quic-go allocate more than fasthttp (hypothesis), a cost [System overview](../architecture/01-system-overview.md#design-principles) accepts.
 - Bad, because HTTP/2 rides the toolchain: Go 1.27 moved it into `net/http/internal/http2` ([source](https://github.com/golang/go/tree/release-branch.go1.26/src/net/http)) ([source](https://github.com/golang/go/tree/release-branch.go1.27/src/net/http/internal)), so floor and release builds run different HTTP/2 code, and Go 1.27-only APIs ([source](https://go.dev/doc/go1.27)) stay out of floor-compiled files.
 - Bad, because quic-go is pre-1.0, breaks `http3` APIs on minor releases, and reaches the unexported `crypto/tls.aeadAESGCMTLS13` through `go:linkname` pending golang/go#79219 ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)), so a Go release can break its build.
 - Bad, because FIPS builds lack HTTP/3, a feature difference that foundation pack section 1 and P1 otherwise forbid, allowed only by pack section 8.4 until OQ-tech-stack-and-libraries-9 closes ([ADR-0001](0001-implementation-language-go.md)).
@@ -88,7 +88,7 @@ flowchart LR
 
 - **forbidigo rule**, Planned (M0): golangci-lint bans the deprecated `x/net/http2` `Server` and `Transport` in Ruralz code ([Repository layout and conventions](../engineering/02-repository-layout-and-conventions.md#golangci-lint-linter-set)).
 - **Dependency admission**, Planned (M0): fasthttp, marked "Never" under [Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen), has no catalog row, so [Admission](../engineering/01-tech-stack-and-libraries.md#admission) rejects it; quic-go minor bumps follow the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
-- **Protocol conformance suite** in `pr-full`, in stage 8 with a Go 1.26 floor leg, and in release jobs: HTTP/1.1 and HTTP/2 cases, with Ruralz-written HTTP/2 frame cases on the `x/net/http2` `Framer`, Planned (M1), and HTTP/3 cases, Planned (M3), that assert the QUIC stream cap and per-connection memory against the HTTP/3 Bounded resources row; external frame-level suites wait on OQ-testing-and-quality-strategy-6 ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
+- **Protocol conformance suite** in the PR pipeline's `integration` job, which every release runs: HTTP/1.1 and HTTP/2 cases, with Ruralz-written HTTP/2 frame cases on the `x/net/http2` `Framer`, Planned (M1), and HTTP/3 cases, Planned (M3), that assert the QUIC stream cap and per-connection memory against the HTTP/3 Bounded resources row; external frame-level suites wait on OQ-testing-and-quality-strategy-6 ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
 - **FIPS job**, Planned (M5): `go list -deps -tags ruralz_fips ./cmd/ruralzd` fails if quic-go appears ([ADR-0001](0001-implementation-language-go.md)), and FIPS tests assert that a FIPS `ruralzd` never binds UDP 8443 and rejects a Revision with `http3: true` with the code OQ-tech-stack-and-libraries-9 settles.
 - **Amendment trigger**: a pull request that adds an HTTP server or client library, or sets an HTTP/2 option outside `HTTP2Config`, MUST amend this ADR.
 

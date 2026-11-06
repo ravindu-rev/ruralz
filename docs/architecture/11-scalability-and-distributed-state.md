@@ -2,28 +2,28 @@
 
 ## Summary
 
-This document fixes how Ruralz scales out and where shared state lives: per-Node memory, distributed state with numeric accuracy bounds, Cells as blast-radius units, multi-Region rules, per-Node limits, the `RZ-STS` registry and verifying chaos experiments. Read it before sizing a Cluster, a State Store or a second Region.
+This document fixes how Ruralz scales out and where shared state lives: per-Node memory, distributed state with numeric accuracy bounds, Cells as blast-radius units, multi-Region rules, per-Node limits and the `RZ-STS` registry. Read it before sizing a Cluster, a State Store or a second Region.
 
 ## Scope and non-goals
 
-In scope: the stateless Ruralz Gateway contract; scaling and high availability of Ruralz Gateway, Ruralz Control and the State Store; shared state and its accuracy bounds ([pack 8.8](../_meta/foundation-pack.md#88-rate-limiting-adr-0008), [pack 8.7](../_meta/foundation-pack.md#87-state-store-round-trips)); the post-commit queue [Data plane](03-data-plane.md#goroutines) defers here; the `RZ-STS` registry; Cells, Regions, limits and chaos experiments.
+In scope: the stateless Ruralz Gateway contract; scaling and high availability of Ruralz Gateway, Ruralz Control and the State Store; shared state and its accuracy bounds ([pack 8.8](../_meta/foundation-pack.md#88-rate-limiting-adr-0008), [pack 8.7](../_meta/foundation-pack.md#87-state-store-round-trips)); the post-commit queue [Data plane](03-data-plane.md#goroutines) defers here; the `RZ-STS` registry; Cells, Regions and limits.
 
-Non-goals: Rate Limit, Quota and Response Cache semantics ([Traffic management and resilience](09-traffic-management-and-resilience.md)); Token Budget and Semantic Cache semantics ([AI/LLM gateway](06-ai-llm-gateway.md)); Control Stream and Control Store internals ([Control plane and GitOps](04-control-plane-and-gitops.md)); performance values ([Performance budgets](12-performance-budgets-and-benchmarking.md)); runbooks ([High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md)); fields ([Configuration model](02-configuration-model.md)).
+Non-goals: Rate Limit, Quota and Response Cache semantics ([Traffic management and resilience](09-traffic-management-and-resilience.md)); Token Budget and Semantic Cache semantics ([AI/LLM gateway](06-ai-llm-gateway.md)); Control Stream and Control Store internals ([Control plane and GitOps](04-control-plane-and-gitops.md)); runbooks ([High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md)); fields ([Configuration model](02-configuration-model.md)).
 
 ## Guarantees and principles
 
-Guarantees derive from `P1` to `P10` ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)); [Chaos experiments](#chaos-experiments) verify them.
+Guarantees derive from `P1` to `P10` ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)).
 
-| ID | Guarantee | Principle | Verified by |
-|---|---|---|---|
-| SG-1 | No request waits on another Node, Ruralz Control or the Control Store | P3 | CE-7, CE-8 |
-| SG-2 | Before commit, each Policy makes at most one blocking State Store round trip, within its `stateStoreTimeout` and the request deadline | P3, pack 8.7 | CE-3, CE-4 |
-| SG-3 | Losing a Node loses only its in-flight requests, connections and the state [Stateless data plane](#stateless-data-plane) lists, with the effects stated there | P4 | CE-1, CE-2 |
-| SG-4 | A State Store outage costs a request at most one deadline, nothing once the breaker opens, and degrades only its Cell | P9, pack 8.13 | CE-3, CE-5 |
-| SG-5 | A Ruralz Control outage never changes what a Node serves; restarted Nodes boot Last-Known-Good | P2, P9 | CE-7, CE-8 |
-| SG-6 | No request crosses a Region to reach a State Store | pack 8.13 | CE-11 |
-| SG-7 | Every per-Node structure has a ceiling, and every accuracy bound is a tagged number | P10 | CE-6, CE-9 |
-| SG-8 | Every degraded state, such as fail-open decisions or dropped writes, is a metric | P10 | All |
+| ID | Guarantee | Principle |
+|---|---|---|
+| SG-1 | No request waits on another Node, Ruralz Control or the Control Store | P3 |
+| SG-2 | Before commit, each Policy makes at most one blocking State Store round trip, within its `stateStoreTimeout` and the request deadline | P3, pack 8.7 |
+| SG-3 | Losing a Node loses only its in-flight requests, connections and the state [Stateless data plane](#stateless-data-plane) lists, with the effects stated there | P4 |
+| SG-4 | A State Store outage costs a request at most one deadline, nothing once the breaker opens, and degrades only its Cell | P9, pack 8.13 |
+| SG-5 | A Ruralz Control outage never changes what a Node serves; restarted Nodes boot Last-Known-Good | P2, P9 |
+| SG-6 | No request crosses a Region to reach a State Store | pack 8.13 |
+| SG-7 | Every per-Node structure has a ceiling, and every accuracy bound is a tagged number | P10 |
+| SG-8 | Every degraded state, such as fail-open decisions or dropped writes, is a metric | P10 |
 
 Non-guarantees: limits are exact only inside one Cell; long-lived connections never migrate between Nodes; Ruralz never replicates State Store data between Cells; Nodes never gossip, their only Cluster-wide input being the published Node count (P4).
 
@@ -131,7 +131,7 @@ Scale out on the first signal over its threshold; scale in only when all are und
 | In-flight units | `ruralz_http_active_requests` (requests only) against 20,000 | 50% of the ceiling (target) |
 | Client connections | `ruralz_listener_open_connections` against 20,000 | 50% of the ceiling (target) |
 | Buffered bytes | `ruralz_node_buffered_bytes` against `limits.maxBufferedBytes` | 50% of the budget (target) |
-| Gateway-added latency | `ruralz_http_gateway_duration_seconds` p99 | Over its Performance Budget for 5 minutes (target) |
+| Gateway-added latency | `ruralz_http_gateway_duration_seconds` p99 | Over 1 ms, the threshold of [SLO-GW-2](10-observability.md#slo-definitions), for 5 minutes (target) |
 
 State Store saturation is a Cell sizing signal: more Nodes add State Store load.
 
@@ -159,7 +159,7 @@ A Cluster SHOULD run at least three Nodes in at least two zones (target), sized 
 
 During a Ruralz Control outage or quorum loss ([Control plane and GitOps](04-control-plane-and-gitops.md#behavior-during-a-ruralz-control-outage)), running Nodes keep their active Revision and stay ready (reason `detached`); restarted Nodes wait up to 5 s for the Control Stream (target), then boot Last-Known-Good; Rollouts and Enrollment are held; the published Node count freezes.
 
-A Ruralz Control restart, failover or lost replica must not collapse the count: after a reconnect storm every stream is under 10 minutes old (target), and a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state, missing three heartbeats (target) may lower it, and only once the replica holding their aggregates has been up and fresh for a 5-minute reconnect grace (target), matching CE-10; a replica loss or leader failover (CE-7) restarts the grace (proposed, OQ-scalability-and-distributed-state-14).
+A Ruralz Control restart, failover or lost replica must not collapse the count: after a reconnect storm every stream is under 10 minutes old (target), and a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state, missing three heartbeats (target) may lower it, and only once the replica holding their aggregates has been up and fresh for a 5-minute reconnect grace (target), the time every Node takes to reconnect after all replicas restart (target); a replica loss or leader failover restarts the grace (proposed, OQ-scalability-and-distributed-state-14).
 
 New Nodes without Last-Known-Good stay not ready until they enroll (pack 8.11), so autoscaling adds nothing during a long outage; Clusters SHOULD keep 30% headroom above peak (target) (OQ-scalability-and-distributed-state-7).
 
@@ -354,7 +354,7 @@ Nodes read `INFO memory` per shard off the request path every 10 s, or every 1 s
 
 The driver's maintenance loop runs every 250 ms, bounds each `SCRIPT LOAD`, `INFO memory`, `CLUSTER SLOTS` and connection-opening `PING` it sends by 1 s, spaces the slot map reads that closed connections request by at least 1 s, tracks at most 256 server addresses per driver and logs a repeated warning at most once per 10 s.
 
-Each call's duration in `ruralz_state_call_duration_seconds` carries a `zone` label, a closed enumeration whose values come from operator settings, never from requests (O5). The State client looks up the host of the server the call went to, the `standalone` endpoint, the shard's primary in the slot map or the primary the sentinels name, in its connection's `stateStore.zones` or `stateStore.cache.zones` ([Configuration model](02-configuration-model.md#gateway)), and compares that zone with the Node's `RURALZ_ZONE`: `same` when they are equal, `cross` when they differ, and `unknown` when the host has no entry or `RURALZ_ZONE` is empty. A failover, a slot map change or a sentinel answer moves a shard to its new primary's zone at once. SLO-GW-5 and PB-9 count `zone="same"` calls, PB-14 `zone="cross"` ones ([Latency budgets](#latency-budgets)).
+Each call's duration in `ruralz_state_call_duration_seconds` carries a `zone` label, a closed enumeration whose values come from operator settings, never from requests (O5). The State client looks up the host of the server the call went to, the `standalone` endpoint, the shard's primary in the slot map or the primary the sentinels name, in its connection's `stateStore.zones` or `stateStore.cache.zones` ([Configuration model](02-configuration-model.md#gateway)), and compares that zone with the Node's `RURALZ_ZONE`: `same` when they are equal, `cross` when they differ, and `unknown` when the host has no entry or `RURALZ_ZONE` is empty. A failover, a slot map change or a sentinel answer moves a shard to its new primary's zone at once. SLO-GW-5 counts `zone="same"` calls only; [Latency budgets](#latency-budgets) gives the same-zone and cross-zone round trips.
 
 A Hot Reload keeps a State client while its connection's driver, topology, URL and TLS block references are unchanged, so connections, breakers, scripts and `memory` counters survive it, rotated TLS block values reach new connections, and a changed zone map labels every call from the new snapshot's first State Store call on, which follows the swap, while a snapshot that is never published changes no label; a change opens a new client before the swap, and the old one closes when its last snapshot is freed and its queued writes are written or dropped. A URL from an `env` secret changes only with a restart, since the Node reads its variables at start. A rotated value of a `file` secret, and from M2 of a `kubernetes` or `vault` one, that differs from a connection's URL in use opens a new client for that connection at once, off the request path, as a changed URL does at a Hot Reload: calls and later writes move to the new client, which dials, authenticates and loads its scripts under the reconnect pacing, while a call in progress finishes on the old one, which closes once it ends and the writes queued for it are written or dropped. A value naming another deployment starts on empty counters and cache entries, as after a [State Store rebuild](../operations/04-high-availability-and-disaster-recovery.md#state-store-rebuild): each key may admit one extra limit per open window, Quota windows restart, up to 720 h (target), and the Response Cache starts cold. Nodes read every open client's status every 1 s (target) and after each change, for the State Store [degraded states](10-observability.md#degraded-states) and the `state_store` cleartext hop count.
 
@@ -602,7 +602,7 @@ Evacuating a Cell shifts DNS or anycast weight; receiving Cells start with empty
 
 ### Per-Node limits
 
-[Benchmarking](12-performance-budgets-and-benchmarking.md) verifies every value.
+[Limits and caps](12-performance-budgets-and-benchmarking.md#limit-catalog) lists these values with every other Node limit.
 
 | Limit | Per-Node value | Owner | When reached |
 |---|---|---|---|
@@ -632,40 +632,11 @@ Data plane sums worst-case Node memory at about 19 GiB plus snapshots on a 32 Gi
 | Ruralz Control streams | About 5,000 per replica (hypothesis) | `Reconnect` with `shed` | ceil(N / 5,000) + 1 replicas (hypothesis) |
 | Node-count lag | Plus 10% per minute (target) | Over-admission after scale-out, 20 × `requests` fail-open (hypothesis) | Declared ceilings |
 
-At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ceiling binds at 160 Nodes, before the Node ceiling; [Capacity planning](../operations/03-capacity-planning.md) derives coefficients from benchmarks (P10).
-
-## Chaos experiments
-
-Each runs against at least 10 Nodes (target) under open-loop load, since closed-loop generators hide latency ([source](https://grafana.com/docs/k6/latest/using-k6/scenarios/concepts/open-vs-closed/)), and gates its milestone. Faults come from process signals, `redis` commands and the TCP fault proxy of the process harness ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
-
-| ID | Fault | Pass criteria | Milestone |
-|---|---|---|---|
-| CE-1 | SIGKILL one Node at 50% load (target): half the topology's saturation, measured at the run's start | Errors only on its in-flight requests: those the L4 balancer attributes to it and sent before the client saw that connection's reset or EOF; no Quota under-charge: each key's counter holds at least its admitted requests | Planned (M1) |
-| CE-2 | SIGTERM a Node holding HTTP/1.1, HTTP/2, WebSocket and SSE connections | Zero failed new requests; every in-flight request completes; no connection left at the Drain deadline; exit within 30 s (target); reconnects in the K = 8 waves of the listener's server shards ([Drain timeline](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)) (target): of the M connections the Node held at stop-accepting, at least 100, each eighth of the 10 s jitter window closes one wave, and no 1 s slice of it closes more than two waves, 2 × ⌈M / 8⌉ connections, as the L4 balancer sees them | Planned (M1) for HTTP/1.1 and HTTP/2; WebSockets and SSE Planned (M3) |
-| CE-3 | 200 ms added to every State Store call (target), for 60 s (target) | Each 1 s window's p99 at most the baseline phase's p99 plus `stateStoreTimeout` until the last Node raises `state_store_breaker_open`, then the rest of the fault phase's p99 within 10% of the baseline (target) | Planned (M1) |
-| CE-4 | State Store black-holed for 60 s (target) | Per key within the declared-ceiling and file-mode fail-open bounds (target), and the derived-ceiling bounds from M2; `closed` `ratelimit` and `quota` Policies get `RZ-STS-001`, then `RZ-STS-003`, as `closed` Token Budgets do from M3 | Planned (M1); derived ceilings Planned (M2); Token Budgets Planned (M3) |
-| CE-5 | State Store primary killed under at least 100 Nodes (target): under `standalone`, the endpoint following a promoted replica; under `sentinel`, the sentinels' failover; under `cluster`, each primary with one replica, promoted after the kill | From the SIGKILL, every Node reconnected within 10 s, at its first successful State Store call, and in `failureMode` for at most 15 s (target), from its first to its last fail-open or `RZ-STS` decision; extra admissions per key at most L × its admitted rate, plus `requests` for keys first written within L, L being the replica's offset lag sampled every 100 ms before the kill (hypothesis) | Planned (M1) |
-| CE-6 | State Store filled to `maxmemory` under `noeviction`, on the main connection and on a dedicated `stateStore.cache` connection; variants under `allkeys-lru`, and under `volatile-ttl` on the cache connection | Main connection, where the [Response Cache rules](09-traffic-management-and-resilience.md#response-caching) 1 to 3 apply: stores skip above 70% (target), no limit key evicted, and once full `ratelimit` fails open and `closed` Policies get `RZ-STS-002`; cache connection, where rules 2 and 3 are off: no store skipped for memory, a full deployment refuses stores as call errors, and responses and the main connection's limits stay unaffected; `allkeys-lru` on either connection raises `state_store_eviction_policy`; `volatile-ttl` on the cache connection raises no degraded reason, no invalidated entry is ever served, and an evicted generation key only turns its URI's entries into misses | Planned (M1) |
-| CE-7 | Ruralz Control leader killed mid-Rollout | Zero request errors; the Rollout resumes; the published count drops at most 10% (target); no State client breaker opens | Planned (M2) |
-| CE-8 | Raft quorum removed, then 10% of Nodes restarted (target), State Store then black-holed | Zero request errors before the black-hole; restarts boot Last-Known-Good within 30 s (target); admission within the countless-Node and frozen-count bounds | Planned (M2) |
-| CE-9 | Scale from 10 to 100 Nodes in 2 minutes (target), State Store black-holed | Per key within the lagging-count bound, 20 × `requests` for about 34 minutes (hypothesis) | Planned (M2) |
-| CE-10 | Every Ruralz Control replica restarted at once | All Nodes reconnect within 5 minutes (target); the published count drops at most 10% (target); no State client breaker opens | Planned (M2) |
-| CE-11 | One Region cut off with its State Store and relay | No cross-Region State Store dial | Planned (M4) |
-| CE-12 | Hot key offered 1,000,000 calls per second, 10 times one shard (hypothesis): `requests` just under 25,000 per second with a declared `perNodeCeiling` of `requests` / N_serving, then above it with `config.localOnly` (hypothesis) | GCRA calls at most 2 × N_serving × ceiling per window, none with `config.localOnly`; shard script CPU under 70% (target); no breaker opens for a co-tenant: a low-rate `ratelimit` key on the same shard | Planned (M1) |
-| CE-13 | 200 concurrent AI streams, usage dropped on 5% (target) | Overshoot within the healthy `closed` Token Budget bound (hypothesis); no under-charge | Planned (M3) |
-| CE-14 | `ai.semantic-cache` without vector commands | Bypass under `open`; `RZ-STS-005` under `closed` | Planned (M3) |
-| CE-15 | Key-rotation flood, 100,000 new keys per second (target) | Per key at most N_serving × ceiling per window; first-seen GCRA calls within the first-seen budget, 200 per second per Node in file mode (target), later keys admitted on local-only entries (`ruralz_ratelimit_decisions_total{result="allow_local"}`); no key with a GCRA answer evicted (`ruralz_ratelimit_bucket_evictions_total{segment="main"}` stays 0); GCRA call counts cross-checked through the counting RESP proxy | Planned (M1) |
-| CE-16 | Cache stores saturate the post-commit queue during invalidations | Zero `cache_invalidate` and zero refund drops; Plugin writes drain (target) | Planned (M1); Plugin writes Planned (M2) |
-| CE-17 | Home Region lost with every voter, autoscaler enabled after an off-peak scale-in period | The surviving Region serves full peak on pre-provisioned Nodes (target); restarts boot Last-Known-Good | Planned (M4) |
-
-Every experiment follows one timeline: the load generator's warm-up; a 60 s baseline (target) with zero errors, no Missed request and the offered rate achieved within 0.5%, else the run is invalid; the fault, for the duration its row gives, else 60 s (target); then 60 s of recovery (target), in which every degraded reason the fault raised clears and errors return to zero. "50% load" is half the topology's saturation, measured at the run's start with the load generator's rate ladder and saturation rule; [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#chaos-testing) gives the Node counts and rates of each scale profile.
-
-Shard script CPU is the State Store server's main-thread CPU per 1 s, from the deltas of `used_cpu_sys_main_thread` and `used_cpu_user_main_thread` in `INFO cpu`; each run also records the `cmdstat_evalsha` microseconds per second of `INFO commandstats` as an ungated breakdown. Latency criteria, such as CE-3's p99, are measurements: they gate only at target scale on RH-1, from M6, and the nightly runs record them.
+At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ceiling binds at 160 Nodes, before the Node ceiling; [Capacity planning](../operations/03-capacity-planning.md) sizes Nodes and State Store shards from these limits.
 
 ## Pointers to related documents
 
-- [Performance budgets](12-performance-budgets-and-benchmarking.md): every Performance Budget value; it wins on conflict.
-- [Benchmarking](12-performance-budgets-and-benchmarking.md): the open-loop suite measuring GCRA cost and per-Node limits.
+- [Limits and caps](12-performance-budgets-and-benchmarking.md#limit-catalog): every per-Node limit and cap, with its owner.
 - [Capacity planning](../operations/03-capacity-planning.md): Node and State Store sizing from these limits.
 - [Zero-downtime upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md): the `SO_REUSEPORT` handover and Drain order.
 - [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md): runbooks and Region failover; [Deployment topologies](../operations/01-deployment-topologies.md): Cell layouts.

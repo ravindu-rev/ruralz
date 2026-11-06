@@ -20,7 +20,7 @@ Go plugin linkage breaks whenever the toolchain changes, and the proxy-wasm ABI 
 - **Fault isolation (WG-2, TB-2)**: traps and misuse become `RZ-PLG` codes under `failureMode`, never a Node crash.
 - **Several PDK languages (WG-7)**: one guest convention for Rust, Go/TinyGo, TypeScript and C#.
 - **Stable binaries, maintained pure-Go host**: Plugins outlive Go toolchains; G1 and S1 of the [selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria).
-- **Measured cost (P10)**: the SM-6 pooled Phase call budget (target).
+- **Call cost**: a pooled Phase call of 50 µs or less at p99 (target).
 
 ## Considered options
 
@@ -108,11 +108,10 @@ sequenceDiagram
 
 Planned (M2) unless tagged:
 
-- **Plugin ABI conformance suite** in `pr-full` on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
+- **Plugin ABI conformance suite** in the PR pipeline's `integration` job, on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
 - **Adapter conformance**, Planned (M4): the suite plus a proxy-wasm filter corpus; a trapping context leaves other instances' contexts unaffected, and pinned waits respect the 1 ms bound (target).
 - **Online Plugin check**: `ruralz bundle build`, `ruralz bundle validate --online`, ingest and activation reject artifacts disagreeing with `Plugin.spec` (RZ-CFG-028).
 - **Host Function fuzzing**: out-of-bounds pointers and lengths trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **SM-6 microbenchmark gate**: 50 µs or less per pooled Phase call at p99 (target).
 - **Amendment trigger**: a pull request that adds an ambient import or a Host Function without exactly one Capability, changes a result code, Phase result, memory convention or required export, or accepts another `abi` value MUST amend this ADR or open `ruralz.plugin.v2`.
 
 ## Pros and cons of the options

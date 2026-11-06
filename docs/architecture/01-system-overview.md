@@ -8,7 +8,7 @@ This document fixes the top-level shape of Ruralz: two runtime components, Rural
 
 In scope: component boundaries and ports, the request and configuration lifecycles, deployment modes, failure behavior, trust boundaries, and a map to owning documents. References such as "pack 8.3" name a section of the [foundation pack](../_meta/foundation-pack.md).
 
-Non-goals: kinds and fields ([Configuration model](02-configuration-model.md) wins on conflict), component internals (see the [Document map](#document-map)), authoritative numbers ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) wins on conflict), and positioning.
+Non-goals: kinds and fields ([Configuration model](02-configuration-model.md) wins on conflict), component internals (see the [Document map](#document-map)), and positioning.
 
 ## Design principles
 
@@ -240,16 +240,6 @@ A Route carries a global Rate Limit (pack 8.8): a local token bucket at a per-No
 1. GCRA calls hit the deadline and the Rate Limit fails open; admission per key is at most N serving Nodes times the per-Node ceiling per window (target), a bound [Scalability and distributed state](11-scalability-and-distributed-state.md) owns.
 2. The State client's breaker opens, so later requests pay no timeout.
 3. A `failureMode: closed` Policy, such as the `ai.token-budget` default, rejects with `RZ-STS-<NNN>`.
-
-Seed budgets exclude Upstream and State Store time; [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) owns the workload and values.
-
-| Seed budget item | Value |
-|---|---|
-| Gateway-added latency p50 | 150 µs or less (target) |
-| Gateway-added latency p99 | 1 ms or less (target) |
-| Same-zone State Store GCRA round trip p99 | 1 ms or less (hypothesis) |
-| Ruralz-owned allocations per pass-through HTTP/1.1 request, excluding `net/http` internals | 30 or fewer (hypothesis) |
-| WASM Plugin Phase call, pooled instance, p99 | 50 µs or less (target) |
 
 ### Streaming and AI traffic
 
@@ -494,7 +484,7 @@ flowchart LR
 | [Traffic management and resilience](09-traffic-management-and-resilience.md) | Load balancing, Rate Limits, Quotas |
 | [Observability](10-observability.md) | Metrics, traces, logs |
 | [Scalability and distributed state](11-scalability-and-distributed-state.md) | State Store bounds, Cells, Regions |
-| [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) | Performance Budget, benchmarks |
+| [Limits and caps](12-performance-budgets-and-benchmarking.md) | Per-Node limits and caps |
 
 ## Open questions
 

@@ -96,8 +96,7 @@ flowchart LR
 - **Name identity gate**, Planned (M1): a golden over one fixed registry, exported through `/metrics` as text and OpenMetrics and through OTLP into `internal/testkit/otlpsink`, fails when the two metric name sets differ.
 - **Catalog gate**, Planned (M1): CI fails on a `ruralz_*` name or degraded reason absent from the [Metrics catalog](../architecture/10-observability.md#metrics-catalog), or a Grafana panel on an unlisted metric.
 - **Cardinality test**, Planned (M1): 1,000 Hot Reloads renaming every Route keep retiring series within 25,000 (target).
-- **Benchmark gate**, Planned (M1): PB-10 fails when telemetry at defaults exceeds 5% of Node CPU (target) ([Budget catalog](../architecture/12-performance-budgets-and-benchmarking.md#budget-catalog-and-slo-ties)).
-- **Blocked stdout and stalled Collector tests**, Planned (M1): request latency stays within [Overhead per signal](../architecture/10-observability.md#overhead-per-signal) budgets (target), with drops counted.
+- **Blocked stdout and stalled Collector tests**, Planned (M1): while stdout goes unread, or the OTLP sink rejects, stalls or is down, every request completes with zero failures and the dropped records are counted ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
 - **Environment golden test**, Planned (M1): with `OTEL_*` variables set, `ruralzd` exports a byte-identical resource, headers and sampling, and `OTEL_RESOURCE_ATTRIBUTES` is empty after startup.
 - **Audit export test**, Planned (M2): across a leader failover, against a Collector returning partial success, every committed entry arrives at least once.
 - **Amendment trigger**: a vendor telemetry SDK, a second `/metrics` exporter, or `go.opentelemetry.io/otel/log` used beyond `internal/telemetry` and the audit export MUST amend this ADR.
@@ -129,4 +128,4 @@ flowchart LR
 - Also rejected: logs on the OpenTelemetry Logs API directly, since call sites would use an API whose global logger package is deprecated ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)); the Prometheus client for all metrics, since metrics would miss OTLP and operators would run two pipelines; and per-vendor exporters, since each vendor adds a dependency, a code path and a test matrix to every build.
 - Owning document: [Observability](../architecture/10-observability.md#telemetry-pipeline). Catalog rows: [Tech stack and libraries](../engineering/01-tech-stack-and-libraries.md#library-catalog). Import rules: [Import boundaries](../engineering/02-repository-layout-and-conventions.md#import-boundaries).
 - Related: [ADR-0006](0006-control-store-raft-boltdb.md) (`go-hclog` adapts to `slog`), [ADR-0007](0007-control-stream-protocol.md) (Node counters ride heartbeats) and [ADR-0014](0014-ai-api-surface.md) (`gen_ai`).
-- Revisit at OpenTelemetry Go v1.47.0, at the exporter's first v1 release, or when the name identity gate or PB-10 fails.
+- Revisit at OpenTelemetry Go v1.47.0, at the exporter's first v1 release, or when the name identity gate fails.

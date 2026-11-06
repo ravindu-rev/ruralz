@@ -8,7 +8,7 @@ This document explains why Ruralz exists, who it serves and how it is positioned
 
 In scope: the sections below, with the license per [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md). Terms follow the [foundation pack](../_meta/foundation-pack.md).
 
-Out of scope: architecture ([System Overview](../architecture/01-system-overview.md)); the capability-by-capability list (the [Feature Catalog](../features/01-feature-catalog.md)); dates ([Roadmap and milestones](../roadmap/01-roadmap-and-milestones.md)); authoritative performance numbers ([Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
+Out of scope: architecture ([System Overview](../architecture/01-system-overview.md)); the capability-by-capability list (the [Feature Catalog](../features/01-feature-catalog.md)); dates ([Roadmap and milestones](../roadmap/01-roadmap-and-milestones.md)).
 
 ## Problem and why now
 
@@ -109,7 +109,7 @@ The x position is 0.05 + 0.18 × the milestone number. Scope is maintainer judgm
 ### Where Ruralz does not lead
 
 - **Gateway API conformance is deferred.** Ruralz ships a Helm chart and CRDs mirroring its kinds, Planned (M2), and defers Kubernetes Gateway API conformance (non-goal 7, OQ-vision-and-positioning-4).
-- **Go tail latency.** Garbage-collector pauses may hurt a Go data plane's p99 (hypothesis); P10 requires published benchmarks against the [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md).
+- **Go tail latency.** Garbage-collector pauses may hurt a Go data plane's p99 (hypothesis); Ruralz states its latency as tagged targets (P10), such as the 1 ms p99 objective of SLO-GW-2 ([Observability](../architecture/10-observability.md#slo-definitions)).
 - **The Plugin ecosystem starts at zero.** PDKs and example Plugins arrive in `M2`, and the ecosystem grows only with contributors.
 
 ## Principles
@@ -170,22 +170,15 @@ Within `M0` to `M5`, Ruralz deliberately does not attempt the following:
 
 ## Success metrics
 
-Every metric is measured from public data or CI; [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) owns authoritative performance values and the reference hardware; latency rows match the [System Overview](../architecture/01-system-overview.md).
-
-SM-4 and SM-5 use one reference scenario: HTTP/1.1 keep-alive, 1 KiB body, JWT validation and a local token bucket, no Plugins or State Store Policy, at half of saturation RPS (target). Both exclude Upstream and State Store time, since a same-zone State Store round trip alone may reach 1 ms at p99 (hypothesis).
+Every metric is measured from public data or CI.
 
 | ID | Metric | How it is measured | Value | Milestone |
 |---|---|---|---|---|
-| SM-1 | Features behind a license key or edition | Code search and release audit on every tag | 0 features (target) | Planned (M0), permanent |
+| SM-1 | Features behind a license key or edition | The no-license-check scan of every pull request and release, and the release audit of every tag | 0 features (target) | Planned (M0), permanent |
 | SM-2 | Feature Catalog rows with a milestone or a reasoned `Not planned` | Count in the [Feature Catalog](../features/01-feature-catalog.md) | 100% of rows (target) | Planned (M1) |
-| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M6) |
-| SM-4 | Gateway-added latency p99, reference scenario | Benchmark suite on reference hardware | 1 ms or less (target) | Planned (M6) |
-| SM-5 | Gateway-added latency p50, reference scenario | Benchmark suite on reference hardware | 150 µs or less (target) | Planned (M6) |
-| SM-6 | WASM Plugin Phase call overhead, pooled instance, deadline interruption enabled, p99 | Per-Phase microbenchmark in CI | 50 µs or less (target) | Planned (M2) |
-| SM-7 | Time from download to first proxied request | Scripted quickstart in CI on a clean machine | 10 minutes or less (target) | Planned (M1) |
+| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M5) |
 | SM-8 | OpenAPI 3.x documents imported by `ruralz bundle import openapi` that validate and render without manual edits | Public OpenAPI corpus in the monorepo, run in CI | 90% or more (target) | Planned (M2) |
-| SM-9 | Rollout convergence in a 100-Node Cluster | `all-at-once` Rollout, Plugins cached: Revision recorded by Ruralz Control to `complete` (last ACK) | 30 s or less at p95 (target) | Planned (M2) |
-| SM-10 | Token Budget overshoot under concurrent streaming | Mock provider; B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096, reservations per P8; the mock reports prompt usage 2% above the gateway estimate and drops usage on 5% of streams | Overshoot at most the sum of per-stream estimate error, and 1% of B or less (hypothesis) | Planned (M3) |
+| SM-10 | Token Budget overshoot under concurrent streaming | The Token Budget property test ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)) on this scenario: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096, reservations per P8; the provider reports prompt usage 2% above the gateway estimate and drops usage on 5% of streams | Overshoot at most the sum of per-stream estimate error, and 1% of B or less (hypothesis) | Planned (M3) |
 | SM-11 | Prompt Cache marker preservation on native passthrough | Conformance tests for `cache_control` and equivalents | 100% of test cases (target) | Planned (M3) |
 | SM-12 | Supply-chain posture | Signed images and SBOM per release; OpenSSF Scorecard | 100% of releases signed from M1 (target); Scorecard 8.0 or higher from M2 (hypothesis) | Planned (M1) to Planned (M2) |
 | SM-13 | Unpatched Plugin sandbox escapes | Security advisories log | 0 older than 30 days (target) | Planned (M2) |

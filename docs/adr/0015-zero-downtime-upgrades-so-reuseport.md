@@ -85,9 +85,8 @@ sequenceDiagram
 
 ### Confirmation
 
-- **V-3**, Planned (M1): 1,000 handovers at half saturation (target), a keep-alive health checker on 9901, `tcp_migrate_req` at 1 and 0, and 1,000 refused or timed-out handovers. Pass: resets per handover recorded: none at 1, only twice-retransmitted handshakes at 0; no refused connection or failed request; every probe 200; no OOM kill or State Store connection refusal; derived-ceiling count drops at most 10% (target) ([Verification runbook](../operations/02-zero-downtime-upgrades-and-hot-reload.md#verification-runbook)).
-- **V-4**, Planned (M1); WebSocket and SSE Planned (M3): SIGTERM a Node holding HTTP/2, WebSocket and SSE connections. Pass: zero failed new requests, exit within 30 s (target).
-- **V-6**, Planned (M1): a handover to N-1 past the binary rollback limit is refused; N keeps serving.
+- **Handover tests**, Planned (M1): unit tests of `internal/gateway/handover` run whole handovers between two processes' real listeners, admin ports, Drains and locks: no new connection reaches the new process before steering, the holder stops accepting at the linger's end and its Drain releases the lock to the new process, and a new process lost during the linger leaves the holder re-pinned and serving; the holder refuses `unknown_marker`, `older_candidate`, `draining` and `busy`, and closes a connection that sends no acceptable ready message within the gate timeout ([Unit and property tests](../engineering/03-testing-and-quality-strategy.md#unit-and-property-tests)).
+- **Drain conformance case**, Planned (M1): in the protocol suite, after a stop signal each server shard sends one GOAWAY on each of its HTTP/2 connections within the jitter window, closes its idle HTTP/1.1 connections and gives a busy one `Connection: close`, the streams in flight complete, and the Node exits 0 ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
 - **Amendment trigger**: a pull request passing listening descriptors between processes (such as `unix.UnixRights`) or closing a listener before steering MUST amend this ADR.
 
 ## Pros and cons of the options

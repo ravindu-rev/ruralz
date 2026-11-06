@@ -108,7 +108,7 @@ The façade streams SSE; native passthrough keeps each provider's framing (SSE, 
 
 For `ai` Upstreams, headers commit at the first content event (per API, below), never at `message_start`, `ping` or a usage-only chunk. Earlier events are held, reserved from `maxBufferedBytes`, and beyond 64 KiB (target) the attempt commits early; fallback on them belongs to `onUpstreamResponseHeaders`, and `onResponse` runs at commit (OQ-ai-llm-gateway-15). `perTryTimeout` bounds the wait, during which the client receives nothing (OQ-data-plane-10).
 
-Gateway-added time to first token for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time: 1 ms or less at p99 (target); parsing, translation and estimation add per-KiB costs (hypothesis) that an M3 benchmark of `tiktoken-go/tokenizer` and the decoder measures ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)).
+Gateway-added time to first token for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time: 1 ms or less at p99 (target); parsing, translation and estimation add per-KiB costs (hypothesis).
 
 ### Components inside a Node
 

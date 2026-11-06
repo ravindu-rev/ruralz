@@ -263,7 +263,7 @@ When the Node ends the stream, as at a Drain or shutdown, an admin port move or 
 
 ### Test case format
 
-`ruralz test run` reads YAML files marked `format: ruralz.test.v1`. They are not Bundle resources (no `apiVersion` or `kind`) and live outside the Bundle, such as in `tests/`. Before `ruralz test run` lands, the [end-to-end suite](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)'s Go driver reads the same files, so its cases move to the command unchanged. Registration is OQ-cli-and-api-surface-1; streaming and multi-request cases, OQ-cli-and-api-surface-13.
+`ruralz test run` reads YAML files marked `format: ruralz.test.v1`. They are not Bundle resources (no `apiVersion` or `kind`) and live outside the Bundle, such as in `tests/`. Registration is OQ-cli-and-api-surface-1; streaming and multi-request cases, OQ-cli-and-api-surface-13.
 
 ```yaml
 format: ruralz.test.v1

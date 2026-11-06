@@ -14,7 +14,7 @@ Non-goals, with owners:
 - Control Stream, Rollouts, gates and fencing: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
 - Versions, skew policy and upgrade order: [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).
 - Restores and Region failover: [High availability and disaster recovery](04-high-availability-and-disaster-recovery.md).
-- Budget values, Helm objects and fields: [Performance budgets](../architecture/12-performance-budgets-and-benchmarking.md), [Deployment topologies](01-deployment-topologies.md), [Configuration model](../architecture/02-configuration-model.md).
+- Per-Node limits, Helm objects and fields: [Limits and caps](../architecture/12-performance-budgets-and-benchmarking.md#limit-catalog), [Deployment topologies](01-deployment-topologies.md), [Configuration model](../architecture/02-configuration-model.md).
 - Listener socket passing: Not planned; ADR-0015 keeps processes independent.
 
 ## Guarantees
@@ -27,16 +27,16 @@ These follow from P2, P4, P9 and P10 ([Vision](../vision/01-vision-and-positioni
 | Drain | Graceful shutdown of a Node: readiness fails, listeners stop accepting, HTTP/2 GOAWAY is sent, and in-flight requests finish within a bounded time |
 | Zero-Downtime Upgrade | Replacing the `ruralzd` binary: the new process binds with `SO_REUSEPORT` and reports ready, then the old process Drains |
 
-| ID | Guarantee | Verified by |
-|---|---|---|
-| ZG-1 | A Hot Reload ends no in-flight request unless K + 1 = 3 further activations occur during it, K = 2 (target) ([Atomic swap](#atomic-swap)) | V-1, V-2 |
-| ZG-2 | A Revision failing the validation gate never changes what a Node serves | V-1 |
-| ZG-3 | With `net.ipv4.tcp_migrate_req=1`, an in-place handover refuses or resets no new TCP connection and balancer probes always see `/readyz` 200; without it, only handshakes needing a second SYN-ACK retransmission can be reset (hypothesis) | V-3 |
-| ZG-4 | A Drain signals every long-lived connection first and ends all work within 30 s of SIGTERM (target) | V-4 |
-| ZG-5 | A Ruralz Control upgrade changes no Node's active Revision or readiness and stays within N-1 skew | V-5 |
-| ZG-6 | A State Store upgrade degrades only its Cell, under each Policy's `failureMode` | V-7 |
-| ZG-7 | An apiVersion migration yields the same Revision digest and an empty `ruralz bundle diff` | Golden corpus |
-| ZG-8 | Every rollback this document owns takes three steps or fewer, chained paths included | Runbook drills, V-6 |
+| ID | Guarantee |
+|---|---|
+| ZG-1 | A Hot Reload ends no in-flight request unless K + 1 = 3 further activations occur during it, K = 2 (target) ([Atomic swap](#atomic-swap)) |
+| ZG-2 | A Revision failing the validation gate never changes what a Node serves |
+| ZG-3 | With `net.ipv4.tcp_migrate_req=1`, an in-place handover refuses or resets no new TCP connection and balancer probes always see `/readyz` 200; without it, only handshakes needing a second SYN-ACK retransmission can be reset (hypothesis) |
+| ZG-4 | A Drain signals every long-lived connection first and ends all work within 30 s of SIGTERM (target) |
+| ZG-5 | A Ruralz Control upgrade changes no Node's active Revision or readiness and stays within N-1 skew |
+| ZG-6 | A State Store upgrade degrades only its Cell, under each Policy's `failureMode` |
+| ZG-7 | An apiVersion migration yields the same Revision digest and an empty `ruralz bundle diff` |
+| ZG-8 | Every rollback this document owns takes three steps or fewer, chained paths included |
 
 Not guaranteed: QUIC connections on UDP 8443 surviving steering (OQ-system-overview-18; HTTP/3 Planned (M3)), long-lived connections migrating, or Node-local state such as token buckets surviving a new process, which admits at most one extra ceiling per key (target) ([Stateless data plane](../architecture/11-scalability-and-distributed-state.md#stateless-data-plane)).
 
@@ -75,13 +75,7 @@ Requests pin their snapshot until `onLog`; beyond K = 2 retired snapshots (targe
 
 An `all-at-once` Rollout, or file-mode Nodes sharing a source, reach a third activation together, a rollback and re-rollout sufficing: up to 20,000 streams per Node (target) close in one second, 20 million per 1,000-Node Cell (hypothesis), until OQ-zero-downtime-upgrades-and-hot-reload-10 jitters them.
 
-[Hot Reload stages](../architecture/12-performance-budgets-and-benchmarking.md#hot-reload-stages):
-
-```text
-PB-7, 5,000 Routes, idle Node   500 ms: verify 25, compile 400, swap 25 ms            (target)
-Half-saturation load            1 s or less; compile workers yield every 100 µs       (target)
-                                gateway-added p99 at 1.5 ms or less                   (hypothesis)
-```
+An activation shares the cores with live traffic: compile workers yield every 100 µs (target), so no request waits behind a compile slice.
 
 ### Partial failure
 
@@ -117,7 +111,7 @@ A Zero-Downtime Upgrade follows [ADR-0015](../adr/0015-zero-downtime-upgrades-so
 | In-place Zero-Downtime Upgrade (handover) | VMs with systemd (T5), file-mode hosts (T2), Planned (M1); edge sites (T6), Planned (M2) | A second process on the same host and `${RURALZ_DATA_DIR}`; `SO_REUSEPORT` with CBPF pinning and steering | Unchanged; ceilings shared |
 | Drain and restart, Planned (M2); not a Zero-Downtime Upgrade | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | Minus up to `maxUnavailable` Pods, set to the PodDisruptionBudget: one zone's share at minimum scale (target) |
 
-Containers hand over the same way when the new `ruralzd` container joins the old one's network namespace, shares its data volume and runs as the same user, as the Compose suite does ([End-to-end tests](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)).
+Containers hand over the same way when the new `ruralzd` container joins the old one's network namespace, shares its data volume and runs as the same user.
 
 With `SO_REUSEPORT` alone, a reload fails the connections still queued on a listener socket when that socket closes (hypothesis). Steering alone still resets handshakes begun before the swap and children completing between the last `accept()` and `close()`; step 5's linger and `tcp_migrate_req` close that gap.
 
@@ -175,12 +169,10 @@ A stop signal during a handover ends it in order. A new process that does not ho
 
 The handover carries no Node-local state for Planned (M1): both processes keep full local token buckets within the one-extra-ceiling bound; until the new process's first `HeartbeatReply`, within 15 s (target), derived ceilings take the full limit under the clamp max(1, `requests` / 100) (target), reason `node_count_unknown` (OQ-zero-downtime-upgrades-and-hot-reload-5).
 
-Node-wide ceilings are shared: the new process admits each ceiling minus the holder's reported `usage`, under a soft memory limit it sets with `debug.SetMemoryLimit` on each usage report ([source](https://pkg.go.dev/runtime/debug#SetMemoryLimit)): 90% of its cgroup's `memory.max` minus the holder's `rssBytes` (target), or, without a cgroup limit, `GOMEMLIMIT` minus `rssBytes`, and none with neither. It restores its own setting once the holder is gone. Hosts MUST fit two processes until V-3 verifies this sharing, then the overlap extra ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)); State Store client limits MUST cover both:
+Node-wide ceilings are shared: the new process admits each ceiling minus the holder's reported `usage`, under a soft memory limit it sets with `debug.SetMemoryLimit` on each usage report ([source](https://pkg.go.dev/runtime/debug#SetMemoryLimit)): 90% of its cgroup's `memory.max` minus the holder's `rssBytes` (target), or, without a cgroup limit, `GOMEMLIMIT` minus `rssBytes`, and none with neither. It restores its own setting once the holder is gone. Hosts MUST fit two processes ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)), and State Store client limits MUST cover both:
 
 ```text
-Two processes   host ≥ 2 × container until V-3 verifies sharing                   (hypothesis)
-Overlap extra   second base RSS 100 MB + 2 KB per Route, its (K + 2) snapshots
-                and state tables of 475 MiB: about 0.6 GiB plus snapshots         (hypothesis)
+Two processes   host ≥ 2 × container                                              (hypothesis)
 Shared          20,000 TLS connections × 96 KiB = 1.9 GiB, never doubled          (target)
 State clients   2 pipelined + 8 dedicated per shard per process; server limit
                 10 × (N_serving + Nodes in handover) per shard                    (target)
@@ -211,23 +203,7 @@ A process runs a watchdog when `WATCHDOG_USEC` sets an interval and `WATCHDOG_PI
 
 systemd sets both variables for the `ExecStart=` process only ([source](https://github.com/systemd/systemd/blob/main/src/core/service.c)), so a successor the `ExecReload=` helper starts has none of its own. A holder that runs a watchdog therefore sends its interval in `accepted` as `watchdogUsec`, and a successor whose environment enables no watchdog runs its own with that interval; one whose environment enables one keeps it, and one whose `accepted` carries no interval, from a holder without a watchdog, runs none. A successor starts its watchdog only once it has taken the lock and sent `MAINPID=`, `READY=1` and its `STATUS=`. Its predecessor, pinging every half interval until its Drain starts, leaves the unit's watchdog at least half an interval, and the successor's first ping goes as soon as its parts have run. As the next holder it sends that interval on, so the successor of every reload feeds the unit's watchdog.
 
-CI stage 8 runs an `integration`-tagged test in `test/t5`: `systemd-analyze verify` on a copy of the unit whose `/usr/local/bin/` paths name the helper and a stand-in `ruralzd`, failing on a warning about the unit as on an error, and `systemd-sysusers` with the sysusers.d entry against a temporary root. Under the test-only tag `t5`, `test/t5` also holds the helper checks, which change nothing on the host and so run anywhere, beside the helper's unit tests in `internal/tool/releasekit`: the helper against the test binary re-executed as a stand-in for the new process, its 75 s (target) wait and 10 s stop grace counted in its 0.2 s sleeps, a `holder.json` read for `pid` alone, the bounds of its arguments, and the unit's environment and `/dev/null` standard input passed on; and the helper against `ruralzd` itself outside systemd, a handover and a refused one.
-
-The live suite, also in `test/t5` under `t5`, runs in `t5-systemd.yml` on `ubuntu-24.04`, `ubuntu-24.04-arm` and, while GitHub offers it, `ubuntu-22.04`, whose systemd 249 is the nearest to the unit's 247 floor; each runner has systemd as PID 1. It tests the shipped archive, so it runs in real time with condition waits. Because it installs files under `/usr/local` and `/etc`, creates a system user and runs `systemctl` as root, it runs only when `RURALZ_TEST_T5=1` is set, as CI sets it, and otherwise skips with a reason. It refuses to replace an existing installation and removes its own at the end.
-
-It installs the host's linux archive that a `make release-dry-run` in the job left in `dist/release/`, once checked against `SHA256SUMS` and its `deploy/systemd/` files against the checkout's, by the [T5](01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites) install steps: binary and helper under `/usr/local/bin`, the sysusers.d entry, the `EnvironmentFile` with `RURALZ_FETCH_ALLOW=127.0.0.1` added for the suite's loopback Upstream, the sysctl file and an admin token. `internal/testkit/binaries` builds the variant for the refused handover beside it, with a handover marker no `ruralzd` reads. The suite then checks, in order:
-
-- the unit starting without a valid Bundle, active with `STATUS=not ready: no_revision …` and `/readyz` 503 until the source turns valid, and with one, ready with `STATUS=ready rev-<12 hex>` once `systemctl start` returns;
-- the system user and group `ruralz` with a system ID, home `/var/lib/ruralz` and no login shell; the data directory at mode 0700; `net.ipv4.tcp_migrate_req = 1` after `sysctl --system`;
-- a running Node that holds only `CAP_NET_BIND_SERVICE`, cannot gain privileges and writes nothing on the host outside its data directory: every other path is read-only to it and `/tmp` is private to the unit;
-- the watchdog: `WATCHDOG_USEC` and `WATCHDOG_PID` given to the `ExecStart=` process, and its `WATCHDOG=1` every half interval;
-- a refused handover: `systemctl reload` fails on `unknown_marker`, no process of the variant stays in the unit, and the holder answers every request and every probe of a keep-alive checker on 9901;
-- the watchdog after a reload: the successor, without `WATCHDOG_USEC` of its own, starts its watchdog with the old process's interval, logged as from the holder, and sends `WATCHDOG=1` every half interval, staying the unit's main process with no restart and no watchdog timeout;
-- 20 reload handovers under open-loop load from `internal/testkit/loadgen`, 500 requests per second over 64 connections (target) of HTTP/1.1 keep-alive and h2c clients that honor `Connection: close` and GOAWAY, every response checked, with a keep-alive checker on 9901: no failed request, `MainPID` moved, the old process gone within 28 s (target), and the unit, its watchdog fed by each successor in turn, never restarted;
-- `systemctl stop` during a handover exiting 0 within 40 s (target), both processes gone and the unit's result `success`;
-- a SIGKILL restart booting Last-Known-Good under degraded reason `lkg_boot` once the source no longer renders a Revision.
-
-`t5-systemd.yml` runs on demand, when `release.yml` calls it, and on every push to `main` that changes `deploy/systemd/`, `internal/gateway/handover/`, `internal/gateway/drain/` or `internal/gateway/sdnotify/`; a failed push run opens or updates a `nightly-failure` issue, which blocks the next release. It MUST pass before the `0.1.0` release candidate; until then the fallback is `systemctl stop` and `start`.
+The `integration` job of the [PR pipeline](../engineering/03-testing-and-quality-strategy.md#pr-pipeline) runs an `integration`-tagged test in `test/t5`: `systemd-analyze verify` on a copy of the unit whose `/usr/local/bin/` paths name the helper and a stand-in `ruralzd`, failing on a warning about the unit as on an error, and `systemd-sysusers` with the sysusers.d entry against a temporary root. The helper's own unit tests run in `internal/tool/releasekit`.
 
 ### Node count during upgrades
 
@@ -265,7 +241,7 @@ Kubernetes            terminationGracePeriodSeconds 45 s                        
 systemd               TimeoutStopSec 40 s                                               (target)
 ```
 
-The Drain sends one GOAWAY per HTTP/2 connection, not the RFC 9113 pair ([source](https://www.rfc-editor.org/rfc/rfc9113.html)). `Server.Shutdown` closes a server's listeners and idle connections and sends every one of its GOAWAYs at once, and ignores hijacked connections such as WebSockets ([source](https://pkg.go.dev/net/http#Server.Shutdown)). So each client listener serves through K = 8 `http.Server` shards (target) that share the handler: a dispatching listener accepts every connection and hands it round-robin to the shards' channel-fed listeners, in one turn order every client listener of the Node shares, so shard i of every listener together holds an eighth of the Node's connections, and the Drain shuts the shards down one at a time across the window. Clients thus reconnect in K waves, without a per-connection GOAWAY API or the banned `golang.org/x/net/http2` Server, and the Drain tracks hijacked connections itself. CE-2 asserts the waves ([Chaos experiments](../architecture/11-scalability-and-distributed-state.md#chaos-experiments)).
+The Drain sends one GOAWAY per HTTP/2 connection, not the RFC 9113 pair ([source](https://www.rfc-editor.org/rfc/rfc9113.html)). `Server.Shutdown` closes a server's listeners and idle connections and sends every one of its GOAWAYs at once, and ignores hijacked connections such as WebSockets ([source](https://pkg.go.dev/net/http#Server.Shutdown)). So each client listener serves through K = 8 `http.Server` shards (target) that share the handler: a dispatching listener accepts every connection and hands it round-robin to the shards' channel-fed listeners, in one turn order every client listener of the Node shares, so shard i of every listener together holds an eighth of the Node's connections, and the Drain shuts the shards down one at a time across the window. Clients thus reconnect in K waves, without a per-connection GOAWAY API or the banned `golang.org/x/net/http2` Server, and the Drain tracks hijacked connections itself.
 
 Kubernetes runs preStop before SIGTERM inside the grace period ([source](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)), 30 s by default ([source](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)), too short here:
 `terminationGracePeriodSeconds` MUST exceed the preStop wait plus the exit bound (Drain deadline plus flush), 45 s against 5 s plus 30 s (target), as `TimeoutStopSec` exceeds 30 s (target).
@@ -479,23 +455,11 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 | Before a Ruralz Control upgrade | `ruralz version` (the CLI only); `ruralz node list --cluster <name>`; Node versions from `service.version` or inventory until OQ-release-versioning-and-compatibility-4 lets `ruralz node list` show them; `ruralz control backup --output-file <file> --revocation-list-file <file>` | CLI at N or N-1; every Node at N-1; digests equal the promoted digest; backup off the replicas; pushes paused; derived ceilings declared, or replacements paced |
 | Before a Node upgrade, after finalize | `ruralz node list --cluster <name>`; versions as above | Every Node at N-1 or N; digests equal the promoted digest |
 | Before | `terminationGracePeriodSeconds` or `TimeoutStopSec`; balancer probe interval times unhealthy threshold | 45 s and 40 s; detection within 5 s (target) |
-| During a Hot Reload or Rollout | `ruralz rollout status <cluster> --wait`; `ruralz_config_activation_duration_seconds` | No deterministic NACK; activation within the size class budget (target) |
+| During a Hot Reload or Rollout | `ruralz rollout status <cluster> --wait`; `ruralz_config_activation_duration_seconds` | No deterministic NACK; each activation within the 60 s compile deadline (target) |
 | During a handover or Drain | Balancer view of `/readyz`; 5xx, `RZ-RT-014` and `RZ-RT-016` counts; the old process's exit log | 200 throughout a handover; no connection left at the deadline |
 | During any upgrade (Ruralz Control count: next row) | `ruralz_control_cluster_nodes`; `ruralz_node_degraded_info{reason="state_store_breaker_open"}` | No breaker opens; paced derived-ceiling Clusters: count drops at most 10% (target); declared ceilings: count ungated, first-seen GCRA calls within Scalability's per-Cell budget (target) |
 | During a Ruralz Control upgrade | `/readyz` on 9902; `ruralz_control_connected_nodes`; `ruralz_control_cluster_nodes` | Every Node reconnected, none shed; count down at most the replaced replica's share until OQ-scalability-and-distributed-state-14 (a) and, with derived ceilings, regained before the next replica |
 | After | `ruralz node list`; `ruralz_control_drift_nodes`; `ruralz_node_degraded_info` | No Drift and no new degraded reason |
-
-[Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md) places these lab gates.
-
-| ID | Test | Pass | Milestone |
-|---|---|---|---|
-| V-1 | R1 reload ladder; each gate step failing; three quick Rollouts over 20,000 sessions (target) | Budgets per step (target); rejections change nothing; reconnects spread over 10 s (target) after OQ-zero-downtime-upgrades-and-hot-reload-10 | Planned (M1) |
-| V-2 | Plugin swap at 20,000 requests per second (target) | No `RZ-PLG-005`; each request stays on its version | Planned (M2) |
-| V-3 | 1,000 handovers under S1 at half saturation (target), a keep-alive health checker on 9901, `tcp_migrate_req` at 1 and at 0; 1,000 refused or timed-out handovers | Resets per handover recorded: none at 1, only twice-retransmitted handshakes at 0; no refused connection or failed request; every probe 200; no OOM kill or State Store connection refusal; derived-ceiling count drops at most 10% (target) | Planned (M1) |
-| V-4 | CE-2: SIGTERM a Node holding HTTP/1.1 and HTTP/2 connections, WebSockets and SSE | Zero failed new requests; every in-flight request completes; no connection left at the Drain deadline; exit within 30 s (target); reconnects in the K = 8 shard waves (target): of the M connections held at stop-accepting, at least 100, each eighth of the 10 s jitter window closes one wave, and no 1 s slice of it closes more than two waves, 2 × ⌈M / 8⌉ connections, as the L4 balancer sees them | Planned (M1); WebSockets and SSE Planned (M3) |
-| V-5 | Ruralz Control N-1 to N with 100 Nodes under load (target) | Zero request errors or unready Nodes; no breaker opens; derived-ceiling count drops at most 10% (target), needing OQ-scalability-and-distributed-state-14 (a), else per the runbook (CE-7, CE-10) | Planned (M2) |
-| V-6 | Handover to N-1 past the binary rollback limit, then that three-step row | Refused, N keeps serving; the row ends on N-1 with no Node unready | Planned (M1) |
-| V-7 | CE-5: State Store primary killed under at least 100 Nodes (target), under `standalone`, `sentinel` and `cluster` | From the SIGKILL, every Node reconnected within 10 s and `failureMode` for at most 15 s (target); extra admissions within the lag bound | Planned (M1) |
 
 ## Open questions
 

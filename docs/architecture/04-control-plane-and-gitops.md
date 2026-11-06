@@ -411,7 +411,7 @@ Nodes heartbeat every 15 s (target); Ruralz Control MAY raise `heartbeatInterval
 6. A per-replica token bucket on new streams answers excess with `Reconnect` or `RZ-CP-010`.
 7. Backoff with full jitter, base 1 s, cap 60 s (target).
 
-A deployment targets 10,000 Nodes (target), a replica 5,000 streams and 20 Snapshots/s (hypothesis); paced to that capacity, a 10,000-Node Cluster's largest batch takes at most 5 minutes (target), measured by [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md).
+A deployment targets 10,000 Nodes (target), a replica 5,000 streams and 20 Snapshots/s (hypothesis); paced to that capacity, a 10,000-Node Cluster's largest batch takes at most 5 minutes (target).
 
 ## Multi-cluster and multi-region sync
 

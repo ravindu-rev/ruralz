@@ -85,7 +85,7 @@ flowchart LR
 - Bad, because it pins `gorilla/websocket` v1.5.1, inside the GO-2026-6278 range ([source](https://pkg.go.dev/vuln/GO-2026-6278)), beside coder/websocket: an accepted S6 exception ([Selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria)).
 - Bad, because it has no composition package ([source](https://github.com/wundergraph/graphql-go-tools/tree/master/v2)), so federation waits on OQ-multi-protocol-4, and planning checks add `engine/plan` and `graphql_datasource`, which imports gorilla/websocket, to Ruralz Control and the CLI (size: OQ-tech-stack-and-libraries-22).
 - Bad, because the engine holds each event whole, so each is reserved as a chunk up to 1 MiB (target) even without `onChunk` ([Subscriptions](../architecture/07-multi-protocol.md#subscriptions)); the subgraph read limit is unresearched (OQ-multi-protocol-12).
-- Bad, because `ruralzd` always links it, adding to its 160 MiB stripped budget (target) even on Nodes serving no GraphQL.
+- Bad, because `ruralzd` always links it, growing its stripped binary even on Nodes serving no GraphQL.
 - Bad, because its `go.mod` requires `connectrpc.com/connect` v1.19.2 against Ruralz's v1.21.x, a pairing its authors did not pin (hypothesis: compatible; the gRPC and GraphQL conformance suites check it).
 
 ### Confirmation
@@ -93,8 +93,7 @@ flowchart LR
 - **Dependency admission**, Planned (M0): the GraphQL catalog row cites this ADR, and a depguard rule banning `github.com/99designs/gqlgen`, `github.com/movio/bramble` and `github.com/graphql-go/graphql` fails any pull request importing them.
 - **G1 cross-build, G3 crypto denylist and license gate**, Planned (M0), plus the FIPS CI job, Planned (M5): confirm pure Go, Go-module-only cryptography and MIT over all three binaries' linked sets, including graphql-go-tools.
 - **GraphQL module floor**, Planned (M3): the `gorilla/websocket` v1.5.3 `require` above; `govulncheck` on every pull request, Planned (M0), blocks a reachable GO-2026-6278 ([Version floors](../engineering/01-tech-stack-and-libraries.md#version-floors-from-advisories)).
-- **Protocol conformance suite** in `pr-full`, Planned (M3) ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): federation versions 1 and 2, all three subscription transports, pass-through subscriptions including from a `graphql-ws` client, and limit rejections. Every subgraph or pass-through fetch and subscription dial emits a `ruralz.upstream.<name>` span and runs `onUpstreamRequest`; an oversized subgraph body is rejected with its reservation released; a denied `subscribe` gets an `error` for its operation id while the socket stays open.
-- **CI size check**, Planned (M1): reports `ruralzd` against its binary budget.
+- **Protocol conformance suite** in the PR pipeline's `integration` job, Planned (M3) ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): federation versions 1 and 2, all three subscription transports, pass-through subscriptions including from a `graphql-ws` client, and limit rejections. Every subgraph or pass-through fetch and subscription dial emits a `ruralz.upstream.<name>` span and runs `onUpstreamRequest`; an oversized subgraph body is rejected with its reservation released; a denied `subscribe` gets an `error` for its operation id while the socket stays open.
 - **Amendment trigger**: a pull request that adds another GraphQL library, imports the `subscription` package, or exceeds the `ruralz-control`, `ruralz` row's package set or builds an HTTP or subscription client there, MUST amend this ADR.
 
 ## Pros and cons of the options
