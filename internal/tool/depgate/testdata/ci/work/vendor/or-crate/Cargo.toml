@@ -1,0 +1,5 @@
+[package]
+name = "or-crate"
+version = "1.4.0"
+edition = "2021"
+license = "MIT OR GPL-3.0-only"

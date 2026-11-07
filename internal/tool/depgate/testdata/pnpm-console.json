@@ -1,0 +1,110 @@
+{
+  "MIT": [
+    {
+      "name": "@emotion/hash",
+      "versions": [
+        "0.9.2"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/@emotion+hash@0.9.2/node_modules/@emotion/hash"
+      ],
+      "license": "MIT",
+      "homepage": "https://github.com/emotion-js/emotion/tree/main#readme",
+      "description": "A MurmurHash2 implementation"
+    },
+    {
+      "name": "react",
+      "versions": [
+        "19.2.0"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/react@19.2.0/node_modules/react"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "React is a JavaScript library for building user interfaces."
+    },
+    {
+      "name": "react-dom",
+      "versions": [
+        "19.2.0"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/react-dom@19.2.0_react@19.2.0/node_modules/react-dom"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "React package for working with the DOM."
+    },
+    {
+      "name": "scheduler",
+      "versions": [
+        "0.27.0"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/scheduler@0.27.0/node_modules/scheduler"
+      ],
+      "license": "MIT",
+      "homepage": "https://react.dev/",
+      "description": "Cooperative scheduler for the browser environment."
+    }
+  ],
+  "Apache-2.0": [
+    {
+      "name": "long",
+      "versions": [
+        "5.3.2"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/long@5.3.2/node_modules/long"
+      ],
+      "license": "Apache-2.0",
+      "author": "Daniel Wirtz",
+      "homepage": "https://github.com/dcodeIO/long.js#readme",
+      "description": "A Long class for representing a 64-bit two's-complement integer value."
+    },
+    {
+      "name": "widget",
+      "versions": [
+        "file:../vendor/widget"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/widget@file+..+vendor+widget/node_modules/widget"
+      ],
+      "license": "Apache-2.0",
+      "description": "A widget vendored next to the console."
+    }
+  ],
+  "ISC": [
+    {
+      "name": "semver",
+      "versions": [
+        "6.3.1",
+        "7.7.3"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/semver@6.3.1/node_modules/semver",
+        "/ci/work/console/node_modules/.pnpm/semver@7.7.3/node_modules/semver"
+      ],
+      "license": "ISC",
+      "author": "GitHub Inc.",
+      "homepage": "https://github.com/npm/node-semver#readme",
+      "description": "The semantic version parser used by npm."
+    }
+  ],
+  "BSD-3-Clause": [
+    {
+      "name": "source-map-js",
+      "versions": [
+        "1.2.1"
+      ],
+      "paths": [
+        "/ci/work/console/node_modules/.pnpm/source-map-js@1.2.1/node_modules/source-map-js"
+      ],
+      "license": "BSD-3-Clause",
+      "author": "Valentin 7rulnik Semirulnik",
+      "homepage": "https://github.com/7rulnik/source-map-js",
+      "description": "Generates and consumes source maps"
+    }
+  ]
+}

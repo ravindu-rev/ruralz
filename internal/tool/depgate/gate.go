@@ -68,23 +68,36 @@ func decodePackages(r io.Reader) ([]goPackage, error) {
 	}
 }
 
-// moduleNotice is what one target's THIRD_PARTY_LICENSES and NOTICE say
-// about one linked third-party module.
+// moduleNotice is what an artifact's THIRD_PARTY_LICENSES and NOTICE say
+// about one third-party component: a linked Go module, or a crate or npm
+// package the artifact ships.
 type moduleNotice struct {
-	// Path and Version identify the module as go.mod requires it.
+	// Path and Version identify a Go module as go.mod requires it, and a
+	// crate or npm package by its manifest's name and version.
 	Path, Version string
 	// ReplacePath and ReplaceVersion name a replacement; ReplaceVersion is
 	// empty for a directory replacement.
 	ReplacePath, ReplaceVersion string
-	// IDs are the classified licenses of every license text, sorted.
+	// IDs are the classified licenses of every license text of a Go
+	// module, sorted.
 	IDs []string
+	// Expression is the SPDX license expression of a crate or npm package,
+	// rendered canonically.
+	Expression string
+	// Source is where a crate's or npm package's source is available; a
+	// Go module's address follows from Path and Version.
+	Source string
+	// MPL marks a crate or npm package used under MPL-2.0, which only its
+	// named exception admits.
+	MPL bool
 	// Texts are the license, patent and notice texts at the module root
-	// and in the nested directories that govern linked packages, sorted by
-	// Rel.
+	// and in the nested directories that govern linked packages, or at the
+	// package root, sorted by Rel.
 	Texts []legalText
-	// Override is the reviewed license that replaced an unreadable text.
+	// Override is the reviewed license that replaced an unreadable text,
+	// or the reviewed expression of a crate or npm package.
 	Override string
-	// Election is the license Ruralz elects for a dual-licensed module.
+	// Election is the license Ruralz elects for a dual-licensed component.
 	Election string
 }
 
@@ -432,43 +445,139 @@ func splitSemver(v string) ([3]int, string) {
 type options struct {
 	// dir is the module root.
 	dir string
-	// notices, when set, is the directory that receives each target's
+	// notices, when set, is the directory that receives each artifact's
 	// THIRD_PARTY_LICENSES and NOTICE once every gate passes.
 	notices string
+	// cargo, when set, names the `cargo metadata --format-version 1`
+	// output of a Rust PDK, "-" for standard input; the run gates that PDK
+	// instead of the Go binaries.
+	cargo string
+	// pnpm, when set, names the `pnpm licenses list --prod --json` output
+	// of Ruralz Console, "-" for standard input; the run gates its
+	// packages too, and ruralz-control, which embeds the Console, lists
+	// them in its notices.
+	pnpm string
+	// stdin is the standard input "-" reads.
+	stdin io.Reader
+	// list and std run the go command; tests replace them.
+	list func(ctx context.Context, dir string, t target) ([]goPackage, error)
+	std  func(ctx context.Context, dir string) (standardLibrary, error)
 }
 
-// run applies the gates to every target of the module and, when asked and
-// no gate failed, writes every target's notices. It returns the findings.
-func run(ctx context.Context, o options) ([]string, error) {
-	var all []string
+// goGatesLine is the line a run prints when every Go gate passes.
+const goGatesLine = "depgate: G2, G3, the Raft and jwx denylists, advisory floors and test support denial pass"
+
+// run applies the gates and, when asked and no gate failed, writes the
+// notices. It returns the findings, or the lines a passing run prints.
+func run(ctx context.Context, o options) (findings, summary []string, err error) {
+	if o.cargo != "" {
+		return runCargo(o)
+	}
+	if o.list == nil {
+		o.list = goList
+	}
+	if o.std == nil {
+		o.std = goStandardLibrary
+	}
+	var console consoleResult
+	if o.pnpm != "" {
+		if console, err = readConsole(o); err != nil {
+			return nil, nil, err
+		}
+	}
+	all := slices.Clone(console.findings)
 	results := map[target]analysis{}
 	for _, t := range targets() {
-		pkgs, err := goList(ctx, o.dir, t)
+		pkgs, err := o.list(ctx, o.dir, t)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		a, err := analyze(t, pkgs, readLegal)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		all = append(all, a.findings...)
 		results[t] = a
 	}
 	slices.Sort(all)
 	all = slices.Compact(all)
-	if len(all) > 0 || o.notices == "" {
-		return all, nil
+	if len(all) > 0 {
+		return all, nil, nil
 	}
-	std, err := goStandardLibrary(ctx, o.dir)
+	summary = []string{goGatesLine}
+	if o.pnpm != "" {
+		summary = append(summary, fmt.Sprintf("depgate: G2 passes over the %d npm packages %s ships", len(console.packages), consoleName))
+	}
+	if o.notices == "" {
+		return nil, summary, nil
+	}
+	std, err := o.std(ctx, o.dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	notice, err := os.ReadFile(filepath.Join(o.dir, "NOTICE"))
 	if err != nil {
-		return nil, fmt.Errorf("reading the repository NOTICE: %w", err)
+		return nil, nil, fmt.Errorf("reading the repository NOTICE: %w", err)
 	}
-	if err := writeNotices(o.notices, targets(), results, std, string(notice)); err != nil {
-		return nil, err
+	if err := writeNotices(o.notices, targets(), results, std, string(notice), console.packages); err != nil {
+		return nil, nil, err
 	}
-	return nil, nil
+	return nil, append(summary, fmt.Sprintf("depgate: wrote THIRD_PARTY_LICENSES and NOTICE of %d artifacts under %s", len(targets()), o.notices)), nil
+}
+
+// readConsole reads the -pnpm input and applies G2 to the packages of
+// Ruralz Console.
+func readConsole(o options) (consoleResult, error) {
+	in, err := openInput(o.pnpm, o.stdin)
+	if err != nil {
+		return consoleResult{}, err
+	}
+	defer func() { _ = in.Close() }()
+	entries, err := decodePnpm(in)
+	if err != nil {
+		return consoleResult{}, err
+	}
+	pol, err := ecosystemPolicy(ecosystemNPM)
+	if err != nil {
+		return consoleResult{}, err
+	}
+	return analyzeConsole(entries, pol, readLegal, os.ReadFile)
+}
+
+// runCargo applies G2 to the crates a Rust PDK ships and, when asked and
+// the gate passed, writes the PDK package's notices.
+func runCargo(o options) (findings, summary []string, err error) {
+	in, err := openInput(o.cargo, o.stdin)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer func() { _ = in.Close() }()
+	md, err := decodeCargo(in)
+	if err != nil {
+		return nil, nil, err
+	}
+	pol, err := ecosystemPolicy(ecosystemCargo)
+	if err != nil {
+		return nil, nil, err
+	}
+	res, err := analyzeCargo(md, pol, readLegal, os.ReadFile)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(res.findings) > 0 {
+		slices.Sort(res.findings)
+		return slices.Compact(res.findings), nil, nil
+	}
+	summary = []string{fmt.Sprintf("depgate: G2 passes over the %d crates %s ships", len(res.crates), res.title)}
+	if o.notices == "" {
+		return nil, summary, nil
+	}
+	notice, err := os.ReadFile(filepath.Join(o.dir, "NOTICE"))
+	if err != nil {
+		return nil, nil, fmt.Errorf("reading the repository NOTICE: %w", err)
+	}
+	if err := writeCrateNotices(o.notices, res, string(notice)); err != nil {
+		return nil, nil, err
+	}
+	return nil, append(summary, fmt.Sprintf("depgate: wrote THIRD_PARTY_LICENSES and NOTICE of %s under %s", res.title, o.notices)), nil
 }

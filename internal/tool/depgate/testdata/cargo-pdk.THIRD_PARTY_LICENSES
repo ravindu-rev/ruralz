@@ -1,0 +1,164 @@
+THIRD_PARTY_LICENSES for example-pdk 0.1.0
+
+example-pdk 0.1.0 is licensed under the Apache License, Version 2.0
+(see LICENSE and NOTICE). A Plugin built with it links the third-party
+crates listed below: the packages its normal dependencies resolve to, as
+`cargo metadata` reports them, without proc-macro crates, build-dependencies,
+dev-dependencies and what only they reach, which never ship. Each section
+names a component, its license and where its source is available, then
+reproduces its license texts.
+
+Components:
+  cfg-if 1.0.0: MIT OR Apache-2.0
+  memchr 2.8.3: Unlicense OR MIT
+  num-traits 0.2.19: MIT OR Apache-2.0
+  serde 1.0.229: MIT OR Apache-2.0
+  serde_core 1.0.229: MIT OR Apache-2.0
+  unicode-ident 1.0.27: (MIT OR Apache-2.0) AND Unicode-3.0
+  vendored-codec 0.3.1: MIT
+
+================================================================================
+cfg-if 1.0.0
+License: MIT OR Apache-2.0
+Source: https://static.crates.io/crates/cfg-if/1.0.0/download
+--------------------------------------------------------------------------------
+LICENSE-APACHE:
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+LICENSE-MIT:
+
+Copyright (c) 2014 Alex Crichton
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+
+================================================================================
+memchr 2.8.3
+License: Unlicense OR MIT
+Source: https://static.crates.io/crates/memchr/2.8.3/download
+--------------------------------------------------------------------------------
+COPYING:
+
+This project is dual-licensed under the Unlicense and MIT licenses.
+
+You may use this code under the terms of either license.
+
+LICENSE-MIT:
+
+Copyright (c) 2015 Andrew Gallant
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+UNLICENSE:
+
+This is free and unencumbered software released into the public domain.
+
+
+================================================================================
+num-traits 0.2.19
+License: MIT OR Apache-2.0
+Source: https://static.crates.io/crates/num-traits/0.2.19/download
+--------------------------------------------------------------------------------
+LICENSE-APACHE:
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+LICENSE-MIT:
+
+Copyright (c) 2014 The Rust Project Developers
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+
+================================================================================
+serde 1.0.229
+License: MIT OR Apache-2.0
+Source: https://static.crates.io/crates/serde/1.0.229/download
+--------------------------------------------------------------------------------
+LICENSE-APACHE:
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+LICENSE-MIT:
+
+Copyright (c) David Tolnay
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+
+================================================================================
+serde_core 1.0.229
+License: MIT OR Apache-2.0
+Source: https://static.crates.io/crates/serde_core/1.0.229/download
+--------------------------------------------------------------------------------
+LICENSE-APACHE:
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+LICENSE-MIT:
+
+Copyright (c) David Tolnay
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+
+================================================================================
+unicode-ident 1.0.27
+License: (MIT OR Apache-2.0) AND Unicode-3.0
+Source: https://static.crates.io/crates/unicode-ident/1.0.27/download
+--------------------------------------------------------------------------------
+LICENSE-APACHE:
+
+Apache License
+Version 2.0, January 2004
+http://www.apache.org/licenses/
+
+LICENSE-MIT:
+
+Copyright (c) David Tolnay
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+
+LICENSE-UNICODE:
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2023 Unicode, Inc.
+
+
+================================================================================
+vendored-codec 0.3.1
+License: MIT
+Source: a local path (../vendor/vendored-codec), not published
+--------------------------------------------------------------------------------
+LICENSE:
+
+Copyright (c) 2026 Example Codec Authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction.
+

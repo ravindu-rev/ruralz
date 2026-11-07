@@ -1,0 +1,5 @@
+[package]
+name = "and-crate"
+version = "3.2.0"
+edition = "2021"
+license = "MIT AND GPL-2.0-only"

@@ -578,7 +578,7 @@ func TestRenderThirdParty(t *testing.T) {
 		{Path: "github.com/hashicorp/raft", Version: "v1.8.0", IDs: []string{"MPL-2.0"}, Texts: lic(mplText)},
 		{Path: "example.com/old", Version: "v1.0.0", ReplacePath: "example.com/new", ReplaceVersion: "v1.0.1", IDs: []string{"Apache-2.0"}, Override: "Apache-2.0"},
 	}
-	got := renderThirdParty(tg, testStd(), modules)
+	got := renderThirdParty(tg, testStd(), modules, nil)
 	for _, want := range []string{
 		"THIRD_PARTY_LICENSES for ruralzd on linux/amd64\n",
 		"  Go standard library and runtime go1.27.3: BSD-3-Clause\n",
@@ -596,14 +596,14 @@ func TestRenderThirdParty(t *testing.T) {
 			t.Errorf("THIRD_PARTY_LICENSES lacks %q:\n%s", want, got)
 		}
 	}
-	if again := renderThirdParty(tg, testStd(), modules); again != got {
+	if again := renderThirdParty(tg, testStd(), modules, nil); again != got {
 		t.Error("rendering is not deterministic")
 	}
-	plain := renderThirdParty(tg, testStd(), modules[:1])
+	plain := renderThirdParty(tg, testStd(), modules[:1], nil)
 	if strings.Contains(plain, "MPL-2.0") {
 		t.Errorf("no MPL-2.0 module, yet the file mentions MPL-2.0:\n%s", plain)
 	}
-	none := renderThirdParty(tg, testStd(), nil)
+	none := renderThirdParty(tg, testStd(), nil, nil)
 	if !strings.HasSuffix(none, "PATENTS:\n\nAdditional IP Rights Grant (Patents)\n\n") {
 		t.Errorf("standard library only: unexpected end:\n%s", none)
 	}
@@ -615,14 +615,14 @@ func TestRenderThirdParty(t *testing.T) {
 func TestRenderNotice(t *testing.T) {
 	tg := target{"ruralz", "darwin", "arm64"}
 	repo := "Ruralz\nCopyright 2026 Revington\r\n"
-	if got := renderNotice(tg, repo, []moduleNotice{{Path: "example.com/m", Version: "v1.0.0", Texts: lic(mitText)}}); got != "Ruralz\nCopyright 2026 Revington\n" {
+	if got := renderNotice(tg, repo, []moduleNotice{{Path: "example.com/m", Version: "v1.0.0", Texts: lic(mitText)}}, nil); got != "Ruralz\nCopyright 2026 Revington\n" {
 		t.Errorf("plain NOTICE = %q", got)
 	}
 	modules := []moduleNotice{
 		{Path: "example.com/m", Version: "v1.0.0", Texts: append(lic(mitText), legalText{Rel: "NOTICE", Kind: kindNotice, Text: "Example Corp product\n"})},
 		{Path: "github.com/eclipse/paho.golang", Version: "v0.23.0", IDs: []string{"EDL-1.0", "EPL"}, Election: "EDL-1.0"},
 	}
-	got := renderNotice(tg, repo, modules)
+	got := renderNotice(tg, repo, modules, nil)
 	for _, want := range []string{
 		"Ruralz\nCopyright 2026 Revington\n\n" + sectionRule + "\nThird-party notices\n",
 		"ruralz on darwin/arm64 includes third-party software",
@@ -642,7 +642,7 @@ func TestWriteNotices(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "notices")
 	tg := target{"ruralz", "windows", "amd64"}
 	results := map[target]analysis{tg: {modules: []moduleNotice{{Path: "example.com/m", Version: "v1.0.0", IDs: []string{"MIT"}, Texts: lic(mitText)}}}}
-	if err := writeNotices(dir, []target{tg}, results, testStd(), "Ruralz\n"); err != nil {
+	if err := writeNotices(dir, []target{tg}, results, testStd(), "Ruralz\n", nil); err != nil {
 		t.Fatal(err)
 	}
 	for _, name := range []string{thirdPartyName, noticeName} {
@@ -653,7 +653,7 @@ func TestWriteNotices(t *testing.T) {
 	}
 	// A second run into the same directory is refused: no stale notice
 	// survives.
-	if err := writeNotices(dir, []target{tg}, results, testStd(), "Ruralz\n"); err == nil || !strings.Contains(err.Error(), "not empty") {
+	if err := writeNotices(dir, []target{tg}, results, testStd(), "Ruralz\n", nil); err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Errorf("non-empty directory: err = %v", err)
 	}
 }
@@ -661,7 +661,7 @@ func TestWriteNotices(t *testing.T) {
 func TestRunMainUsage(t *testing.T) {
 	for _, args := range [][]string{{"extra"}, {"-unknown"}} {
 		var stderr bytes.Buffer
-		if code := runMain(t.Context(), args, &bytes.Buffer{}, &stderr); code != 2 {
+		if code := runMain(t.Context(), args, strings.NewReader(""), &bytes.Buffer{}, &stderr); code != 2 {
 			t.Errorf("runMain(%q) = %d, want 2 (%s)", args, code, stderr.String())
 		}
 	}
@@ -673,7 +673,7 @@ func TestRepositoryPasses(t *testing.T) {
 	root := filepath.Join("..", "..", "..")
 	dir := filepath.Join(t.TempDir(), "notices")
 	var stdout, stderr bytes.Buffer
-	if code := runMain(t.Context(), []string{"-C", root, "-notices", dir}, &stdout, &stderr); code != 0 {
+	if code := runMain(t.Context(), []string{"-C", root, "-notices", dir}, strings.NewReader(""), &stdout, &stderr); code != 0 {
 		t.Fatalf("depgate exit %d:\n%s", code, stderr.String())
 	}
 	notice, err := os.ReadFile(filepath.Join(root, "NOTICE")) //nolint:gosec // The repository NOTICE under test.

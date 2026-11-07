@@ -1,0 +1,212 @@
+{
+  "packages": [
+    {
+      "name": "platform-pdk",
+      "version": "0.2.0",
+      "id": "path+file:///ci/work/platform-pdk#0.2.0",
+      "license": "Apache-2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [
+        {
+          "name": "shared-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/shared-crate"
+        },
+        {
+          "name": "win-only-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": "cfg(windows)",
+          "registry": null,
+          "path": "/ci/work/vendor/win-only-crate"
+        }
+      ],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "platform_pdk",
+          "src_path": "/ci/work/platform-pdk/src/lib.rs",
+          "edition": "2024",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/platform-pdk/Cargo.toml",
+      "metadata": null,
+      "publish": [],
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2024",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "shared-crate",
+      "version": "1.2.0",
+      "id": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+      "license": "MIT",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "shared_crate",
+          "src_path": "/ci/work/vendor/shared-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/shared-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "win-only-crate",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/win-only-crate#1.0.0",
+      "license": "SSPL-1.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "win_only_crate",
+          "src_path": "/ci/work/vendor/win-only-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/win-only-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    }
+  ],
+  "workspace_members": [
+    "path+file:///ci/work/platform-pdk#0.2.0"
+  ],
+  "workspace_default_members": [
+    "path+file:///ci/work/platform-pdk#0.2.0"
+  ],
+  "resolve": {
+    "nodes": [
+      {
+        "id": "path+file:///ci/work/platform-pdk#0.2.0",
+        "dependencies": [
+          "path+file:///ci/work/vendor/shared-crate#1.2.0",
+          "path+file:///ci/work/vendor/win-only-crate#1.0.0"
+        ],
+        "deps": [
+          {
+            "name": "shared_crate",
+            "pkg": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "win_only_crate",
+            "pkg": "path+file:///ci/work/vendor/win-only-crate#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": "cfg(windows)"
+              }
+            ]
+          }
+        ],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/win-only-crate#1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      }
+    ],
+    "root": "path+file:///ci/work/platform-pdk#0.2.0"
+  },
+  "target_directory": "/ci/work/platform-pdk/target",
+  "build_directory": "/ci/work/platform-pdk/target",
+  "version": 1,
+  "workspace_root": "/ci/work/platform-pdk",
+  "metadata": null
+}

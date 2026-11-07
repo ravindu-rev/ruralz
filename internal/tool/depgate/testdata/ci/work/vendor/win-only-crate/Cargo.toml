@@ -1,0 +1,5 @@
+[package]
+name = "win-only-crate"
+version = "1.0.0"
+edition = "2021"
+license = "SSPL-1.0"

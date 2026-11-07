@@ -1,0 +1,5 @@
+[package]
+name = "licensefile-crate"
+version = "0.4.2"
+edition = "2021"
+license-file = "COPYRIGHT.txt"
