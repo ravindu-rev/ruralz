@@ -112,7 +112,7 @@ Every TLS hop verifies the server certificate; no field disables it. Cleartext, 
 | Vault, Kubernetes API (TB-3, TB-7) | TLS 1.2 or newer, never cleartext | Server verified; Vault Kubernetes auth, AppRole or a token file, chosen per Node ([Secrets](#secrets)); namespace-scoped service account | Planned (M2) |
 | IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037) | Server verified | Planned (M1) |
 | Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9901 Planned (M1); 9902 Planned (M2) |
-| 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token | Node certificate or token | Planned (M2) |
+| 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token or a projected service account token | Node certificate or token | Planned (M2) |
 | 8092 (TB-11) | mTLS, TLS 1.3 only, except token `Join` from a replica without a peer certificate, over server-authenticated TLS | Disjoint CAs, so a Node key cannot join Raft; `Join` redeems a one-time `admin` token over a pinned server CA | Planned (M2) |
 | Relay (TB-13) | mTLS, TLS 1.3 only | Relay certificate | Planned (M4) |
 | 8090 (TB-6) | TLS 1.3 by default | Sessions or API tokens | Planned (M2) |
@@ -521,7 +521,7 @@ Local accounts, TOTP, sessions and the seven roles follow [RBAC and SSO](04-cont
 
 ### Enrollment
 
-Tokens, the `Enroll` lockout and certificates follow [Enrollment and mTLS](04-control-plane-and-gitops.md#enrollment-and-mtls); private keys never leave the Node, and certificates name `node.id` and the Cluster, scoping delivery. Tokens are minted per Cluster, and expired Nodes re-enroll, since a grace window extends stolen identities.
+Tokens, the `Enroll` lockout and certificates follow [Enrollment and mTLS](04-control-plane-and-gitops.md#enrollment-and-mtls); private keys never leave the Node, and certificates name `node.id` and the Cluster, scoping delivery. Tokens are minted per Cluster, and expired Nodes re-enroll, since a grace window extends stolen identities. Kubernetes pods enroll with a projected, audience-bound, short-lived service account token verified against the cluster's OIDC issuer, so no standing enrollment secret sits in the cluster (OQ-deployment-topologies-24), and a Node refused with `RZ-CP-003` re-enrolls in the background while it keeps serving.
 
 ### Signed Revisions and Plugin artifacts
 

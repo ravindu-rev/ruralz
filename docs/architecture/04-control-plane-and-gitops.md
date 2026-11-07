@@ -108,12 +108,12 @@ Ruralz Control's own settings are process configuration, never a kind or field, 
 
 | Setting | Holds | Applies |
 |---|---|---|
-| `git.url`, `git.branch`, `git.credentialsFile` | Tracked repository and branch; SSH key or token file for fetch and write-back. Without `git.url`, no Git source runs | Reload |
+| `git.url`, `git.branch`, `git.credentialsFile` | Tracked repository and branch; SSH key or token file for fetch and write-back. Without `git.url`, no Git source runs; other Environments bind to their own Bundle path, a repository and directory (keys: OQ-deployment-topologies-25) | Reload |
 | `webhooks[].source`, `webhooks[].secretFile` | Per-source HMAC secret for `/api/v1/hooks/git` | Reload |
 | `registries[].host`, `registries[].credentialsFile` | The allowlist the online Plugin check dials, credentials bound to one host; empty means every online check fails | Reload |
 | `pluginTrustPolicy` | Control-mode Plugin trust policy (pack 8.14); it reaches Nodes only in the next root-signed anchor set | Next anchor set |
 | `crd.bindings[].namespace`, `crd.bindings[].environment`, `crd.controlKinds` | CRD source per Environment, off when empty; `controlKinds` also reads `Environment` and `Cluster` CRDs | Reload |
-| `sources.allowUngated[]` | Environments whose `requireApproval` still admits `ruralz bundle push` and CRD sources; each use is audited | Reload |
+| `sources.allowUngated[]` | Environments whose `requireApproval` still admits `ruralz bundle push`; each use is audited | Reload |
 | `enrollment.nodeCap`, `enrollment.mintingQuota` | Per-Cluster Node cap and token minting quota (OQ-control-plane-and-gitops-23) | Reload |
 | `controlStore.driver`, `controlStore.postgres.urlFile` | `raft` (default) or [`postgres`](#backup-restore-and-postgres) once it exists; a change is a Control Store move that opens a new `storeEpoch` | Restart |
 | `api.tlsCertFile`, `api.tlsKeyFile` | 8090 TLS; without them the server CA issues it | Restart |
@@ -130,16 +130,16 @@ The first `serve` on an empty Control Store stores the credential's hash and aud
 
 ### Node process configuration
 
-The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-19). The three `*_FILE` variables are process settings of [pack section 2](../_meta/foundation-pack.md#2-canonical-names), each naming a file read at start; the token file lies outside `RURALZ_SECRET_ROOT` ([Security and identity](08-security-and-identity.md)).
+The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-19). The three `*_FILE` variables are process settings of [pack section 2](../_meta/foundation-pack.md#2-canonical-names), each naming a file read at start, the token file again whenever Ruralz Control refuses the identity with `RZ-CP-003`; the token file lies outside `RURALZ_SECRET_ROOT` ([Security and identity](08-security-and-identity.md)).
 
 | Setting | Holds | Mode |
 |---|---|---|
 | `RURALZ_CONFIG=ruralz-control://HOST:8091` | Control mode and the address Nodes dial, a replica or relay | Control |
 | `RURALZ_CONFIG=oci://REPOSITORY:TAG` or `oci://REPOSITORY@sha256:<64 hex>` | A signed OCI Revision: a tag is polled with jitter and pulled by digest, a digest is pinned | File |
 | `RURALZ_CONFIG` as a path | A source Bundle directory, rendered with the process environment and no overlay, or a rendered one-file Bundle ([Rendered Bundle](02-configuration-model.md#rendered-bundle)) | File |
-| `RURALZ_ENROLLMENT_TOKEN_FILE` | The `ruralz node token` output; ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity | Control |
+| `RURALZ_ENROLLMENT_TOKEN_FILE` | The `ruralz node token` output, or in Kubernetes the pod's projected service account token (fields: OQ-deployment-topologies-24); used until `${RURALZ_DATA_DIR}/identity/` holds a valid identity, and again when Ruralz Control refuses that identity with `RZ-CP-003` | Control |
 | `RURALZ_TRUST_POLICY_FILE` | The OCI Revision and Plugin trust policies; unset means an empty policy, so `enforce` rejects every signed pull | File |
-| `RURALZ_REGISTRY_AUTH_FILE` | Registry credentials in the container credential file format, each sent only to its host (OQ-wasm-plugin-system-6, option (a)); mirrors absorb fan-out | Both |
+| `RURALZ_REGISTRY_AUTH_FILE` | Registry credentials in the container credential file format, each sent only to its host; in Control mode Nodes pull Plugins through Ruralz Control's pull-through relay instead, so each artifact leaves the registry once per deployment ([OCI artifact](05-wasm-plugin-system.md#oci-artifact); interface: OQ-wasm-plugin-system-21) | File |
 
 In Control mode, Plugin trust arrives only in anchor sets, and a set `RURALZ_TRUST_POLICY_FILE` is refused at start.
 
@@ -207,12 +207,9 @@ Forge CI renders each pull request per Environment exactly as Ruralz Control doe
 
 The Bundle editor validates edits with the same pipeline; submit commits an audited branch (author: the user) that reaches Nodes only after merge, or fails with `RZ-CP-012`.
 
-Two sources record a digest in place of a commit, pass `promotion.from` and `requireApproval` exactly like one and show as Drift (mixed sources: OQ-system-overview-8):
+`ruralz bundle push` sends a Bundle and expected digest; Ruralz Control re-renders it (mismatch: RZ-CFG-027) and records the source tree digest in place of a commit, which passes `promotion.from` and `requireApproval` exactly like one and shows as Drift; the pusher is the author. It is refused for an Environment with `requireApproval` unless process configuration overrides it, which is audited.
 
-- `ruralz bundle push` sends a Bundle and expected digest; Ruralz Control re-renders it (mismatch: RZ-CFG-027) and records the source tree digest. The pusher is the author.
-- The CRD source, off unless process configuration binds a namespace to an Environment, records its object set's digest; every Kubernetes user who changed the set is an author. `Environment` and `Cluster` CRDs are read only if process configuration enables them.
-
-Both are refused for an Environment with `requireApproval` unless process configuration overrides it, which is audited.
+A CRD source, off unless process configuration binds a namespace to an Environment, is that Environment's primary source: it records its object set's digest where a commit would be, promotes through `promotion.from` and `requireApproval` with the same gates and audit as Git, and shows no Drift; every Kubernetes user who changed the set is an author (CRDs beside Git: OQ-system-overview-8). `Environment` and `Cluster` CRDs are read only if process configuration enables them.
 
 ## Bundle, Revision and Rollout lifecycle
 
@@ -292,7 +289,7 @@ Root rotations form a chain, each link signed by its predecessor; a Node older t
 | Baseline | Nodes on the previous Revision, else the Cluster's prior 15 minutes (target), stored at creation |
 | ACK timeout | 60 s from the last byte sent, then 3 retries before the Node lags and is quarantined (target); Nodes awaiting admission or behind a stale replica are pending |
 | Lagging threshold | More than max(1, 5% of the batch) lagging Nodes fails the batch (target) |
-| Late or zero Nodes | Late Nodes join the final batch and never lag. A plan whose members, even none, number below half the last committed `clusterNodeCount` (target) stays `pending`, re-planning as Nodes return, until members reach that share or an `operator` confirms it with `ruralz rollout resume` (OQ-high-availability-and-disaster-recovery-3, option (b)); only without a committed count does an empty plan complete at once |
+| Late or zero Nodes | Late Nodes join the final batch and never lag. A plan whose members, even none, number below half the last committed `clusterNodeCount` (target) stays `pending`, or `paused` once dispatched, re-planning as Nodes return, until members reach that share or an `operator` resumes it with `ruralz rollout resume` (reference count for a Cluster whose Nodes all left: OQ-high-availability-and-disaster-recovery-14); only without a committed count does an empty plan complete at once |
 
 Gates read per-Revision request, 5xx and rejection counters from heartbeats (OQ-system-overview-9); no single Node's counters decide a multi-Node gate. Ruralz Control reproduces a claimed deterministic NACK; one that does not reproduce counts as transient and quarantines the Node.
 
@@ -343,7 +340,7 @@ ruralz rollout status $CONTROL 01J9ZK3M7Q8R2T4V6X8Y0A1B2C      # 3. confirm the 
 
 In Ruralz Console: (1) select the Rollout, (2) choose Roll back, (3) confirm by typing the Cluster name.
 
-A `complete` Rollout is terminal. To revert it, an `operator` passes step-up TOTP and starts a Rollout of the replaced Revision, or chooses Revert in Ruralz Console. The revert skips `promotion.from` and approval but follows `spec.rollout` (OQ-control-plane-and-gitops-18). An older target, or a diff with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves: the held revert waits as a `pending` Rollout, the Cluster's active Rollout for `RZ-CP-009`, until `POST /api/v1/rollouts/{id}/approve` releases it or `/reject` discards it. A revert never delivers a revoked hash. A Revision never `complete` in the Cluster gets `RZ-CP-017`; one for another Environment, `RZ-CP-016`.
+A `complete` Rollout is terminal. To revert it, an `operator` passes step-up TOTP and starts a Rollout of the replaced Revision, or chooses Revert in Ruralz Console. The revert skips `promotion.from` and approval but follows `spec.rollout` (OQ-control-plane-and-gitops-18). An older target, or a diff with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves: the held revert waits as a `pending` Rollout, the Cluster's active Rollout for `RZ-CP-009`, until `POST /api/v1/rollouts/{id}/approve` releases it or `/reject` discards it. A revert never delivers a revoked hash: one to a tombstoned Revision gets `RZ-CP-023`. A Revision never `complete` in the Cluster gets `RZ-CP-017`; one for another Environment, `RZ-CP-016`.
 
 ## Control Stream
 
@@ -363,11 +360,11 @@ On 8091, `Enroll` needs a valid token and every other RPC a valid, unrevoked Nod
 | `Heartbeat` | Node to Ruralz Control | `activeDigest`, `lkgDigest`, `signingKeyId` per digest, `schemaLevels`, `ready`, `draining`, `revocationSeq`, counters per `rolloutId` | Feeds gates and Drift; three missed (target) mean disconnected |
 | `HeartbeatReply` | Ruralz Control to Node | `promotion`, `clusterNodeCount`, `heartbeatInterval` | Level-triggered Last-Known-Good promotion |
 | `TrustUpdate` | Ruralz Control to Node | `nonce`, `anchorSet`, `rootSignature` | `Ack` or `Nack`; fenced only by `version` |
-| `RevocationUpdate` | Ruralz Control to Node | `nonce`, `entries` (each with `sequence` and `signature`), `highWaterMark` (sequence, Cluster, issue time, `signature`) | `Ack`, Node-signed; no entries means a mark-only update every 10 s (target); a sequence gap is a degraded state. Pending OQ-security-and-identity-4, option (a) |
+| `RevocationUpdate` | Ruralz Control to Node | `nonce`, `entries` (each with `sequence` and `signature`), `highWaterMark` (sequence, Cluster, issue time, `signature`) | `Ack`, Node-signed; no entries means a mark-only update every 10 s (target); a sequence gap is a degraded state |
 | `RenewRequest`, `RenewResponse` | Both ways | `csr` keeping `node.id` and Cluster; `certificateChain` | Forwarded to the leader; `RZ-CP-003` if revoked |
 | `Reconnect` | Ruralz Control to Node | `retryAfter`, `reason` (`drain`, `shed`, `rebalance`) | Redial with full jitter after `retryAfter` |
 
-Revocations bypass the Revision digest, a proposed exception to pack 8.1 and 8.4 ([Security and identity](08-security-and-identity.md#revocation)). The leader signs each entry with the Cluster's next revocation sequence; followers and relays forward entries and marks unchanged, so none can forge one. Until OQ-security-and-identity-4 is decided, the message is unused and entries are unavailable.
+Revocations bypass the Revision digest, as pack 8.1 and 8.4 state ([Security and identity](08-security-and-identity.md#revocation)). The leader signs each entry with the Cluster's next revocation sequence; followers and relays forward entries and marks unchanged, so none can forge one, and Nodes sign their `Ack`s. A Node persists its entries and mark under `${RURALZ_DATA_DIR}` (pack 8.11), so a restart while detached keeps enforcing them.
 
 `detail` is truncated to 4 KiB (target). The stream disables `ReadTimeout` and `WriteTimeout` and detects dead peers with HTTP/2 pings ([Tech stack](../engineering/01-tech-stack-and-libraries.md#library-catalog)).
 
@@ -394,9 +391,9 @@ sequenceDiagram
     N-->>CT: Ack, Node becomes ready
 ```
 
-`ruralz node token` issues a one-time token for one Cluster, stored hashed, valid 1 hour (target), embedding SHA-256 fingerprints of the 8091 server CA and trust root, so the first dial is pinned. The token is a secret, never in a Bundle; the Node reads it from `RURALZ_ENROLLMENT_TOKEN_FILE` and dials the `RURALZ_CONFIG` address ([Node process configuration](#node-process-configuration)), ignoring it once `${RURALZ_DATA_DIR}/identity/` holds a valid identity. Private keys never leave the Node.
+`ruralz node token` issues a one-time token for one Cluster, stored hashed, valid 1 hour (target), embedding SHA-256 fingerprints of the 8091 server CA and trust root, so the first dial is pinned. The token is a secret, never in a Bundle; the Node reads it from `RURALZ_ENROLLMENT_TOKEN_FILE` and dials the `RURALZ_CONFIG` address ([Node process configuration](#node-process-configuration)), until `${RURALZ_DATA_DIR}/identity/` holds a valid identity; when Ruralz Control refuses that identity with `RZ-CP-003`, the Node re-enrolls in the background while it keeps serving. Private keys never leave the Node.
 
-An enrolled `node.id` is rejected (`RZ-CP-002`). `Enroll` has a per-source rate limit, a 16 KiB message cap and a lockout after 10 failures in 10 minutes (target). Certificates live 30 days (target) and renew at two thirds. `ruralz node revoke` closes the stream and refuses renewal (delivery: OQ-security-and-identity-4). For scale-out (P4), provisioning jobs mint tokens with a Cluster-scoped API token, under a minting quota and Node cap (OQ-control-plane-and-gitops-23).
+An enrolled `node.id` is rejected (`RZ-CP-002`). `Enroll` has a rate limit and a lockout after 10 failures in 10 minutes (target), both keyed by the source address together with the token's Cluster, so Nodes of one Cluster sharing an egress address never lock out another Cluster's, and a 16 KiB message cap. Certificates live 30 days (target) and renew at two thirds. `ruralz node revoke` closes the stream and refuses renewal, and the signed revocation feed carries it to every Node. A Kubernetes Node pod enrolls with its projected, audience-bound, short-lived service account token instead of a minted token, verified against its cluster's OIDC issuer, so no standing enrollment secret sits in the cluster ([Deployment topologies](../operations/01-deployment-topologies.md); fields: OQ-deployment-topologies-24). For scale-out (P4), provisioning jobs mint tokens with a Cluster-scoped API token, under a minting quota and Node cap (OQ-control-plane-and-gitops-23).
 
 ### Snapshot, delta and version skew
 
@@ -466,13 +463,13 @@ The relay feed is an 8092 class served by the leader or a non-stale replica. It 
 
 ## Drift detection
 
-Drift is any difference between the digest or `/config/dump` a Node reports and the Revision assigned from Git (pack 11), evaluated on every heartbeat aggregate.
+Drift is any difference between the digest or `/config/dump` a Node reports and the Revision assigned from its Environment's primary source (pack 11), evaluated on every heartbeat aggregate.
 
 | Drift kind | Detected when | Reported as | Reconciliation |
 |---|---|---|---|
 | Laggard | Active digest differs from the assigned one beyond one ACK timeout | Drift screen, `ruralz node list`, metric | Re-delivery, then quarantine and alert |
 | Last-Known-Good | Differs from the promoted digest while the active digest matches | Drift screen, metric | Promotion on the next `HeartbeatReply`, then alert |
-| Git divergence | The promoted Revision is not from the commit of the Cluster's last `complete` promotion: a revert, push or CRD source | Drift screen with age, audit event, metric | Alert only, never reverted; severity rises after one hour (target) |
+| Git divergence | The promoted Revision is not from the commit of the Cluster's last `complete` promotion: a revert or push | Drift screen with age, audit event, metric | Alert only, never reverted; severity rises after one hour (target) |
 | Local tampering | A Node's hourly (target) re-hash of its active or Last-Known-Good form mismatches | `Nack` RZ-CFG-027, audit event | `Snapshot`; repeats quarantine |
 
 The re-hash replaces a `/config/dump` comparison; operators inspect a Node with `ruralz node dump`. [Observability](10-observability.md) names metrics. The Drift screen also shows failed builds and schema skew (RZ-CFG-024).
@@ -545,7 +542,7 @@ On SIGTERM a leader calls Raft `LeadershipTransfer` to the most caught-up voter 
 
 ### Removing a voter
 
-Replacing a voter after volume or zone loss starts with `DELETE /api/v1/replicas/{serverId}`, or Remove voter in Ruralz Console Settings: `admin` with step-up TOTP, audited, Raft only. A follower forwards it; only the leader acts, as a Raft `RemoveServer` of that server ID, then revokes the replica's peer certificate so the old volume cannot rejoin. It is refused with `RZ-CP-019` when it names the leader ([transfer leadership](#leadership-transfer) first) or when the voters left in contact with the leader would not form a majority of the new voter set. An `admin` then mints a join token with `POST /api/v1/replicas`. [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md) decides who calls it (OQ-high-availability-and-disaster-recovery-2).
+Replacing a voter after volume or zone loss starts with `DELETE /api/v1/replicas/{serverId}`, or Remove voter in Ruralz Console Settings: `admin` with step-up TOTP, audited, Raft only. A follower forwards it; only the leader acts, as a Raft `RemoveServer` of that server ID, then revokes the replica's peer certificate so the old volume cannot rejoin. It is refused with `RZ-CP-019` when it names the leader ([transfer leadership](#leadership-transfer) first) or when the voters left in contact with the leader would not form a majority of the new voter set. An `admin` then mints a join token with `POST /api/v1/replicas`. On Kubernetes the chart's replacement Job makes both calls with a standing credential scoped to replica replacement ([T4](../operations/01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds); credential: OQ-deployment-topologies-26); elsewhere an `admin` does.
 
 ### Readiness on port 9902
 
@@ -553,7 +550,7 @@ Per pack 8.5, `/healthz` means the process responds; `/readyz` returns 200 once 
 
 ### Backup, restore and `postgres`
 
-`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted to one or more operator public keys and signed; downloads are audited. Where those keys are named, and which key signs, is OQ-cli-and-api-surface-15. `ruralz control restore` runs only from the host CLI into an empty deployment, supplying the operator private key that decrypts the backup, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached. A restore keeps committed Node counts, so thin plans stay `pending`; a rebuild from Git has none and still needs the [hold](../operations/04-high-availability-and-disaster-recovery.md#holding-deliveries-during-recovery).
+`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted to one or more operator public keys and signed; downloads are audited. Where those keys are named, and which key signs, is OQ-cli-and-api-surface-15. `ruralz control restore` runs only from the host CLI into an empty deployment, supplying the operator private key that decrypts the backup, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached. A restore and a rebuild from Git start in the [restore hold](../operations/04-high-availability-and-disaster-recovery.md#holding-deliveries-during-recovery) (entry and confirmation: OQ-high-availability-and-disaster-recovery-11): each Cluster's assignments follow the active digests its Nodes report, and nothing new reaches a Node until an operator confirms. The deployment withholds `clusterNodeCount` until qualification catches up, so Nodes keep their last count. Nodes it refuses with `RZ-CP-003`, unknown identities included, re-enroll in the background while serving, under a new `node.id`. A root-signed retirement record names the pre-restore deployment, which Nodes and replicas holding it refuse (OQ-high-availability-and-disaster-recovery-13).
 
 The `postgres` implementation, Planned (M4), keeps everything in PostgreSQL, with leadership as a fenced lease row renewed every 2 s and expiring after 10 s (target). Sequences keep their compare-and-swap in a transaction; moving between Raft and `postgres` opens a new `storeEpoch`. Status forwarding and content placement are OQ-control-plane-and-gitops-22; the driver is OQ-tech-stack-and-libraries-20.
 
@@ -569,7 +566,7 @@ Resources are `environments` and `clusters` (read only), `promotions`, `revision
 
 | Operation | Effect | Role |
 |---|---|---|
-| `POST /api/v1/revocations` | Adds one entry ([Security and identity](08-security-and-identity.md#revocation) types, with `exp` or cut-off and a reason); the leader signs it at the Cluster's next sequence and sends `RevocationUpdate`; at the cap, `RZ-CP-020`, audited | `security-admin` with step-up; audited as `credential.revoked` |
+| `POST /api/v1/revocations` | Adds one entry ([Security and identity](08-security-and-identity.md#revocation) types, with `exp` or cut-off and a reason); the leader signs it at the Cluster's next sequence and sends `RevocationUpdate`; at the Cluster's entry cap, `RZ-CP-022`, audited | `security-admin` with step-up; audited as `credential.revoked` |
 | `GET /api/v1/revocations` | Entries per Cluster, sequence, high-water mark, cap use | `security-admin` |
 | `DELETE /api/v1/revocations/{entryId}` | Removes a `kid` entry only; other entries expire or are collected | `security-admin` with step-up; audited as `credential.revoked` |
 | `POST /api/v1/rollouts/{id}/approve` | Releases a revert held by `RZ-CP-006` ([Rolling back in three steps](#rolling-back-in-three-steps)) | `approver` with step-up; audited |
@@ -579,8 +576,6 @@ Resources are `environments` and `clusters` (read only), `promotions`, `revision
 | `GET /api/v1/control-store` | Control Store version, reported binary versions and snapshots, soak start, timed finalize | `admin` |
 | `POST /api/v1/control-store/finalize` | Commits the version-advance entry ([Finalizing an upgrade](#finalizing-an-upgrade)) | `admin` with step-up; audited |
 | `POST /api/v1/access`, `POST /api/v1/replicas` with the bootstrap credential | First `admin` and `security-admin`; join tokens ([Bootstrap credential](#bootstrap-credential)) | Bootstrap principal; audited |
-
-The `revocations` operations and `RevocationUpdate` are pending OQ-security-and-identity-4, option (a); until it is decided, the operations return `RZ-CP-020` and Nodes receive no `RevocationUpdate`.
 
 Ports: 8090 REST API, Ruralz Console and webhooks; 8091 Control Stream; 8092 peer layer, unused with `postgres`; 9902 admin. This document owns the `RZ-CP` registry (pack 8.6):
 
@@ -607,6 +602,8 @@ Ports: 8090 REST API, Ruralz Console and webhooks; 8091 Control Stream; 8092 pee
 | RZ-CP-019 | Voter removal refused: leader or quorum |
 | RZ-CP-020 | Revocation entries unavailable, or the entry cap is reached |
 | RZ-CP-021 | Finalize refused, or a status report from a binary newer than the Control Store version allows is rejected |
+| RZ-CP-022 | Revocation entry refused: the Cluster's entry cap is reached |
+| RZ-CP-023 | Rollback or revert target tombstoned: an older Revision that holds a revoked API key hash |
 
 ## Audit and security
 

@@ -415,7 +415,7 @@ The REST API lives under `/api/v1/`, published as OpenAPI and additive within `v
 | `/api/v1/changes` | POST | Ruralz Console write-back to Git | `editor` |
 | `/api/v1/replicas`, `/api/v1/replicas/{serverId}` | GET, POST, DELETE | Replica health; one-time join token; voter removal | `admin`; DELETE: step-up |
 | `/api/v1/control-store` with `/finalize` | GET, POST | Control Store version, reported binary versions and snapshots, soak start, timed finalize; finalize | `admin`, also for reads; finalize: step-up |
-| `/api/v1/revocations`, `/api/v1/revocations/{entryId}` | GET, POST, DELETE | Revocation entries, pending OQ-security-and-identity-4 | `security-admin`, also for reads; writes: step-up |
+| `/api/v1/revocations`, `/api/v1/revocations/{entryId}` | GET, POST, DELETE | Revocation entries of the signed revocation feed; POST refused at the Cluster's entry cap with `RZ-CP-022` | `security-admin`, also for reads; writes: step-up |
 | `/api/v1/access` | GET, POST, DELETE | Users, role bindings, API tokens | `admin`, also for reads |
 | `/api/v1/backup` | GET, POST | Encrypted, signed backups; downloads audited | `admin`, also for reads |
 | `/api/v1/hooks/git` | POST | Forge webhook; triggers an authenticated fetch only | Per-source HMAC |
@@ -462,7 +462,7 @@ Every surface denies by default; only `/healthz` and `/readyz` MAY be open (pack
 | Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | Same | Planned (M1); 9902 Planned (M2) |
 | REST API | 8090 | Session cookie (Ruralz Console) or API token, TLS 1.3 by default | Roles bound globally, per Environment or per Cluster; step-up TOTP for approvals, reverts, trust uploads and Access changes | 401 for failed authentication (code: OQ-cli-and-api-surface-12); `RZ-CP-007` for RBAC or separation-of-duties denials; audited | Planned (M2) |
 | Forge webhook | 8090 `/api/v1/hooks/git` | Per-source HMAC | Triggers an authenticated fetch only | `RZ-CP-018` | Planned (M2) |
-| Control Stream `Enroll` | 8091 | One-time token over TLS with a pinned server CA (TB-5) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per [Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls) | Planned (M2) |
+| Control Stream `Enroll` | 8091 | One-time token, or in Kubernetes a projected service account token (OQ-deployment-topologies-24), over TLS with a pinned server CA (TB-5) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per source address and the token's Cluster ([Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls)) | Planned (M2) |
 | Control Stream `Stream` (including renewal) | 8091 | Per-Node certificate (mTLS), the only source of `node.id` | That Node and its Cluster | `RZ-CP-002`, `RZ-CP-003` | Planned (M2) |
 | Peer layer | 8092 | Peer or relay certificate (mTLS); one-time `admin` token for `Join` over a pinned server CA (TB-11; OQ-control-plane-and-gitops-15) | Class by certificate role | Connection refused | Planned (M2); relay Planned (M4) |
 

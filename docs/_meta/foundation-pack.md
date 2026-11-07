@@ -149,7 +149,7 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor. | (tech stack doc; ADR-0003) |
 | Protobuf | `google.golang.org/protobuf` runtime; the pinned `buf` CLI runs version-pinned local `protoc-gen-go` and `protoc-gen-connect-go` plugins, hermetic, with no network at generate time | (tech stack doc; ADR-0007) |
 | MaxMind database reader | `github.com/oschwald/maxminddb-golang` reads the local MaxMind-format database of `authz.geoip` | (tech stack doc) |
-| Pending selections | SigV4 signer, SAML and `postgres` driver (OQ-tech-stack-and-libraries-17, -19 and -20). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
+| Pending selections | SigV4 signer, SAML, `postgres` driver and the Vault Transit and cloud KMS signer clients (OQ-tech-stack-and-libraries-17, -19, -20 and -25). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
@@ -164,7 +164,7 @@ Other defaults: State Store drivers are `memory` and `redis` only; another drive
 | Revision | The SHA-256 digest of one Bundle rendered for one Environment, serialized as `ruralz.canonical.v1`: each resource decoded under its own apiVersion, every schema and registry default (`slot`, `failureMode`, `filterClass`) materialized, hub form normalized and sorted, then RFC 8785 canonical JSON. Equal digests mean equal effective behavior on every Node that accepts them; only `secretRef` values, `RURALZ_*` process settings and the signed revocation list, which Nodes apply outside the digest (section 8.4), differ between Nodes |
 | Identifier | Display form `rev-<12 hex>`, the first 12 hex characters of the digest (e.g., `rev-162af81f5de4`), in CLI output, Ruralz Console, logs and prose. The Control Stream, OCI pulls, Last-Known-Good and every verification carry and check the full `sha256:<64 hex>`; a mismatch is RZ-CFG-027 |
 | Producers | Ruralz Control builds Revisions from Git, or from a source Bundle and expected digest sent by `ruralz bundle push`, which it re-renders with the Environment's variables (mismatch: RZ-CFG-027). `ruralz bundle build` builds locally. `ruralz bundle push` to an OCI registry publishes a rendered Revision that file-mode Nodes pull by digest |
-| Promotion | Moves a source commit, not a digest: `Environment.spec.promotion.from` lets a commit roll out only after its Revision for the source Environment reached `complete` |
+| Promotion | Moves a source commit, or a bound namespace's object set, not a digest: `Environment.spec.promotion.from` lets a commit roll out only after its Revision for the source Environment reached `complete` |
 
 ### 8.2 Active Revision and Last-Known-Good
 
@@ -290,7 +290,7 @@ A Node persists only the following under `${RURALZ_DATA_DIR}`; all other shared 
 |---|---|---|
 | Enrollment identity | `${RURALZ_DATA_DIR}/identity/` | `node.id` (ULID, generated at first boot) and, in Control mode, the per-Node mTLS certificate and key issued at Enrollment; revoked with `ruralz node revoke` |
 | Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only, with the high-water mark of the signed sequences of OCI Revisions in file mode (section 8.14), Planned (M2); encrypted secret persistence is OQ-configuration-model-15 |
-| Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts and compiled modules; deleting them costs only warm-up |
+| Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts, whose compiled code stays in memory and is never persisted ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)); deleting them costs only warm-up |
 | Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015), Planned (M1) |
 | Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (section 8.8); Control mode, Planned (M2) |
 | Revocation list | Under `${RURALZ_DATA_DIR}`, layout owned by Security and identity | The signed revocation entries and high-water mark last received (section 8.4), verified again when read back at boot, so a restart while detached keeps enforcing them; Control mode, Planned (M2) |
@@ -418,7 +418,7 @@ IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR o
 | Control Store | Ruralz Control's persistence: Raft-replicated metadata (or `postgres`) plus digest-addressed Revision content and audit segments on Ruralz Control replicas. | control-plane-and-gitops |
 | Control Stream | The mTLS gRPC stream `ruralz.control.v1.ControlStream` each Node dials to `ruralz-control` on 8091: snapshots, deltas and promoted digests down; ACK, NACK and heartbeats up. | control-plane-and-gitops |
 | Drain | Graceful shutdown of a Node: readiness fails, listeners stop accepting, HTTP/2 GOAWAY is sent, and in-flight requests finish within a bounded time. | zero-downtime-upgrades-and-hot-reload |
-| Drift | Any difference between the digest or `/config/dump` a Node reports and the Revision Ruralz Control assigned from Git; Ruralz Control reports it. | control-plane-and-gitops |
+| Drift | Any difference between the digest or `/config/dump` a Node reports and the Revision Ruralz Control assigned from its Environment's primary source; Ruralz Control reports it. | control-plane-and-gitops |
 | Endpoint | One network address of an Upstream, listed in `endpoints` or found by discovery; never a published API path, which is a Route. | configuration-model |
 | Enrollment | The one-time, off-request-path exchange in which a Node obtains its per-Node mTLS certificate from Ruralz Control; the identity persists under `${RURALZ_DATA_DIR}/identity/`. | control-plane-and-gitops |
 | Environment | A control-plane-only kind that groups Clusters, selects an overlay and variables for rendering, and gates promotion of source commits. | configuration-model |

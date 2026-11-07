@@ -144,8 +144,8 @@ flowchart LR
     r1 -.->|"Raft replication 8092"| r2
     r1 -.->|"Raft replication 8092"| r3
     r1 -.->|"read Git objects"| git
-    r1 -.->|"online Plugin check"| oci
-    n1 -.->|"Plugins by digest"| oci
+    r1 -.->|"online Plugin check, relay pulls by digest"| oci
+    n1 -.->|"Plugins by digest through the relay"| r1
     ops -.->|"8090 REST API and Ruralz Console"| r1
 ```
 
@@ -324,7 +324,7 @@ A managed party (Ruralz Cloud, no milestone yet, OQ-vision-and-positioning-3, or
 
 - **Same binaries (P1).** Both sides run the public `ruralzd` and `ruralz-control` images: no fork, license key, feature gating or cloud-only hook.
 - **One tenant per deployment** (pack section 1).
-- **Crossings.** Nodes dial 8091 over mTLS, opening no inbound port. The managed side dials the customer's forge (write credentials only for write-back) and Plugin registry (online Plugin check); the forge sends webhooks to 8090 (private forges and registries: OQ-deployment-topologies-10). Secrets and State Store data stay with the customer.
+- **Crossings.** Nodes dial 8091 over mTLS, opening no inbound port. The managed side dials the customer's forge (write credentials only for write-back) and Plugin registry (online Plugin check, and the pull-through relay Nodes pull Plugins through); the forge sends webhooks to 8090 (private forges and registries: OQ-deployment-topologies-10). Secrets and State Store data stay with the customer.
 - **Customer-held trust root.** The customer SHOULD keep the offline anchor-set key (OQ-deployment-topologies-9).
 - **Exit.** `ruralz control backup` and `restore` move to a self-hosted T3; Nodes re-enroll while serving.
 
@@ -362,12 +362,12 @@ flowchart LR
     n1 -.-> otel
     n1 -.->|"Control Stream, dial 8091, mTLS"| ctl
     n2 -.->|"Control Stream, dial 8091, mTLS"| ctl
-    n1 -.->|"Plugins by digest"| oci
+    n1 -.->|"Plugins by digest through the relay"| ctl
     ctl --> cst
     con --> ctl
     ctl -.->|"Git reads, write-back pushes"| git
     git -.->|"webhooks to 8090, HMAC"| con
-    ctl -.->|"online Plugin check"| oci
+    ctl -.->|"online Plugin check, relay pulls by digest"| oci
     ops -.->|"8090, RBAC and audit"| con
     root -.->|"anchor sets signed offline"| ctl
 ```
@@ -390,7 +390,7 @@ Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial e
 | Flow | From | To | Topologies |
 |---|---|---|---|
 | State Store calls, TLS, authenticated | Nodes | Own Cell's State Store only | With `redis` |
-| Pulls by digest | Nodes, CI, Ruralz Control | OCI registry or mirror | Revisions: T2, T6; Plugins: all |
+| Pulls by digest | Nodes, CI, Ruralz Control | OCI registry or mirror | Revisions: T2, T6; Plugins: Nodes in file mode, Ruralz Control for the Nodes it relays to in Control mode |
 | Git reads, write-back pushes | Ruralz Control leader, CI | Git forge | T3, T4, T7 to T10 |
 | CRD watch and status; service account issuer discovery and keys; conversion webhook, Planned (M3) | Ruralz Control leader; API server | Kubernetes API or the cluster's OIDC issuer; `ruralz-control` | T4 |
 | Secret, discovery reads | Nodes | Kubernetes API or Vault | Those providers |

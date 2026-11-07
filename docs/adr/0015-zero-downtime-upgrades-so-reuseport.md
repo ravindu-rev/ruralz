@@ -79,7 +79,7 @@ sequenceDiagram
 - Bad, because a new process crashing after the holder closes its listeners leaves the Node refusing connections until restarted, a Drain and restart.
 - Bad, because Node-local state such as token buckets restarts, admitting at most one extra ceiling per key (target) ([Stateless data plane](../architecture/11-scalability-and-distributed-state.md#stateless-data-plane)).
 - Bad, because the overlap needs about 0.6 GiB plus snapshots free (hypothesis) and State Store client limits covering both processes.
-- Bad, because a `draining` Heartbeat drops the Node from `clusterNodeCount` for 10 minutes plus a ramp (target), raising derived per-Node ceilings; derived-ceiling Clusters MUST pace upgrades ([Node count during upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md#node-count-during-upgrades)).
+- Bad, because a successor that a replica still holding the draining stream refuses with `RZ-CP-002` for more than three heartbeats (target) lowers `clusterNodeCount`, raising derived per-Node ceilings; derived-ceiling Clusters MUST pace upgrades ([Node count during upgrades](../operations/02-zero-downtime-upgrades-and-hot-reload.md#node-count-during-upgrades)).
 - Bad, because WebSocket, SSE and QUIC connections never migrate; clients reconnect over a 10 s jitter window (target).
 - Bad, because the in-place path is Linux-only and needs process-manager support such as a systemd unit.
 
