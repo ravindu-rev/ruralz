@@ -147,7 +147,7 @@ The full ADR index, with the same columns, is [docs/adr/README.md](adr/README.md
 | [ADR-0003](adr/0003-configuration-format.md) | Configuration format: YAML with JSON Schema, a Kubernetes-style resource model and a Ruralz parser | accepted | Configuration Model |
 | [ADR-0004](adr/0004-wasm-runtime-wazero.md) | WASM runtime: wazero | accepted | WASM Plugin System |
 | [ADR-0005](adr/0005-plugin-abi-v1.md) | Plugin ABI v1: capability-based with Extism-style conventions, proxy-wasm adapter Planned (M4) | accepted | WASM Plugin System |
-| [ADR-0006](adr/0006-control-store-raft-boltdb.md) | Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional | proposed | Control Plane and GitOps |
+| [ADR-0006](adr/0006-control-store-raft-boltdb.md) | Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional | accepted | Control Plane and GitOps |
 | [ADR-0007](adr/0007-control-stream-protocol.md) | Control Stream: own gRPC snapshot and delta protocol with xDS-style ACK/NACK | accepted | Control Plane and GitOps |
 | [ADR-0008](adr/0008-rate-limiting-local-bucket-and-gcra.md) | Rate limiting: local token bucket plus GCRA in the State Store, fail-open by default | accepted | Traffic Management and Resilience |
 | [ADR-0009](adr/0009-http-stack-net-http-quic-go.md) | HTTP stack: net/http and quic-go, no fasthttp | accepted | Data Plane |

@@ -1,7 +1,7 @@
 ---
 id: ADR-0006
 title: "Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional"
-status: proposed
+status: accepted
 ---
 
 # ADR-0006: Control Store: embedded hashicorp/raft with raft-boltdb/v2 on bbolt, Postgres optional

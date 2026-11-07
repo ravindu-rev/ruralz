@@ -1157,7 +1157,7 @@ Every served version converts to and from one internal hub type per kind, with r
 
 ### Version skew
 
-Each field added within an apiVersion carries `x-ruralz-since`, an integer schema level, and Nodes advertise their highest schema level per apiVersion on the Control Stream. Ruralz Control refuses to start a Rollout whose Revision uses a field newer than the oldest Node in the target Cluster serves (RZ-CFG-024); a Node that receives one anyway NACKs. Skew checks are `Planned (M2)`; a file-mode Node rejects an unserved field at load with RZ-CFG-024. On Kubernetes, CRDs serve all versions with one storage version and Ruralz Control serves the conversion webhook.
+Each field added within an apiVersion carries `x-ruralz-since`, an integer schema level, and Nodes advertise their highest schema level per apiVersion on the Control Stream. The fields of `0.1.0` are level 0. A field's level is the level of the first release that ships it: every release that adds fields raises the level by one, so the fields added before a release share the level after the last released one, and a Node never accepts a field first shipped in a later release than its own. Existing defaults never change within `v1alpha1` through such a level. Ruralz Control refuses to start a Rollout whose Revision uses a field newer than the oldest Node in the target Cluster serves (RZ-CFG-024); a Node that receives one anyway NACKs. Skew checks are `Planned (M2)`; a file-mode Node rejects an unserved field at load with RZ-CFG-024. On Kubernetes, CRDs serve all versions with one storage version and Ruralz Control serves the conversion webhook.
 
 ## Complete annotated example Bundle
 
