@@ -91,6 +91,49 @@ func CanonicalHost(h string) (string, error) {
 	return strings.ToLower(h), nil
 }
 
+// CheckAuthority reports whether a is a URL authority without user
+// information, as a Route's redirect.host names the host and port of its
+// Location (docs/architecture/09-traffic-management-and-resilience.md
+// "Redirects"): a DNS name that CheckName accepts or an IP address, an IPv6
+// address in brackets and without a zone, with an optional port from 1 to
+// 65535, so the Location carries it as written.
+func CheckAuthority(a string) error {
+	host, port := a, ""
+	switch {
+	case strings.HasPrefix(a, "["):
+		end := strings.IndexByte(a, ']')
+		if end < 0 {
+			return errors.New("an IPv6 address in brackets lacks its closing bracket")
+		}
+		host, port = a[1:end], a[end+1:]
+		if port != "" && !strings.HasPrefix(port, ":") {
+			return errors.New("only a port may follow the bracketed address")
+		}
+		ip, err := netip.ParseAddr(host)
+		if err != nil || !ip.Is6() || ip.Zone() != "" {
+			return errors.New("the bracketed host is not an IPv6 address without a zone")
+		}
+	case strings.Count(a, ":") > 1:
+		return errors.New("an IPv6 address must be in brackets")
+	default:
+		if i := strings.IndexByte(a, ':'); i >= 0 {
+			host, port = a[:i], a[i:]
+		}
+		if ip, err := netip.ParseAddr(host); err == nil {
+			if !ip.Is4() {
+				return errors.New("the host is not an IPv4 address or a DNS name")
+			}
+		} else if err := CheckName(host); err != nil {
+			return fmt.Errorf("the host is neither an IP address nor a DNS name: %w", err)
+		}
+	}
+	if port == "" {
+		return nil
+	}
+	_, err := ParsePort(port[1:])
+	return err
+}
+
 // ParsePort parses a decimal port from 1 to 65535.
 func ParsePort(p string) (uint16, error) {
 	n, err := strconv.ParseUint(p, 10, 16)

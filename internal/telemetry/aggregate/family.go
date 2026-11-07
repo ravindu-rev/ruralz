@@ -129,6 +129,12 @@ type family struct {
 	hist     bool
 	gauge    bool
 	resLabel string
+	// subLabel is the second resource label of a Route family keyed by a
+	// Route and an Upstream, the mirror Upstream of
+	// ruralz_upstream_mirrors_total; "" for every other family. Its label
+	// sets are admitted per Route mirror (emit.Shape.Mirrors), not per
+	// Route.
+	subLabel string
 	// phase is the phase label's enumeration when the family is keyed by
 	// Phase as well as by resource.
 	phase []string
@@ -238,6 +244,10 @@ func newFamily(idx int, c catalog.Family) (*family, error) {
 	for i, l := range c.Labels {
 		switch {
 		case i == 0 && f.resLabel != "":
+		case i == 1 && f.role == roleRoute && l.Name == labelUpstream && l.Values == nil && !l.Code:
+			// A Route mirror family: the Route, then the mirror's
+			// Upstream, each a resource name.
+			f.subLabel = labelUpstream
 		case l.Name == labelPhase && f.role == rolePolicy:
 			f.phase = l.Values
 		case l.Code, l.Values == nil:

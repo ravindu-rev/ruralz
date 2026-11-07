@@ -47,6 +47,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/tap"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/forward"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/mirror"
 	"github.com/ravindu-rev/ruralz/internal/nodedir"
 	"github.com/ravindu-rev/ruralz/internal/secret/resolver"
 	"github.com/ravindu-rev/ruralz/internal/statestore"
@@ -77,6 +78,7 @@ const (
 	componentDrain       = "drain"
 	componentHandover    = "handover"
 	componentWatchdog    = "watchdog"
+	componentMirror      = "mirror"
 )
 
 // handoverSupported reports whether a process that finds a live lock
@@ -115,6 +117,7 @@ type node struct {
 	conns     *admission.ConnLimiter
 	budget    *body.Budget
 	retirer   *retire.Holder
+	mirrors   *mirror.Runner
 	tracker   *readiness.Tracker
 	set       *listener.Set
 	auth      *adminauth.Authenticator
@@ -373,10 +376,16 @@ func (n *node) buildParts(ctx context.Context) *refusal {
 		return fail("snapshot compiler: %w", err)
 	}
 	hub := tap.New(tap.Config{Dropped: nm.TapEventsDropped, RequestID: requestID, Clock: n.p.wall})
+	n.mirrors, err = mirror.New(mirror.Deps{
+		Snapshots: n.retirer, Budget: n.budget, Rand: n.p.rand, Clock: clk, Logger: rt.Logger(componentMirror),
+	})
+	if err != nil {
+		return fail("mirror legs: %w", err)
+	}
 	h, err := handler.New(handler.Deps{
 		Snapshots: n.retirer, Units: n.units, PreRouting: admission.NewPreRouting(admission.DefaultPreRouting, n.p.wall),
 		Exchanges: exchanges, Executor: exec, Tracer: tracer, AccessLog: rt.AccessLog(), Node: nm, Tap: hub,
-		Clock: clk, Wall: n.p.wall, Logger: rt.Logger(componentHandler),
+		Mirrors: n.mirrors, Clock: clk, Wall: n.p.wall, Logger: rt.Logger(componentHandler),
 	})
 	if err != nil {
 		return fail("request handler: %w", err)

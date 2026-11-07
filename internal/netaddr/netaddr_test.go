@@ -213,3 +213,48 @@ func FuzzCanonicalHost(f *testing.F) {
 		}
 	})
 }
+
+// TestCheckAuthority: a redirect.host is a DNS name or an IP address, an
+// IPv6 address in brackets without a zone, with an optional port from 1 to
+// 65535, and nothing a URL authority would read otherwise: no user
+// information, path, bare IPv6 address or empty port.
+func TestCheckAuthority(t *testing.T) {
+	for _, in := range []string{
+		"www.shop.example", "WWW.Shop.Example", "shop.example.", "shop.example:8443", "localhost:1",
+		"10.0.0.1", "10.0.0.1:65535", "[2001:db8::1]", "[2001:db8::1]:443", "[::ffff:10.0.0.1]:80",
+	} {
+		if err := CheckAuthority(in); err != nil {
+			t.Errorf("CheckAuthority(%q) = %v, want nil", in, err)
+		}
+	}
+	for in, want := range map[string]string{
+		"":                       "a DNS name is 1 to 253 bytes",
+		"shop.example:":          "the port is not a decimal number",
+		"shop.example:0":         "the port is not a decimal number",
+		"shop.example:65536":     "the port is not a decimal number",
+		"shop.example:https":     "the port is not a decimal number",
+		"user@shop.example":      "the host is neither",
+		"shop.example/path":      "the host is neither",
+		"shop example":           "the host is neither",
+		"2001:db8::1":            "an IPv6 address must be in brackets",
+		"[2001:db8::1":           "lacks its closing bracket",
+		"[2001:db8::1]x":         "only a port may follow",
+		"[10.0.0.1]":             "is not an IPv6 address",
+		"[fe80::1%eth0]":         "is not an IPv6 address without a zone",
+		"[2001:db8::1]:":         "the port is not a decimal number",
+		"a..b":                   "a DNS label is 1 to 63 bytes",
+		"shop.example:80:80":     "an IPv6 address must be in brackets",
+		"::ffff:10.0.0.1":        "an IPv6 address must be in brackets",
+		"shop.example:\r\nx: y":  "an IPv6 address must be in brackets",
+		"shop.example:\r\nx":     "the port is not a decimal number",
+		"shop.exa\nmple":         "the host is neither",
+		"shop.example?x=1":       "the host is neither",
+		"shop.example#fragment":  "the host is neither",
+		"[2001:db8::1]:80/path":  "the port is not a decimal number",
+		"shop.example:8443/next": "the port is not a decimal number",
+	} {
+		if err := CheckAuthority(in); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("CheckAuthority(%q) = %v, want an error saying %q", in, err, want)
+		}
+	}
+}

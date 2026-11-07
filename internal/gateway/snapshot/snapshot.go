@@ -10,8 +10,10 @@
 // Upstream layer. It also fixes the request-path contracts between those
 // packages: Forwarder and Outbound (handler to Upstream layer), LegHooks
 // and LegRun (Upstream layer to executor), RequestBody (body buffering to
-// Upstream layer) and RequestState (exchange to executor). It holds data
-// and interfaces only, plus the pin stripes.
+// Upstream layer), RequestState (exchange to executor), Redirector
+// (redirect to handler), and MirrorSink and MirrorLegs (Upstream layer to
+// handler, mirror legs to Upstream layer). It holds data and interfaces
+// only, plus the pin stripes.
 package snapshot
 
 import (
@@ -68,6 +70,8 @@ type Snapshot struct {
 	// Legs runs one leg to a named Upstream outside a Route's forwarding
 	// plan (Response Cache revalidation through internal/gateway/replay).
 	Legs LegRunner
+	// MirrorLegs sends the mirror legs of the Routes' mirrors.
+	MirrorLegs MirrorLegs
 	// StateStore and CacheStore are the retained State Store handles.
 	StateStore, CacheStore StoreHandle
 	// Resources are closed at zero pins unless a newer snapshot shares them.
@@ -220,11 +224,110 @@ type Route struct {
 	StateStoreMax time.Duration
 	// Chain holds the compiled Policies.
 	Chain Chain
-	// Forward runs plain upstreams or composition.
+	// Forward runs plain upstreams or composition; nil on a redirect Route.
 	Forward Forwarder
+	// Redirect answers a redirect Route's requests after onRequestHeaders
+	// (docs/architecture/09-traffic-management-and-resilience.md
+	// "Redirects"); nil on a Route that forwards.
+	Redirect Redirector
+	// Mirrors are the mirrors of a Route with upstreams, by Upstream name;
+	// nil without (docs/architecture/09-traffic-management-and-resilience.md
+	// "Mirroring").
+	Mirrors []*Mirror
 	// Body says which bodies are gated or teed.
 	Body    BodyNeeds
 	Metrics *emit.RouteMetrics
+}
+
+// Redirector answers the requests of a redirect Route; internal/gateway/redirect
+// implements it.
+type Redirector interface {
+	// Status returns the redirect status: 301, 302, 307 or 308.
+	Status() int
+	// Location returns the Location for r; an error only for a Location
+	// the Route's locationExpression could not build.
+	Location(r *RedirectRequest) (string, error)
+}
+
+// RedirectRequest is what a redirect reads of its request.
+type RedirectRequest struct {
+	// Scheme is the request's scheme, http or https.
+	Scheme string
+	// Host is the request's host and port as the client sent them (HTTP/1.1
+	// Host, HTTP/2 :authority); "" when it named none.
+	Host string
+	// Path is the normalized request path (routematch.NormalizePath).
+	Path string
+	// RawQuery is the request's raw query, without the "?".
+	RawQuery string
+	// Vars is the activation after onRequestHeaders, which a
+	// locationExpression evaluates over.
+	Vars *expr.Vars
+}
+
+// Mirror is one compiled mirror of a Route
+// (docs/architecture/09-traffic-management-and-resilience.md "Mirroring").
+type Mirror struct {
+	// Upstream is the name of the Upstream the copies go to.
+	Upstream string
+	// Percent is the share of requests copied, from 0 to 100.
+	Percent uint32
+	// MaxInFlight bounds InFlight on the Node.
+	MaxInFlight int64
+	// InFlight counts the Node's copies in flight to Upstream for this
+	// Route; the snapshot compiler carries it over from the previous
+	// snapshot's mirror of the same Route and Upstream, so the bound holds
+	// across Hot Reloads.
+	InFlight *atomic.Int64
+	// Metrics are the mirror's ruralz_upstream_mirrors_total handles.
+	Metrics *emit.MirrorMetrics
+}
+
+// MirrorSink receives what the first attempt of a plain upstreams leg sends
+// on a Route with mirrors: the handler implements it per request, and the
+// Upstream layer calls MirrorAttempt once per request, on the request's
+// goroutine, after the attempt's onUpstreamRequest Policies and before the
+// attempt is sent. MirrorAttempt may replace r.Body with a reader that
+// copies what the attempt sends; it never blocks on a mirror.
+type MirrorSink interface {
+	MirrorAttempt(r *http.Request)
+}
+
+// MirrorKey is the ring-hash key of a mirror leg, evaluated while the
+// request's variables are live (MirrorLegs.MirrorKey).
+type MirrorKey struct {
+	// Key is the hashed key; Random picks a weighted random Endpoint
+	// instead, after a hashKey runtime error.
+	Key    uint64
+	Random bool
+}
+
+// MirrorCopy is one mirror leg's copy of what the first attempt sent.
+type MirrorCopy struct {
+	// Request holds the attempt's method, path, query, header fields, body
+	// and trailer section, the leg's own; the Upstream layer sets its URL
+	// host and Host to the Endpoint it picks.
+	Request *http.Request
+	// Key is the leg's ring-hash key.
+	Key MirrorKey
+	// Deadline is the request's Route deadline, which bounds the leg as it
+	// bounds the request's own legs.
+	Deadline time.Time
+	// Stripe is the request's metric stripe.
+	Stripe emit.Stripe
+}
+
+// MirrorLegs sends the mirror legs of a snapshot's Routes; the Upstream
+// layer implements it per snapshot.
+type MirrorLegs interface {
+	// MirrorKey evaluates the ring-hash key of a mirror leg to upstream over
+	// vars, the request's Base variables; the zero key for an Upstream that
+	// balances otherwise.
+	MirrorKey(upstream string, vars *expr.Vars, stripe emit.Stripe) MirrorKey
+	// Mirror sends c to the named Upstream as one attempt, with no Policy
+	// and no retry, and discards the response. It returns nil when a
+	// response arrived, else why none did.
+	Mirror(ctx context.Context, upstream string, c *MirrorCopy) error
 }
 
 // BodyNeeds are the compile-time body decisions of a Route.
@@ -361,6 +464,10 @@ type Outbound struct {
 	// to the client before the final response; nil relays none, and a
 	// composition step never relays.
 	Hints EarlyHints
+	// Mirror receives the first attempt of a plain upstreams leg on a Route
+	// with mirrors; nil mirrors nothing, and a composition step never
+	// mirrors.
+	Mirror MirrorSink
 	// Reached, when set, records that an attempt of the request reached an
 	// Upstream: the transport gave it a connection, connected and past
 	// TLS, so the Upstream may have served it. Composition steps share the

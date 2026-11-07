@@ -25,6 +25,7 @@ func TestPlacesTable(t *testing.T) {
 	// Every place, with its result, variables, rule and milestone.
 	want := map[PlaceID]Place{
 		PlaceRouteMatchWhen:     {PlaceRouteMatchWhen, ResultBool, VarRequest | VarSource | VarNow, RuleInternalError, "M1"},
+		PlaceRedirectLocation:   {PlaceRedirectLocation, ResultString, base, RuleRedirectFails, "M2"},
 		PlacePolicyWhen:         {PlacePolicyWhen, ResultBool, base | VarResponse, RulePolicyWhen, "M1"},
 		PlaceStepPathExpression: {PlaceStepPathExpression, ResultString, base | VarSteps, RuleStepFails, "M1"},
 		PlaceStepWhen:           {PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},

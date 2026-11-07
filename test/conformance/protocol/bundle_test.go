@@ -36,6 +36,8 @@ const (
 	routedHost = "routed.conformance.test"
 	// namedHost is the only host name of the listener named.
 	namedHost = "named.conformance.test"
+	// redirectHost is the host the Route redirect-host redirects to.
+	redirectHost = "www.conformance.test"
 )
 
 // Origin of the cors Policy.
@@ -141,7 +143,14 @@ func composedPath(u upstream) string { return "/composed/" + u.String() + "/" + 
 //   - /hosted/ for routedHost only, /web-only/ on the listener web only;
 //   - /policy/ with a Route headers Policy and /rewrite/ with a
 //     transform.request path rewrite;
-//   - /gated/ with a body gate, and /deadline/ with the routeTimeout.
+//   - /gated/ with a body gate, and /deadline/ with the routeTimeout;
+//   - /moved/ redirecting by prefix to /up/h1/ with 308 behind
+//     auth.api-key, and /redirect/host redirecting to
+//     https://<redirectHost>/landing without the query;
+//   - /mirrored/ forwarding to the Upstream mirror-primary (the h1
+//     transport with an Upstream-scope headers Policy setting
+//     x-mirror-signed) and mirroring to h2, and /mirrored-blackhole/
+//     forwarding to h1 and mirroring to the blackhole.
 //
 // The Gateway's security-headers Policy is overridable: false.
 func wireBundle(o *origin, c *credentials, opt bundleOptions) []byte {
@@ -362,6 +371,76 @@ spec:
 	route("deadline-gated", "    path: {prefix: /deadline-gated/}\n", "body-gate", "  timeout: "+opt.routeTimeout+"\n")
 	route("named", "    path: {prefix: /named/}\n", "", "  listeners: [named]\n")
 	fmt.Fprintf(&b, "---\napiVersion: ruralz/v1alpha1\nkind: Route\nmetadata:\n  name: blackhole\nspec:\n  match:\n    path: {prefix: /blackhole/}\n  upstreams:\n    - name: blackhole\n")
+	fmt.Fprintf(&b, `---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata: {name: redirect-moved}
+spec:
+  match:
+    path: {prefix: /moved/}
+  policies:
+    - name: api-key
+  redirect:
+    status: 308
+    prefix: /up/h1/
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata: {name: redirect-host}
+spec:
+  match:
+    path: {exact: /redirect/host}
+  redirect:
+    scheme: https
+    host: %s
+    path: /landing
+    query: drop
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: mirror-sign}
+spec:
+  type: headers
+  config:
+    request:
+      set: [{name: x-mirror-signed, value: "1"}]
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: mirror-primary
+spec:
+  protocol: http
+  connectTimeout: %s
+  endpoints:
+    - address: "%s"
+  retries:
+    attempts: 0
+  policies:
+    - name: mirror-sign
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata: {name: mirrored}
+spec:
+  match:
+    path: {prefix: /mirrored/}
+  upstreams:
+    - name: mirror-primary
+  mirrors:
+    - upstream: %s
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata: {name: mirrored-blackhole}
+spec:
+  match:
+    path: {prefix: /mirrored-blackhole/}
+  upstreams:
+    - name: %s
+  mirrors:
+    - upstream: %s
+`, redirectHost, originConnectTimeout, o.addr(upH1), upH2, upH1, upBlackhole)
 	return []byte(b.String())
 }
 

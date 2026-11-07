@@ -163,6 +163,9 @@ func upstreamsDashboard() dashboardDef {
 			ts("Skipped probes and CEL errors", unitShort,
 				q(`sum by (upstream) (increase(ruralz_upstream_probes_skipped_total`+sel+rateWindow+`))`, "probes skipped {{upstream}}"),
 				q(`sum by (upstream, field) (increase(ruralz_upstream_cel_errors_total`+sel+rateWindow+`))`, "{{field}} errors {{upstream}}")),
+			ts("Mirrors by result", unitOps,
+				q(`sum by (route, upstream, result) (rate(ruralz_upstream_mirrors_total`+sel+rateWindow+`))`, "{{route}} to {{upstream}} {{result}}")).
+				withDescription("Copies of Route requests sent to the selected Upstreams as mirrors: sent got a response, which was discarded; dropped past maxInFlight or for want of a body copy; failed got no response."),
 		},
 	}
 }

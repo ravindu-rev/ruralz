@@ -22,9 +22,11 @@ var ErrShape = errors.New("aggregate: invalid shape")
 // listener or resource (all its Phases for per-Phase families), admitted
 // or folded together.
 type unit struct {
-	fam      *family
-	kind     role
-	res      string
+	fam  *family
+	kind role
+	res  string
+	// sub is the mirror Upstream of a Route mirror family's unit.
+	sub      string
 	phases   []int8
 	codes    []string
 	fan      int
@@ -41,13 +43,17 @@ type normShape struct {
 	policies  []emit.PolicyShape
 	// cached holds the Routes with a cache Policy (Shape.CachedRoutes).
 	cached map[string]bool
+	// mirrors are the Route mirrors (Shape.Mirrors), sorted by Route, then
+	// Upstream.
+	mirrors []emit.MirrorShape
 }
 
 // normalize sorts every list by name bytes, sorts and deduplicates each
-// Policy's codes, and rejects empty, reserved and duplicate names and a
-// cached Route that is not a Route, so any permutation of a Shape admits
-// identically. A cached Route may repeat (a Route with cache Policies at
-// two scopes): it is marked once, as Policy codes are deduplicated.
+// Policy's codes, and rejects empty, reserved and duplicate names, a
+// cached Route that is not a Route and a mirror of a Route that is not a
+// Route, so any permutation of a Shape admits identically. A cached Route
+// may repeat (a Route with cache Policies at two scopes): it is marked
+// once, as Policy codes are deduplicated.
 func normalize(s emit.Shape) (normShape, error) {
 	var n normShape
 	var err error
@@ -65,6 +71,9 @@ func normalize(s emit.Shape) (normShape, error) {
 		n.cached[name] = true
 	}
 	if n.upstreams, err = sortedNames("Upstream", s.Upstreams); err != nil {
+		return n, err
+	}
+	if n.mirrors, err = sortedMirrors(s.Mirrors, n.routes); err != nil {
 		return n, err
 	}
 	n.policies = make([]emit.PolicyShape, len(s.Policies))
@@ -94,6 +103,32 @@ func sortedNames(kind string, in []string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// sortedMirrors returns the mirrors sorted by Route, then Upstream,
+// rejecting a mirror of a Route that routes (sorted) does not hold, an
+// empty or reserved Upstream name and a mirror named twice.
+func sortedMirrors(in []emit.MirrorShape, routes []string) ([]emit.MirrorShape, error) {
+	out := slices.SortedFunc(slices.Values(in), compareMirrors)
+	for i, m := range out {
+		if _, ok := slices.BinarySearch(routes, m.Route); !ok {
+			return nil, fmt.Errorf("%w: mirror Route %q is not a Route", ErrShape, m.Route)
+		}
+		switch {
+		case m.Upstream == "":
+			return nil, fmt.Errorf("%w: empty mirror Upstream name of Route %q", ErrShape, m.Route)
+		case strings.HasPrefix(m.Upstream, "_"):
+			return nil, fmt.Errorf("%w: mirror Upstream name %q is reserved", ErrShape, m.Upstream)
+		case i > 0 && out[i-1] == m:
+			return nil, fmt.Errorf("%w: duplicate mirror of Route %q to %q", ErrShape, m.Route, m.Upstream)
+		}
+	}
+	return out, nil
+}
+
+// compareMirrors orders mirrors by Route, then Upstream.
+func compareMirrors(a, b emit.MirrorShape) int {
+	return cmp.Or(cmp.Compare(a.Route, b.Route), cmp.Compare(a.Upstream, b.Upstream))
 }
 
 // budget tracks admission and striping counts while deciding one Plan.
@@ -157,7 +192,26 @@ func (r *Registry) decide(n normShape) []unit {
 		}
 	}
 	units = r.decideResources(b, units, roleRoute, n.routes, n.cached, b.lim.StripedRoutes)
+	units = r.decideMirrors(b, units, n.mirrors)
 	return r.decideResources(b, units, roleUpstream, n.upstreams, nil, b.lim.StripedUpstreams)
+}
+
+// decideMirrors appends the units of the Route mirror families, one per
+// mirror in (Route, Upstream) order, after the Routes' own: a mirror's
+// label sets belong to its Route, so they take the Route's place in the
+// admission order. They are never striped.
+func (r *Registry) decideMirrors(b *budget, units []unit, mirrors []emit.MirrorShape) []unit {
+	for _, m := range mirrors {
+		for _, f := range r.fams {
+			if f.role != roleRoute || f.subLabel == "" {
+				continue
+			}
+			u := unit{fam: f, kind: roleRoute, res: m.Route, sub: m.Upstream, phases: []int8{-1}, fan: f.n}
+			b.admit(&u)
+			units = append(units, u)
+		}
+	}
+	return units
 }
 
 // decideResources appends the units of the Routes or Upstreams in names.
@@ -167,7 +221,7 @@ func (r *Registry) decide(n normShape) []unit {
 func (r *Registry) decideResources(b *budget, units []unit, kind role, names []string, cached map[string]bool, stripedCap int) []unit {
 	for _, name := range names {
 		for _, f := range r.fams {
-			if f.role != kind || (cacheFamily(f.cat.Name) && !cached[name]) {
+			if f.role != kind || f.subLabel != "" || (cacheFamily(f.cat.Name) && !cached[name]) {
 				continue
 			}
 			u := unit{fam: f, kind: kind, res: name, phases: []int8{-1}, fan: f.n}
@@ -270,6 +324,7 @@ type Plan struct {
 	routes    map[string]*emit.RouteMetrics
 	upstreams map[string]*emit.UpstreamMetrics
 	policies  map[string]*emit.PolicyMetrics
+	mirrors   map[emit.MirrorShape]*emit.MirrorMetrics
 	entries   []*planEntry
 	folded    []int
 	binding   *Binding
@@ -299,6 +354,7 @@ func (r *Registry) Admit(s emit.Shape) (emit.Plan, error) {
 		routes:    make(map[string]*emit.RouteMetrics, len(n.routes)+1),
 		upstreams: make(map[string]*emit.UpstreamMetrics, len(n.upstreams)),
 		policies:  make(map[string]*emit.PolicyMetrics, len(n.policies)),
+		mirrors:   make(map[emit.MirrorShape]*emit.MirrorMetrics, len(n.mirrors)),
 		folded:    make([]int, len(r.fams)),
 	}
 	r.mu.Lock()
@@ -314,6 +370,9 @@ func (r *Registry) Admit(s emit.Shape) (emit.Plan, error) {
 	}
 	for _, pol := range n.policies {
 		p.policies[pol.Name] = noopPolicyMetrics()
+	}
+	for _, m := range n.mirrors {
+		p.mirrors[m] = noopMirrorMetrics()
 	}
 	p.routes[Unmatched] = r.unmatchedRoute(now)
 	for i := range units {
@@ -343,7 +402,7 @@ func (r *Registry) Admit(s emit.Shape) (emit.Plan, error) {
 // or retiring group of the same key (kept by name) or creating a pending
 // one.
 func (r *Registry) planGroup(p *Plan, u *unit, ph int8, now time.Time) handleSet {
-	key := groupKey{res: u.res, phase: ph}
+	key := groupKey{res: u.res, sub: u.sub, phase: ph}
 	g := u.fam.groups[key]
 	if g == nil {
 		g = r.newGroup(u.fam, groupSpec{key: key, striped: u.striped, codes: u.codes, start: now})
@@ -360,7 +419,12 @@ func (r *Registry) overflowGroup(f *family, ph int8, now time.Time) *group {
 	if g := f.overflow[ph]; g != nil {
 		return g
 	}
-	g := r.fixedGroup(f, groupKey{res: Overflow, phase: ph}, f.overflowStriped, now)
+	key := groupKey{res: Overflow, phase: ph}
+	if f.subLabel != "" {
+		// Every resource label of a folded label set is _overflow.
+		key.sub = Overflow
+	}
+	g := r.fixedGroup(f, key, f.overflowStriped, now)
 	f.overflow[ph] = g
 	return g
 }
@@ -401,6 +465,10 @@ func (p *Plan) wire(u *unit, ph int8, hs handleSet) {
 	case roleListener:
 		wireListener(p.listeners[u.res], f.cat.Name, hs)
 	case roleRoute:
+		if f.subLabel != "" {
+			wireMirror(p.mirrors[emit.MirrorShape{Route: u.res, Upstream: u.sub}], f.cat.Name, hs)
+			return
+		}
 		wireRoute(p.routes[u.res], f.cat.Name, hs)
 	case roleUpstream:
 		wireUpstream(p.upstreams[u.res], f.cat.Name, hs)
@@ -433,6 +501,15 @@ func (p *Plan) Upstream(name string) *emit.UpstreamMetrics {
 		return m
 	}
 	return noopUpstreamMetrics()
+}
+
+// Mirror implements emit.Plan: the handles of the mirror of route to
+// upstream; a mirror the Shape did not name records nothing.
+func (p *Plan) Mirror(route, upstream string) *emit.MirrorMetrics {
+	if m := p.mirrors[emit.MirrorShape{Route: route, Upstream: upstream}]; m != nil {
+		return m
+	}
+	return noopMirrorMetrics()
 }
 
 // Policy implements emit.Plan; an unknown name records nothing.

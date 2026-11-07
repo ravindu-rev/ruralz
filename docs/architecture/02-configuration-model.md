@@ -280,7 +280,7 @@ Each listener has its own `port`: two listeners on one `port`, or a listener on 
 
 ### Route
 
-Match criteria, Route-scoped Policies, and one or more Upstreams, directly or through composition.
+Match criteria, Route-scoped Policies, and one or more Upstreams, directly or through composition, or a redirect; mirrors copy a Route's requests to other Upstreams.
 
 ```yaml
 kind: Route
@@ -297,10 +297,10 @@ spec:
     when: 'request.headers["x-tenant"] == "acme"'   # CEL
   policies: [{name: jwt-default}]  # orderedMap keyed by name; Route-scoped Policies
   excludePolicies: [{name: cors-default}]   # map keyed by name; removes inherited Gateway Policies
-  upstreams:                       # required unless composition is set; map keyed by name
+  upstreams:                       # exactly one of upstreams | composition | redirect; map keyed by name
     - name: orders
       weight: 100                  # default 1; weighted split across entries; weight 0 is never picked while another entry weighs more, and if every weight is 0 all weigh 1
-  composition:                     # mutually exclusive with upstreams
+  composition:                     # instead of upstreams
     mode: aggregate                # required: aggregate | sequential | conditional
     steps:                         # required; orderedMap keyed by name
       - name: order                # required
@@ -315,10 +315,23 @@ spec:
         maxBodyBytes: 1Mi          # at least 1 byte; default: an equal share of Gateway limits.maxResponseBodyBytes
         optional: false            # true allows a partial response
         when: "true"               # CEL; conditional and sequential modes
+  mirrors:                         # beside upstreams only; map keyed by upstream; Planned (M2)
+    - upstream: orders-shadow      # required
+      percent: 10                  # 0 to 100; default 100
+      maxInFlight: 100             # at least 1; default 1,000 per Node (target)
+  redirect:                        # instead of upstreams or composition; Planned (M2)
+    status: 308                    # 301 | 302 | 307 | 308; default 302
+    scheme: https                  # http | https; default the request's
+    host: www.shop.example         # host with an optional port; default the request's Host
+    prefix: /v2/                   # at most one of path | prefix; prefix only on a prefix Route
+    query: keep                    # keep | drop; default keep
+    # locationExpression: CEL building the whole Location instead of scheme, host, path, prefix and query; Planned (M2)
   timeout: 5s                      # whole-request deadline
 ```
 
 Each step has exactly one of `path` or `pathExpression`; template captures reach steps only through CEL (`request.pathParams`, decoded, and `request.rawPathParams`, as received). `aggregate` runs steps in parallel and merges bodies under `group`; `sequential` runs steps in list order and exposes earlier results as `steps`; `conditional` runs the first step whose `when` is true. A `when` on an `aggregate` step, which runs whatever it says, is RZ-CFG-005, as is a `maxBodyBytes` below 1 byte in either spelling, `collection: true` without `group` or with an empty one, a `target` that is not a dot path ([Transform Policies](03-data-plane.md#transform-policies)), and a literal `path` that does not start with `/`, holds before its first `?` a `.` or `..` segment (also spelled `%2E`), `%00`, a raw or encoded backslash, another control byte or an invalid escape, or holds a raw control byte in its query; [Data plane](03-data-plane.md#composition-engine) gives a `pathExpression` result the same rule at runtime. More steps than `maxCompositionSteps` is RZ-CFG-031.
+
+A Route has exactly one of `upstreams`, `composition` and `redirect`, `redirect` sets at most one of `path` and `prefix`, and `locationExpression` excludes `scheme`, `host`, `path`, `prefix` and `query`: rules the schema states (RZ-CFG-005 at stage F). Stage H refuses with RZ-CFG-005 `mirrors` on a Route without `upstreams`, a `redirect.status` other than 301, 302, 307 or 308, a `redirect.host` that is not a DNS name or IP address, IPv6 in brackets, with an optional port from 1 to 65535, a `redirect.path` or `redirect.prefix` that holds `?` or `#` or that a literal step `path` refuses, and a `redirect.prefix` on a Route whose `match.path` is not a `prefix`; a mirror `upstream` that names no Upstream is RZ-CFG-009. [Mirroring](09-traffic-management-and-resilience.md#mirroring) and [Redirects](09-traffic-management-and-resilience.md#redirects) own what a mirror copies and how a redirect builds its `Location`.
 
 Two Routes with identical match criteria on a common listener are RZ-CFG-023, a Route without `listeners` being on every listener; other Route precedence belongs to [Data plane](03-data-plane.md#router). A `match.hosts` entry may start with one `*.` label, as in `*.shop.example`; any other `*` is RZ-CFG-005, and Data plane owns wildcard matching. `grpc` and `graphql` matching are `Planned (M3)`, `topic` `Planned (M4)`.
 
@@ -780,6 +793,7 @@ CEL is allowed only in these fields, each marked `x-ruralz-cel`; elsewhere CEL-l
 | `Policy.spec.when` | bool | Once, before the Policy's first Phase | Base; `response` if that Phase is a response Phase | `closed`: Policy runs; `open`: skipped | |
 | `Route.spec.composition.steps[].pathExpression` | string | Before the step | Base, `steps` | Step fails; `optional` decides | |
 | `Route.spec.composition.steps[].when` | bool | Before the step | Base, `steps` | Step fails; `optional` decides | |
+| `Route.spec.redirect.locationExpression` | string | After onRequestHeaders, on a redirect Route | Base | OQ-traffic-management-and-resilience-26 | Planned (M2) |
 | `authz.cel` `config.rule` | bool | onRequestHeaders or onRequestBody | Base | Deny | |
 | `auth.jwt-sign` `config.claims` | dyn; a map | onResponse | `response` with `body`, `consumer`, `auth` | Policy `failureMode` (closed only) | Planned (M2) |
 | `ratelimit`, `quota` `config.key` | string | onRequestHeaders | Base | Policy `failureMode` | |
@@ -975,7 +989,7 @@ Figure 3 names the stages that raise each code. Only stage I raises RZ-CFG-018, 
 | RZ-CFG-037 | `auth.jwt` `jwksUrl` or `auth.upstream-oauth2` `tokenUrl` is not an `https` URL |
 | RZ-CFG-038 | Effective Filter Chain combines a `cache` Policy with an `onRequestBody` authorization, validation or Plugin auth or authz Policy, as a cache hit skips `onRequestBody` |
 | RZ-CFG-039 | A listener or admin port could not be bound during activation; the active Revision keeps serving |
-| RZ-CFG-040 | A resource uses a feature this Node release does not serve: a kind, field or enum value whose milestone marker (`+ruralz:planned`, [Schema generation from Go types](../engineering/02-repository-layout-and-conventions.md#schema-generation-from-go-types)) the release has not reached, present with a value other than its default, or a Policy type the Policy type registry does not serve. Not yet served: the kinds `Plugin`, `AIProvider` and `AIModel`; the `plugin`, `authz.opa`, `authz.cedar`, `auth.upstream-sigv4` and `ai.*` Policy types; an Upstream `protocol` other than `http`, `kubernetes` discovery and `messaging`; a listener's `http3`; a Route's `match.grpc`, `match.graphql` and `match.topic` |
+| RZ-CFG-040 | A resource uses a feature this Node release does not serve: a kind, field or enum value whose milestone marker (`+ruralz:planned`, [Schema generation from Go types](../engineering/02-repository-layout-and-conventions.md#schema-generation-from-go-types)) the release has not reached, present with a value other than its default, or a Policy type the Policy type registry does not serve. Not yet served: the kinds `Plugin`, `AIProvider` and `AIModel`; the `plugin`, `authz.opa`, `authz.cedar`, `auth.upstream-sigv4` and `ai.*` Policy types; an Upstream `protocol` other than `http`, `kubernetes` discovery and `messaging`; a listener's `http3`; a Route's `match.grpc`, `match.graphql`, `match.topic` and `redirect.locationExpression` |
 | RZ-CFG-041 | A `secretRef` is used for two destinations (secret-to-destination binding) |
 | RZ-CFG-042 | A resolved State Store URL a Node refuses: a scheme other than `redis`, `rediss`, `valkey` or `valkeys`; a parameter `rueidis` does not read; a refused parameter (`skip_verify`, `client_cache` other than `0`, `protocol` other than `3`, `max_retries` other than `0`); conflicting parameters (one given twice, a database in both the path and `db`); a cleartext scheme beside its connection's TLS block (`stateStore.tls`, `stateStore.cache.tls`); or neither a user name nor a password for a host other than a loopback literal (TB-4) |
 | RZ-CFG-043 | Warning: a `ratelimit` limit keyed by a constant needs more State Store calls per second than one shard sustains, so every Node can open its breaker for that shard: a Policy without `localOnly` whose `config.key` is absent or reads no variable, with a `limits[]` entry above 25,000 requests per second (hypothesis), raised at stage J ([Distributed rate limits](11-scalability-and-distributed-state.md#distributed-rate-limits)) |

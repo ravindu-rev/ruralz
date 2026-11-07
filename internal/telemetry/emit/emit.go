@@ -131,6 +131,14 @@ const (
 	NumRevalidationResults
 )
 
+// Mirror results: sent, dropped, failed (catalog.MirrorResults).
+const (
+	MirrorSent = iota
+	MirrorDropped
+	MirrorFailed
+	NumMirrorResults
+)
+
 // Rate limit results: allow, deny_local, deny_global, fail_open,
 // fail_closed, allow_local (a local-only entry or a localOnly Policy).
 const (
@@ -299,6 +307,13 @@ type RouteMetrics struct {
 	Revalidations [NumRevalidationResults]Counter
 }
 
+// MirrorMetrics are one Route mirror's handles: ruralz_upstream_mirrors_total
+// by the Mirror* result, for the Route and the mirror's Upstream (folded
+// mirrors share _overflow).
+type MirrorMetrics struct {
+	Results [NumMirrorResults]Counter
+}
+
 // AuthDecisions counts ruralz_auth_decisions_total: allow with no code,
 // deny with the RZ code.
 type AuthDecisions interface {
@@ -398,6 +413,15 @@ type Shape struct {
 	// label sets; every other Route's RouteMetrics.Cache and Revalidations
 	// hold no-op handles.
 	CachedRoutes []string
+	// Mirrors are the Route mirrors, each named by its Route (one of
+	// Routes) and the Upstream it copies requests to: each gets the label
+	// sets of ruralz_upstream_mirrors_total.
+	Mirrors []MirrorShape
+}
+
+// MirrorShape names one Route mirror for admission.
+type MirrorShape struct {
+	Route, Upstream string
 }
 
 // PolicyShape describes one Policy for admission.
@@ -417,6 +441,8 @@ type Plan interface {
 	Route(name string) *RouteMetrics
 	Upstream(name string) *UpstreamMetrics
 	Policy(name string) *PolicyMetrics
+	// Mirror returns the handles of the mirror of route to upstream.
+	Mirror(route, upstream string) *MirrorMetrics
 }
 
 // Binding tracks which label sets a snapshot references.

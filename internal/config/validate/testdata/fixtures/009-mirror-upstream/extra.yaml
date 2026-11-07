@@ -1,0 +1,12 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: mirrored
+spec:
+  match:
+    path: {prefix: /mirrored}
+  upstreams:
+    - name: orders
+  mirrors:
+    - upstream: ordrs
+    - upstream: quota-daily

@@ -143,7 +143,7 @@ func (b *build) result() *Compiled {
 	s := &snapshot.Snapshot{
 		Revision: b.v.Revision, Validated: b.v, Gateway: b.gateway, Listeners: b.listeners,
 		Routers: b.routers, Routes: b.routes, Consumers: b.consumers, Programs: b.builder.Build(),
-		Metrics: b.plan, LegChains: b.legChains, Legs: b.set,
+		Metrics: b.plan, LegChains: b.legChains, Legs: b.set, MirrorLegs: b.set,
 		StateStore: hs.Main, CacheStore: hs.Cache, Resources: res,
 	}
 	return &Compiled{

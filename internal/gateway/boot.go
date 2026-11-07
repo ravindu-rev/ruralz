@@ -70,6 +70,7 @@ func (n *node) serve(ctx context.Context) int {
 func (n *node) boot(ctx context.Context) {
 	n.loops.goRun("retirer", n.retirer.Run)
 	n.loops.goRun("upstream manager", n.ups.Run)
+	n.loops.goRun("mirror legs", n.mirrors.Run)
 	n.loops.goRun("secret resolver", n.res.Run)
 	for _, c := range n.filters.Components() {
 		n.components.goRun(c.Name(), c.Run)

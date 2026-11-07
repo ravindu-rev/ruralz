@@ -122,7 +122,16 @@
 // attempt the caller canceled is no Upstream failure. Each attempt is one
 // ruralz.upstream.<name> span and one ruralz_upstream_attempts_total
 // count; retries, refused retries, CEL errors and attempt durations are
-// counted too. Every leg Phase runs under its attempt's span, so
+// counted too. On a plain upstreams leg whose Outbound has a mirror sink,
+// the first attempt the leg sends, after its onUpstreamRequest Policies
+// and before its round trip, is offered to the sink once
+// (docs/architecture/09-traffic-management-and-resilience.md
+// "Mirroring"); a retry, a composition step's attempt and an attempt an
+// onUpstreamRequest Policy answered are not. Set.Mirror sends a mirror
+// leg's copy as one attempt of the mirror Upstream (Upstream.mirror):
+// balancing over Set.MirrorKey's ring-hash key, pools, health, breaker,
+// and the bulkhead only when a slot is free and nothing waits, with no
+// Policy, no retry and no span. Every leg Phase runs under its attempt's span, so
 // upstream-scoped Policies are children of their leg's span
 // (docs/architecture/10-observability.md "Span model"): the Phases that run
 // on the leg's context, onUpstreamResponseHeaders of an attempt without a

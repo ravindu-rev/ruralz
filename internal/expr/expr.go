@@ -44,6 +44,7 @@ type PlaceID string
 // site names its target's result (Site.Result).
 const (
 	PlaceRouteMatchWhen         PlaceID = "Route.spec.match.when"
+	PlaceRedirectLocation       PlaceID = "Route.spec.redirect.locationExpression"
 	PlacePolicyWhen             PlaceID = "Policy.spec.when"
 	PlaceStepPathExpression     PlaceID = "Route.spec.composition.steps[].pathExpression"
 	PlaceStepWhen               PlaceID = "Route.spec.composition.steps[].when" //nolint:gosec // G101: a CEL place name, not a credential.
@@ -139,6 +140,11 @@ const (
 	RuleWriteEntry                          // the access log entry is written
 	RuleSkipCandidate                       // M3
 	RuleBadGateway                          // M4 messaging: 502
+	// RuleRedirectFails: the Route answers with its redirect's failure
+	// instead of a Location; which response that is, is
+	// OQ-traffic-management-and-resilience-26, and the place stays
+	// unserved until it is answered (+ruralz:planned).
+	RuleRedirectFails
 )
 
 // Place describes one CEL place.
@@ -160,6 +166,7 @@ func Places() []Place {
 	base := VarsBase
 	out := []Place{
 		{PlaceRouteMatchWhen, ResultBool, VarRequest | VarSource | VarNow, RuleInternalError, "M1"},
+		{PlaceRedirectLocation, ResultString, base, RuleRedirectFails, "M2"},
 		{PlacePolicyWhen, ResultBool, base | VarResponse, RulePolicyWhen, "M1"},
 		{PlaceStepPathExpression, ResultString, base | VarSteps, RuleStepFails, "M1"},
 		{PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},

@@ -324,8 +324,10 @@ func TestCommittedPlannedIsCurrent(t *testing.T) {
 // of docs/architecture/02-configuration-model.md "Error codes": the kinds
 // Plugin, AIProvider and AIModel; an Upstream protocol other than http,
 // kubernetes discovery and messaging; a listener's http3; a Route's
-// match.grpc, match.graphql and match.topic. Policy types take theirs from
-// the Policy type registry, so none is a row.
+// match.grpc, match.graphql, match.topic and redirect.locationExpression,
+// whose runtime-error rule is OQ-traffic-management-and-resilience-26.
+// Policy types take theirs from the Policy type registry, so none is a
+// row.
 func TestM1Planned(t *testing.T) {
 	rows, err := plannedTable(realInput(t), 1)
 	if err != nil {
@@ -339,6 +341,7 @@ func TestM1Planned(t *testing.T) {
 		{kind: "Route", path: "spec.match.graphql", milestone: "M3"},
 		{kind: "Route", path: "spec.match.grpc", milestone: "M3"},
 		{kind: "Route", path: "spec.match.topic", milestone: "M4"},
+		{kind: "Route", path: "spec.redirect.locationExpression", milestone: "M2"},
 		{kind: "Upstream", path: "spec.discovery.type", value: "kubernetes", milestone: "M2"},
 		{kind: "Upstream", path: "spec.messaging", milestone: "M4"},
 		{kind: "Upstream", path: "spec.protocol", value: "ai", milestone: "M3"},

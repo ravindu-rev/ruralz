@@ -16,6 +16,7 @@ func plannedFeatures() []Feature {
 		{Kind: "Route", Path: "spec.match.graphql", Milestone: "M3"},
 		{Kind: "Route", Path: "spec.match.grpc", Milestone: "M3"},
 		{Kind: "Route", Path: "spec.match.topic", Milestone: "M4"},
+		{Kind: "Route", Path: "spec.redirect.locationExpression", Milestone: "M2"},
 		{Kind: "Upstream", Path: "spec.discovery.type", Value: "kubernetes", Milestone: "M2"},
 		{Kind: "Upstream", Path: "spec.messaging", Milestone: "M4"},
 		{Kind: "Upstream", Path: "spec.protocol", Value: "ai", Milestone: "M3"},

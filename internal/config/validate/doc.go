@@ -31,7 +31,11 @@
 //     criteria the Router compiles and a non-empty grpc service; no when
 //     on an aggregate step; a literal step path that passes the hardening
 //     of the client path with no dot segment, a step target that is a dot
-//     path, and a non-empty group beside collection: true (step); an
+//     path, and a non-empty group beside collection: true (step); mirrors
+//     only beside upstreams, and a redirect status of 301, 302, 307 or
+//     308, a redirect host in host[:port] form (internal/netaddr), a
+//     redirect path or prefix that passes the step path rule without ?
+//     or #, and a prefix only on a Route matching a path prefix; an
 //     Upstream Endpoint source, and Endpoint
 //     addresses and dns discovery as internal/netaddr parses them for the
 //     Upstream layer; a Policy filterClass the registry accepts; a

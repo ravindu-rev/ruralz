@@ -84,8 +84,26 @@ func (b *Bulkhead) Acquire(ctx context.Context, cfg *BulkheadConfig) error {
 	return fmt.Errorf("resilience: waiting for a bulkhead slot: %w", context.Cause(ctx))
 }
 
-// Release returns a slot taken by Acquire, granting it to the first
-// waiter when the ceiling allows.
+// TryAcquire takes a slot only when one is free and no attempt waits for
+// one, never queueing: a mirror leg neither waits for a slot nor takes the
+// pending room the Upstream's own attempts need
+// (docs/architecture/09-traffic-management-and-resilience.md "Mirroring").
+// It reports whether it took a slot; every true must be paired with one
+// Release.
+func (b *Bulkhead) TryAcquire(cfg *BulkheadConfig) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.limit = max(cfg.MaxConnections, 1)
+	b.grantLocked()
+	if b.head != nil || b.inFlight >= b.limit {
+		return false
+	}
+	b.inFlight++
+	return true
+}
+
+// Release returns a slot taken by Acquire or TryAcquire, granting it to
+// the first waiter when the ceiling allows.
 func (b *Bulkhead) Release() {
 	b.mu.Lock()
 	b.releaseLocked()

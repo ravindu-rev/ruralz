@@ -588,6 +588,61 @@
           "refId": "B"
         }
       ]
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Mirrors by result",
+      "description": "Copies of Route requests sent to the selected Upstreams as mirrors: sent got a response, which was discarded; dropped past maxInFlight or for want of a body copy; failed got no response.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 40
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "exemplar": false,
+          "expr": "sum by (route, upstream, result) (rate(ruralz_upstream_mirrors_total{upstream=~\"$upstream\"}[$__rate_interval]))",
+          "legendFormat": "{{route}} to {{upstream}} {{result}}",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "1m",

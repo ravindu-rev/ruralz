@@ -324,6 +324,30 @@ func (h *Holder) Pin(stripe emit.Stripe, rec *snapshot.PinnedRequest) *snapshot.
 	}
 }
 
+// PinLeg pins s once more for rec on stripe, for a mirror leg of a request
+// that holds its own pin on s, and reports whether it did; rec follows the
+// rules of Pin. The leg's pin keeps the snapshot, retired by a Hot Reload
+// meanwhile or not, alive for as long as the leg runs, and the ending
+// protocol ends the leg with the request's other work
+// (docs/architecture/03-data-plane.md "Why no in-flight request is
+// dropped"). The request's pin keeps the count above zero while PinLeg
+// runs, so a retired snapshot is never freed under it. Past the Drain
+// deadline it pins nothing, and the leg is dropped. Unpin releases the
+// pin.
+func (h *Holder) PinLeg(s *snapshot.Snapshot, stripe emit.Stripe, rec *snapshot.PinnedRequest) bool {
+	if s == nil || h.drained.Load() {
+		return false
+	}
+	s.Pins.Add(int(stripe), rec)
+	if !h.drained.Load() {
+		return true
+	}
+	// The first EndAll ran meanwhile and may have walked past rec.
+	h.Unpin(s, stripe, rec)
+	h.wake()
+	return false
+}
+
 // Unpin releases the pin Pin returned, with the same stripe and record,
 // after onLog. The handler must call it before its ServeHTTP returns and
 // never while holding rec.Mu: when an ending callback is acting on rec,

@@ -1,0 +1,35 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: see-other
+spec:
+  match:
+    path: {exact: /see-other}
+  redirect: {status: 303, path: /new}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: not-modified
+spec:
+  match:
+    path: {exact: /not-modified}
+  redirect: {status: 304, path: /new}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: unused
+spec:
+  match:
+    path: {exact: /unused}
+  redirect: {status: 306, path: /new}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: permanent
+spec:
+  match:
+    path: {exact: /permanent}
+  redirect: {status: 308, path: /new}

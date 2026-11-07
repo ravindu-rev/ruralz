@@ -1,0 +1,35 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: prefix-on-exact
+spec:
+  match:
+    path: {exact: /prefix-on-exact}
+  redirect: {prefix: /v2}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: prefix-on-template
+spec:
+  match:
+    path: {template: "/prefix-on-template/{id}"}
+  redirect: {prefix: /v2}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: prefix-without-path
+spec:
+  match:
+    hosts: [old.shop.example]
+  redirect: {prefix: /v2}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: prefix-on-prefix
+spec:
+  match:
+    path: {prefix: /prefix-on-prefix}
+  redirect: {prefix: /v2}

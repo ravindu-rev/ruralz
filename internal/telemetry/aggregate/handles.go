@@ -259,6 +259,15 @@ func noopRouteMetrics() *emit.RouteMetrics {
 	return m
 }
 
+// noopMirrorMetrics returns Route mirror handles that record nothing.
+func noopMirrorMetrics() *emit.MirrorMetrics {
+	m := &emit.MirrorMetrics{}
+	for i := range m.Results {
+		m.Results[i] = noopCounter{}
+	}
+	return m
+}
+
 // noopPolicyMetrics returns Policy handles that record nothing.
 func noopPolicyMetrics() *emit.PolicyMetrics {
 	m := &emit.PolicyMetrics{

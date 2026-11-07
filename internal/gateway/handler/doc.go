@@ -57,7 +57,13 @@
 // another is an internal fault, 500 RZ-RT-025. A WebSocket upgrade is 400
 // RZ-RT-023 after the match and before onRequestHeaders, and the response
 // Phases run on it as on any generated response. Otherwise the executor
-// runs onRequestHeaders; the request body is prepared
+// runs onRequestHeaders. A redirect Route answers there
+// (docs/architecture/09-traffic-management-and-resilience.md
+// "Redirects"): its redirect status with the Location its
+// snapshot.Redirector builds from the request's scheme, Host field,
+// normalized path, raw query and Base variables, and no content; no body
+// is read, onRequestBody, onRoute and no Forwarder run, and the response
+// Phases run on it. On any other Route the request body is prepared
 // (exchange.Request.PrepareBody: a gated body read whole as client I/O, a
 // declared or read length over limits.maxRequestBodyBytes 413 RZ-RT-003, a
 // spent buffer budget 503 RZ-RT-004, a body that cannot be read aborts the
@@ -67,7 +73,11 @@
 // entry, the client's request trailers (without the fields the client's
 // Connection field named, which are hop-by-hop in the trailer section
 // too: httpfield.StripNamed) and, on a Route with upstreams for
-// an HTTP/1.1 or later client, the 103 Early Hints relay; a composition
+// an HTTP/1.1 or later client, the 103 Early Hints relay, and, on a Route
+// with mirrors when the Node runs a mirror Runner, the request as the
+// snapshot.MirrorSink its first sent attempt is offered to, which hands it
+// to the Runner with the request's snapshot, Base variables, Route
+// deadline and stripe (upstream/mirror); a composition
 // keeps Ruralz-Partial on the response it builds when an optional step
 // was left out. A streamed body cut at its limit
 // while a leg sent it is 413 RZ-RT-003; one whose read fails while a leg

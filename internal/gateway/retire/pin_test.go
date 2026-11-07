@@ -246,3 +246,50 @@ func TestPinRetriesOntoTheNewSnapshot(t *testing.T) {
 		}
 	}
 }
+
+// TestPinLeg: a mirror leg pins the snapshot its request runs on, the
+// published one or one a Hot Reload retired since, unless the Drain
+// deadline has passed; the pin counts like a request's, holds a retired
+// snapshot until it is released, and a refused pin leaves no count behind.
+func TestPinLeg(t *testing.T) {
+	x := newHarness(t, Config{}, false)
+	if x.h.PinLeg(nil, 0, &snapshot.PinnedRequest{}) {
+		t.Fatal("PinLeg(nil) = true")
+	}
+	a := newSnap("a", x.log)
+	x.publish(a)
+	req := x.pin(1)
+	leg := &snapshot.PinnedRequest{Cancel: func() {}}
+	if !x.h.PinLeg(a, 2, leg) {
+		t.Fatal("PinLeg on the published snapshot = false")
+	}
+	if n := a.Pins.Count(); n != 2 {
+		t.Fatalf("pins = %d, want the request's and the leg's", n)
+	}
+	// A Hot Reload retires a while the request still runs on it: a leg the
+	// request starts now pins it too.
+	b := newSnap("b", x.log)
+	x.publish(b)
+	late := &snapshot.PinnedRequest{Cancel: func() {}}
+	if !x.h.PinLeg(a, 3, late) {
+		t.Fatal("PinLeg on a retired snapshot its request pins = false")
+	}
+	x.unpin(req)
+	if n := a.Pins.Count(); n != 2 {
+		t.Fatalf("pins of the retired snapshot = %d, want the two legs'", n)
+	}
+	x.h.Unpin(a, 2, leg)
+	x.h.Unpin(a, 3, late)
+	if n := a.Pins.Count(); n != 0 {
+		t.Fatalf("pins after the legs' Unpin = %d, want 0", n)
+	}
+	if _, err := x.h.EndAll(t.Context(), snapshot.EndDrain); err != nil {
+		t.Fatal(err)
+	}
+	if x.h.PinLeg(b, 0, &snapshot.PinnedRequest{Cancel: func() {}}) {
+		t.Fatal("PinLeg after the Drain deadline = true")
+	}
+	if n := b.Pins.Count(); n != 0 {
+		t.Fatalf("pins after a refused PinLeg = %d, want 0", n)
+	}
+}

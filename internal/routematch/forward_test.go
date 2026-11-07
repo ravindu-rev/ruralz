@@ -90,3 +90,43 @@ func TestRejectDotSegmentString(t *testing.T) {
 		t.Errorf("String() = %q", got)
 	}
 }
+
+// TestCheckRedirectPath: a redirect.path or redirect.prefix holds no "?"
+// or "#", which would start the Location's query or fragment, and passes
+// the rule of CheckForwardPath; the error carries no code.
+func TestCheckRedirectPath(t *testing.T) {
+	tests := []struct {
+		path string
+		want RejectReason // 0 passes
+		at   int
+	}{
+		{"/", 0, 0},
+		{"/v2/orders", 0, 0},
+		{"/a%3Fb%23c", 0, 0},
+		{"/a b", 0, 0},
+		{"/new?x=1", RejectQueryOrFragment, 4},
+		{"/new#top", RejectQueryOrFragment, 4},
+		{"?", RejectQueryOrFragment, 0},
+		{"new", RejectNotOriginForm, 0},
+		{"/a/../b", RejectDotSegment, 3},
+		{"/a/%2e", RejectDotSegment, 3},
+		{`/a\b`, RejectBackslash, 2},
+		{"/a/%00", RejectEncodedNUL, 3},
+		{"/a\x00", RejectControlByte, 2},
+		{"/a%zz", RejectBadEscape, 2},
+	}
+	for _, tt := range tests {
+		err := CheckRedirectPath(tt.path)
+		var pe *PathError
+		switch {
+		case tt.want == 0 && err != nil:
+			t.Errorf("CheckRedirectPath(%q) = %v, want nil", tt.path, err)
+		case tt.want == 0:
+		case !errors.As(err, &pe) || pe.Reason != tt.want || pe.Offset != tt.at:
+			t.Errorf("CheckRedirectPath(%q) = %v, want %s at byte %d", tt.path, err, tt.want, tt.at)
+		}
+		if _, coded := errcode.CodeOf(err); coded {
+			t.Errorf("CheckRedirectPath(%q) = %v carries a code; the caller wraps its own", tt.path, err)
+		}
+	}
+}

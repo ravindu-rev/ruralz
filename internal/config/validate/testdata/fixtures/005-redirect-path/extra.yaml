@@ -1,0 +1,62 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-query
+spec:
+  match:
+    path: {exact: /path-query}
+  redirect: {path: "/new?x=1"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-fragment
+spec:
+  match:
+    path: {exact: /path-fragment}
+  redirect: {path: "/new#top"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-relative
+spec:
+  match:
+    path: {exact: /path-relative}
+  redirect: {path: new}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-dot
+spec:
+  match:
+    path: {exact: /path-dot}
+  redirect: {path: /a/../admin}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-backslash
+spec:
+  match:
+    path: {exact: /path-backslash}
+  redirect: {path: '/a\b'}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: prefix-encoded-dot
+spec:
+  match:
+    path: {prefix: /prefix-encoded-dot}
+  redirect: {prefix: /a/%2E%2E}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: path-empty
+spec:
+  match:
+    path: {exact: /path-empty}
+  redirect: {path: ""}

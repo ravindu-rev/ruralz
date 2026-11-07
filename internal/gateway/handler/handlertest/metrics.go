@@ -199,17 +199,54 @@ func NewNode() *Node {
 	return n
 }
 
+// MirrorHandles are a Route mirror's readable handles; M is what a
+// snapshot holds.
+type MirrorHandles struct {
+	M       *emit.MirrorMetrics
+	Results [emit.NumMirrorResults]*Counter
+}
+
+// NewMirror returns readable Route mirror handles.
+func NewMirror() *MirrorHandles {
+	m := &MirrorHandles{M: &emit.MirrorMetrics{}}
+	for i := range m.Results {
+		m.Results[i] = &Counter{}
+		m.M.Results[i] = m.Results[i]
+	}
+	return m
+}
+
 // Plan is an emit.Plan over readable handles, created on first use; its
 // Route("_unmatched") is the requests no Route matched.
 type Plan struct {
 	mu        sync.Mutex
 	listeners map[string]*Listener
 	routes    map[string]*RouteHandles
+	mirrors   map[[2]string]*MirrorHandles
 }
 
 // NewPlan returns an empty Plan.
 func NewPlan() *Plan {
-	return &Plan{listeners: map[string]*Listener{}, routes: map[string]*RouteHandles{}}
+	return &Plan{listeners: map[string]*Listener{}, routes: map[string]*RouteHandles{}, mirrors: map[[2]string]*MirrorHandles{}}
+}
+
+// Mirror implements emit.Plan.
+func (p *Plan) Mirror(route, upstream string) *emit.MirrorMetrics {
+	return p.MirrorHandles(route, upstream).M
+}
+
+// MirrorHandles returns the readable handles of the mirror of route to
+// upstream.
+func (p *Plan) MirrorHandles(route, upstream string) *MirrorHandles {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	k := [2]string{route, upstream}
+	m := p.mirrors[k]
+	if m == nil {
+		m = NewMirror()
+		p.mirrors[k] = m
+	}
+	return m
 }
 
 // Listener implements emit.Plan.
