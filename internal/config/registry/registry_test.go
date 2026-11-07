@@ -299,6 +299,9 @@ func TestTableSpecRows(t *testing.T) {
 		v1alpha1.PolicyTypeAuthAPIKey: authRow,
 		v1alpha1.PolicyTypeAuthBasic:  authRow,
 		v1alpha1.PolicyTypeAuthMTLS:   authRow,
+		// JWT signing: auth class in onResponse, Route scope only, its own
+		// slot, closed only (Security and identity "JWT signing").
+		v1alpha1.PolicyTypeAuthJWTSign: {phase.ClassAuth, phase.Of(phase.OnResponse), 0, scR, SlotName, closed, true, true},
 		// Authz stacks (slot = name), closed only.
 		v1alpha1.PolicyTypeAuthzCEL:   {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, true},
 		v1alpha1.PolicyTypeAuthzOPA:   {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, false},
@@ -353,8 +356,9 @@ func TestTableSpecRows(t *testing.T) {
 }
 
 // TestServedSet: RZ-CFG-040 applies to exactly plugin, authz.opa,
-// authz.cedar, auth.upstream-sigv4 and ai.*; authz.geoip, of the milestone
-// in progress, is served with the M1 types since its Filter is built.
+// authz.cedar, auth.upstream-sigv4 and ai.*; auth.jwt-sign and
+// authz.geoip, of the milestone in progress, are served with the M1 types
+// since their Filters are built.
 func TestServedSet(t *testing.T) {
 	unserved := []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar,
@@ -363,7 +367,7 @@ func TestServedSet(t *testing.T) {
 	}
 	served := []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthJWT, v1alpha1.PolicyTypeAuthAPIKey, v1alpha1.PolicyTypeAuthBasic,
-		v1alpha1.PolicyTypeAuthMTLS, v1alpha1.PolicyTypeAuthzCEL, v1alpha1.PolicyTypeAuthzIP,
+		v1alpha1.PolicyTypeAuthMTLS, v1alpha1.PolicyTypeAuthJWTSign, v1alpha1.PolicyTypeAuthzCEL, v1alpha1.PolicyTypeAuthzIP,
 		v1alpha1.PolicyTypeAuthzGeoIP,
 		v1alpha1.PolicyTypeRateLimit, v1alpha1.PolicyTypeQuota, v1alpha1.PolicyTypeValidationJSONSchema,
 		v1alpha1.PolicyTypeCORS, v1alpha1.PolicyTypeCache, v1alpha1.PolicyTypeHeaders,

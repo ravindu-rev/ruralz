@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"math"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -28,7 +29,7 @@ func doc(resources ...string) string {
 // mustEncodeBundle encodes b with the hub index.
 func mustEncodeBundle(t testing.TB, b *hub.Bundle) []byte {
 	t.Helper()
-	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{})
+	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: level(t)})
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)
 	}
@@ -122,7 +123,7 @@ func TestDecodeNewer(t *testing.T) {
 		{"unknown kind without a name", doc(`{"kind":"Widget","spec":{}}`), "", []string{"resources[0].kind"}, `kind "Widget" is unknown`},
 		{"resource member", doc(`{"kind":"Route","metadata":{"name":"r"},"spec":{},"status":{}}`), "Route/r", []string{"status"}, "not part of a ruralz.canonical.v1 resource"},
 		{"resource member without a name", doc(`{"kind":"Route","metadata":{},"spec":{},"status":{}}`), "", []string{"resources[0].status"}, "not part of a ruralz.canonical.v1 resource"},
-		{"spec field", doc(strings.Replace(route, `"upstreams"`, `"retryBudget":{"ratio":0.2},"upstreams"`, 1)), "Route/r", []string{"spec.retryBudget"}, "unknown to ruralz/v1alpha1 at schema level 0"},
+		{"spec field", doc(strings.Replace(route, `"upstreams"`, `"retryBudget":{"ratio":0.2},"upstreams"`, 1)), "Route/r", []string{"spec.retryBudget"}, "unknown to ruralz/v1alpha1 at schema level " + strconv.Itoa(level(t))},
 		{"metadata field", doc(`{"kind":"Route","metadata":{"name":"r","owner":"x"},"spec":{}}`), "Route/r", []string{"metadata.owner"}, "newer release"},
 		{"keyed list entry field", doc(strings.Replace(route, `"weight":1`, `"priority":2,"weight":1`, 1)), "Route/r", []string{"spec.upstreams[name=orders].priority"}, "newer release"},
 		{"several", doc(`{"kind":"Route","metadata":{"name":"a","owner":"x"},"spec":{"zz":1}}`, `{"kind":"Route","metadata":{"name":"b"},"spec":{"yy":{"a":1}}}`), "", []string{"metadata.owner", "spec.zz", "spec.yy"}, "newer release"},
@@ -585,7 +586,7 @@ func TestPositionKeepsFile(t *testing.T) {
 // TestDiagnosticsOf covers the error helpers.
 func TestDiagnosticsOf(t *testing.T) {
 	err := decodeErr(t, doc(`{"kind":"Route","metadata":{"name":"a","x":1,"y":2},"spec":{}}`))
-	if got := err.Error(); got != "RZ-CFG-024: Route/a metadata.x: field is unknown to ruralz/v1alpha1 at schema level 0; the content comes from a newer release (and 1 more)" {
+	if got, want := err.Error(), "RZ-CFG-024: Route/a metadata.x: field is unknown to ruralz/v1alpha1 at schema level "+strconv.Itoa(level(t))+"; the content comes from a newer release (and 1 more)"; got != want {
 		t.Errorf("Error() = %q", got)
 	}
 	var f *Findings

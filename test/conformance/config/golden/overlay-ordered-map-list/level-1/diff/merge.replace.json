@@ -1,0 +1,96 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-f25169c2dddc",
+    "digest": "sha256:f25169c2dddca1709d50f8e66d598173b35aea5bead602400e928adcc574eabe",
+    "environment": "merge"
+  },
+  "to": {
+    "revision": "rev-5cf15af16bed",
+    "bundle": "./overlay-ordered-map-list",
+    "digest": "sha256:5cf15af16bed907a866ca1bf8d68085156c94eb817fac4dc5039624995cce190",
+    "environment": "replace"
+  },
+  "resources": [
+    {
+      "kind": "Route",
+      "name": "summary",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "order"
+            },
+            "path"
+          ],
+          "from": "/order/v2",
+          "to": "/order"
+        },
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "totals"
+            }
+          ],
+          "from": {
+            "collection": false,
+            "name": "totals",
+            "optional": false,
+            "path": "/totals",
+            "upstream": "orders"
+          }
+        },
+        {
+          "op": "move",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "items"
+            }
+          ],
+          "from": 1,
+          "to": 0
+        },
+        {
+          "op": "move",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "order"
+            }
+          ],
+          "from": 0,
+          "to": 1
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "routing"
+    ]
+  }
+}

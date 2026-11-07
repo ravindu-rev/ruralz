@@ -1,0 +1,10 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: token-signer
+spec:
+  type: auth.jwt-sign
+  config:
+    paths: [token]
+    algorithm: RS256
+    signingKey: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}

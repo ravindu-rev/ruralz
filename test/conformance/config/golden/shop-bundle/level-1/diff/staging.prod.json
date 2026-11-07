@@ -1,0 +1,86 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-5331fcb198ff",
+    "digest": "sha256:5331fcb198ff663828111f0e46c4952185a74867ed8a777bce3fed0d5159155b",
+    "environment": "staging"
+  },
+  "to": {
+    "revision": "rev-0d2d8e396759",
+    "bundle": "./shop-bundle",
+    "digest": "sha256:0d2d8e396759301270db025b8ca69a475a9431c927a2eb7203d72658aa7e6eb7",
+    "environment": "prod"
+  },
+  "resources": [
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "upstreams/services.yaml",
+      "impact": [
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "circuitBreaker",
+            "consecutiveFailures"
+          ],
+          "from": 5,
+          "to": 10
+        },
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "retries",
+            "attempts"
+          ],
+          "from": 2,
+          "to": 3
+        }
+      ]
+    },
+    {
+      "kind": "AIModel",
+      "name": "support-chat",
+      "change": "modified",
+      "source": "ai/models.yaml",
+      "impact": [
+        "ai"
+      ],
+      "ops": [
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "candidates",
+            {
+              "name": "secondary"
+            }
+          ],
+          "to": {
+            "model": "gpt-4.1-mini",
+            "name": "secondary",
+            "provider": "openai-prod",
+            "when": "ai.estimatedInputTokens < 50000"
+          }
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 2,
+    "added": 0,
+    "removed": 0,
+    "modified": 2,
+    "routeChainsChanged": 0,
+    "impact": [
+      "ai",
+      "traffic"
+    ]
+  }
+}

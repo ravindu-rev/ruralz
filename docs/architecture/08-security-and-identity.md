@@ -140,7 +140,7 @@ The FIPS build, Planned (M5), is the same source built with `GOFIPS140` as separ
 
 Client authentication runs in `onRequestHeaders`, Filter class `auth`. The four client types share slot `auth`, are `failureMode: closed` only and never call the State Store. Two runtime rules close skip paths:
 
-1. If `when` skips every auth-class Policy in a Route's chain, the request fails with 401 RZ-AUTH-001, so a public path uses `excludePolicies` (proposed to Configuration model and Data plane).
+1. If `when` skips every client authentication Policy in a Route's chain, an auth-class Policy that runs in a request Phase, the request fails with 401 RZ-AUTH-001, so a public path uses `excludePolicies` (proposed to Configuration model and Data plane). [JWT signing](#jwt-signing), auth-class in `onResponse` only, authenticates no client and takes no part.
 2. A second successful authentication on a request, whether or not either bound a Consumer, fails with 401 RZ-AUTH-002.
 
 A `when` that errors makes a closed Policy run ([Configuration model](02-configuration-model.md#cel-expressions-and-allowed-places)); auth `when` conditions SHOULD NOT read values an Upstream may reinterpret, such as `X-HTTP-Method-Override`.
@@ -175,7 +175,7 @@ M1 fixes these `auth.jwt` defaults instead of adding fields:
 
 ```mermaid
 flowchart TD
-    A["Request, Route fixed by header match"] --> B{"Auth-class Policy in the effective chain?"}
+    A["Request, Route fixed by header match"] --> B{"Client authentication Policy in the effective chain?"}
     B -- "no" --> AN["Anonymous: consumer and auth null"]
     B -- "yes" --> W{"Does any run after its when condition?"}
     W -- "none runs" --> R1["401 RZ-AUTH-001"]
@@ -275,7 +275,38 @@ Token revocation uses the signed [revocation](#revocation) list, Planned (M2). N
 
 ### JWT signing
 
-JWT signing, Planned (M2), signs JWTs on a Route with a key the Node holds. It is a built-in Policy type, never a Plugin, which pack section 10 registers once it has a name. Its key comes only through `secretRef`, never through Plugin `config`, and binds as `local`, so it never leaves the Node ([Secret-to-destination binding](02-configuration-model.md#secret-to-destination-binding)). The type's name, Phases and `config` are OQ-security-and-identity-35.
+`auth.jwt-sign`, Planned (M2), signs JWTs into the buffered Upstream response with a key the Node holds, so a service hands its clients tokens without holding a signing key. It is a built-in Policy type, never a Plugin: Filter class `auth`, Phase `onResponse`, Route scope, slot its own name and `failureMode` `closed` only (pack section 10). Its key comes only through `secretRef`, never through Plugin `config`, and binds as `local`, so it never leaves the Node ([Secret-to-destination binding](02-configuration-model.md#secret-to-destination-binding)). A Policy holds exactly one mode: `config.paths` signs claims objects the Upstream response holds, and `config.claims` builds one token's claims and writes the token at `config.target`. This section authors the `config` schema, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents).
+
+| Field | Rule |
+|---|---|
+| `config.paths` | An `atomic` list of at least one body dot path ([Transform Policies](03-data-plane.md#transform-policies)), applied in order, each over the body the one before it wrote: each JSON object a path matches is replaced by a compact JWS whose claims are that object as the body holds it, members in their order and numbers verbatim. A missing path, a member name on an array, an index past an array's end and a missing or empty array for `*` sign nothing; a path through a scalar, `*` on an object and a match that is not an object are path errors |
+| `config.claims` | CEL over `response` with its `body`, `consumer` and `auth` that builds the claims of one token: a map, written as JSON as a `transform.response` `config.body` writes a value ([Allowed places](02-configuration-model.md#allowed-places)) |
+| `config.target` | The body dot path where the token `claims` builds is written as a JSON string, creating missing objects as a `transform.response` `set[]` entry with target `body` does; required with `claims` and refused beside `paths` (RZ-CFG-005) |
+| `config.signingKey` | Required `SecretValue`: a private JWK, `kty` `RSA`, `EC` with `crv` `P-256` or `OKP` with `crv` `Ed25519`, with `d` and its public members those of its private key, its `use`, when present, `sig`, its `key_ops`, when present, holding `sign` and its `alg`, when present, `config.algorithm` (RFC 7517, RFC 7518, RFC 8037); or one unencrypted PEM private key, PKCS #8, PKCS #1 or SEC 1, text outside its blocks ignored. An RSA key has 2,048 bits or more and must sign consistently |
+| `config.algorithm` | Required: `RS256` or `PS256` with an RSA key, `ES256` with a P-256 key, `EdDSA` with an Ed25519 key |
+| `config.keyId` | The `kid` of every token; absent, tokens carry none |
+
+A token is the JWS compact serialization (RFC 7515): the protected header `{"alg":...}`, with `"kid"` when `keyId` is set, the claims and the signature, each base64url without padding. PS256 uses MGF1 with SHA-256 and a salt as long as the hash, and ES256 writes R and S as 32 bytes each (RFC 7518). The claims MUST hold `exp`, a NumericDate at most 24 hours after the request's start (target), the bound `auth.jwt` accepts; claims without one, or with a later one, are refused, one that already passed is signed as it is, and the Policy adds no claim.
+
+The Policy gates the response body ([Body buffering and limits](02-configuration-model.md#body-buffering-and-limits)) and treats it as a `transform.response` body operation does: it signs nothing on a response that cannot have content, a 206 or one with `Content-Range`; a body is JSON by its one `Content-Type` field line and its strict bytes; with `paths` an empty body passes, and with `claims` it starts from an empty object and takes `Content-Type: application/json`; a rewritten body is capped by `limits.maxResponseBodyBytes`, and the Node recomputes `Content-Length`, drops `Content-Encoding` and the body digests, turns a strong `ETag` weak and removes `Accept-Ranges`. Like `transform.response`, it never runs on a generated response, so no Node or Filter error carries a token, and a body no path matched keeps its bytes.
+
+A CEL runtime error, a `claims` result that is not a map, refused claims, a path error, a body that is not JSON but not empty, a body over its cap and a signature that cannot be computed are cannot decide: closed, the response is replaced with 502 RZ-RT-012 before commit (pack 8.10), so no unsigned claims reach the client. A spent buffer budget stays 503 RZ-RT-004.
+
+A Node refuses at activation, with RZ-CFG-026, a `signingKey` it cannot resolve or whose value is not a private key fitting `algorithm`: a public key, a key of another type, such as a P-256 key for RS256, an encrypted or unparsable PEM key, a JWK whose public members do not match its private key, or an RSA key below 2,048 bits. A rotation by watch signs from the next response; a rotated value the Policy refuses keeps the last key, increments `ruralz_config_secret_rotation_failures_total` and raises `secret_rotation_failed` ([Secrets](#secrets)). The Node signs with the standard library's `crypto/rsa`, `crypto/ecdsa` and `crypto/ed25519`, which the Go Cryptographic Module provides ([Tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)).
+
+```yaml
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata: {name: session-token}
+spec:
+  type: auth.jwt-sign
+  config:
+    claims: '{"sub": consumer.name, "tier": consumer.tier, "exp": auth.claims.exp}'
+    target: session.token            # written into the Upstream's JSON body
+    algorithm: ES256
+    keyId: edge-2026-11
+    signingKey: {secretRef: {provider: file, name: /etc/ruralz/jwt/signing.jwk}}
+```
 
 ### RZ-AUTH decision codes
 
@@ -612,7 +643,6 @@ Data-plane decisions are telemetry, not audit events. Other evidence:
 | OQ-security-and-identity-32 | What partitions an unbound identity without a subject? | (a) No principal (current); (b) `client_id` or `azp` (JWT) or the URI SAN (mTLS), merging a client application's users | security-and-identity | No |
 | OQ-security-and-identity-33 | Which field gives a trusted hop's address when a proxy manages only `X-Forwarded-For` and the client sends its own `Forwarded`? | (a) A per-prefix `trustedProxies` setting naming each proxy's field (schema change); (b) `X-Forwarded-For` first; (c) `Forwarded` first (current) | security-and-identity | No |
 | OQ-security-and-identity-34 | Which `auth.upstream-oauth2` fields select Google's keyless token sources? | (a) `config.grantType` adds `metadata-server`, which takes no `tokenUrl` or credential and calls the metadata server's fixed address, and `token-exchange` (RFC 8693), which takes `config.subjectToken` (a required `SecretValue` bound to the `tokenUrl` origin, Google's Security Token Service), `config.subjectTokenType` (default `urn:ietf:params:oauth:token-type:jwt`), `config.workloadIdentityProvider` (the provider's resource name, sent as the exchange's `audience`) and an optional `config.serviceAccount` to impersonate (proposed); (b) a `config.google` object holding `source` (`metadata-server` or `federation`) and the same fields, leaving `grantType` to `client-credentials` and `jwt-bearer` | security-and-identity, configuration-model | Yes, for Planned (M2) Google Cloud authentication |
-| OQ-security-and-identity-35 | What are the JWT signing type's name, pack section 10 row and `config`? | (a) `auth.jwt-sign`: Filter class `auth`, Phase `onResponse`, scope R, slot `name`, `closed` only; it replaces each JSON object at a `config.paths` body path of the buffered Upstream response with a compact JWS of those claims, signed with `config.signingKey` (a required `SecretValue` holding a private JWK or PEM key) under `config.algorithm` (RS256, PS256, ES256 or EdDSA) with `config.keyId` as `kid`, refusing claims without `exp` or with one more than 24 hours ahead (target) (proposed); (b) the same row, signing one token whose claims a CEL `config.claims` expression computes from `response`, `consumer` and `auth`, written at the body path `config.target` | security-and-identity, configuration-model | Yes, for Planned (M2) JWT signing |
 | OQ-security-and-identity-36 | How is an OCI policy artifact laid out and published, and which codes report a Rego module or Cedar policy that fails to compile, inline or fetched, and an artifact that is unavailable, mismatches its digest or fails signature verification? | (a) Artifact type `application/vnd.ruralz.policy.v1` with one layer per Rego module, Cedar policy file or JSON document (OPA data, Cedar entities), pushed with any OCI client and signed as Plugins are, cosign referrers included; one new RZ-CFG code for a policy that fails to compile and one for an artifact that fails its checks (proposed); (b) the OPA bundle tarball as the one layer for both engines, a `ruralz` verb that pushes and signs it, and RZ-CFG-005, RZ-CFG-028 and RZ-CFG-033 extended to policies and their artifacts | security-and-identity, configuration-model | Yes, for Planned (M2) OPA and Cedar authorization |
 | OQ-security-and-identity-38 | Which process settings configure a Node's Vault client? | (a) `RURALZ_VAULT_ADDR` (an `https` URL), `RURALZ_VAULT_CA_FILE` (an optional CA bundle), `RURALZ_VAULT_AUTH` (`kubernetes`, `approle` or `token`) and `RURALZ_VAULT_AUTH_PATH` (the mount, default the method's name), with `RURALZ_VAULT_ROLE` for `kubernetes`, which presents the Pod's service account token, `RURALZ_VAULT_ROLE_ID_FILE` and `RURALZ_VAULT_SECRET_ID_FILE` for `approle`, and `RURALZ_VAULT_TOKEN_FILE`, the agent sink, for `token`, every file outside `RURALZ_SECRET_ROOT` (proposed); (b) one `RURALZ_VAULT_CONFIG_FILE` naming a Node file that holds the address, CA bundle, method and the method's inputs | security-and-identity | Yes, for Planned (M2) `vault` |
 | OQ-security-and-identity-39 | Which process setting names a file-mode Node's revocation entry file, and what does the file hold? | (a) `RURALZ_REVOCATION_FILE`, an absolute path to a JSON file of entries in the REST API's form, re-read on change, an invalid file keeping the last valid list; unsigned, as the operator's filesystem is the trust root in file mode (proposed); (b) the same file, each entry signed by a key of the `RURALZ_TRUST_POLICY_FILE` trust policy | security-and-identity | Yes, for Planned (M2) token revocation |

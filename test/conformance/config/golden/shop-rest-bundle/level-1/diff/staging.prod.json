@@ -1,0 +1,58 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-b868f8c8e2da",
+    "digest": "sha256:b868f8c8e2da4bdcaf2207d04fdf0dc39f68e7e67fe4ddec8f90985285e2eb14",
+    "environment": "staging"
+  },
+  "to": {
+    "revision": "rev-74380821cf6d",
+    "bundle": "./shop-rest-bundle",
+    "digest": "sha256:74380821cf6d058be8e6a5e011ddb4b1adbf46ae36423b04996ec7a5b9f865d7",
+    "environment": "prod"
+  },
+  "resources": [
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "upstreams/services.yaml",
+      "impact": [
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "circuitBreaker",
+            "consecutiveFailures"
+          ],
+          "from": 5,
+          "to": 10
+        },
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "retries",
+            "attempts"
+          ],
+          "from": 2,
+          "to": 3
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "traffic"
+    ]
+  }
+}

@@ -156,7 +156,7 @@ L4    config/{loader,validate,diff,render}    gateway/{composition,drain,replay}
 L3    cel    telemetry (Runtime)    config/{profile,schemaview,overlay,subst,defaults,convert,precedence,canonical}
       statestore/{memory,redis,manager,postcommit}
       gateway/{executor,exchange,retire,router,listener,reuseport,tap,readiness,admin,upstream}
-      filter/auth/{jwt,jwt/jwks,apikey,basic,mtls,upstreamoauth2}    filter/authz/{ip,cel,geoip}    filter/cors
+      filter/auth/{jwt,jwt/jwks,jwtsign,apikey,basic,mtls,upstreamoauth2}    filter/authz/{ip,cel,geoip}    filter/cors
       filter/validation/jsonschema    filter/header    filter/transform{,/dotpath,/request,/response}
       filter/{ratelimit,quota,cache}    filter/cache/{revalidate,coalesce}
 L2    config/{schemaidx,registry}    identity    filter/auth    filter/auth/jwt/check    filter/authz/geoip/check

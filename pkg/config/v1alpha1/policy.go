@@ -18,6 +18,8 @@ const (
 	PolicyTypeAuthBasic PolicyType = "auth.basic"
 	// PolicyTypeAuthMTLS authenticates client certificates.
 	PolicyTypeAuthMTLS PolicyType = "auth.mtls"
+	// PolicyTypeAuthJWTSign signs JWTs into the buffered Upstream response with a key the Node holds. Planned (M2).
+	PolicyTypeAuthJWTSign PolicyType = "auth.jwt-sign"
 	// PolicyTypeAuthzCEL authorizes with a CEL rule.
 	PolicyTypeAuthzCEL PolicyType = "authz.cel"
 	// PolicyTypeAuthzOPA authorizes with OPA. Planned (M2).

@@ -203,7 +203,7 @@ func Chain(ps []*snapshot.Policy, legs map[string][]*snapshot.Policy) *snapshot.
 	for i, p := range ps {
 		p.Index, p.Position = idx, i
 		idx++
-		if p.Class == phase.ClassAuth {
+		if p.Authenticates() {
 			c.AuthPolicies++
 		}
 	}

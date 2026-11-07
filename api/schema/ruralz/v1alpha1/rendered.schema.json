@@ -579,6 +579,83 @@
       ],
       "type": "object"
     },
+    "AuthJWTSignConfig": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "required": [
+                "paths"
+              ]
+            },
+            {
+              "required": [
+                "claims"
+              ]
+            }
+          ]
+        }
+      ],
+      "description": "AuthJWTSignConfig is the config of an auth.jwt-sign Policy, which signs JWTs into the buffered Upstream response in onResponse: exactly one of paths, whose matched JSON objects each become a compact JWS of those claims, and claims, which builds one token's claims, written at target. target with paths, or claims without target, is RZ-CFG-005.",
+      "properties": {
+        "algorithm": {
+          "$ref": "#/$defs/JWTSignAlgorithm",
+          "description": "Algorithm is the JWS algorithm: RS256, PS256, ES256 or EdDSA.",
+          "x-ruralz-since": 1
+        },
+        "claims": {
+          "description": "Claims builds the claims of one token from response, consumer and auth: a map, written as JSON.",
+          "minLength": 1,
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "dyn",
+            "variables": [
+              "response",
+              "consumer",
+              "auth"
+            ]
+          },
+          "x-ruralz-since": 1
+        },
+        "keyId": {
+          "description": "KeyID is the kid header of every token the Policy signs; absent, tokens carry no kid.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
+        "paths": {
+          "description": "Paths are body dot paths, applied in order: each JSON object a path matches is replaced by a compact JWS whose claims are that object; a match that is not an object fails the Policy.",
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "type": "array",
+          "x-ruralz-list": {
+            "type": "atomic"
+          },
+          "x-ruralz-since": 1
+        },
+        "signingKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "SigningKey is the private key the Node signs with: a JWK or an unencrypted PEM key that fits algorithm.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true,
+          "x-ruralz-since": 1
+        },
+        "target": {
+          "description": "Target is the body dot path where the token claims builds is written, creating missing objects; required with claims, and not allowed with paths.",
+          "type": "string",
+          "x-ruralz-since": 1
+        }
+      },
+      "required": [
+        "signingKey",
+        "algorithm"
+      ],
+      "type": "object"
+    },
     "AuthMTLSConfig": {
       "additionalProperties": false,
       "description": "AuthMTLSConfig is the config of an auth.mtls Policy.",
@@ -2120,6 +2197,16 @@
       ],
       "type": "object"
     },
+    "JWTSignAlgorithm": {
+      "description": "JWTSignAlgorithm is the JWS algorithm of an auth.jwt-sign Policy (RFC 7518, RFC 8037).",
+      "enum": [
+        "RS256",
+        "PS256",
+        "ES256",
+        "EdDSA"
+      ],
+      "type": "string"
+    },
     "Limits": {
       "additionalProperties": false,
       "description": "Limits are Node-wide limits. Limits count bytes after content decoding.",
@@ -2785,6 +2872,25 @@
           "if": {
             "properties": {
               "type": {
+                "const": "auth.jwt-sign"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "config": {
+                "$ref": "#/$defs/AuthJWTSignConfig"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
                 "const": "authz.cel"
               }
             },
@@ -3213,6 +3319,7 @@
         "auth.api-key",
         "auth.basic",
         "auth.mtls",
+        "auth.jwt-sign",
         "authz.cel",
         "authz.opa",
         "authz.cedar",

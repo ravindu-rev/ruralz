@@ -33,6 +33,7 @@ func policyConfigTypes() []reflect.Type {
 		reflect.TypeFor[v1alpha1.AuthAPIKeyConfig](),
 		reflect.TypeFor[v1alpha1.AuthBasicConfig](),
 		reflect.TypeFor[v1alpha1.AuthMTLSConfig](),
+		reflect.TypeFor[v1alpha1.AuthJWTSignConfig](),
 		reflect.TypeFor[v1alpha1.AuthzCELConfig](),
 		reflect.TypeFor[v1alpha1.AuthzOPAConfig](),
 		reflect.TypeFor[v1alpha1.AuthzCedarConfig](),

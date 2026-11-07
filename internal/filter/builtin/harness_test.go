@@ -5,7 +5,12 @@ package builtin
 
 import (
 	"context"
+	"crypto/ed25519"
+	cryptorand "crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -76,7 +81,34 @@ type harness struct {
 	clk     *clocktest.Fake
 	ca      *pki.CA
 	crl     []byte
+	keys    *signingKeys
 }
+
+// signingKeys are the PEM private keys an auth.jwt-sign reference of the
+// cases resolves to (jwtSignRSA, jwtSignEd25519; jwtSignP256 is the CA
+// key), made once per test binary.
+type signingKeys struct{ rsa, ed []byte }
+
+// sharedSigningKeys holds the cases' signing keys; test-only package
+// state.
+var sharedSigningKeys = sync.OnceValues(func() (*signingKeys, error) {
+	r, err := rsa.GenerateKey(cryptorand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	rsaDER, err := x509.MarshalPKCS8PrivateKey(r)
+	if err != nil {
+		return nil, err
+	}
+	edDER, err := x509.MarshalPKCS8PrivateKey(ed25519.NewKeyFromSeed(make([]byte, ed25519.SeedSize)))
+	if err != nil {
+		return nil, err
+	}
+	return &signingKeys{
+		rsa: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: rsaDER}),
+		ed:  pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: edDER}),
+	}, nil
+})
 
 // newHarness returns a harness whose Components run until tb ends.
 func newHarness(tb testing.TB) *harness {
@@ -108,7 +140,11 @@ func newHarness(tb testing.TB) *harness {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	return &harness{toolchain: tc, reg: registry.New(), filters: filters, clk: clk, ca: ca, crl: crl}
+	keys, err := sharedSigningKeys()
+	if err != nil {
+		tb.Fatal(err)
+	}
+	return &harness{toolchain: tc, reg: registry.New(), filters: filters, clk: clk, ca: ca, crl: crl, keys: keys}
 }
 
 // zeros is an io.Reader of zero bytes: a fixed throttle key.
@@ -367,9 +403,10 @@ func (h *harness) build(t *testing.T, env filter.BuildEnv) error {
 }
 
 // secrets resolves every secretRef use with a value of the kind its use
-// checks: the harness CA for a CA bundle, its CRL for a CRL, an opaque
-// value otherwise, as a Node's resolver would for a Bundle whose secrets
-// exist.
+// checks: the harness CA for a CA bundle, its CRL for a CRL, the private
+// key of the family an auth.jwt-sign reference of the cases names, an
+// opaque value otherwise, as a Node's resolver would for a Bundle whose
+// secrets exist.
 func (h *harness) secrets(uses []hub.SecretUse) mapStore {
 	m := mapStore{}
 	for _, u := range uses {
@@ -390,7 +427,16 @@ func (h *harness) secrets(uses []hub.SecretUse) mapStore {
 		case secret.KindStateStoreURL:
 			v = []byte("redis://127.0.0.1:6379")
 		default:
-			v = []byte("opaque-secret-value")
+			switch r.Name {
+			case jwtSignRSA:
+				v = h.keys.rsa
+			case jwtSignP256:
+				v = h.ca.KeyPEM
+			case jwtSignEd25519:
+				v = h.keys.ed
+			default:
+				v = []byte("opaque-secret-value")
+			}
 		}
 		m[r] = secret.NewValue(v)
 	}

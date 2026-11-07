@@ -23,15 +23,15 @@ type oracleResult struct {
 }
 
 // oracleRun applies op to the normalized document doc, with payload the
-// value (set) or elements (append) as transform-form JSON and r the
-// replacer.
-func oracleRun(tb testing.TB, doc []byte, p Path, op opKind, payload []byte, r Replacer) oracleResult {
+// value (set) or elements (append) as transform-form JSON, r the replacer
+// and rw the object rewriter.
+func oracleRun(tb testing.TB, doc []byte, p Path, op opKind, payload []byte, r Replacer, rw Rewriter) oracleResult {
 	tb.Helper()
 	tree, _, err := jsonval.Decode(doc, jsonval.Options{MaxDepth: jsonval.MaxDepthLimit, AllowDuplicateNames: true})
 	if err != nil {
 		tb.Fatalf("oracle: decode %q: %v", doc, err)
 	}
-	o := &oracle{p: p, op: op, r: r}
+	o := &oracle{tb: tb, p: p, op: op, r: r, rw: rw}
 	switch op {
 	case opSet:
 		o.payload = decodeTree(tb, payload)
@@ -71,9 +71,11 @@ func decodeTree(tb testing.TB, b []byte) any {
 
 // oracle walks a tree for one operation.
 type oracle struct {
+	tb      testing.TB
 	p       Path
 	op      opKind
 	r       Replacer
+	rw      Rewriter
 	payload any
 	capt    []any
 	n       int
@@ -207,6 +209,21 @@ func (o *oracle) target(v any, d int) (nv any, drop bool, err error) {
 		}
 		o.n++
 		return append(a[:len(a):len(a)], jsonval.Clone(o.payload).([]any)...), false, nil
+	case opRewrite:
+		if _, ok := v.(*jsonval.Object); !ok {
+			return nil, false, &PathError{Reason: NotObject, Segment: d - 1}
+		}
+		enc := jsonval.Encoder{Options: jsonval.EncodeOptions{Order: jsonval.OrderInsertion}}
+		text, err := enc.Append(nil, v)
+		if err != nil {
+			o.tb.Fatalf("oracle: encode object: %v", err)
+		}
+		out, err := o.rw.Rewrite(nil, text)
+		if err != nil {
+			return nil, false, err
+		}
+		o.n++
+		return decodeTree(o.tb, out), false, nil
 	default:
 		return v, false, nil
 	}

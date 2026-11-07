@@ -202,7 +202,7 @@ func TestMTLS(t *testing.T) {
 		failures := freshCounter(t, top, n, "ruralz_config_secret_rotation_failures_total", "provider", "file")
 		replaceFile(t, path, top.WithCanary([]byte(notACertificate)))
 		advance(t, top, pollInterval)
-		waitCounter(t, top, n, failures+1, "ruralz_config_secret_rotation_failures_total", "provider", "file")
+		waitRotationFailures(t, top, n, failures+1)
 		waitDegraded(t, n, "secret_rotation_failed", true)
 		wantOK(t, "new CA kept after the failed rotation", get(t, tlsClient(t, top, otherAlice, false), secure+"/alice"))
 		wantCode(t, "old CA still refused", get(t, tlsClient(t, top, alice, false), secure+"/alice"), http.StatusUnauthorized, "RZ-AUTH-002")

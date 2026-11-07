@@ -97,7 +97,7 @@ func chainOf(client []*snapshot.Policy, upstream string, legPs []*snapshot.Polic
 	c := &snapshot.Chain{Client: lists(client), Policies: client, Legs: map[string]*snapshot.LegChain{}}
 	for i, p := range client {
 		p.Index, p.Position = i, i
-		if p.Class == phase.ClassAuth {
+		if p.Authenticates() {
 			c.AuthPolicies++
 		}
 	}

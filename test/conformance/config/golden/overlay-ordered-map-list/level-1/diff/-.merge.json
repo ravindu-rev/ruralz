@@ -1,0 +1,69 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-cab75228ea66",
+    "digest": "sha256:cab75228ea667c350e7959354fdb776d0e098f0c37ef339b3559ac3d5de8b7f4"
+  },
+  "to": {
+    "revision": "rev-f25169c2dddc",
+    "bundle": "./overlay-ordered-map-list",
+    "digest": "sha256:f25169c2dddca1709d50f8e66d598173b35aea5bead602400e928adcc574eabe"
+  },
+  "environment": "merge",
+  "resources": [
+    {
+      "kind": "Route",
+      "name": "summary",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "order"
+            },
+            "path"
+          ],
+          "from": "/order",
+          "to": "/order/v2"
+        },
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "composition",
+            "steps",
+            {
+              "name": "totals"
+            }
+          ],
+          "to": {
+            "collection": false,
+            "name": "totals",
+            "optional": false,
+            "path": "/totals",
+            "upstream": "orders"
+          }
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "routing"
+    ]
+  }
+}

@@ -5,10 +5,13 @@ package dotpath
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/ravindu-rev/ruralz/internal/jsonval"
 )
 
 // Tests for the Editor (docs/architecture/03-data-plane.md "Transform
@@ -51,6 +54,26 @@ func (r pattern) Replace(dst, s []byte) ([]byte, bool) {
 	return append(dst, r.re.ReplaceAll(s, []byte(r.repl))...), true
 }
 
+// tokenizer rewrites an object as a JSON string, its prefix and the
+// base64url of the object's text, as auth.jwt-sign replaces a claims
+// object with its token; with fail set it refuses every object.
+type tokenizer struct {
+	prefix string
+	fail   error
+}
+
+func (r tokenizer) Rewrite(dst, obj []byte) ([]byte, error) {
+	if r.fail != nil {
+		return dst, r.fail
+	}
+	return jsonval.AppendString(dst, r.prefix+base64.RawURLEncoding.EncodeToString(obj))
+}
+
+// tok returns the JSON string tokenizer{prefix: "t."} writes for obj.
+func tok(obj string) string {
+	return `"t.` + base64.RawURLEncoding.EncodeToString([]byte(obj)) + `"`
+}
+
 // mustPath parses a path or stops the test.
 func mustPath(tb testing.TB, s string) Path {
 	tb.Helper()
@@ -69,6 +92,8 @@ type opCase struct {
 	op      opKind
 	payload string
 	r       Replacer
+	// rw rewrites objects for RewriteObjects; nil is tokenizer{prefix: "t."}.
+	rw Rewriter
 	// want is the edited document; captured the captured values.
 	want     string
 	captured string
@@ -101,10 +126,20 @@ func runEditor(tb testing.TB, e *Editor, c opCase) oracleResult {
 		}
 	case opReplace:
 		res.doc, res.n, res.err = e.Replace(nil, doc, p, c.r)
+	case opRewrite:
+		res.doc, res.n, res.err = e.RewriteObjects(nil, doc, p, c.rewriter())
 	default:
 		tb.Fatalf("unknown op %d", c.op)
 	}
 	return res
+}
+
+// rewriter returns the case's Rewriter: rw, or tokenizer{prefix: "t."}.
+func (c opCase) rewriter() Rewriter {
+	if c.rw != nil {
+		return c.rw
+	}
+	return tokenizer{prefix: "t."}
 }
 
 // checkResult compares an outcome with the case.
@@ -202,6 +237,26 @@ func editorCases() []opCase {
 		{name: "replace a missing value", doc: `{"a":"x"}`, path: "b", op: opReplace, r: lit("x", "y"), want: `{"a":"x"}`},
 		{name: "replace a value that is not a string", doc: `{"a":1}`, path: "a", op: opReplace, r: lit("1", "2"), reason: NotString, segment: 0},
 		{name: "replace an element that is not a string", doc: `{"l":["a",2]}`, path: "l.*", op: opReplace, r: lit("a", "b"), reason: NotString, segment: 1},
+		// RewriteObjects (docs/architecture/08-security-and-identity.md
+		// "JWT signing": each object a path matches becomes its token).
+		{name: "rewrite a member object", doc: `{"a":1,"token":{"sub":"x","exp":1.0E3},"b":2}`, path: "token", op: opRewrite, want: `{"a":1,"token":` + tok(`{"sub":"x","exp":1.0E3}`) + `,"b":2}`, n: 1},
+		{name: "rewrite a nested object", doc: `{"session":{"id":7,"claims":{"sub":"x"}}}`, path: "session.claims", op: opRewrite, want: `{"session":{"id":7,"claims":` + tok(`{"sub":"x"}`) + `}}`, n: 1},
+		{name: "rewrite every element", doc: `{"items":[{"a":1},{"b":[2]}]}`, path: "items.*", op: opRewrite, want: `{"items":[` + tok(`{"a":1}`) + `,` + tok(`{"b":[2]}`) + `]}`, n: 2},
+		{name: "rewrite through a star", doc: `{"items":[{"c":{"s":1}},{"x":0},{"c":{}}]}`, path: "items.*.c", op: opRewrite, want: `{"items":[{"c":` + tok(`{"s":1}`) + `},{"x":0},{"c":` + tok(`{}`) + `}]}`, n: 2},
+		{name: "rewrite an indexed element", doc: `{"l":[{"a":1},{"b":2}]}`, path: "l.1", op: opRewrite, want: `{"l":[{"a":1},` + tok(`{"b":2}`) + `]}`, n: 1},
+		{name: "rewrite keeps member order and number text", doc: `{"z":{"b":0.10,"a":"q\"x"}}`, path: "z", op: opRewrite, want: `{"z":` + tok(`{"b":0.10,"a":"q\"x"}`) + `}`, n: 1},
+		{name: "rewrite a missing member", doc: `{"a":1}`, path: "token", op: opRewrite, want: `{"a":1}`},
+		{name: "rewrite below a missing member", doc: `{"a":1}`, path: "x.claims", op: opRewrite, want: `{"a":1}`},
+		{name: "rewrite a name on an array", doc: `{"l":[{"a":1}]}`, path: "l.a", op: opRewrite, want: `{"l":[{"a":1}]}`},
+		{name: "rewrite an index past the end", doc: `{"l":[{"a":1}]}`, path: "l.3", op: opRewrite, want: `{"l":[{"a":1}]}`},
+		{name: "rewrite through a star over an empty array", doc: `{"items":[]}`, path: "items.*.c", op: opRewrite, want: `{"items":[]}`},
+		{name: "rewrite a string", doc: `{"token":"x"}`, path: "token", op: opRewrite, reason: NotObject, segment: 0},
+		{name: "rewrite a number", doc: `{"a":{"token":1}}`, path: "a.token", op: opRewrite, reason: NotObject, segment: 1},
+		{name: "rewrite null", doc: `{"token":null}`, path: "token", op: opRewrite, reason: NotObject, segment: 0},
+		{name: "rewrite an array", doc: `{"token":[{"a":1}]}`, path: "token", op: opRewrite, reason: NotObject, segment: 0},
+		{name: "rewrite an element that is not an object", doc: `{"l":[{"a":1},"x"]}`, path: "l.*", op: opRewrite, reason: NotObject, segment: 1},
+		{name: "rewrite through a scalar", doc: `{"a":"s"}`, path: "a.b", op: opRewrite, reason: ThroughScalar, segment: 1},
+		{name: "rewrite star on an object", doc: `{"a":{"b":{}}}`, path: "a.*", op: opRewrite, reason: StarOnNonArray, segment: 1},
 	}
 }
 
@@ -212,7 +267,7 @@ func TestEditorOperations(t *testing.T) {
 	for _, c := range editorCases() {
 		t.Run(c.name, func(t *testing.T) {
 			checkResult(t, "editor", c, runEditor(t, &e, c))
-			checkResult(t, "oracle", c, oracleRun(t, []byte(c.doc), mustPath(t, c.path), c.op, []byte(c.payload), c.r))
+			checkResult(t, "oracle", c, oracleRun(t, []byte(c.doc), mustPath(t, c.path), c.op, []byte(c.payload), c.r, c.rewriter()))
 		})
 	}
 }
@@ -254,7 +309,41 @@ func TestEditorLimit(t *testing.T) {
 	if _, _, err := e.Replace(nil, []byte(`{"a":"x"}`), mustPath(t, "a"), lit("x", "0123456789")); !errors.Is(err, ErrOutputCap) {
 		t.Errorf("Replace past the limit = %v, want ErrOutputCap", err)
 	}
+	if _, _, err := e.RewriteObjects(nil, []byte(`{"a":{}}`), mustPath(t, "a"), tokenizer{prefix: "012345"}); !errors.Is(err, ErrOutputCap) {
+		t.Errorf("RewriteObjects past the limit = %v, want ErrOutputCap", err)
+	}
+	if out, _, err := e.RewriteObjects(nil, []byte(`{"a":{}}`), mustPath(t, "a"), tokenizer{prefix: "01234"}); err != nil || len(out) != 16 {
+		t.Errorf("RewriteObjects at the limit = %s, %v", out, err)
+	}
 }
+
+// TestRewriteObjectsError checks that a Rewriter's error stops the
+// operation and is returned as it is, after the objects before it were
+// rewritten, and that RewriteObjects appends after dst's bytes.
+func TestRewriteObjectsError(t *testing.T) {
+	var e Editor
+	refused := errors.New("refused")
+	calls := 0
+	rw := rewriterFunc(func(dst, _ []byte) ([]byte, error) {
+		calls++
+		if calls == 2 {
+			return dst, refused
+		}
+		return append(dst, '1'), nil
+	})
+	if _, n, err := e.RewriteObjects(nil, []byte(`{"l":[{},{},{}]}`), mustPath(t, "l.*"), rw); !errors.Is(err, refused) || n != 1 || calls != 2 {
+		t.Errorf("RewriteObjects = n %d, %v after %d calls; want the Rewriter's error after 2 calls, 1 rewritten", n, err, calls)
+	}
+	out, n, err := e.RewriteObjects([]byte(`prefix,`), []byte(`{"a":{"b":1}}`), mustPath(t, "a"), tokenizer{prefix: "t."})
+	if err != nil || n != 1 || string(out) != `prefix,{"a":`+tok(`{"b":1}`)+`}` {
+		t.Errorf("RewriteObjects after a prefix = %s, %d, %v", out, n, err)
+	}
+}
+
+// rewriterFunc adapts a function to Rewriter.
+type rewriterFunc func(dst, obj []byte) ([]byte, error)
+
+func (f rewriterFunc) Rewrite(dst, obj []byte) ([]byte, error) { return f(dst, obj) }
 
 // TestNormalize checks the transform form and the strict JSON check: a
 // body that CEL reads as null (invalid JSON, a duplicate member name,
@@ -292,7 +381,7 @@ func TestPathErrorText(t *testing.T) {
 	if got := err.Error(); got != "dotpath: value is not a string at segment 2" {
 		t.Errorf("Error() = %q", got)
 	}
-	for r := ThroughScalar; r <= NotArray; r++ {
+	for r := ThroughScalar; r <= NotObject; r++ {
 		if strings.HasPrefix(r.String(), "reason") {
 			t.Errorf("Reason %d has no description", r)
 		}
@@ -380,7 +469,7 @@ func FuzzEditorMatchesOracle(f *testing.F) {
 		if err != nil {
 			return
 		}
-		c := opCase{doc: string(doc), path: path, op: opKind(opByte%6) + 1, r: lit("a", "b\"")}
+		c := opCase{doc: string(doc), path: path, op: opKind(opByte%7) + 1, r: lit("a", "b\""), rw: tokenizer{prefix: "t\"."}}
 		c.payload = payloads[int(payloadByte)%len(payloads)]
 		if c.op == opSet && strings.Contains(c.payload, `","`) {
 			c.payload = `"x"`
@@ -389,7 +478,7 @@ func FuzzEditorMatchesOracle(f *testing.F) {
 			return // to never holds a star (RZ-CFG-005)
 		}
 		got := runEditor(t, &e, c)
-		want := oracleRun(t, doc, p, c.op, []byte(c.payload), c.r)
+		want := oracleRun(t, doc, p, c.op, []byte(c.payload), c.r, c.rewriter())
 		var gpe, wpe *PathError
 		switch {
 		case errors.As(want.err, &wpe):

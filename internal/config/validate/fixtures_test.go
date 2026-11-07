@@ -84,6 +84,8 @@ func TestFixtures(t *testing.T) {
 		{"041-file-path", "one file spelled with a different path", []string{CodeDestination}},
 		{"041-two-token-urls", "one clientSecret sent to two token origins", []string{CodeDestination}},
 		{"041-accepted", "one origin spelled twice, the State Store URL twice, distinct keys of one file", nil},
+		{"041-signing-key-to-token-url", "an auth.jwt-sign signing key, which binds as local, also sent to a tokenUrl", []string{CodeDestination}},
+		{"041-signing-key-local", "one auth.jwt-sign signing key in two Policies, local in both", nil},
 		{"035-basic-username", "a basic username declared by two Consumers (internal/identity)", []string{"RZ-CFG-035"}},
 		{"036-iterations", "basic iterations below 600,000 (internal/identity)", []string{"RZ-CFG-036"}},
 	}

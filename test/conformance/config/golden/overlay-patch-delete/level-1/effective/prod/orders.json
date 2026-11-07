@@ -1,0 +1,12 @@
+[
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "headers-security",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-security",
+    "from": "Gateway",
+    "reason": "own slot"
+  }
+]

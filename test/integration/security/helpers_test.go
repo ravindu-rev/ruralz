@@ -286,12 +286,14 @@ func waitDegraded(t *testing.T, n *topology.Node, reason string, on bool) {
 	})
 }
 
-// waitCounter waits until counter name with the labels reaches want,
-// moving the clock past the metrics reuse window before each scrape.
-func waitCounter(t *testing.T, top *topology.Topology, n *topology.Node, want float64, name string, labels ...string) {
+// waitRotationFailures waits until the Node has counted want refused file
+// secret rotations (ruralz_config_secret_rotation_failures_total with
+// provider file), moving the clock past the metrics reuse window before
+// each scrape.
+func waitRotationFailures(t *testing.T, top *topology.Topology, n *topology.Node, want float64) {
 	t.Helper()
-	waitFor(t, fmt.Sprintf("%s%v at %v", name, labels, want), func() (bool, string) {
-		got := freshCounter(t, top, n, name, labels...)
+	waitFor(t, fmt.Sprintf("file secret rotation failures at %v", want), func() (bool, string) {
+		got := freshCounter(t, top, n, "ruralz_config_secret_rotation_failures_total", "provider", "file")
 		return got == want, fmt.Sprintf("%v", got)
 	})
 }

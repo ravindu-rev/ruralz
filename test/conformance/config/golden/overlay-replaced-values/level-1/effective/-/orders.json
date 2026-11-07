@@ -1,0 +1,12 @@
+[
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "limit",
+    "type": "ratelimit",
+    "filterClass": "admission",
+    "slot": "limit",
+    "from": "Route",
+    "reason": "own slot"
+  }
+]

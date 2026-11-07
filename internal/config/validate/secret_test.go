@@ -41,6 +41,7 @@ func TestEverySecretFieldClassified(t *testing.T) {
 		"Policy|auth.mtls|spec.config.caCertificate":               {kind: secret.KindPEMCertPool},
 		"Policy|auth.mtls|spec.config.crl":                         {kind: secret.KindPEMCRL},
 		"Policy|auth.upstream-oauth2|spec.config.clientSecret":     {kind: secret.KindOpaque, dest: destTokenURL},
+		"Policy|auth.jwt-sign|spec.config.signingKey":              {kind: secret.KindOpaque},
 		"Consumer||spec.credentials.apiKeys[].secretRef":           {kind: secret.KindAPIKey},
 		"AIProvider||spec.credentials.apiKey":                      {kind: secret.KindOpaque},
 	}

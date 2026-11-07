@@ -80,7 +80,7 @@ func build(files *tree.FileTable, rs []*tree.Resource) (*hub.Validated, error) {
 	if ds.HasErrors() {
 		return nil, fmt.Errorf("stage I: %s", texts(ds))
 	}
-	rev, err := canonical.NewEncoder(s.idx).Encode(ctx, bundle, canonical.Options{})
+	rev, err := canonical.NewEncoder(s.idx).Encode(ctx, bundle, canonical.Options{Level: s.idx.Level()})
 	if err != nil {
 		return nil, err
 	}
@@ -422,7 +422,7 @@ func checkEffectiveMirror(t *testing.T, ab, ba *Diff) {
 // encodeOne returns the canonical document of one resource.
 func encodeOne(t *testing.T, idx *schemaidx.Index, id hub.ID, root *tree.Node) []byte {
 	t.Helper()
-	rev, err := canonical.NewEncoder(idx).EncodeResources(context.Background(), []tree.Resource{{ID: id, Root: root}}, canonical.Options{})
+	rev, err := canonical.NewEncoder(idx).EncodeResources(context.Background(), []tree.Resource{{ID: id, Root: root}}, canonical.Options{Level: idx.Level()})
 	if err != nil {
 		t.Fatalf("encode %s: %v", id, err)
 	}
@@ -583,7 +583,7 @@ func checkReordering(t *testing.T, r *rand.Rand, a, b *hub.Validated) {
 		rs = append(rs, &cp)
 	}
 	bundle := hub.NewBundle(rs)
-	rev, err := canonical.NewEncoder(idx).Encode(context.Background(), bundle, canonical.Options{})
+	rev, err := canonical.NewEncoder(idx).Encode(context.Background(), bundle, canonical.Options{Level: idx.Level()})
 	if err != nil {
 		t.Fatal(err)
 	}

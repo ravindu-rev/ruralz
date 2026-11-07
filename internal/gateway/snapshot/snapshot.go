@@ -252,7 +252,8 @@ type Chain struct {
 	// Phases and no When, whose Filter the executor only calls Invalidate
 	// on.
 	Policies []*Policy
-	// AuthPolicies counts auth-class Policies (Security rule 1).
+	// AuthPolicies counts the client authentication Policies
+	// (Policy.Authenticates), Security rule 1's.
 	AuthPolicies int
 }
 
@@ -284,6 +285,23 @@ type Policy struct {
 	// SpanName is "ruralz.filter.<name>".
 	SpanName string
 	Metrics  *emit.PolicyMetrics
+}
+
+// Authenticates reports whether p authenticates the client, the Policies
+// Security rule 1 counts (docs/architecture/08-security-and-identity.md
+// "Authentication"): an auth-class Policy that runs in a client request
+// Phase, onRequestHeaders, onRequestBody or onRoute. An auth-class Policy
+// of response Phases only, auth.jwt-sign, authenticates nobody.
+func (p *Policy) Authenticates() bool {
+	if p == nil || p.Class != phase.ClassAuth {
+		return false
+	}
+	for _, ph := range p.Phases.Phases() {
+		if ph.ClientLeg() && ph.CanShortCircuit() {
+			return true
+		}
+	}
+	return false
 }
 
 // Forwarder sends a request to its Upstream legs: the Upstream layer

@@ -45,7 +45,10 @@ type secretClass struct {
 // Every x-ruralz-secret field of the hub schema has a row;
 // TestEverySecretFieldClassified fails when one is added without. An
 // AIProvider credentials.apiKey is local here: its baseUrl destination is
-// Planned (M3), with the kind, which no M1 Node serves (RZ-CFG-040).
+// Planned (M3), with the kind, which no M1 Node serves (RZ-CFG-040). An
+// auth.jwt-sign signingKey is local, as every signing key is, and opaque
+// to the resolver: the Filter parses it as a JWK or a PEM key fitting its
+// Policy's algorithm, at Build and on every rotation.
 func classify(key string) (secretClass, bool) {
 	switch key {
 	case "Gateway||spec.listeners[].tls.certificates[].certificate",
@@ -72,6 +75,8 @@ func classify(key string) (secretClass, bool) {
 		return secretClass{kind: secret.KindStateStoreURL, dest: destStateStore}, true
 	case "Policy|auth.upstream-oauth2|spec.config.clientSecret":
 		return secretClass{kind: secret.KindOpaque, dest: destTokenURL}, true
+	case "Policy|auth.jwt-sign|spec.config.signingKey":
+		return secretClass{kind: secret.KindOpaque, dest: destLocal}, true
 	case "Consumer||spec.credentials.apiKeys[].secretRef":
 		return secretClass{kind: secret.KindAPIKey, dest: destLocal}, true
 	case "AIProvider||spec.credentials.apiKey":

@@ -3,7 +3,9 @@
 
 // Package dotpath parses the dot paths of the transform Policies and edits
 // JSON bodies by them (docs/architecture/03-data-plane.md "Transform
-// Policies").
+// Policies"); auth.jwt-sign reads the same paths to sign the objects they
+// match and to write a token (docs/architecture/08-security-and-identity.md
+// "JWT signing").
 //
 // # Paths
 //
@@ -36,13 +38,17 @@
 //     way.
 //   - Append adds values to the end of an array, creating it when missing.
 //   - Replace rewrites the strings a path matches.
+//   - RewriteObjects replaces each object a path matches with the value a
+//     Rewriter writes for it, as auth.jwt-sign replaces claims objects
+//     with their tokens.
 //
 // Over a missing path, and over a missing or empty array for "*", an
 // operation acts on nothing. A path through a scalar, "*" on an object,
 // and, for a write, a member name on an array or an index past an array's
-// end are *PathError values, as are a Replace match that is not a string
-// and an Append target that is not an array. An operation whose output
-// passes Editor.Limit stops with ErrOutputCap.
+// end are *PathError values, as are a Replace match that is not a string,
+// a RewriteObjects match that is not an object and an Append target that
+// is not an array. An operation whose output passes Editor.Limit stops
+// with ErrOutputCap.
 //
 // # Cost
 //

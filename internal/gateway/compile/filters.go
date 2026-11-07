@@ -205,13 +205,19 @@ func (b *build) buildOne(ctx context.Context, a *attachment) {
 		}
 		a.when = prg
 	}
-	if a.pol.Spec.Type == v1alpha1.PolicyTypeTransformResponse && scope != phase.ScopeUpstream {
+	switch {
+	case a.pol.Spec.Type == v1alpha1.PolicyTypeTransformResponse && scope != phase.ScopeUpstream:
 		needs, err := b.c.reg.TransformBody(registry.Attachment{Policy: a.pol, Config: a.res.Config, Scope: scope}, b.c.d.CEL)
 		if err != nil {
 			a.failed = &refusal{res: a.res, path: specPath("config"), err: fmt.Errorf("compile: body need of Policy %q: %w", a.key.policy, err)}
 			return
 		}
 		a.readsResponse = needs || (a.when != nil && a.when.Refs().ResponseBody)
+	case a.pol.Spec.Type == v1alpha1.PolicyTypeAuthJWTSign:
+		// auth.jwt-sign signs into the whole Upstream response body at every
+		// attachment (docs/architecture/02-configuration-model.md "Body
+		// buffering and limits").
+		a.readsResponse = true
 	}
 	fac, ok := b.c.d.Filters.Factory(a.pol.Spec.Type)
 	if !ok {

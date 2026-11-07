@@ -532,7 +532,8 @@ func TestPlatformGates(t *testing.T) {
 
 // TestVersionText checks the text form: aligned lines, the Version option
 // replacing the build version, and the schema levels as
-// <apiVersion>=<level>.
+// <apiVersion>=<level>: level 1, which the fields added since 0.1.0's
+// level 0 carry.
 func TestVersionText(t *testing.T) {
 	r := execute(t, testOptions(), "linux", "version")
 	bi := buildinfo.Get()
@@ -540,7 +541,7 @@ func TestVersionText(t *testing.T) {
 		"commit:       " + bi.Commit + "\n" +
 		"flavor:       " + bi.Flavor + "\n" +
 		"apiVersions:  ruralz/v1alpha1\n" +
-		"schemaLevels: ruralz/v1alpha1=0\n"
+		"schemaLevels: ruralz/v1alpha1=1\n"
 	if r.code != ExitOK || r.stdout != want || r.stderr != "" {
 		t.Fatalf("version = exit %d\n%s\nstderr %q\nwant\n%s", r.code, r.stdout, r.stderr, want)
 	}
@@ -562,8 +563,8 @@ func TestVersionJSON(t *testing.T) {
 		t.Errorf("version = %s, apiVersions = %s", got["version"], got["apiVersions"])
 	}
 	var levels map[string]int
-	if err := json.Unmarshal(got["schemaLevels"], &levels); err != nil || len(levels) != 1 || levels["ruralz/v1alpha1"] != 0 {
-		t.Errorf("schemaLevels = %s, %v; want {\"ruralz/v1alpha1\": 0}", got["schemaLevels"], err)
+	if err := json.Unmarshal(got["schemaLevels"], &levels); err != nil || len(levels) != 1 || levels["ruralz/v1alpha1"] != 1 {
+		t.Errorf("schemaLevels = %s, %v; want {\"ruralz/v1alpha1\": 1}", got["schemaLevels"], err)
 	}
 	for _, absent := range []string{"pluginAbi", "controlStream"} {
 		if _, ok := got[absent]; ok {

@@ -27,15 +27,15 @@ const (
 	// ResponseGenerated is a Filter short-circuit (including an
 	// onUpstreamRequest one that became the response) or a Node-generated
 	// response that is not an Upstream failure, such as 413 RZ-RT-003 or
-	// 504 RZ-RT-007. transform.response, cache and ai.semantic-cache do not
-	// run on it, unless a request Phase's short-circuit is a response the
-	// Response Cache serves (filter.Response.Cached), on which every
-	// onResponse Policy runs.
+	// 504 RZ-RT-007. transform.response, auth.jwt-sign, cache and
+	// ai.semantic-cache do not run on it, unless a request Phase's
+	// short-circuit is a response the Response Cache serves
+	// (filter.Response.Cached), on which every onResponse Policy runs.
 	ResponseGenerated
 	// ResponseUpstreamError is Node-generated after the Upstream leg failed
-	// (an RZ-UP code, the breaker included). transform.response and
-	// ai.semantic-cache do not run on it; cache does, so stale-if-error can
-	// replace it.
+	// (an RZ-UP code, the breaker included). transform.response,
+	// auth.jwt-sign and ai.semantic-cache do not run on it; cache does, so
+	// stale-if-error can replace it.
 	ResponseUpstreamError
 )
 
@@ -179,13 +179,16 @@ func (r *Run) shortCircuit(resp *filter.Response) *filter.Response {
 	return resp
 }
 
-// authRule applies Security rule 1: when the chain holds auth-class
-// Policies and spec.when skipped every one, the request fails with 401
-// RZ-AUTH-001 and every auth Policy's challenge.
+// authRule applies Security rule 1: when the chain holds client
+// authentication Policies (snapshot.Policy.Authenticates) and spec.when
+// skipped every one, the request fails with 401 RZ-AUTH-001 and every
+// such Policy's challenge. An auth-class Policy of response Phases only,
+// auth.jwt-sign, authenticates nobody, so it neither prevents nor joins
+// the 401.
 func (r *Run) authRule() *filter.Response {
 	n := 0
 	for _, p := range r.chain.Policies {
-		if p.Class != phase.ClassAuth {
+		if !p.Authenticates() {
 			continue
 		}
 		if decided, skip := r.rs.When(p); !decided || !skip {
@@ -198,7 +201,7 @@ func (r *Run) authRule() *filter.Response {
 	}
 	var h http.Header
 	for _, p := range r.chain.Policies {
-		if p.Class != phase.ClassAuth {
+		if !p.Authenticates() {
 			continue
 		}
 		if ch, ok := p.Filter.(Challenger); ok {
@@ -281,11 +284,12 @@ func (r *Run) substitute(ctx context.Context, list []*snapshot.Policy) *filter.R
 }
 
 // excluded reports whether a Policy type never runs onResponse on a
-// generated response: transform.response, ai.semantic-cache, and cache
-// unless the response is an Upstream failure (stale-if-error).
+// generated response: transform.response, ai.semantic-cache, auth.jwt-sign,
+// which signs only into the buffered Upstream response, and cache unless
+// the response is an Upstream failure (stale-if-error).
 func excluded(t v1alpha1.PolicyType, upstreamErr bool) bool {
 	switch t {
-	case v1alpha1.PolicyTypeTransformResponse, v1alpha1.PolicyTypeAISemanticCache:
+	case v1alpha1.PolicyTypeTransformResponse, v1alpha1.PolicyTypeAISemanticCache, v1alpha1.PolicyTypeAuthJWTSign:
 		return true
 	case v1alpha1.PolicyTypeCache:
 		return !upstreamErr

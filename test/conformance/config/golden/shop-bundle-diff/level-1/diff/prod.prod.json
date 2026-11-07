@@ -1,0 +1,153 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-91afbfc3f53a",
+    "digest": "sha256:91afbfc3f53a7b879729deb398cbace90a1046f88b302f019be30d9455bc1582"
+  },
+  "to": {
+    "revision": "rev-0d2d8e396759",
+    "bundle": "./shop-bundle",
+    "digest": "sha256:0d2d8e396759301270db025b8ca69a475a9431c927a2eb7203d72658aa7e6eb7"
+  },
+  "environment": "prod",
+  "resources": [
+    {
+      "kind": "Route",
+      "name": "orders-summary",
+      "change": "modified",
+      "source": "routes/orders-summary.yaml",
+      "impact": [
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "timeout"
+          ],
+          "from": "5s",
+          "to": "4s"
+        },
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "policies",
+            {
+              "name": "ratelimit-orders"
+            }
+          ],
+          "to": {
+            "name": "ratelimit-orders"
+          }
+        }
+      ]
+    },
+    {
+      "kind": "Plugin",
+      "name": "geo-block",
+      "change": "modified",
+      "source": "plugins/geo-block.yaml",
+      "impact": [
+        "plugin",
+        "security"
+      ],
+      "flags": [
+        "capabilityGrant"
+      ],
+      "ops": [
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "capabilities",
+            {
+              "item": "response.send"
+            }
+          ],
+          "to": "response.send"
+        }
+      ]
+    },
+    {
+      "kind": "AIModel",
+      "name": "support-chat",
+      "change": "modified",
+      "source": "ai/models.yaml",
+      "impact": [
+        "ai"
+      ],
+      "ops": [
+        {
+          "op": "move",
+          "path": [
+            "spec",
+            "candidates",
+            {
+              "name": "primary"
+            }
+          ],
+          "from": 1,
+          "to": 0
+        },
+        {
+          "op": "move",
+          "path": [
+            "spec",
+            "candidates",
+            {
+              "name": "secondary"
+            }
+          ],
+          "from": 0,
+          "to": 1
+        }
+      ]
+    },
+    {
+      "kind": "Policy",
+      "name": "ratelimit-orders",
+      "change": "added",
+      "source": "policies/common.yaml",
+      "impact": [
+        "security",
+        "traffic"
+      ]
+    },
+    {
+      "kind": "Upstream",
+      "name": "legacy-orders",
+      "change": "removed",
+      "source": "upstreams/services.yaml",
+      "impact": [
+        "routing",
+        "traffic"
+      ]
+    }
+  ],
+  "effective": [
+    {
+      "route": "orders-summary",
+      "phase": "onRequestHeaders",
+      "op": "add",
+      "policy": "ratelimit-orders",
+      "filterClass": "admission",
+      "after": "ratelimit-global"
+    }
+  ],
+  "summary": {
+    "changed": 5,
+    "added": 1,
+    "removed": 1,
+    "modified": 3,
+    "routeChainsChanged": 1,
+    "impact": [
+      "ai",
+      "plugin",
+      "routing",
+      "security",
+      "traffic"
+    ]
+  }
+}

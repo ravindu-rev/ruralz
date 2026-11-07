@@ -187,7 +187,7 @@ func TestKeywords(t *testing.T) {
 		t.Error("auth.jwt config must be open until its feature fields are registered")
 	}
 	// Every Policy type selects a config, and type plugin requires
-	// plugin: one requiredIf rule beside the 23 config dispatches.
+	// plugin: one requiredIf rule beside the 24 config dispatches.
 	n, requiredIf := 0, 0
 	for _, rule := range dig(t, s, "$defs", "PolicySpec", "allOf").([]any) {
 		if _, ok := dig(t, rule, "then").(map[string]any)["properties"]; ok {
@@ -203,8 +203,8 @@ func TestKeywords(t *testing.T) {
 		}
 		requiredIf++
 	}
-	if n != 23 || requiredIf != 1 {
-		t.Errorf("PolicySpec dispatches %d types and has %d requiredIf rules, want 23 and 1", n, requiredIf)
+	if n != 24 || requiredIf != 1 {
+		t.Errorf("PolicySpec dispatches %d types and has %d requiredIf rules, want 24 and 1", n, requiredIf)
 	}
 }
 

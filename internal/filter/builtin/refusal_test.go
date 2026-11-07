@@ -35,14 +35,22 @@ type configCase struct {
 
 // Secret references and endpoints of the cases.
 const (
-	caRef         = `{"secretRef":{"provider":"env","name":"CLIENT_CA"}}`
-	crlRef        = `{"secretRef":{"provider":"env","name":"CLIENT_CRL"}}`
-	oauthRef      = `{"secretRef":{"provider":"env","name":"OAUTH_SECRET"}}`
-	jwksURL       = `https://127.0.0.1:1/jwks` // refused by the egress guard at once: no network
-	oauthEndpoint = `https://idp.example/token`
-	codeCFG5      = "RZ-CFG-005"
-	codeCEL       = "RZ-CFG-014"
-	codeHTTPS     = "RZ-CFG-037"
+	caRef    = `{"secretRef":{"provider":"env","name":"CLIENT_CA"}}`
+	crlRef   = `{"secretRef":{"provider":"env","name":"CLIENT_CRL"}}`
+	oauthRef = `{"secretRef":{"provider":"env","name":"OAUTH_SECRET"}}`
+	// The auth.jwt-sign signing keys, each resolved by the harness to a
+	// private key of its family.
+	jwtSignRSA     = "JWT_SIGN_RSA"
+	jwtSignP256    = "JWT_SIGN_P256"
+	jwtSignEd25519 = "JWT_SIGN_ED25519"
+	signRSARef     = `{"secretRef":{"provider":"env","name":"` + jwtSignRSA + `"}}`
+	signP256Ref    = `{"secretRef":{"provider":"env","name":"` + jwtSignP256 + `"}}`
+	signEdRef      = `{"secretRef":{"provider":"env","name":"` + jwtSignEd25519 + `"}}`
+	jwksURL        = `https://127.0.0.1:1/jwks` // refused by the egress guard at once: no network
+	oauthEndpoint  = `https://idp.example/token`
+	codeCFG5       = "RZ-CFG-005"
+	codeCEL        = "RZ-CFG-014"
+	codeHTTPS      = "RZ-CFG-037"
 )
 
 // validCases are configs validation accepts and every Factory builds.
@@ -80,6 +88,9 @@ func validCases() []configCase {
 		// Appended last, so the fuzz corpus keeps its type indexes.
 		{typ: v1alpha1.PolicyTypeAuthzGeoIP, name: "both lists", config: `{"allow":["DE","FR"],"deny":["KP"]}`},
 		{typ: v1alpha1.PolicyTypeAuthzGeoIP, name: "deny beside an empty allow", config: `{"allow":[],"deny":["KP"]}`},
+		{typ: v1alpha1.PolicyTypeAuthJWTSign, name: "paths", config: `{"paths":["token","items.*.claims"],"algorithm":"ES256","keyId":"edge-1","signingKey":` + signP256Ref + `}`},
+		{typ: v1alpha1.PolicyTypeAuthJWTSign, name: "claims", config: `{"claims":"{\"sub\": consumer.name, \"status\": response.status, \"exp\": auth.claims.exp}","target":"session.token","algorithm":"EdDSA","signingKey":` + signEdRef + `}`},
+		{typ: v1alpha1.PolicyTypeAuthJWTSign, name: "RSA", config: `{"paths":["t"],"algorithm":"PS256","signingKey":` + signRSARef + `}`},
 	}
 }
 
@@ -165,6 +176,15 @@ func refusedCases() []configCase {
 		{v1alpha1.PolicyTypeAuthzGeoIP, "both written empty", `{"allow":[],"deny":[]}`, codeCFG5},
 		{v1alpha1.PolicyTypeAuthzGeoIP, "lower-case code", `{"allow":["de"]}`, codeCFG5},
 		{v1alpha1.PolicyTypeAuthzGeoIP, "three letters", `{"deny":["DEU"]}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "both modes", `{"paths":["t"],"claims":"{\"exp\": 1}","target":"x","algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "neither mode", `{"algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "paths written empty", `{"paths":[],"algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "target beside paths", `{"paths":["t"],"target":"x","algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "claims without target", `{"claims":"{\"exp\": 1}","algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "a path with an empty segment", `{"paths":["a..b"],"algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "a target with a bad escape", `{"claims":"{\"exp\": 1}","target":"a\\b","algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthJWTSign, "claims reading request", `{"claims":"{\"m\": request.method, \"exp\": 1}","target":"t","algorithm":"ES256","signingKey":` + signP256Ref + `}`, codeCEL},
+		{v1alpha1.PolicyTypeAuthJWTSign, "HS256", `{"paths":["t"],"algorithm":"HS256","signingKey":` + signP256Ref + `}`, codeCFG5},
 	}
 }
 

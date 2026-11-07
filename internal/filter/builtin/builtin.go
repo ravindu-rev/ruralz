@@ -39,6 +39,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/basic"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/jwks"
+	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwtsign"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/mtls"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/upstreamoauth2"
 	authzcel "github.com/ravindu-rev/ruralz/internal/filter/authz/cel"
@@ -192,6 +193,7 @@ func New(o Options) (*filter.Registry, error) {
 		v1alpha1.PolicyTypeAuthAPIKey:           apikey.NewFactory(revoker),
 		v1alpha1.PolicyTypeAuthBasic:            basicFactory,
 		v1alpha1.PolicyTypeAuthMTLS:             mtls.NewFactory(revoker),
+		v1alpha1.PolicyTypeAuthJWTSign:          jwtsign.Factory{},
 		v1alpha1.PolicyTypeAuthzCEL:             authzcel.Factory{},
 		v1alpha1.PolicyTypeAuthzIP:              ip.Factory{},
 		v1alpha1.PolicyTypeAuthzGeoIP:           geoip.Factory{Database: geo},

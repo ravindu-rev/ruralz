@@ -243,6 +243,7 @@ func TestImpactClasses(t *testing.T) {
 		"AIProviderSpec.baseUrl":                "ai,security",
 		"AIProviderSpec.credentials":            "ai,security",
 		"APIKey.secretRef":                      "security",
+		"AuthJWTSignConfig.signingKey":          "security",
 		"AuthMTLSConfig.caCertificate":          "security",
 		"AuthMTLSConfig.crl":                    "security",
 		"AuthUpstreamOAuth2Config.clientSecret": "security",
@@ -340,22 +341,32 @@ func TestSecretFieldsCarrySecurity(t *testing.T) {
 	}
 }
 
-// TestSchemaLevelZero checks that the served schema level of
-// ruralz/v1alpha1 is the maximum x-ruralz-since, 0 in M1, so no field
-// carries the keyword (fields added before 0.1.0 are level 0, whose
-// x-ruralz-since docs/architecture/02-configuration-model.md "Schema
-// keywords that drive tooling" omits).
-func TestSchemaLevelZero(t *testing.T) {
+// releasedLevel is the schema level of the newest release, 0.1.0: its
+// fields carry no x-ruralz-since, and every field added since carries the
+// level after it until the next release ships (.claude/rules/config-
+// schema.md).
+const releasedLevel = 0
+
+// TestSchemaLevels checks the schema levels of ruralz/v1alpha1: the fields
+// 0.1.0 shipped are level 0, whose x-ruralz-since
+// docs/architecture/02-configuration-model.md "Schema keywords that drive
+// tooling" omits, and every field added since carries the level after the
+// released one, which the next release ships, so the served level, the
+// maximum x-ruralz-since, is that level; no field is deprecated, the
+// lifecycle table being empty.
+func TestSchemaLevels(t *testing.T) {
 	for _, v := range []view{authoring, rendered} {
 		out, err := generate(realInput(t), v)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(out), "x-ruralz-since") {
-			t.Errorf("%s view carries x-ruralz-since; M1 is schema level 0", v)
+		for field, level := range propertyKeyword(t, decode(t, out), "x-ruralz-since") {
+			if n, ok := level.(float64); !ok || n != releasedLevel+1 {
+				t.Errorf("%s view: %s has x-ruralz-since %v, want %d, the level after the released %d", v, field, level, releasedLevel+1, releasedLevel)
+			}
 		}
 		if strings.Contains(string(out), `"deprecated"`) {
-			t.Errorf("%s view marks a deprecated field; the M1 lifecycle table is empty", v)
+			t.Errorf("%s view marks a deprecated field; the lifecycle table is empty", v)
 		}
 	}
 }

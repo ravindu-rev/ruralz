@@ -1,0 +1,106 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-7c672265c34f",
+    "digest": "sha256:7c672265c34f8d82fb94d523cd43b87dfeb219d3b56fea7de34768312d11d9d4"
+  },
+  "to": {
+    "revision": "rev-d70c81ef1039",
+    "bundle": "./overlay-patch-delete",
+    "digest": "sha256:d70c81ef1039224c98504a26b7b3a79a9237f797b4cb2cd6609c3235d0269ef2"
+  },
+  "environment": "prod",
+  "resources": [
+    {
+      "kind": "Gateway",
+      "name": "edge",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "security",
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "policies",
+            {
+              "name": "cors-default"
+            }
+          ],
+          "from": {
+            "name": "cors-default"
+          }
+        },
+        {
+          "op": "move",
+          "path": [
+            "spec",
+            "policies",
+            {
+              "name": "headers-security"
+            }
+          ],
+          "from": 1,
+          "to": 0
+        }
+      ]
+    },
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing"
+      ],
+      "ops": [
+        {
+          "op": "remove",
+          "path": [
+            "spec",
+            "endpoints",
+            {
+              "address": "orders-b.shop.svc:8080"
+            }
+          ],
+          "from": {
+            "address": "orders-b.shop.svc:8080",
+            "weight": 1
+          }
+        }
+      ]
+    }
+  ],
+  "effective": [
+    {
+      "route": "orders",
+      "phase": "onRequestHeaders",
+      "op": "remove",
+      "policy": "cors-default",
+      "filterClass": "cors"
+    },
+    {
+      "route": "orders",
+      "phase": "onResponse",
+      "op": "remove",
+      "policy": "cors-default",
+      "filterClass": "cors",
+      "after": "headers-security"
+    }
+  ],
+  "summary": {
+    "changed": 2,
+    "added": 0,
+    "removed": 0,
+    "modified": 2,
+    "routeChainsChanged": 1,
+    "impact": [
+      "routing",
+      "security",
+      "traffic"
+    ]
+  }
+}

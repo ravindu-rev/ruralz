@@ -18,7 +18,8 @@ type Reason uint8
 // Policies": a path through a scalar, * on a value that is not an array, a
 // set index past an array's end and a replace path at a value that is not
 // a string are path errors; a write cannot create a member of an array, and
-// an append needs an array).
+// an append needs an array; docs/architecture/08-security-and-identity.md
+// "JWT signing": a signed path needs an object).
 const (
 	// ThroughScalar is a segment applied to a string, number, boolean or
 	// null.
@@ -33,6 +34,8 @@ const (
 	NotString
 	// NotArray is an append path at a value that is not an array.
 	NotArray
+	// NotObject is a RewriteObjects path at a value that is not an object.
+	NotObject
 )
 
 // String describes the reason.
@@ -50,6 +53,8 @@ func (r Reason) String() string {
 		return "value is not a string"
 	case NotArray:
 		return "value is not an array"
+	case NotObject:
+		return "value is not an object"
 	default:
 		return "reason " + strconv.Itoa(int(r))
 	}
@@ -87,6 +92,15 @@ type Replacer interface {
 	// Replace appends the rewritten s to dst and reports whether a match
 	// rewrote anything.
 	Replace(dst, s []byte) ([]byte, bool)
+}
+
+// Rewriter rewrites one object a path matches.
+type Rewriter interface {
+	// Rewrite appends to dst the JSON value, in the transform form, that
+	// replaces obj, one object in the transform form. obj is valid only
+	// during the call. An error stops the operation and is returned as it
+	// is.
+	Rewrite(dst, obj []byte) ([]byte, error)
 }
 
 // passOptions scan a normalized document: Normalize has checked it, so
@@ -217,6 +231,19 @@ func (e *Editor) Replace(dst, doc []byte, p Path, r Replacer) ([]byte, int, erro
 	return w.out, w.n, err
 }
 
+// RewriteObjects appends doc with every object p matches replaced by what
+// rw writes for it, in document order; a match that is not an object is a
+// path error (NotObject), and so are a path through a scalar and "*" on an
+// object, as for Replace. Over a missing path, a member name on an array,
+// an index past an array's end and a missing or empty array for "*", it
+// rewrites nothing. It returns the number of objects rewritten; an error
+// of rw stops the operation and is returned as it is.
+func (e *Editor) RewriteObjects(dst, doc []byte, p Path, rw Rewriter) ([]byte, int, error) {
+	w := walk{e: e, src: doc, out: dst, base: len(dst), p: p, op: opRewrite, emit: true, rw: rw}
+	err := w.run()
+	return w.out, w.n, err
+}
+
 // opKind is what one walk does at the values its path matches.
 type opKind uint8
 
@@ -227,6 +254,7 @@ const (
 	opSet
 	opAppend
 	opReplace
+	opRewrite
 )
 
 // walk is one operation's pass over a document: it writes the document
@@ -243,6 +271,7 @@ type walk struct {
 	emit    bool
 	payload []byte
 	r       Replacer
+	rw      Rewriter
 	capt    []byte
 	n       int
 }
@@ -420,6 +449,20 @@ func (w *walk) target(t jsonval.Token, d int) error {
 		}
 		w.capture(w.src[t.Offset:end])
 		return nil
+	case opRewrite:
+		if t.Kind != jsonval.KindObjectStart {
+			return &PathError{Reason: NotObject, Segment: d - 1}
+		}
+		end, err := w.skip(t)
+		if err != nil {
+			return err
+		}
+		// The container has written the member name or the separator.
+		if w.out, err = w.rw.Rewrite(w.out, w.src[t.Offset:end]); err != nil {
+			return err
+		}
+		w.n++
+		return w.check()
 	case opAppend:
 		if t.Kind != jsonval.KindArrayStart {
 			return &PathError{Reason: NotArray, Segment: d - 1}

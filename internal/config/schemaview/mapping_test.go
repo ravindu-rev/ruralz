@@ -106,7 +106,7 @@ func TestErrorMapping(t *testing.T) {
 		// enum: nearest value.
 		{
 			"enum hint", policy("rateLimit", `{}`),
-			[]finding{{CodeSchema, "spec.type", "is not one of the 23 allowed values", `did you mean "ratelimit"?`}},
+			[]finding{{CodeSchema, "spec.type", "is not one of the 24 allowed values", `did you mean "ratelimit"?`}},
 		},
 		{
 			"short enum listed", envelope("Upstream", `{"protocol": "htp", "endpoints": [{"address": "a:1"}]}`),
