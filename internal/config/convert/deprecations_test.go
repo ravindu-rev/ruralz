@@ -140,8 +140,7 @@ func deprecationAlloc(t *testing.T, r *Registry, idx *schemaidx.Index, res *tree
 // TestDeprecationsScale is the scale case of a deprecated field in a list
 // of thousands of keyed entries: one warning per entry at its key-aware
 // path, and four times the entries allocate about four times the bytes
-// (counted, not timed, so the result does not depend on the machine;
-// BenchmarkDeprecations times it).
+// (counted, not timed, so the result does not depend on the machine).
 func TestDeprecationsScale(t *testing.T) {
 	idx := hubIndex(t)
 	r, err := NewRegistry(Lifecycle{Fields: map[string]map[string]Notice{HubAPIVersion: {"spec.endpoints[].weight": {Removal: "0.8.0"}}}}, V1alpha1())
@@ -165,28 +164,6 @@ func TestDeprecationsScale(t *testing.T) {
 	t.Logf("%d entries allocated %d bytes, %d entries %d: ratio %.2f", small, a, large, b, ratio)
 	if large != 4*n || ratio < 2 || ratio > 8 {
 		t.Errorf("%d entries allocated %d bytes, %d entries %d: ratio %.2f, want about 4", small, a, large, b, ratio)
-	}
-}
-
-// BenchmarkDeprecations times Deprecations with a deprecated field in a
-// keyed list of 1,000 and 8,000 entries; the two ns/op should differ by
-// about eight times.
-func BenchmarkDeprecations(b *testing.B) {
-	idx := hubIndex(b)
-	r, err := NewRegistry(Lifecycle{Fields: map[string]map[string]Notice{HubAPIVersion: {"spec.endpoints[].weight": {Removal: "0.8.0"}}}}, V1alpha1())
-	if err != nil {
-		b.Fatal(err)
-	}
-	for _, n := range []int{1000, 8000} {
-		b.Run(strconv.Itoa(n), func(b *testing.B) {
-			res := manyEndpoints(n)
-			b.ReportAllocs()
-			for b.Loop() {
-				if ds := r.Deprecations(idx, res, nil); len(ds) != n {
-					b.Fatalf("%d warnings", len(ds))
-				}
-			}
-		})
 	}
 }
 

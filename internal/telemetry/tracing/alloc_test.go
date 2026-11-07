@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
@@ -87,95 +86,4 @@ func TestSampledWithoutExporterAllocatesNothing(t *testing.T) {
 	if a != 0 {
 		t.Errorf("allocs = %v, want 0", a)
 	}
-}
-
-func BenchmarkDecide(b *testing.B) {
-	tr := newTracer(b, Options{})
-	for _, bc := range []struct {
-		name string
-		h    http.Header
-	}{
-		{"root", http.Header{}},
-		{"parent", header(HeaderTraceparent, tpUnsampled, HeaderTracestate, "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE")},
-	} {
-		b.Run(bc.name, func(b *testing.B) {
-			b.ReportAllocs()
-			var d emit.Decision
-			for b.Loop() {
-				tr.Decide(bc.h, DefaultTraceSampling, &d)
-			}
-		})
-	}
-}
-
-// BenchmarkUnsampledTrace measures an unsampled request (Decide, 8 no-op
-// spans, Inject): at most 2 allocations and 1 µs.
-func BenchmarkUnsampledTrace(b *testing.B) {
-	tr := newTracer(b, Options{})
-	tr.SetExporter(discardExporter{})
-	n := newOrdersNames()
-	ctx := context.Background()
-	h := http.Header{}
-	out := http.Header{}
-	var d emit.Decision
-	b.ReportAllocs()
-	for b.Loop() {
-		lctx, _ := unsampledRequest(ctx, tr, h, &d, &n)
-		tr.Inject(lctx, &d, out)
-	}
-}
-
-// BenchmarkSampledTrace15Spans measures the 15 spans of the
-// orders-summary trace (target at most 90 allocations, 30 µs; export
-// excluded). The SDK required allocates at least 4 times per span (the
-// recording span, its context, its attribute slice and its snapshot), so
-// 15 spans cost 60 before this package adds its span wrappers and the
-// server span's share. The target is therefore 6 allocations per span, the
-// SDK's 4 plus at most 2 by Ruralz; the 30 µs target holds on the
-// reference hardware and is not a per-pull-request gate.
-func BenchmarkSampledTrace15Spans(b *testing.B) {
-	tr := newTracer(b, Options{QueueSize: 1 << 16, BatchSize: 4096, BatchInterval: time.Millisecond})
-	tr.SetExporter(discardExporter{})
-	n := newOrdersNames()
-	ctx := context.Background()
-	h := header(HeaderTraceparent, tpSampled)
-	var d emit.Decision
-	b.ReportAllocs()
-	for b.Loop() {
-		tr.Decide(h, 1, &d)
-		d.Sampled = true // bypass the parent cap: the benchmark measures spans
-		ordersSummary(ctx, tr, &d, &n)
-	}
-}
-
-func BenchmarkParseTraceparent(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, _, _, ok := ParseTraceparent(tpSampled); !ok {
-			b.Fatal("invalid")
-		}
-	}
-}
-
-func BenchmarkValidTracestate(b *testing.B) {
-	v := "rojo=00f067aa0ba902b7,congo=t61rcWkgMzE,vendor@tenant=abc def"
-	b.ReportAllocs()
-	for b.Loop() {
-		if !ValidTracestate(v) {
-			b.Fatal("invalid")
-		}
-	}
-}
-
-// BenchmarkLimiter measures the cap under contention; run it with
-// -cpu 4,32.
-func BenchmarkLimiter(b *testing.B) {
-	l := NewLimiter(DefaultRootPerSecond, DefaultRootPerSecond)
-	start := time.Now()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			l.Allow(time.Since(start))
-		}
-	})
 }

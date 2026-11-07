@@ -398,8 +398,8 @@ func TestStripConnectionOptionsDoesNotAllocate(t *testing.T) {
 	}
 }
 
-// adversarialHeader is the header of the linear-cost case: n fields that
-// no Connection option of the long-Connection test and benchmark names.
+// adversarialHeader is the header of the long-Connection case: n fields
+// that no Connection option of the case names.
 func adversarialHeader(n int) http.Header {
 	h := make(http.Header, n+1)
 	for i := range n {
@@ -408,13 +408,25 @@ func adversarialHeader(n int) http.Header {
 	return h
 }
 
+// distinctOptions returns a Connection value of about size bytes made of
+// two-letter options that rarely repeat one another.
+func distinctOptions(size int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz"
+	var b strings.Builder
+	for i := 0; b.Len() < size; i++ {
+		b.WriteByte(letters[i%26])
+		b.WriteByte(letters[i/26%26])
+		b.WriteByte(',')
+	}
+	return b.String()
+}
+
 // TestStripHopByHopLongConnectionDoesNotAllocate checks that a long
 // Connection value against 250 fields costs no allocation per option. In
 // the alternating case field C shares the options' length, but the
 // one-byte seen set lets only the first "a" and "b" reach a lookup. In the
 // distinct case field A1 shares the two-letter options' length and none of
-// them names it, so every option is canonicalized and looked up. The time
-// bound is BenchmarkStripHopByHopLongConnection.
+// them names it, so every option is canonicalized and looked up.
 func TestStripHopByHopLongConnectionDoesNotAllocate(t *testing.T) {
 	for _, tc := range []struct {
 		name string

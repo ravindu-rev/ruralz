@@ -14,9 +14,6 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// The ratelimit stage targets: local token bucket shard, then GCRA on the
-// memory driver, 2 µs at p50 and 8 µs at p99 with 0 allocations.
-
 // admitLoop is one admitted request as the executor's batch runs it, over
 // a reused exchange: Prepare, one Consume on the memory driver, Complete
 // and Finish.
@@ -30,11 +27,11 @@ type admitLoop struct {
 }
 
 // newAdmitLoop returns a loop over a 1,000,000 per second limit keyed by
-// x-key, the S2 ratelimit-bench shape, which never denies.
+// x-key, which never denies.
 func newAdmitLoop(tb testing.TB) *admitLoop {
 	tb.Helper()
 	fx := newFixture(tb, nil)
-	f, _ := fx.build(tb, "ratelimit-bench", keyed(limit(1_000_000, time.Second)))
+	f, _ := fx.build(tb, "ratelimit-keyed", keyed(limit(1_000_000, time.Second)))
 	l := &admitLoop{fx: fx, f: f, x: &filtertest.Exchange{VarsV: vars("client-1", "")}}
 	l.calls[0] = &l.call
 	return l
@@ -57,10 +54,10 @@ func (l *admitLoop) run(ctx context.Context, tb testing.TB) {
 	l.f.Finish(ctx, l.x)
 }
 
-// TestAdmitAddsNoAllocations checks the stage budget: an admitted
-// request, its bucket, its GCRA call on the memory driver and its
-// RateLimit field allocate nothing beyond the key's own evaluation once
-// warm (cel-go boxes the header value it reads).
+// TestAdmitAddsNoAllocations checks that an admitted request, its bucket,
+// its GCRA call on the memory driver and its RateLimit field allocate
+// nothing beyond the key's own evaluation once warm (cel-go boxes the
+// header value it reads).
 func TestAdmitAddsNoAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are not compared under -race")
@@ -119,49 +116,5 @@ func TestLocalDenyAllocatesOnlyTheResponse(t *testing.T) {
 	key := testing.AllocsPerRun(200, func() { _, _ = f.key.EvalString(x.Vars()) })
 	if n := testing.AllocsPerRun(200, deny); n-key > 5 {
 		t.Errorf("a local denial allocates %v per run beyond its key's %v, want its response only (at most 5)", n-key, key)
-	}
-}
-
-// BenchmarkAdmit measures an admitted request on the memory driver.
-func BenchmarkAdmit(b *testing.B) {
-	l := newAdmitLoop(b)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		l.run(ctx, b)
-	}
-}
-
-// BenchmarkAdmitKeyless measures the stage budget's memory path alone: an
-// admitted request on a service limit, whose local bucket and GCRA call on
-// the memory driver allocate nothing, without a key expression's cost.
-func BenchmarkAdmitKeyless(b *testing.B) {
-	l := newAdmitLoop(b)
-	f, _ := l.fx.build(b, "svc", &v1alpha1.RateLimitConfig{Limits: []v1alpha1.RateLimit{limit(1_000_000, time.Second)}})
-	l.f = f
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		l.run(ctx, b)
-	}
-}
-
-// BenchmarkLocalOnly measures an admission on local buckets alone, at the
-// highest limit the configuration check accepts (an interval of 1µs).
-func BenchmarkLocalOnly(b *testing.B) {
-	fx := newFixture(b, nil)
-	cfg := keyed(limit(1_000_000, time.Second))
-	cfg.LocalOnly = ptr(true)
-	f, _ := fx.build(b, "rl", cfg)
-	x := &filtertest.Exchange{VarsV: vars("client-1", "")}
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		x.RateLimits = x.RateLimits[:0]
-		var call statestore.Call
-		if r, done := f.Prepare(ctx, x, &call); !done || r.Outcome != filter.Continue {
-			b.Fatalf("Prepare = %+v, %v", r, done)
-		}
-		f.Finish(ctx, x)
 	}
 }

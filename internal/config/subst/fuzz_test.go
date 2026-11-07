@@ -380,30 +380,6 @@ func FuzzSubst(f *testing.F) {
 	})
 }
 
-// BenchmarkApply substitutes a Gateway-sized resource with expressions,
-// escapes and plain strings (stage E's share of the load budget).
-func BenchmarkApply(b *testing.B) {
-	var ls []string
-	for i := range 50 {
-		n := strconv.Itoa(i)
-		ls = append(ls, `{"name":"l`+n+`","protocol":"http","port":"${PORT:-80`+n+`}","hostnames":["a`+n+`.example","$${x}"]}`)
-	}
-	src := `{"apiVersion":"ruralz/v1alpha1","kind":"Gateway","metadata":{"name":"g","labels":{"env":"${ENV}"}},"spec":{"listeners":[` +
-		strings.Join(ls, ",") + `],"telemetry":{"traceSampling":"${RATE}"}}}`
-	files := &tree.FileTable{}
-	rs := docs(b, files, "ruralz.yaml", src)
-	s := New(Options{Schemas: schemas(b), Files: files, Variables: Map{"ENV": "prod", "RATE": "0.25"}})
-	b.ReportAllocs()
-	for range b.N {
-		b.StopTimer()
-		r := &tree.Resource{ID: rs[0].ID, APIVersion: v1, Root: rs[0].Root.Clone()}
-		b.StartTimer()
-		if ds := s.Apply(r); len(ds) != 0 {
-			b.Fatal(texts(ds))
-		}
-	}
-}
-
 // referenceScan is the segment reading as the first implementation
 // computed it: a byte loop that searches each default's } to the end of
 // the string. It is quadratic on malformed input, and it is the reference

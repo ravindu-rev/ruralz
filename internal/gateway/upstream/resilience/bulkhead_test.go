@@ -269,18 +269,3 @@ func TestEndpointCap(t *testing.T) {
 		}
 	}
 }
-
-// BenchmarkBulkhead measures an uncontended slot acquire and release.
-func BenchmarkBulkhead(b *testing.B) {
-	var bh Bulkhead
-	cfg := DefaultBulkheadConfig()
-	ctx := context.Background()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			if bh.Acquire(ctx, &cfg) == nil {
-				bh.Release()
-			}
-		}
-	})
-}

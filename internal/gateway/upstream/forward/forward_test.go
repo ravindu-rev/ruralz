@@ -319,9 +319,9 @@ func TestForwardConcurrent(t *testing.T) {
 	}
 }
 
-// TestForwardAllocations is the onRoute allocation gate (0 for the leg
-// selection): the pick and the pick again after refusals allocate nothing
-// beyond what the legs return.
+// TestForwardAllocations checks the onRoute leg selection: the pick and
+// the pick again after refusals allocate nothing beyond what the legs
+// return.
 func TestForwardAllocations(t *testing.T) {
 	if testing.CoverMode() != "" {
 		t.Skip("coverage instrumentation changes allocation counts")

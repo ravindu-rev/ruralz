@@ -417,20 +417,3 @@ func TestSearchWindow(t *testing.T) {
 		}
 	}
 }
-
-// BenchmarkScaleShapes substitutes each scaleShapes input at 10,000 items.
-func BenchmarkScaleShapes(b *testing.B) {
-	for _, sh := range scaleShapes() {
-		b.Run(sh.name, func(b *testing.B) {
-			s := New(sh.options(b, 10_000, nil))
-			r := docs(b, &tree.FileTable{}, "r.yaml", sh.build(10_000))[0]
-			b.ReportAllocs()
-			for range b.N {
-				b.StopTimer()
-				c := &tree.Resource{ID: r.ID, APIVersion: r.APIVersion, Root: r.Root.Clone()}
-				b.StartTimer()
-				_ = s.Apply(c)
-			}
-		})
-	}
-}

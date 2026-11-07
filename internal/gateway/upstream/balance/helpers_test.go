@@ -33,15 +33,6 @@ func (v *view) Load(i int) int64 {
 	return 0
 }
 
-// staticView is a View without call counting, for benchmarks.
-type staticView struct {
-	grades []Grade
-	loads  []int64
-}
-
-func (v *staticView) Grade(i int) Grade { return v.grades[i] }
-func (v *staticView) Load(i int) int64  { return v.loads[i] }
-
 // eps returns n normalized Endpoints ep-00000 ... with weight w(i).
 func eps(n int, w func(i int) uint32) []Endpoint {
 	out := make([]Endpoint, n)

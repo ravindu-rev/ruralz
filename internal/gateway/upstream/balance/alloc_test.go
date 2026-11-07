@@ -7,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestPickAllocations is the allocation gate: the onRoute pick, the pick
-// again after a refused leg (with its tried set on the stack) and every
-// Endpoint selection allocate nothing, including under exclusions, a stale
+// TestPickAllocations checks that the onRoute pick, the pick again after a
+// refused leg (with its tried set on the stack) and every Endpoint
+// selection allocate nothing, including under exclusions, a stale
 // structure and the keyless ring-hash pick; HashKey allocates nothing
 // either.
 func TestPickAllocations(t *testing.T) {

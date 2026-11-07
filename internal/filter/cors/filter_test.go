@@ -517,9 +517,9 @@ func TestResponseWithoutMessageCannotDecide(t *testing.T) {
 	}
 }
 
-// TestActualRequestAllocatesNothing checks the per-stage budget of cors:
-// an allowed actual request allocates nothing in onRequestHeaders, and
-// neither does its response side on a response without Vary.
+// TestActualRequestAllocatesNothing checks that an allowed actual request
+// allocates nothing in onRequestHeaders, and neither does its response
+// side on a response without Vary.
 func TestActualRequestAllocatesNothing(t *testing.T) {
 	yes := true
 	f := buildWith(t, &v1alpha1.CORSConfig{
@@ -544,22 +544,5 @@ func TestActualRequestAllocatesNothing(t *testing.T) {
 	plain := request(http.MethodGet, nil)
 	if n := testing.AllocsPerRun(100, func() { f.Handle(ctx, phase.OnRequestHeaders, plain) }); n != 0 {
 		t.Errorf("onRequestHeaders without Origin allocates %v times per run, want 0", n)
-	}
-}
-
-// BenchmarkActualRequest measures both sides of an allowed actual request
-// (budget: 2 µs at p50, 0 allocations in onRequestHeaders).
-func BenchmarkActualRequest(b *testing.B) {
-	f := buildWith(b, &v1alpha1.CORSConfig{AllowOrigins: []string{shop, other}, AllowMethods: []string{"GET", "POST"}})
-	x := request(http.MethodGet, http.Header{fieldOrigin: {shop}})
-	msg := &filtertest.Message{Hdr: http.Header{}}
-	x.Msg = msg
-	ctx := b.Context()
-	b.ReportAllocs()
-	for b.Loop() {
-		x.State = nil
-		f.Handle(ctx, phase.OnRequestHeaders, x)
-		delete(msg.Hdr, fieldVary)
-		f.Handle(ctx, phase.OnResponse, x)
 	}
 }

@@ -639,16 +639,3 @@ func TestNewDefaults(t *testing.T) {
 		}
 	}
 }
-
-func BenchmarkBreakerClosed(b *testing.B) {
-	br := New(clocktest.New(start()), DefaultConfig(), nil)
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		var tk Ticket
-		for pb.Next() {
-			if br.Allow(&tk) {
-				br.Done(&tk, true)
-			}
-		}
-	})
-}

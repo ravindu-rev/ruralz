@@ -12,9 +12,8 @@ import (
 	"time"
 )
 
-// Delay distributions (programmable delay distribution; PBB S5x "500 µs ±
-// 100 µs normal"; the same 5% over 10,000 samples bar as the fault proxy
-// tests).
+// Delay distributions (programmable delay distribution; the same 5% over
+// 10,000 samples bar as the fault proxy tests).
 
 func TestDistributionStatistics(t *testing.T) {
 	const n = 10_000

@@ -139,7 +139,7 @@ func TestStatesBudget(t *testing.T) {
 }
 
 // stateSchemas are the schemas whose states TestStatesDeclaredNames
-// checks: the corpus and the schemas of the other tests and benchmarks.
+// checks: the corpus and the schemas of the other tests.
 func stateSchemas(t testing.TB) []string {
 	t.Helper()
 	var out []string
@@ -148,15 +148,15 @@ func stateSchemas(t testing.TB) []string {
 	}
 	return append(out, unionSchema(12), richText, componentTree, recordsSchema, lineSchema, mixins, taggedUnion,
 		operators(7), costlyMembers(40), costlyBelow(60), allOfRefs(20, `{"minLength":0}`), unevaluatedChain(20, "unevaluatedProperties"),
-		analysisWorstCase(200, 50, true), schema256KiB(), orderSchema(t),
+		analysisWorstCase(), schema256KiB(), orderSchema(t),
 		`{"allOf":[{"properties":{"ab":true}},{"patternProperties":{"^a":{"items":true}},"additionalProperties":false}]}`,
 		`{"prefixItems":[true,{"prefixItems":[true]}],"allOf":[{"prefixItems":[true,true,true]}],"unevaluatedItems":false}`)
 }
 
 // TestStatesDeclaredNames checks the invariant of link over the corpus
-// and the test and benchmark schemas, with the whole budget and with
-// parts of it: a declared member name or prefix index never falls to the
-// transition of the names or items no schema declares.
+// and the test schemas, with the whole budget and with parts of it: a
+// declared member name or prefix index never falls to the transition of
+// the names or items no schema declares.
 func TestStatesDeclaredNames(t *testing.T) {
 	for i, schema := range stateSchemas(t) {
 		g, order, _, ok := stateGraph(t, schema)
@@ -264,8 +264,7 @@ func repeatPatterns(n, rep int) string {
 // name's length times what each pattern costs per byte, against one
 // matchBudget per document; past it every pattern is assumed to match,
 // which charges more at runtime, never less. Deterministic: the test
-// checks what the budget decided, BenchmarkCompileAnalysisWorstCase the
-// time.
+// checks what the budget decided, never the time.
 func TestCompileMatchBudget(t *testing.T) {
 	// The schema's own patterns: all of them assumed to match.
 	g, _, _, ok := stateGraph(t, `{"properties":{`+longNames(128, 600)+`},"patternProperties":{`+repeatPatterns(128, 300)+`}}`)
@@ -555,4 +554,32 @@ func TestStatesReach(t *testing.T) {
 			}
 		})
 	}
+}
+
+// analysisWorstCase returns the shape that makes the evaluation analysis
+// do the most work: 200 properties that refer to the root, 50 patterns
+// (past maxPatternMatches pairs every pattern counts at every member), a
+// linear-growth chain that keeps all 64 levels running, and recursive
+// mixins, with which the coarse pass crosses the bound and the precise
+// pass decides, building a class per member name at every level.
+func analysisWorstCase() string {
+	var b strings.Builder
+	b.WriteString(`{"properties":{`)
+	for i := range 200 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"p%d":{"$ref":"#"}`, i)
+	}
+	b.WriteString(`},"patternProperties":{`)
+	for i := range 50 {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		fmt.Fprintf(&b, `"^q%d$":true`, i)
+	}
+	b.WriteString(`},"items":{"$ref":"#"},"contains":{"$ref":"#/$defs/s"},"$defs":{"s":{"items":{"$ref":"#/$defs/s"}}` +
+		`,"base":{"properties":{"owner":{"$ref":"#/$defs/person"}}},"person":{"properties":{"pets":{"items":{"$ref":"#"}}}}},` +
+		`"allOf":[{"$ref":"#/$defs/base"},{"properties":{"friends":{"items":{"$ref":"#"}}}}]}`)
+	return b.String()
 }

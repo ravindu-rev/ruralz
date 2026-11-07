@@ -226,23 +226,3 @@ func TestEndReasons(t *testing.T) {
 		t.Fatal("end reasons are not distinct or EndNone is not zero")
 	}
 }
-
-// BenchmarkPinsAddRemove measures one pin and unpin per request across
-// parallel connections, each on its own stripe.
-func BenchmarkPinsAddRemove(b *testing.B) {
-	p := NewPins(8)
-	var next sync.Mutex
-	stripe := 0
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		next.Lock()
-		s := stripe
-		stripe++
-		next.Unlock()
-		r := &PinnedRequest{}
-		for pb.Next() {
-			p.Add(s, r)
-			p.Remove(s, r)
-		}
-	})
-}

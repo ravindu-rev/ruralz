@@ -36,11 +36,11 @@ type fixture struct {
 	in []byte
 }
 
-// newFixture returns the call of cfg's Filter at scope in Phase p over the
-// order in, with request.body or response.body decoded once.
-func newFixture(tb testing.TB, cfg any, scope phase.Scope, p phase.Phase, in string) *fixture {
+// newFixture returns the call of cfg's Filter at Route scope in Phase p
+// over the order in, with request.body or response.body decoded once.
+func newFixture(tb testing.TB, cfg any, p phase.Phase, in string) *fixture {
 	tb.Helper()
-	fx := &fixture{f: build(tb, cfg, scope), p: p, in: []byte(in)}
+	fx := &fixture{f: build(tb, cfg, phase.ScopeRoute), p: p, in: []byte(in)}
 	h := jsonHeader()
 	h.Set("X-Drop", "1")
 	fx.m = &keptMessage{Message: filtertest.Message{Hdr: h, Raw: fx.in, Code: http.StatusOK}}
@@ -51,13 +51,7 @@ func newFixture(tb testing.TB, cfg any, scope phase.Scope, p phase.Phase, in str
 	} else {
 		v.Response = &expr.Response{Status: http.StatusOK, Header: h, Body: body}
 	}
-	if scope == phase.ScopeUpstream {
-		v.Upstream = &expr.Upstream{Name: "orders", Endpoint: "10.0.0.7:8080"}
-	}
 	fx.x = &filtertest.Exchange{MethodV: http.MethodGet, Msg: fx.m, VarsV: v}
-	if scope == phase.ScopeUpstream {
-		fx.x.LegV = &filter.Leg{Upstream: "orders", Attempt: 1, Request: &http.Request{Method: http.MethodGet}}
-	}
 	return fx
 }
 
@@ -77,17 +71,17 @@ func literalOps() *v1alpha1.TransformRequestConfig {
 	}
 }
 
-// TestLiteralOperationsAllocations covers the allocation budget of the
-// literal operations over pooled buffers: a call that rewrites the body
-// allocates only the body the message keeps, and one that changes nothing
-// allocates nothing.
+// TestLiteralOperationsAllocations checks the allocations of the literal
+// operations over pooled buffers: a call that rewrites the body allocates
+// only the body the message keeps, and one that changes nothing allocates
+// nothing.
 func TestLiteralOperationsAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("sync.Pool drops items at random under the race detector")
 	}
 	in, _ := ordersBody()
 	ctx := context.Background()
-	rewrite := newFixture(t, literalOps(), phase.ScopeRoute, phase.OnRequestBody, in)
+	rewrite := newFixture(t, literalOps(), phase.OnRequestBody, in)
 	if res := rewrite.call(ctx); res.Outcome != filter.Continue {
 		t.Fatalf("Handle = %+v", res)
 	}
@@ -97,58 +91,14 @@ func TestLiteralOperationsAllocations(t *testing.T) {
 	unchanged := newFixture(t, &v1alpha1.TransformRequestConfig{
 		Remove:  []v1alpha1.TransformRequestRemove{reqRemove("body", "missing"), reqRemove("header", "x-drop")},
 		Replace: []v1alpha1.Replace{literally("customer.email", "zzz", "***"), literally("", "zzz", "y")},
-	}, phase.ScopeRoute, phase.OnRequestBody, in)
+	}, phase.OnRequestBody, in)
 	if n := testing.AllocsPerRun(200, func() { unchanged.call(ctx) }); n != 0 {
 		t.Errorf("a call that changes nothing allocates %v times, want 0", n)
 	}
 	headers := newFixture(t, &v1alpha1.TransformResponseConfig{
 		Remove: []v1alpha1.TransformResponseRemove{respRemove("header", "x-drop")},
-	}, phase.ScopeRoute, phase.OnResponse, in)
+	}, phase.OnResponse, in)
 	if n := testing.AllocsPerRun(200, func() { headers.call(ctx) }); n != 0 {
 		t.Errorf("a header removal allocates %v times, want 0", n)
-	}
-}
-
-// BenchmarkOrdersShape measures the orders-shape example on a 1 KiB order
-// in each Phase a transform runs in, the Transform Policy row of the
-// per-stage latency budget.
-func BenchmarkOrdersShape(b *testing.B) {
-	in, _ := ordersBody()
-	for _, tc := range []struct {
-		side  Side
-		scope phase.Scope
-		p     phase.Phase
-	}{
-		{Request, phase.ScopeRoute, phase.OnRequestBody},
-		{Request, phase.ScopeUpstream, phase.OnUpstreamRequest},
-		{Response, phase.ScopeUpstream, phase.OnUpstreamResponseBody},
-		{Response, phase.ScopeRoute, phase.OnResponse},
-	} {
-		b.Run(tc.p.String(), func(b *testing.B) {
-			fx := newFixture(b, ordersShape(tc.side), tc.scope, tc.p, in)
-			ctx := context.Background()
-			b.ReportAllocs()
-			b.SetBytes(int64(len(in)))
-			for b.Loop() {
-				if res := fx.call(ctx); res.Outcome != filter.Continue {
-					b.Fatalf("Handle = %+v", res)
-				}
-			}
-		})
-	}
-}
-
-// BenchmarkLiteralOperations measures the literal operations on a 1 KiB
-// order in onRequestBody.
-func BenchmarkLiteralOperations(b *testing.B) {
-	in, _ := ordersBody()
-	fx := newFixture(b, literalOps(), phase.ScopeRoute, phase.OnRequestBody, in)
-	ctx := context.Background()
-	b.ReportAllocs()
-	b.SetBytes(int64(len(in)))
-	for b.Loop() {
-		if res := fx.call(ctx); res.Outcome != filter.Continue {
-			b.Fatalf("Handle = %+v", res)
-		}
 	}
 }

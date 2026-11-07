@@ -201,7 +201,7 @@ func TestQuotaModel(t *testing.T) {
 			}
 		default:
 			w := windows[r.IntN(len(windows))]
-			q := quotaCall("q", w, r.Int64N(5), statestore.DigestOf(strconv.Itoa(r.IntN(3))))
+			q := quotaCall(w, r.Int64N(5), statestore.DigestOf(strconv.Itoa(r.IntN(3))))
 			d.Consume(context.Background(), nil, []*statestore.Call{q})
 			want := statestore.Quota{Name: "q", Window: w, Limit: q.Quota.Limit, Digest: q.Quota.Digest}
 			ok, skew := model.Quota(node.Now(), server.Now(), &want)
@@ -250,7 +250,7 @@ func FuzzQuotaNoOverAdmission(f *testing.F) {
 		for range workers {
 			wg.Go(func() {
 				for range each {
-					q := quotaCall("q", time.Hour, int64(limit), dg)
+					q := quotaCall(time.Hour, int64(limit), dg)
 					d.Consume(context.Background(), nil, []*statestore.Call{q})
 					if q.Err != nil {
 						t.Errorf("Err %v", q.Err)
@@ -299,7 +299,7 @@ func TestConcurrentMixedOps(t *testing.T) {
 				case 0:
 					d.Consume(context.Background(), nil, []*statestore.Call{
 						gcraCall("p", dg, statestore.GCRALimit{Requests: 5, Window: time.Second, Burst: 5}),
-						quotaCall("q", time.Minute, 20, dg),
+						quotaCall(time.Minute, 20, dg),
 					})
 				case 1:
 					d.Read(context.Background(), nil, []*statestore.Call{lookupCall(ck, v)})

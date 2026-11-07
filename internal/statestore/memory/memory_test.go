@@ -101,7 +101,7 @@ func TestSweeperReclaims(t *testing.T) {
 	f := newFixture(t, Options{}, nil)
 	d := statestore.DigestOf("k")
 	f.consume(gcraCall("p", d, statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10}))
-	f.consume(quotaCall("q", time.Second, 5, d))
+	f.consume(quotaCall(time.Second, 5, d))
 	ck := statestore.CacheKey{URI: d, Partition: d}
 	f.store(ck, "n", d, []byte("entry"), 1)
 	f.write(&statestore.Write{Kind: statestore.OpCacheInvalidate, Timeout: time.Second, Invalidate: d})
@@ -162,7 +162,7 @@ func TestEntryBound(t *testing.T) {
 	}
 	full := []*statestore.Call{
 		gcraCall("p", statestore.DigestOf("x"), l),
-		quotaCall("q", time.Hour, 5, statestore.DigestOf("x")),
+		quotaCall(time.Hour, 5, statestore.DigestOf("x")),
 	}
 	for _, c := range full {
 		f.consume(c)
@@ -403,9 +403,9 @@ func TestMetrics(t *testing.T) {
 	l := statestore.GCRALimit{Requests: 10, Window: time.Second, Burst: 10}
 
 	f.d.Consume(ctx, budget(3), []*statestore.Call{gcraCall("p", d, l)})
-	f.d.Consume(ctx, budget(3), []*statestore.Call{gcraCall("p", d, l), quotaCall("q", time.Hour, 5, d)})
+	f.d.Consume(ctx, budget(3), []*statestore.Call{gcraCall("p", d, l), quotaCall(time.Hour, 5, d)})
 	f.d.Read(ctx, budget(3), []*statestore.Call{lookupCall(statestore.CacheKey{}, d), lookupCall(statestore.CacheKey{URI: d}, d)})
-	late := quotaCall("q", time.Hour, 5, d)
+	late := quotaCall(time.Hour, 5, d)
 	late.Timeout = 0
 	f.d.Consume(ctx, budget(3), []*statestore.Call{late})
 	bad := gcraCall("p", d, statestore.GCRALimit{})
@@ -484,7 +484,7 @@ func TestPrecheck(t *testing.T) {
 	}
 	for _, c := range cases {
 		ctx, cancel := c.ctx(context.Background())
-		q := quotaCall("q", time.Hour, 5, d)
+		q := quotaCall(time.Hour, 5, d)
 		q.Timeout = c.tmo
 		f.d.Consume(ctx, c.rb, []*statestore.Call{q})
 		cancel()
@@ -497,9 +497,9 @@ func TestPrecheck(t *testing.T) {
 	}
 	// The spent per-request deadline: 1 s from the first call.
 	rb := budget(0)
-	f.d.Consume(context.Background(), rb, []*statestore.Call{quotaCall("q", time.Hour, 5, d)})
+	f.d.Consume(context.Background(), rb, []*statestore.Call{quotaCall(time.Hour, 5, d)})
 	f.clk.Advance(time.Second)
-	late := quotaCall("q", time.Hour, 5, d)
+	late := quotaCall(time.Hour, 5, d)
 	f.d.Consume(context.Background(), rb, []*statestore.Call{late})
 	if late.Err != statestore.ErrNotAttempted {
 		t.Fatalf("spent budget: %v", late.Err)
@@ -550,7 +550,7 @@ func TestWrongKinds(t *testing.T) {
 			t.Errorf("limit %+v: %v, want RZ-STS-002", l, c.Err)
 		}
 	}
-	q := quotaCall("q", time.Microsecond, 5, statestore.DigestOf("k"))
+	q := quotaCall(time.Microsecond, 5, statestore.DigestOf("k"))
 	f.consume(q)
 	if q.Err != statestore.ErrFailed {
 		t.Fatalf("sub-millisecond quota window: %v", q.Err)
@@ -600,7 +600,7 @@ func TestReserveWindows(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer closeDriver(t, d)
-			q := quotaCall("q", w, 5, statestore.DigestOf("k"))
+			q := quotaCall(w, 5, statestore.DigestOf("k"))
 			d.Consume(context.Background(), budget(0), []*statestore.Call{q})
 			if c.wantErr {
 				if q.Err != statestore.ErrFailed {
@@ -611,7 +611,7 @@ func TestReserveWindows(t *testing.T) {
 					t.Fatalf("skew WARN records %v", recs)
 				}
 				// Rate-limited: a second failure within 10 s logs nothing.
-				d.Consume(context.Background(), budget(0), []*statestore.Call{quotaCall("q", w, 5, statestore.DigestOf("k"))})
+				d.Consume(context.Background(), budget(0), []*statestore.Call{quotaCall(w, 5, statestore.DigestOf("k"))})
 				if len(logs.records()) != 1 {
 					t.Fatal("skew WARN not rate-limited")
 				}

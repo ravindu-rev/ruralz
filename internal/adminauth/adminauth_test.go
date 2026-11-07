@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"testing"
 
@@ -561,30 +560,4 @@ func FuzzBearer(f *testing.F) {
 			t.Fatalf("bearer(%q) = %q", v, tok)
 		}
 	})
-}
-
-func BenchmarkAuthenticateToken(b *testing.B) {
-	dir := b.TempDir()
-	a, err := New(Settings{TokenFile: dir + "/o", MetricsTokenFile: dir + "/m"}, Options{})
-	if err == nil || a != nil {
-		b.Fatal("missing files accepted")
-	}
-	for name, tok := range map[string]string{"o": operatorToken, "m": metricsToken} {
-		if err := os.WriteFile(dir+"/"+name, []byte(tok), 0o600); err != nil {
-			b.Fatal(err)
-		}
-	}
-	a, err = New(Settings{TokenFile: dir + "/o", MetricsTokenFile: dir + "/m"}, Options{})
-	if err != nil {
-		b.Fatal(err)
-	}
-	r := httptest.NewRequestWithContext(b.Context(), http.MethodGet, "/metrics", nil)
-	r.RemoteAddr = "127.0.0.1:1"
-	r.Header.Set("Authorization", "Bearer "+metricsToken)
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := a.Authenticate(r); err != nil {
-			b.Fatal(err)
-		}
-	}
 }

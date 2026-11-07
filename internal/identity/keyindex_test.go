@@ -370,22 +370,3 @@ func TestBuildBundle(t *testing.T) {
 		t.Fatal("Build accepted a malformed basic hash")
 	}
 }
-
-// BenchmarkKeyIndexLookup: the lock-free read path of a secretRef-held key.
-func BenchmarkKeyIndexLookup(b *testing.B) {
-	r := newFakeResolver()
-	s := r.store(map[secret.Ref]string{refA: testKeyA})
-	r.activate(s)
-	ix, err := Build([]*v1alpha1.Consumer{consumer("acme", withSecretKey("k", refA))}, nil, s, nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer ix.Release()
-	d := DigestString(testKeyA)
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			ix.APIKey(d)
-		}
-	})
-}

@@ -16,14 +16,11 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
-// Allocation gate and benchmark (PB-8: 30 or fewer Ruralz-owned
-// allocations per S1 request around the Router and the executor; the
-// per-stage budget gives snapshot pin and Route match, onRequestHeaders,
-// onRoute and onUpstreamRequest without attached work 0 allocations). The
-// exchange's share is zero: pooled Requests and leg states, slots and
-// decisions kept across reuse, Filter views and messages as conversions,
-// and leg handles carved out of pooled chunks, one allocation per
-// handleChunk legs, which rounds to none per request.
+// A request through the exchange allocates nothing once its pools are warm:
+// pooled Requests and leg states, slots and decisions kept across reuse,
+// Filter views and messages as conversions, and leg handles carved out of
+// pooled chunks, one allocation per handleChunk legs, which rounds to none
+// per request.
 
 // touchFilter reads what a Filter typically reads and keeps a pointer in
 // its PolicyState slot.
@@ -41,8 +38,8 @@ func (f *touchFilter) Handle(_ context.Context, _ phase.Phase, x filter.Exchange
 
 // allocFixture is a Route with a cors-like and a headers-like Policy and,
 // when legPolicies is set, an upstream-leg Policy (without one the
-// executor starts no leg state, as in S1 and S2), a request, an attempt
-// and an Upstream response reused across requests.
+// executor starts no leg state), a request, an attempt and an Upstream
+// response reused across requests.
 type allocFixture struct {
 	pool *Pool
 	e    *executor.Executor
@@ -70,7 +67,7 @@ func newAllocFixture(tb testing.TB, legPolicies bool) *allocFixture {
 		compiled("headers", phase.ClassTransform, phase.ScopeRoute, f, phase.OnRequestHeaders, phase.OnRoute, phase.OnResponse, phase.OnLog),
 	}, "orders", legPs)
 	rt.Metrics = &emit.RouteMetrics{}
-	r := serverRequest(http.MethodGet, "/v1/orders?page=2", "", http.Header{"User-Agent": {"bench"}})
+	r := serverRequest(http.MethodGet, "/v1/orders?page=2", "", http.Header{"User-Agent": {"shop/1.0"}})
 	out := &http.Request{Method: http.MethodGet, URL: r.URL, Header: http.Header{"X-Out": {"1"}}, Body: http.NoBody}
 	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: http.NoBody}
 	return &allocFixture{
@@ -112,13 +109,12 @@ func (a *allocFixture) request(ctx context.Context) {
 	a.pool.Put(x)
 }
 
-// TestAllocsPerRunRequest checks the exchange's PB-8 share: a request with
-// a three-Policy chain, with and without an upstream-leg Policy, driven by
-// the executor through every Phase, allocates nothing once the pools are
-// warm.
+// TestAllocsPerRunRequest checks that a request with a three-Policy chain,
+// with and without an upstream-leg Policy, driven by the executor through
+// every Phase, allocates nothing once the pools are warm.
 func TestAllocsPerRunRequest(t *testing.T) {
 	if raceEnabled {
-		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
+		t.Skip("sync.Pool drops items at random under -race")
 	}
 	for _, legPolicies := range []bool{true, false} {
 		a := newAllocFixture(t, legPolicies)
@@ -127,23 +123,5 @@ func TestAllocsPerRunRequest(t *testing.T) {
 		if n := testing.AllocsPerRun(200, func() { a.request(ctx) }); n != 0 {
 			t.Fatalf("leg Policies %v: %v allocations per request, want 0", legPolicies, n)
 		}
-	}
-}
-
-func BenchmarkRequest(b *testing.B) {
-	a := newAllocFixture(b, true)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		a.request(ctx)
-	}
-}
-
-func BenchmarkRequestNoLegState(b *testing.B) {
-	a := newAllocFixture(b, false)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		a.request(ctx)
 	}
 }

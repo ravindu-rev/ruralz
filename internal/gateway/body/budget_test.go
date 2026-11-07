@@ -540,18 +540,3 @@ func FuzzBudget(f *testing.F) {
 		}
 	})
 }
-
-// BenchmarkBudgetAccount is one decoded-value reservation and release.
-func BenchmarkBudgetAccount(b *testing.B) {
-	bud := NewBudget(DefaultMaxBufferedBytes, &sumGauge{})
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		var a Account
-		a.Bind(bud, Gate, 0)
-		for pb.Next() {
-			if a.Reserve(4*kib) == nil {
-				a.Release(4 * kib)
-			}
-		}
-	})
-}

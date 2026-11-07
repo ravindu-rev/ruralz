@@ -10,9 +10,10 @@ import (
 	"testing/fstest"
 )
 
-// scaleBundle returns a Bundle of n Upstreams and n Routes in 100 files,
-// with an overlay that patches every tenth Upstream.
-func scaleBundle(n int) fstest.MapFS {
+// scaleBundle returns a Bundle of 300 Upstreams and 300 Routes in 100
+// files, with an overlay that patches every tenth Upstream.
+func scaleBundle() fstest.MapFS {
+	const n = 300
 	m := mapFS(minimal())
 	var patches []string
 	for f := range 100 {
@@ -30,26 +31,11 @@ func scaleBundle(n int) fstest.MapFS {
 	return m
 }
 
-// BenchmarkLoad loads 10,000 resources through stages A to E for one
-// Environment, the loader's share of the 2 s budget for validating 10,000
-// resources (target).
-func BenchmarkLoad(b *testing.B) {
-	l := newLoader(b, Options{})
-	m := scaleBundle(5000)
-	envs := fstest.MapFS{"e.yaml": {Data: []byte(environment("prod", " {}"))}}
-	b.ReportAllocs()
-	for b.Loop() {
-		r, err := l.Load(b.Context(), Request{Source: Source{FS: m, Path: "."}, Environments: Source{FS: envs, Path: "e.yaml"}, Environment: "prod"})
-		if err != nil || r.HasErrors() || len(r.Resources) != 10_001 {
-			b.Fatalf("Load: %v, %d resources, %q", err, len(r.Resources), texts(r.Diagnostics))
-		}
-	}
-}
-
-// TestScaleLoad checks the scale fixture loads without findings, so the
-// benchmark measures a clean Bundle.
+// TestScaleLoad checks that the 601 resources of scaleBundle load without
+// findings, with the overlay's patch on every tenth Upstream and the
+// substitution default on the others.
 func TestScaleLoad(t *testing.T) {
-	m := scaleBundle(300)
+	m := scaleBundle()
 	r := loadEnv(t, newLoader(t, Options{}), m, environment("prod", " {}"), "prod")
 	wantClean(t, "scale", r.Diagnostics)
 	if len(r.Resources) != 601 {

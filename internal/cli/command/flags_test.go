@@ -428,14 +428,3 @@ func FuzzFlagsParse(f *testing.F) {
 		}
 	})
 }
-
-// BenchmarkParse measures interspersed parsing of a typical command line.
-func BenchmarkParse(b *testing.B) {
-	args := []string{"./shop", "--env", "prod", "--environments", "env.yaml", "--output", "json", "--online"}
-	for b.Loop() {
-		tf := newTestFlags()
-		if _, err := tf.f.Parse(args); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

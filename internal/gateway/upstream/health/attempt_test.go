@@ -264,8 +264,8 @@ func TestAttemptsRealClock(t *testing.T) {
 	tr.Close()
 }
 
-// TestAttemptAllocations: tracking a pooled attempt allocates nothing
-// (onUpstreamResponseHeaders accounting 0 allocations).
+// TestAttemptAllocations: tracking a pooled attempt, the accounting of
+// onUpstreamResponseHeaders, allocates nothing.
 func TestAttemptAllocations(t *testing.T) {
 	tr, clk, _, _ := newTracker(t, 4, nil)
 	var a Attempt
