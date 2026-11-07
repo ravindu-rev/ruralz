@@ -282,7 +282,7 @@ During a Zero-Downtime Upgrade the lock moves at Drain start; the CLI still awai
 
 A `ruralz control` verb finalizes a Ruralz Control upgrade through `POST /api/v1/control-store/finalize`, prompting for step-up TOTP ([Finalizing an upgrade](../architecture/04-control-plane-and-gitops.md#finalizing-an-upgrade)); its name is OQ-release-versioning-and-compatibility-14.
 
-`ruralz control restore` runs only on the host of an empty Control Store, never through REST ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed):
+`ruralz control restore` runs only on the host of an empty Control Store, never through REST ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)):
 
 1. `--prepare --data-dir PATH` generates the new online key there, encrypted under the key-encryption key, and prints its public half for offline root signing.
 2. `FILE --data-dir PATH --advertise HOST:8092 --anchor-set PATH --backup-key-file PATH` verifies and decrypts the backup, requires a root-signed anchor set holding the prepared key, and opens a higher `storeEpoch` before any delivery. It resets the snapshot's Raft membership to one voter, this replica at `--advertise` under a new server ID, and drops old peer certificates, so it elects itself; others then run `ruralz control join`. With a verified `--revocation-list PATH`, earlier Node certificates stay valid unless listed; without it, every Node re-enrolls. `--backup-key-file` names the operator private key that matches one of the public keys the backup is encrypted to.

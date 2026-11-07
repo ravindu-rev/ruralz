@@ -455,7 +455,7 @@ Ruralz Control, Planned (M2), is off the request path, so its size follows Node 
 | Enrollment of a 90-Node step | 4.5 s (target) [H] |
 | `${RURALZ_DATA_DIR}` per Node | 2 × (s_rev + s_src) = 34 MiB, within 1 GiB (target) [H] |
 
-Every replica becomes a voter once it catches up after `ruralz control join` ([Control plane](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join)); a deployment serves at most 10,000 Nodes (target). In three zones, three voters keep zone-loss survivors at or below 4,000 streams, 80% of the shedding onset, up to 8,000 Nodes (hypothesis); five voters (target) keep 3,333 at 10,000 Nodes and quorum when the zone holding two fails, stricter than Scalability's ceil(N / 5,000) + 1, which leaves survivors at the onset. Each `ruralz control backup` of the Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed) is about D_store; [HA and DR](04-high-availability-and-disaster-recovery.md) owns restores.
+Every replica becomes a voter once it catches up after `ruralz control join` ([Control plane](../architecture/04-control-plane-and-gitops.md#certificates-and-replica-join)); a deployment serves at most 10,000 Nodes (target). In three zones, three voters keep zone-loss survivors at or below 4,000 streams, 80% of the shedding onset, up to 8,000 Nodes (hypothesis); five voters (target) keep 3,333 at 10,000 Nodes and quorum when the zone holding two fails, stricter than Scalability's ceil(N / 5,000) + 1, which leaves survivors at the onset. Each `ruralz control backup` of the Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)) is about D_store; [HA and DR](04-high-availability-and-disaster-recovery.md) owns restores.
 
 ## Cost template
 

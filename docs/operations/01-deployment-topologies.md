@@ -105,7 +105,7 @@ flowchart LR
 
 ### T3: Cluster of Nodes managed by Ruralz Control
 
-Three `ruralz-control` replicas, or five (Sizing defaults), form the Raft Control Store on 8092 ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed); all serve 8090 and 8091, only the leader watching Git, signing, enrolling and running Rollouts ([Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles)). In an outage (P3) Nodes keep serving, restarted ones boot Last-Known-Good within 5 s (target), and new ones stay not ready: Clusters SHOULD keep 30% headroom above peak (target) ([Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability)).
+Three `ruralz-control` replicas, or five (Sizing defaults), form the Raft Control Store on 8092 ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)); all serve 8090 and 8091, only the leader watching Git, signing, enrolling and running Rollouts ([Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles)). In an outage (P3) Nodes keep serving, restarted ones boot Last-Known-Good within 5 s (target), and new ones stay not ready: Clusters SHOULD keep 30% headroom above peak (target) ([Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability)).
 
 *Figure 3: T3; dashed edges are off the request path.*
 

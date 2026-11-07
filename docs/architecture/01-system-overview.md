@@ -37,7 +37,7 @@ Accepted costs: `net/http` and `quic-go` allocate more than fasthttp (hypothesis
 | Ruralz Console | React and TypeScript SPA in `ruralz-control` | Served at `/console` | 8090 | No | Planned (M2) |
 | `ruralz` CLI | `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control` and `test` commands | `ruralz` | None | No | `rollout`, `plugin`, `control`, `test` and some `bundle` and `node` verbs Planned (M2), `ai` Planned (M3), per command in pack 9 |
 | State Store | Rate Limits, Quotas, Response Cache; Token Budgets, Semantic Cache Planned (M3) | `memory` (single Node) or `redis` (Redis, Valkey, Dragonfly over RESP3) | Operator-defined | Stateful Policies only | |
-| Control Store | Raft metadata (Rollout plans, Environments, Clusters, Enrollment, RBAC) plus digest-addressed Revision content and audit segments | Embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt; `postgres` optional, Planned (M4) ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed) | 8092 between replicas | No | Planned (M2) |
+| Control Store | Raft metadata (Rollout plans, Environments, Clusters, Enrollment, RBAC) plus digest-addressed Revision content and audit segments | Embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt; `postgres` optional, Planned (M4) ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)) | 8092 between replicas | No | Planned (M2) |
 
 Revision content and hash-chained audit segments reach a replica quorum before the Raft entry referencing their digest; Raft entries stay under 1 MiB (target), and `ruralz control backup` covers all of it. The dedicated peer port 8092 keeps Nodes off peer traffic (pack 8.4). [Control plane and GitOps](04-control-plane-and-gitops.md) owns the mechanism.
 
