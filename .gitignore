@@ -24,3 +24,6 @@ tmp/
 # Claude Code local settings
 .claude/settings.local.json
 CLAUDE.local.md
+
+# Windows builds of the repository tools.
+*.exe
