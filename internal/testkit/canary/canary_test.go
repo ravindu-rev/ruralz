@@ -297,19 +297,3 @@ func FuzzScan(f *testing.F) {
 		t.Fatalf("raw canary at %d not found", at)
 	})
 }
-
-func BenchmarkScan(b *testing.B) {
-	c := Canary{Value: fixedValue}
-	line := []byte(`{"level":"INFO","msg":"request","path":"/orders/42?x=%2F","ua":"curl\/8.5"}` + "\n")
-	var data []byte
-	for len(data) < 1<<20 {
-		data = append(data, line...)
-	}
-	b.SetBytes(int64(len(data)))
-	b.ReportAllocs()
-	for b.Loop() {
-		if got := c.Scan("bench", data); len(got) != 0 {
-			b.Fatal(got)
-		}
-	}
-}

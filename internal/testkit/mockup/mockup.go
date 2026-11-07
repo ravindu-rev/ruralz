@@ -9,8 +9,8 @@
 // negotiated by ALPN.
 //
 // Its answers are programmable per Server and per path with a Behavior:
-// status, headers, a literal or generated body of any size, a delay
-// before the headers, and echo (a JSON description of the request).
+// status, headers, a body, a delay before the headers, and echo (a JSON
+// description of the request).
 //
 // Every request is counted and, unless disabled, kept in a bounded
 // request log (method, URI, protocol, headers, trailers and a body
@@ -108,7 +108,6 @@ type Server struct {
 	cfg     Config
 	addr    string
 	srv     *http.Server
-	pattern []byte
 	log     *requestLog
 	closing chan struct{} // closed when Close starts
 	drained chan struct{} // closed when Close has ended every handler
@@ -155,7 +154,6 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	s := &Server{
 		cfg:       c,
 		addr:      ln.Addr().String(),
-		pattern:   GeneratedBody(patternSize),
 		log:       newRequestLog(c.LogSize),
 		closing:   make(chan struct{}),
 		drained:   make(chan struct{}),
@@ -329,14 +327,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if status == 0 {
 		status = http.StatusOK
 	}
-	lit, size := b.Body, b.BodySize
-	if lit != nil {
-		size = int64(len(lit))
-	}
+	lit := b.Body
 	ctype := b.ContentType
 	if b.Echo {
 		lit = s.echo(r, body[:min(len(body), maxEchoBody)], n)
-		size = int64(len(lit))
 		if ctype == "" {
 			ctype = "application/json"
 		}
@@ -349,7 +343,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !bodyless || r.Method == http.MethodHead {
 		h.Set("Content-Type", ctype)
 		if status != http.StatusNoContent && status != http.StatusNotModified {
-			h.Set("Content-Length", strconv.FormatInt(size, 10))
+			h.Set("Content-Length", strconv.Itoa(len(lit)))
 		}
 	}
 	for k, v := range b.Header {
@@ -359,7 +353,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if bodyless {
 		return
 	}
-	if err := s.writeBody(w, lit, size); err != nil {
+	if _, err := w.Write(lit); err != nil {
 		panic(http.ErrAbortHandler)
 	}
 }
@@ -379,46 +373,6 @@ func (s *Server) wait(ctx context.Context, d time.Duration) bool {
 	case <-s.closing:
 		return false
 	}
-}
-
-// writeBody writes the first n bytes of the body: lit, or the generated
-// pattern when lit is nil.
-func (s *Server) writeBody(w io.Writer, lit []byte, n int64) error {
-	for off := int64(0); off < n; {
-		k, err := w.Write(s.piece(lit, off, n-off))
-		off += int64(k)
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// piece returns up to n body bytes starting at off.
-func (s *Server) piece(lit []byte, off, n int64) []byte {
-	if lit != nil {
-		return lit[off : off+n]
-	}
-	start := off % int64(len(s.pattern))
-	return s.pattern[start:min(int64(len(s.pattern)), start+n)]
-}
-
-// patternAlphabet is the generated body's repeating unit; patternSize is
-// a multiple of its length, so the pattern block wraps seamlessly.
-const (
-	patternAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-	patternSize     = len(patternAlphabet) * 1024
-)
-
-// GeneratedBody returns the n bytes a Behavior without a literal Body
-// sends: patternAlphabet repeated, so tests can check integrity end to
-// end.
-func GeneratedBody(n int) []byte {
-	out := make([]byte, n)
-	for i := range out {
-		out[i] = patternAlphabet[i%len(patternAlphabet)]
-	}
-	return out
 }
 
 // readBody reads the whole request body, keeping at most keep bytes, and

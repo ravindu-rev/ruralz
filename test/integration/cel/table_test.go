@@ -20,8 +20,8 @@ import (
 // cacheRecord is the debug record of a cache config.key that failed.
 const cacheRecord = "cache config.key failed to evaluate; the request bypasses the cache"
 
-// Circuit breaker bounds (docs/architecture/09-traffic-management-and-resilience.md
-// "Circuit breaking", targets).
+// Circuit breaker bounds (docs/architecture/09-traffic-management-and-resilience.md,
+// "Circuit breakers").
 const (
 	// breakerLegs is the most legs a breaker check sends before the
 	// breaker must have opened: it opens once a rolling 10 s window holds

@@ -338,20 +338,3 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkParse(b *testing.B) {
-	var sb strings.Builder
-	for i := range 2000 {
-		sb.WriteString("ruralz_http_requests_total{route=\"r")
-		sb.WriteString(strings.Repeat("x", i%7))
-		sb.WriteString("\",code=\"200\",method=\"GET\"} 12345\n")
-	}
-	data := []byte(sb.String())
-	b.SetBytes(int64(len(data)))
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := ParseBytes(data); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

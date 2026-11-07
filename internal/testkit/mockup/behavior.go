@@ -4,7 +4,6 @@
 package mockup
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -19,18 +18,15 @@ type Behavior struct {
 	// Header is added to the response (after ContentType, so it can
 	// replace it).
 	Header http.Header
-	// Body is the literal response body. When nil, the body is BodySize
-	// bytes of GeneratedBody.
+	// Body is the response body; nil answers an empty body.
 	Body []byte
-	// BodySize is the generated body's length when Body is nil.
-	BodySize int64
 	// ContentType is the Content-Type of a body; default
 	// "application/octet-stream" ("application/json" for Echo).
 	ContentType string
 	// Delay is waited before the response headers.
 	Delay time.Duration
 	// Echo answers with an Echo JSON document describing the request
-	// (method, path, headers, body, ...), replacing Body and BodySize.
+	// (method, path, headers, body, ...), replacing Body.
 	Echo bool
 }
 
@@ -38,9 +34,6 @@ type Behavior struct {
 func (b Behavior) validate() error {
 	if b.Status != 0 && (b.Status < 200 || b.Status > 599) {
 		return fmt.Errorf("status %d outside 200..599", b.Status)
-	}
-	if b.BodySize < 0 {
-		return errors.New("negative body size")
 	}
 	if b.Delay < 0 {
 		return fmt.Errorf("negative delay %v", b.Delay)

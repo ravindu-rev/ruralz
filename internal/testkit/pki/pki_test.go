@@ -427,15 +427,3 @@ func TestErrors(t *testing.T) {
 		t.Fatal("not-yet-valid certificate verified")
 	}
 }
-
-func BenchmarkIssueECDSA(b *testing.B) {
-	ca, err := NewCA(CAOptions{})
-	if err != nil {
-		b.Fatal(err)
-	}
-	for b.Loop() {
-		if _, err := ca.Server(); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

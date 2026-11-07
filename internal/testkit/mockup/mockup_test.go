@@ -69,11 +69,11 @@ func TestBehaviors(t *testing.T) {
 			},
 		},
 		{
-			name: "generated body size", b: Behavior{BodySize: 100_000},
+			name: "large body", b: Behavior{Body: bytes.Repeat([]byte("0123456789"), 10_000)},
 			check: func(t *testing.T, _ proto, r result, err error) {
 				ok(t, r, err, http.StatusOK)
-				if !bytes.Equal(r.body, GeneratedBody(100_000)) || r.resp.ContentLength != 100_000 {
-					t.Fatalf("body of %d bytes (length %d) differs from GeneratedBody", len(r.body), r.resp.ContentLength)
+				if !bytes.Equal(r.body, bytes.Repeat([]byte("0123456789"), 10_000)) || r.resp.ContentLength != 100_000 {
+					t.Fatalf("body of %d bytes (length %d) differs from the Behavior's", len(r.body), r.resp.ContentLength)
 				}
 				if r.resp.Header.Get("Content-Type") != "application/octet-stream" {
 					t.Fatalf("type %q", r.resp.Header.Get("Content-Type"))
@@ -81,7 +81,7 @@ func TestBehaviors(t *testing.T) {
 			},
 		},
 		{
-			name: "HEAD", b: Behavior{BodySize: 300}, method: http.MethodHead,
+			name: "HEAD", b: Behavior{Body: bytes.Repeat([]byte("x"), 300)}, method: http.MethodHead,
 			check: func(t *testing.T, _ proto, r result, err error) {
 				ok(t, r, err, http.StatusOK)
 				if len(r.body) != 0 || r.resp.Header.Get("Content-Length") != "300" {
@@ -90,7 +90,7 @@ func TestBehaviors(t *testing.T) {
 			},
 		},
 		{
-			name: "204 has no body", b: Behavior{Status: 204, BodySize: 300},
+			name: "204 has no body", b: Behavior{Status: 204, Body: bytes.Repeat([]byte("x"), 300)},
 			check: func(t *testing.T, _ proto, r result, err error) {
 				ok(t, r, err, http.StatusNoContent)
 				if len(r.body) != 0 {
@@ -463,7 +463,6 @@ func TestConfigErrors(t *testing.T) {
 		want string
 	}{
 		{"status", Config{Behavior: Behavior{Status: 99}}, "status 99"},
-		{"size", Config{Behavior: Behavior{BodySize: -1}}, "negative body size"},
 		{"delay", Config{Behavior: Behavior{Delay: -time.Second}}, "negative delay"},
 		{"listen", Config{Listen: "256.0.0.1:0"}, "listen"},
 	} {
@@ -490,61 +489,3 @@ func TestReadBody(t *testing.T) {
 	}
 }
 
-func TestGeneratedBody(t *testing.T) {
-	g := GeneratedBody(patternSize + 100)
-	if !bytes.Equal(g[:36], []byte(patternAlphabet)) || !bytes.Equal(g[patternSize:patternSize+36], []byte(patternAlphabet)) {
-		t.Fatal("pattern does not repeat")
-	}
-	s := &Server{pattern: GeneratedBody(patternSize)}
-	var got []byte
-	for off := int64(0); off < int64(len(g)); {
-		p := s.piece(nil, off, int64(len(g))-off)
-		got = append(got, p...)
-		off += int64(len(p))
-	}
-	if !bytes.Equal(got, g) {
-		t.Fatal("piece does not reproduce GeneratedBody across the wrap")
-	}
-}
-
-// BenchmarkS1 measures the mock's cost for PBB S1 (GET, 1 KiB response,
-// keep-alive) with the request log disabled; the PBB validity rule wants
-// the mock's p99 beyond its delay at 200 µs or less.
-func BenchmarkS1(b *testing.B) {
-	s := start(b, Config{LogSize: -1, Behavior: Behavior{BodySize: 1024}})
-	c := client(b, h1, testPKI{})
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, s.URL()+"/", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		resp, err := c.Do(req)
-		if err != nil {
-			b.Fatal(err)
-		}
-		_, _ = io.Copy(io.Discard, resp.Body)
-		_ = resp.Body.Close()
-	}
-}
-
-// BenchmarkServeHTTP measures the handler alone (no network).
-func BenchmarkServeHTTP(b *testing.B) {
-	s := start(b, Config{LogSize: -1, Behavior: Behavior{BodySize: 1024}})
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "/", nil)
-	if err != nil {
-		b.Fatal(err)
-	}
-	w := &discardWriter{h: http.Header{}}
-	b.ReportAllocs()
-	for b.Loop() {
-		clear(w.h)
-		s.ServeHTTP(w, req)
-	}
-}
-
-type discardWriter struct{ h http.Header }
-
-func (w *discardWriter) Header() http.Header         { return w.h }
-func (w *discardWriter) Write(p []byte) (int, error) { return len(p), nil }
-func (w *discardWriter) WriteHeader(int)             {}

@@ -715,27 +715,6 @@ func TestStrings(t *testing.T) {
 	}
 }
 
-func BenchmarkExportTraces(b *testing.B) {
-	s := start(b, Config{MaxRequests: 1 << 30, MaxBytes: 1 << 40})
-	cc := dial(b, s, nil)
-	client := coltrace.NewTraceServiceClient(cc)
-	spans := make([]*tracepb.Span, 0, 16)
-	for i := byte(2); i < 18; i++ {
-		spans = append(spans, span(1, i, 1, "ruralz.filter.x", tracepb.Span_SPAN_KIND_INTERNAL, uint64(i)))
-	}
-	req := traceReq("svc", spans...)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := client.Export(ctx, req); err != nil {
-			b.Fatal(err)
-		}
-		if len(s.rec.requests) > 10000 {
-			s.Reset()
-		}
-	}
-}
-
 func grpcFailFast() grpc.CallOption { return grpc.WaitForReady(false) }
 
 func grpcWaitForReady() grpc.CallOption { return grpc.WaitForReady(true) }
