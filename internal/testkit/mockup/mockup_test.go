@@ -488,4 +488,3 @@ func TestReadBody(t *testing.T) {
 		t.Fatalf("readBody = %q %d", b, n)
 	}
 }
-
