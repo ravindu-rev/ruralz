@@ -16,7 +16,7 @@ Rows are client protocols, columns `Upstream.spec.protocol` values; `N/A` pairin
 
 | Ingress | `http` | `grpc` | `graphql` | `websocket` | `kafka` | `nats` | `mqtt` | `ai` |
 |---|---|---|---|---|---|---|---|---|
-| REST and plain HTTP over HTTP/1.1, HTTP/2 or h2c | Planned (M1) | Planned (M3) | Planned (M3) | N/A | Planned (M4) | Planned (M4) | Planned (M4) | Planned (M3) |
+| REST and plain HTTP over HTTP/1.1, HTTP/2 or h2c | Yes | Planned (M3) | Planned (M3) | N/A | Planned (M4) | Planned (M4) | Planned (M4) | Planned (M3) |
 | REST and plain HTTP over HTTP/3 | Planned (M3) | Planned (M3) | Planned (M3) | N/A | Planned (M4) | Planned (M4) | Planned (M4) | Planned (M3) |
 | gRPC | Planned (M3) | Planned (M3) | Not planned | N/A | Not planned | Not planned | Not planned | N/A |
 | gRPC-Web and Connect | Planned (M3) | Planned (M3) | Not planned | N/A | Not planned | Not planned | Not planned | N/A |
@@ -35,7 +35,7 @@ Rows are client protocols, columns `Upstream.spec.protocol` values; `N/A` pairin
 
 | Aspect | Design |
 |---|---|
-| Milestone | HTTP/1.1, HTTP/2 and h2c Planned (M1); HTTP/3 Planned (M3) ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)) |
+| Milestone | HTTP/1.1, HTTP/2 and h2c; HTTP/3 Planned (M3) ([ADR-0009](../adr/0009-http-stack-net-http-quic-go.md)) |
 | Use cases | REST APIs, webhooks, browsers, and the carrier for gRPC-Web, Connect, GraphQL and SSE; HTTP/3 for lossy networks |
 | Kind mapping | `Gateway.spec.listeners[]` with `protocol: http` or `https`, `http3: true` on `https`; `Route.spec.match` on `hosts`, `path`, `methods`, `headers`, `when`; `Upstream.spec.protocol: http` |
 | Policy applicability | Every registered Policy type at its registered Phases and scopes (pack 10) |
@@ -52,13 +52,13 @@ Rows are client protocols, columns `Upstream.spec.protocol` values; `N/A` pairin
 | `Upgrade: websocket` to a `websocket` or `graphql` Upstream | WebSocket session | Planned (M3) |
 | Other requests to a `graphql` Upstream | GraphQL engine | Planned (M3) |
 | `kafka`, `nats` or `mqtt` Upstream | Publisher | Planned (M4) |
-| Anything else | HTTP reverse proxy: a response without `Content-Length` or with `text/event-stream` flushes after every Upstream read, trailers follow the body and a 103 Early Hints is relayed ([Streaming](03-data-plane.md#streaming), [Upstream layer](03-data-plane.md#upstream-layer)) | Planned (M1); SSE events as `onChunk` units Planned (M3) |
+| Anything else | HTTP reverse proxy: a response without `Content-Length` or with `text/event-stream` flushes after every Upstream read, trailers follow the body and a 103 Early Hints is relayed ([Streaming](03-data-plane.md#streaming), [Upstream layer](03-data-plane.md#upstream-layer)) | SSE events as `onChunk` units Planned (M3) |
 
 A WebSocket upgrade, `Upgrade: websocket`, on a Route whose Upstream protocol is `http` is rejected after the match and before `onRequestHeaders` with 400 `RZ-RT-023`, and the response Phases run on it as on any generated response. Any other `Upgrade` token, `h2c` included, is dropped with the other hop-by-hop fields, and the request is served as HTTP/1.1. A plain request to a `websocket` Upstream gets 426, Planned (M3) (code: OQ-multi-protocol-16).
 
 ### HTTP intermediary behavior
 
-Toward the client the Node answers as the origin server, and toward the Upstream it is the client: a gateway in the terms of RFC 9110 section 3.7. Beside the framing, hop-by-hop and header-limit rules of [Data plane](03-data-plane.md#listeners-and-protocols) and [Request hardening](08-security-and-identity.md#request-hardening), it treats these HTTP/1.1 and HTTP/2 cases as follows, Planned (M1); the [protocol conformance suite](../engineering/03-testing-and-quality-strategy.md#conformance-suites) holds one case per row.
+Toward the client the Node answers as the origin server, and toward the Upstream it is the client: a gateway in the terms of RFC 9110 section 3.7. Beside the framing, hop-by-hop and header-limit rules of [Data plane](03-data-plane.md#listeners-and-protocols) and [Request hardening](08-security-and-identity.md#request-hardening), it treats these HTTP/1.1 and HTTP/2 cases as follows; the [protocol conformance suite](../engineering/03-testing-and-quality-strategy.md#conformance-suites) holds one case per row.
 
 | Case | The Node's answer | Rule |
 |---|---|---|

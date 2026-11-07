@@ -126,7 +126,7 @@ ratio:   [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5]
 
 ### Ruralz Gateway metrics
 
-Rows are Planned (M1) except `ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total`, Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
+`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total` are Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
 
 | Metric | Type | Unit | Labels | Meaning or values |
 |---|---|---|---|---|
@@ -219,8 +219,6 @@ One goroutine's sections never overlap, and parallel `aggregate` legs overlap on
 
 ### Degraded states
 
-Reasons are Planned (M1) unless tagged.
-
 | `reason` | Raised while |
 |---|---|
 | `detached` | The Control Stream is lost; Planned (M2) |
@@ -259,7 +257,7 @@ Ruralz Gateway uses W3C Trace Context on every hop:
 
 1. It extracts `traceparent` and `tracestate`; a valid `traceparent` parents the server span, otherwise a trace starts.
 2. It decides sampling once: a valid parent's flag, else `Gateway.spec.telemetry.traceSampling` (default: OQ-observability-1, 0.01 assumed). Two per-Node token buckets admit sampled traces (target): root at 1,000 per second, parent at 500, bursts equal to rates, so client-forced sampling cannot starve root sampling. A request over its bucket is unsampled and counted, never dropped.
-3. It injects `traceparent`, with its decision, and `tracestate` into every upstream leg: HTTP from Planned (M1), gRPC from Planned (M3), Kafka, NATS and MQTT 5 from Planned (M4).
+3. It injects `traceparent`, with its decision, and `tracestate` into every upstream leg: HTTP legs; gRPC legs from Planned (M3); Kafka, NATS and MQTT 5 legs from Planned (M4).
 4. It returns the trace ID as `requestId` in every problem document.
 
 A valid `traceparent` is one field line in the W3C Trace Context format, outer spaces and tabs ignored ([source](https://www.w3.org/TR/trace-context/#traceparent-header-field-values)). Version `00` is exactly `00-<trace-id>-<parent-id>-<trace-flags>`, 55 characters, so any character after the flags, even a single `-`, makes it invalid; version `ff` is invalid, and a higher version is read on its first 55 characters when the next one is `-` or absent ([source](https://www.w3.org/TR/trace-context/#versioning-of-traceparent)). Trace and parent IDs are lowercase hex and not all zeros; flag bits other than sampled never make a value invalid and are never forwarded, as the injected `traceparent` is always version `00`, 55 characters, with flags `01` when sampled and `00` otherwise. Where the OpenTelemetry Go SDK's propagator reads values otherwise, Ruralz follows the specification: the SDK refuses a version `00` value with flags above `03` and accepts one followed by a single `-`, reading the 55 characters before it ([source](https://github.com/open-telemetry/opentelemetry-go/blob/v1.47.0/propagation/trace_context.go)).
@@ -398,7 +396,7 @@ The access log `ai` object adds the virtual model, candidates, usage, cost, `pri
 
 ### Grafana dashboard pack
 
-Ruralz ships Grafana dashboards, Planned (M1) unless tagged, as Apache-2.0 JSON in the monorepo and in the Helm chart from Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed), with alert rules generated from the catalog. CI fails on a panel using an unlisted metric and parses every rule with a PromQL parser.
+Ruralz ships Grafana dashboards as Apache-2.0 JSON in the monorepo and in the Helm chart from Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed), with alert rules generated from the catalog. CI fails on a panel using an unlisted metric and parses every rule with a PromQL parser.
 
 | Grafana dashboard | Main panels |
 |---|---|
@@ -508,7 +506,7 @@ groups:
 
 ## Debugging tools
 
-Tools, Planned (M1) unless tagged, use the admin ports ([Data plane](03-data-plane.md#admin-endpoints)) or the CLI. Only `/tap` and running profiles cost the request path; mutex and block profiling run only during a `?seconds=` request.
+Tools use the admin ports ([Data plane](03-data-plane.md#admin-endpoints)) or the CLI. Only `/tap` and running profiles cost the request path; mutex and block profiling run only during a `?seconds=` request.
 
 | Tool | Answers |
 |---|---|

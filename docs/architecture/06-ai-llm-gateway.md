@@ -323,7 +323,7 @@ A Token Budget is an `ai.token-budget` Policy: Filter class admission, Phases `o
 
 ### Token-aware rate limits
 
-A Consumer quota with `window: 1m` expresses tokens per minute, so per-minute and per-day limits are two Token Budgets in one script. Request floods stop earlier at `ratelimit`, Planned (M1), in `onRequestHeaders`: a local token bucket plus GCRA in the State Store, failing open by default ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)).
+A Consumer quota with `window: 1m` expresses tokens per minute, so per-minute and per-day limits are two Token Budgets in one script. Request floods stop earlier at `ratelimit` in `onRequestHeaders`: a local token bucket plus GCRA in the State Store, failing open by default ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)).
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -594,7 +594,7 @@ The access log adds Consumer, candidate chain, per-attempt usage and cost, and c
 
 Provider keys exist only as `credentials.apiKey` `secretRef` values, never in a Revision, `/config/dump` or a log, and rotate without a Rollout. The Node attaches them at the transport after the last `onUpstreamRequest` Filter, so no Filter, Plugin, CEL expression, `/tap`, log or span sees them; Upstream-scoped Policies on an `ai` Upstream MUST NOT read or set credential headers (code: OQ-ai-llm-gateway-16). Bedrock API keys are bearer tokens governed by `bedrock:CallWithBearerToken` ([source](https://docs.aws.amazon.com/bedrock/latest/userguide/api-keys.html)); SigV4 is OQ-ai-llm-gateway-12.
 
-Per [Trust boundaries](01-system-overview.md#trust-boundaries), on TB-3 every `AIProvider` `baseUrl`, `ollama` included, MUST use TLS, and `http://` fails validation. Semantic Cache entries may hold personal data, so TB-4 needs TLS and authentication. TB-12 carries no prompt content, and `ruralz dev tap`, Planned (M1), SHOULD show AI bodies only as sizes and token counts.
+Per [Trust boundaries](01-system-overview.md#trust-boundaries), on TB-3 every `AIProvider` `baseUrl`, `ollama` included, MUST use TLS, and `http://` fails validation. Semantic Cache entries may hold personal data, so TB-4 needs TLS and authentication. TB-12 carries no prompt content, and `ruralz dev tap` SHOULD show AI bodies only as sizes and token counts.
 
 **Shared provider accounts.** Consumers behind one `AIProvider` share its prompt cache and resources, so cached-token counts, time to first token and `cachedContents` IDs can leak across them (T13). Until OQ-ai-llm-gateway-19 closes, isolated tenants use separate accounts, and per-call server tools are `RZ-AI-002` on budgeted Routes.
 
