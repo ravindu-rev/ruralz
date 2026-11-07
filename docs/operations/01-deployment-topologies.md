@@ -155,18 +155,20 @@ Per [ADR-0016](../adr/0016-kubernetes-helm-and-crds.md) (proposed), the Helm cha
 
 | Chart object | Rule |
 |---|---|
-| `ruralz-control` StatefulSet | Three pods with volumes; `OnDelete`, leadership moved off first (SIGTERM transfer or `POST /api/v1/replicas/{serverId}/transfer`). A pod with a peer certificate runs `serve`. On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`; any other pod waits not ready for a join token, from the Job at install, else once an `admin`'s `DELETE /api/v1/replicas/{serverId}` removes its old voter, then runs `join` |
-| Bootstrap Secret and Job (proposed) | The chart generates a one-time bootstrap credential Secret, imported as process configuration (`bootstrap.adminCredentialFile`) by ordinal 0's first `serve`; the Job uses it to mint join tokens at `/api/v1/replicas` into Secrets ordinals 1 and 2 mount, then writes the marker; the credential expires per Control plane's [Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential) (OQ-deployment-topologies-12) |
+| Values | `values.schema.json` holds the JSON Schema of every value, which Helm checks at install, upgrade, lint and template ([source](https://helm.sh/docs/topics/charts/#schema-files)): mode, image tags, persistence, autoscaling, RBAC namespaces, CRD bindings and the `ruralz-control` partition (names: OQ-deployment-topologies-23) |
+| `ruralz-control` StatefulSet | Three pods with volumes; `RollingUpdate` with a `partition`, lowered one ordinal at a time from the highest, so only pods at or above it update ([source](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/#partitions)). Each step first moves leadership off the pod it replaces (SIGTERM transfer or `POST /api/v1/replicas/{serverId}/transfer`) and ends once the new pod is ready on 9902 and caught up in Raft. A pod with a peer certificate runs `serve`. On an empty volume only ordinal 0 at first install (no marker ConfigMap, no peer on headless 8092) runs `serve`; any other pod waits not ready for a join token, from the bootstrap Job at install, else from the replacement Job, then runs `join` |
+| Bootstrap Secret and Job | The chart generates a one-time bootstrap credential Secret, imported as process configuration (`bootstrap.adminCredentialFile`) by ordinal 0's first `serve`; the bootstrap Job uses it to mint join tokens at `/api/v1/replicas` into Secrets ordinals 1 and 2 mount, then writes the marker; the credential expires per Control plane's [Bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential) |
+| Replacement Job | Holds a standing credential scoped to replica replacement (OQ-deployment-topologies-26) in a Secret only it mounts. When a `ruralz-control` pod waits on an empty volume after install, the Job removes that ordinal's old voter with `DELETE /api/v1/replicas/{serverId}`, refused with `RZ-CP-019` for the leader or without a majority, then mints a join token at `POST /api/v1/replicas` into the Secret the pod mounts; Ruralz Control audits each call |
 | `ruralz-control` Services | 8090 behind a load balancer or Ingress; 8091 as L4 passthrough for mTLS; headless 8092; the conversion webhook (port: OQ-deployment-topologies-13, `caBundle` from the server CA) only from `ruralz.io/v1beta1`, Planned (M3), as `conversion.strategy: None` needs none |
-| Node StatefulSet | `podManagementPolicy: Parallel`, so a not-ready pod blocks none; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget; a persistent `${RURALZ_DATA_DIR}` volume |
-| Zone loss | Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up (below). The zone-loss procedure force-deletes them, releasing the volumes; replacements re-enroll via Ruralz Control (OQ-deployment-topologies-20) |
+| Node StatefulSet | `podManagementPolicy: Parallel`, so a not-ready pod blocks none; `RollingUpdate`, `maxUnavailable` matching the PodDisruptionBudget; a persistent `${RURALZ_DATA_DIR}` volume; in Control mode, a projected service account token to enroll with ([Enrollment per topology](#enrollment-per-topology)) |
+| Zone loss | Pods on unreachable nodes count until force-deleted or their nodes removed (`node.kubernetes.io/out-of-service` taint), their zonal volumes stuck; HPA reads them as idle on scale-up (below). The [stranded pod runbook](04-high-availability-and-disaster-recovery.md#stranded-pods-on-kubernetes) force-deletes them and releases their volumes; a Node replacement on a new volume enrolls with its projected token, and a `ruralz-control` one joins through the replacement Job |
 | Zone spread | `topologySpreadConstraints` on the zone label, `maxSkew: 1`, `whenUnsatisfiable: DoNotSchedule` |
 | Node Service | LoadBalancer for TCP 8080 and 8443; UDP 8443 (`http3: true`, Planned (M3)) needs a UDP balancer |
 | Probes | `/readyz` and `/healthz` on 9901, or 9902 for `ruralz-control` |
 | HorizontalPodAutoscaler | [Autoscaling signals](../architecture/11-scalability-and-distributed-state.md#autoscaling-signals) at their thresholds (target): CPU as a Resource metric, the rest as adapter Pods metrics, connections at 10,000 (target). `behavior.scaleDown` removes at most one zone's share per stabilized period (target); half-threshold scale-in is OQ-deployment-topologies-14. `minReplicas` holds the headroom and, without an adapter, peak connections / threshold; State Store shards bound `maxReplicas` ([Sizing defaults](#sizing-defaults)). As the Node count lags ([Warm-up](../architecture/11-scalability-and-distributed-state.md#warm-up)), Control-mode Clusters SHOULD declare per-Node ceilings c, below |
 | PodDisruptionBudgets | One `ruralz-control` pod; for Nodes, one zone's share at minimum scale (target) |
 | Termination | `terminationGracePeriodSeconds` per the [Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults) |
-| RBAC | Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace (OQ-deployment-topologies-1). `ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates. Bootstrap Job, in its namespace: `get` on the bootstrap Secret, `create` on token Secrets and the marker. None reads Secrets cluster-wide |
+| RBAC | Nodes: `get` and `watch` on own-namespace Secrets, only for `provider: kubernetes`; `list` and `watch` on `endpointslices.discovery.k8s.io` via a Role per Upstream namespace the values name. `ruralz-control`: `list` and `watch` on `ruralz.io` CRDs in bound namespaces, reads of cluster-scoped `Environment` and `Cluster` CRDs, cluster-scoped CRD status updates, and reads of the service account issuer's discovery document and keys, which a default binding grants every service account ([source](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#service-account-issuer-discovery)). Bootstrap Job, in its namespace: `get` on the bootstrap Secret, `create` on token Secrets and the marker. Replacement Job, in its namespace: `get` on its credential Secret, `list` on pods, `create` and `update` on token Secrets. None reads Secrets cluster-wide |
 
 Declared ceilings bind healthy admission too (pack 8.8): pick c per limit between the bounds below, at least one token per window, and declare `requests` / `maxReplicas` only where that under-admission is acceptable, else narrow the HPA range to `minReplicas` / `maxReplicas` ≥ 0.5. A declared cap on the derived ceiling: OQ-deployment-topologies-22.
 
@@ -180,9 +182,9 @@ Zone loss, 2 of 6 pods    4 survivors at x% CPU; HPA ratio 4x / (6 × 53%) > 1.1
 
 Once a second version is served, Planned (M3), non-storage-version CRD reads fail while every `ruralz-control` replica is down ([Migration tooling](../engineering/04-release-versioning-and-compatibility.md#migration-tooling)).
 
-The chart deploys both Ruralz Control and Nodes, with separate image tags and two upgrades, Ruralz Control first ([Upgrade order](../engineering/04-release-versioning-and-compatibility.md#upgrade-order)), each `OnDelete` replacement awaiting readiness and Raft catch-up. `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2. CRD kinds keep the Bundle kind names and join category `ruralz`, with short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`.
+The chart deploys both Ruralz Control, as the StatefulSet above, and Nodes, with separate image tags and two upgrades, Ruralz Control first ([Upgrade order](../engineering/04-release-versioning-and-compatibility.md#upgrade-order)); its replicas roll one at a time through the partition, each step gated on leadership transfer and readiness. `ruralzd` never reads CRDs; without Ruralz Control, Nodes use T2. CRD kinds keep the Bundle kind names and join category `ruralz`, with short names `rz` plus the lower-case kind (`rzroute`, `rzaimodel`), except `rzgw` and `rzenv`.
 
-Each Environment, whose Clusters share one Revision, has one primary source from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration): a Git path, or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` is an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). Until OQ-deployment-topologies-19 decides, a namespace source (a digest, not a commit) shows as Git divergence Drift, is refused under `requireApproval` unless overridden (audited), and never promotes.
+Each Environment, whose Clusters share one Revision, has one primary source from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration): a Bundle path in Git, or one bound namespace whose CRD objects are assembled into a Bundle; `ruralz bundle push` is an audited Drift exception ([other sources](../architecture/04-control-plane-and-gitops.md#ruralz-console-write-back-and-other-sources)). A namespace source is a normal source: each quiet object set builds the Environment's Revision, recorded with the object set's digest where a Git source records a commit, and promotes through `promotion.from` and `requireApproval` with the same gates and audit as a commit, so it never shows as Git divergence Drift.
 
 *Figure 4: T4 in Control mode.*
 
@@ -196,14 +198,15 @@ flowchart TB
     subgraph sys["Namespace for Ruralz"]
         c0["ruralz-control ordinal 0: serve on an empty Control Store at first install only"]
         cn["ruralz-control ordinals 1 and 2: join while no peer certificate, then serve"]
-        bsec["Bootstrap Secret: one-time credential generated by the chart, proposed"]
-        job["Bootstrap Job: join tokens, then install marker, proposed"]
+        bsec["Bootstrap Secret: one-time credential generated by the chart"]
+        job["Bootstrap Job: join tokens, then install marker"]
+        rjob["Replacement Job: scoped standing credential, removes the old voter, mints a join token"]
         c90["Service 8090: REST API and Ruralz Console"]
         c91["Service 8091: L4 passthrough for the Control Stream"]
         c92["Headless Service 8092: Raft peers"]
         cwh["Conversion webhook Service, port OQ-deployment-topologies-13, Planned (M3)"]
         nst["StatefulSet ruralzd: Parallel, volume for RURALZ_DATA_DIR, zone spread"]
-        init["Init container: mints an Enrollment token, proposed"]
+        sat["Projected service account token: audience-bound, short-lived"]
         hpa["HorizontalPodAutoscaler: CPU plus Pods metrics"]
         pdb["PodDisruptionBudgets"]
         nlb["Service type LoadBalancer: 8080, 8443"]
@@ -221,17 +224,18 @@ flowchart TB
     bsec -.->|"credential"| job
     job -.->|"POST /api/v1/replicas"| c90
     job -.->|"join token"| cn
+    rjob -.->|"DELETE, then POST /api/v1/replicas"| c90
+    rjob -.->|"join token after volume loss"| cn
     cn -.->|"Join, then Raft"| c92
     c92 --> c0
     c90 --> c0
     c91 --> c0
     k8s -.->|"conversion requests"| cwh
     cwh --> c0
-    c0 -.->|"CRD watch, bound namespaces only"| k8s
+    c0 -.->|"CRD watch, bound namespaces only; issuer discovery and keys"| k8s
     c0 -.->|"read Git objects"| git
-    init -.->|"REST API 8090, Cluster-scoped API token"| c90
-    init --> nst
-    nst -.->|"Node dials 8091"| c91
+    sat --> nst
+    nst -.->|"Node dials 8091, Enroll with the projected token"| c91
     hpa -.->|"scale"| nst
     pdb -.-> nst
     clients --> nlb
@@ -252,7 +256,7 @@ flowchart TB
 
 The binary and the helper install as `/usr/local/bin/ruralzd` and `/usr/local/bin/ruralzd-handover`, `systemd-sysusers` creates the user from the sysusers.d entry, and the admin token file then takes the group `ruralz`. `systemctl reload ruralzd` after replacing the binary runs the [handover](02-zero-downtime-upgrades-and-hot-reload.md#handover-under-systemd); `systemctl stop` Drains both processes during one, so `TimeoutStopSec` MUST exceed the 30 s exit bound (target) ([Drain timeline](02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)).
 
-**T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), and a restarted detached Node forgets revocations (OQ-security-and-identity-5).
+**T6.** A multi-Node site needs a local `redis` State Store; one Node MAY use `memory`. Nodes pull signed Revisions from a site mirror by default, verifying offline, or in Control mode dial 8091 when the uplink allows; certificates live 30 days (target), so a Node offline longer re-enrolls in the background on its return, with a fresh token, and a restarted detached Node keeps the revocations persisted in its data directory (pack 8.11).
 
 Clusters of one Environment promote one at a time (OQ-control-plane-and-gitops-4), so one site stops the rest: an uplink lost mid-Rollout fails a multi-Node site's batch, stopping promotion until an `operator` retries; a canary gate under 200 requests (target) pauses. Intermittent or low-traffic sites, and Environments above 50 sites (hypothesis), SHOULD use file mode or several Environments (OQ-deployment-topologies-4):
 
@@ -263,7 +267,7 @@ Per canary Cluster   canary.bake + 3 batches × max(30 s, 3 × 15 s heartbeats) 
 
 ### T7 and T8: per-team and multi-cluster
 
-**T7.** A Bundle has one Gateway, so a team needing its own blast radius or pace needs its own Bundle and Clusters, under its own or, once OQ-deployment-topologies-5 closes, a shared Ruralz Control; until then teams may share a Bundle with per-directory code owners and RBAC per Environment and Cluster.
+**T7.** A Bundle has one Gateway, so a team needing its own blast radius or pace needs its own Bundle and Clusters, under its own or a shared Ruralz Control. A shared one serves several Bundles: its [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration) binds each Environment to a Bundle path, a repository and a directory in it (keys: OQ-deployment-topologies-25), and RBAC binds each team's roles per Environment. Teams may instead share one Bundle with per-directory code owners and RBAC per Environment and Cluster.
 
 **T8.** With `promotion.from: staging`, a commit reaches `prod` only after its `staging` Revision reached `complete` (pack 8.1). A Cell splits at whichever [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing) ceiling in [Sizing defaults](#sizing-defaults) saturates first.
 
@@ -379,7 +383,7 @@ Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial e
 | 8443 UDP | `ruralzd` | HTTP/3 clients when `http3: true` | Client networks, UDP balancer; off in FIPS builds, Planned (M5) | QUIC; Consumer credentials | Planned (M3) |
 | 9901 TCP | `ruralzd` | Probes, scrapers, operators | Operator networks; binds all interfaces, so network policies SHOULD fence it | Only `/healthz` and `/readyz` unauthenticated ([Admin ports](../architecture/08-security-and-identity.md#admin-ports)) | Planned (M1) |
 | 8090 TCP | `ruralz-control` | Operators, CI, forge webhooks | Operator networks; the forge | Sessions or tokens, RBAC, audit log; HMAC for webhooks | Planned (M2) |
-| 8091 TCP | `ruralz-control` | Every Node | Node networks, L4 passthrough | mTLS, per-Node certificates; a one-time token for `Enroll` | Planned (M2) |
+| 8091 TCP | `ruralz-control` | Every Node | Node networks, L4 passthrough | mTLS, per-Node certificates; for `Enroll`, a one-time token or, in T4, a projected service account token | Planned (M2) |
 | 8092 TCP | `ruralz-control` | Other replicas; relays and token `Join` pending OQ-control-plane-and-gitops-15 | Replica networks only; unused with `postgres` | mTLS peer certificates; Node certificates rejected | Planned (M2); relays Planned (M4) |
 | 9902 TCP | `ruralz-control` | Probes, scrapers, operators | As 9901 | As 9901 | Planned (M2) |
 
@@ -388,7 +392,7 @@ Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial e
 | State Store calls, TLS, authenticated | Nodes | Own Cell's State Store only | With `redis` |
 | Pulls by digest | Nodes, CI, Ruralz Control | OCI registry or mirror | Revisions: T2, T6; Plugins: all |
 | Git reads, write-back pushes | Ruralz Control leader, CI | Git forge | T3, T4, T7 to T10 |
-| CRD watch and status; conversion webhook, Planned (M3) | Ruralz Control leader; API server | Kubernetes API; `ruralz-control` | T4 |
+| CRD watch and status; service account issuer discovery and keys; conversion webhook, Planned (M3) | Ruralz Control leader; API server | Kubernetes API or the cluster's OIDC issuer; `ruralz-control` | T4 |
 | Secret, discovery reads | Nodes | Kubernetes API or Vault | Those providers |
 | Upstream calls, JWKS, telemetry | Nodes; Ruralz Control telemetry | Upstreams, IdPs, OpenTelemetry collector | All |
 
@@ -407,9 +411,9 @@ This order brings up T3, T4, T5 and T10; later Nodes repeat steps 6 to 8.
 1. **State Store.** Primary and replica with failover across zones, `noeviction` where limit keys live ([State Store availability](../architecture/11-scalability-and-distributed-state.md#state-store-availability)).
 2. **First replica.** `ruralz control serve` on an empty Control Store creates or loads the CAs and leads, with Git source and Plugin trust policy from [process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration); after install, no replica of any ordinal does.
 3. **First administrators.** Steps 4 and 6 need an `admin` and a `security-admin`; creating the first uses the [bootstrap credential](../architecture/04-control-plane-and-gitops.md#bootstrap-credential): the chart's Secret in T4, else the `${RURALZ_DATA_DIR}/bootstrap-credential` file step 2 writes.
-4. **More replicas.** An `admin` gets a one-time join token from `POST /api/v1/replicas` or Ruralz Console; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>` stores a peer certificate, then `serve` starts a voter once caught up. `join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token.
+4. **More replicas.** An `admin` gets a one-time join token from `POST /api/v1/replicas` or Ruralz Console; on the new host, `ruralz control join --peer <leader>:8092 --advertise <self>:8092 --join-token-file <file>` stores a peer certificate, then `serve` starts a voter once caught up. `join` runs only while the data directory lacks a peer certificate; after volume loss, `DELETE /api/v1/replicas/{serverId}` removes the old voter, then mint a token. In T4 the bootstrap Job mints the install's join tokens, and after volume loss the replacement Job does both.
 5. **Environments and Clusters.** Commit `control/environments.yaml` and `control/clusters.yaml`; one Revision per Environment is signed.
-6. **Enrollment token.** A `security-admin` runs `ruralz node token --cluster prod-eu-west`: one-time, valid 1 hour (target), pinning the 8091 server CA and trust root.
+6. **Enrollment token.** A `security-admin` runs `ruralz node token --cluster prod-eu-west`: one-time, valid 1 hour (target), pinning the 8091 server CA and trust root. T4 pods need none: each enrolls with its projected service account token.
 7. **Node start.** Started with `RURALZ_CONFIG=ruralz-control://HOST:8091` and `RURALZ_ENROLLMENT_TOKEN_FILE` naming the step 6 token ([Node process configuration](../architecture/04-control-plane-and-gitops.md#node-process-configuration)), the Node generates a key pair and calls `Enroll` on 8091.
 8. **First delivery.** It persists its identity, opens the Control Stream, activates its Cluster's Snapshot and ACKs; `/readyz` returns 200.
 
@@ -448,12 +452,12 @@ sequenceDiagram
 | Topology | Token minted by | Identity storage | Re-enrollment when |
 |---|---|---|---|
 | T3, T5 | `security-admin`, or a job with a Cluster-scoped API token under quota and Node cap | Local disk | Identity lost, certificate expired, Environment changed |
-| T4 | An init container via `enrollment-tokens`, just in time (proposed, OQ-deployment-topologies-2) | Persistent volume per pod | Volume deleted; scale-in leftovers (OQ-deployment-topologies-3) |
+| T4 | None: each pod presents its projected service account token, audience-bound, short-lived and refreshed by the kubelet ([source](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/#serviceaccount-token-volume-projection)), which Ruralz Control verifies against the cluster's OIDC issuer, so no standing enrollment secret lives in the cluster (fields and pins: OQ-deployment-topologies-24) | Persistent volume per pod | Volume deleted; scale-in leftovers (OQ-deployment-topologies-3) |
 | T6 | The installer while the uplink works | Local disk | Offline beyond the certificate lifetime |
 | T9 | As T3 or T4, against the home Region | As T3 or T4 | Also after a restore without a revocation list |
 | T10 | Customer `security-admin` or job, on the managed side | Customer disks | Also on exit |
 
-`Enroll` rate-limits each source and locks it out after 10 failures in 10 minutes (target); behind NAT (T10, many T4 clusters) Nodes share one source and lockout. The rate MUST cover the largest scale-out step per egress address, such as a Cluster growing from 10 to 100 Nodes in 2 minutes, 90 Enrolls (target); mint tokens just in time and alert on RZ-CP-001 bursts (keying: OQ-deployment-topologies-15).
+`Enroll` rate limits and lockouts are keyed by source address plus the token's Cluster: 10 failures in 10 minutes (target) lock out only that pair, so behind NAT (T10, many T4 clusters) one Cluster's Nodes share a limit and lockout while other Clusters behind the address keep theirs. Each Cluster's rate MUST cover its largest scale-out step per egress address, such as growing from 10 to 100 Nodes in 2 minutes, 90 Enrolls (target); mint tokens just in time and alert on RZ-CP-001 bursts. A serving Node refused with `RZ-CP-003`, after an expiry, restore or rebuild, re-enrolls in the background without leaving service ([HA and DR](04-high-availability-and-disaster-recovery.md#re-enrollment-after-a-restore-or-rebuild)).
 
 ## Configuration delivery per topology
 
@@ -461,9 +465,9 @@ sequenceDiagram
 |---|---|---|---|---|
 | T1 | Local source Bundle | CLI render, atomic rename | None | Digest only |
 | T2 directory | Git, rendered by CI | Atomic directory replacement | Only if CI stages it; replace again | Filesystem trust root |
-| T2 OCI, T6 mirror | Git, built by CI | `ruralz bundle push --oci`; jittered poll, pull by digest | Only through a staged reference; republish an older digest | Sigstore, `enforce` |
+| T2 OCI, T6 mirror | Git, built by CI | `ruralz bundle push --oci`; jittered poll, pull by digest | Only through a staged reference; push an older Revision again, signed at a new sequence | Sigstore, `enforce`, signed Environment and sequence |
 | T3, T5, T7 to T10 | Git, the customer's in T10 | Rollout over the Control Stream, through relays in T9 | `Cluster.spec.rollout`; `ruralz rollout rollback`; Clusters in turn | Ruralz Control signature, end to end |
-| T4 | Git or one bound namespace per Environment | As T3, CRDs assembled into a Bundle | As T3; namespace sources per OQ-system-overview-8 | As T3 |
+| T4 | Git or one bound namespace per Environment | As T3, CRDs assembled into a Bundle | As T3, namespace sources included | As T3 |
 | T6 Control mode | Git | As T3 when connected | As T3; lagging or thin sites stop promotion (T6) | As T3; re-enrollment after 30 days offline (target) |
 
 Rules:
@@ -541,7 +545,7 @@ A platform team serving product teams in one Region, Planned (M2).
 | State Store | One per Cluster: 11 shards for 30 pods, each with a replica across zones (hypothesis, Sizing defaults) | Each Cluster is a Cell; script CPU alerts |
 | Network | LoadBalancer Node Service; 8091 passthrough; 8090 behind an Ingress | Network policies keep 9901, 9902 and 8092 internal |
 
-Failure behavior: a lost zone leaves at least four Nodes under 80% CPU at unchanged load (target), its stranded pods blocking scale-out until force-deleted (T4); a Ruralz Control outage freezes Rollouts and the Node count, not traffic; a bad Revision stops at the canary Nodes of `prod`.
+Failure behavior: a lost zone leaves at least four Nodes under 80% CPU at unchanged load (target), its stranded pods blocking scale-out until the [stranded pod runbook](04-high-availability-and-disaster-recovery.md#stranded-pods-on-kubernetes) force-deletes them (T4); a Ruralz Control outage freezes Rollouts and the Node count, not traffic; a bad Revision stops at the canary Nodes of `prod`.
 
 ### RA-3: multi-region active-active with Cells
 
@@ -556,27 +560,23 @@ A public API in two Regions with residency constraints, Planned (M4).
 | Capacity | R / (R − 1) of each Region's peak share, 100% of global peak with two (target), per Cell resource (T9) | Autoscaler minimums hold it |
 | Environments | `prod` shared, or `prod-eu` and `prod-us` for divided quotas | Shares render from `${VAR}` |
 
-Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A lost home Region also holds Rollouts and Enrollment until `ruralz control restore` runs in the other Region ([HA and DR](04-high-availability-and-disaster-recovery.md)), which MUST supply the exported revocation list, else every Node re-enrolls at about 20 per second per leader (hypothesis), bulk tokens under the minting quota (OQ-deployment-topologies-18).
+Failure behavior: a lost Region's traffic moves to pre-provisioned capacity. A lost home Region also holds Rollouts and Enrollment until `ruralz control restore` runs in the other Region ([HA and DR](04-high-availability-and-disaster-recovery.md)), which MUST supply the exported revocation list, else every Node re-enrolls in the background while serving, at about 20 per second per leader (hypothesis), with tokens minted in batches under the minting quota.
 
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-deployment-topologies-1 | Which Helm values select mode, persistence, autoscaling, RBAC namespaces and CRD bindings? | (a) With a JSON Schema (proposed); (b) documented only | deployment-topologies | Yes, for the Planned (M2) chart |
-| OQ-deployment-topologies-2 | How does an autoscaled Control-mode pod get its Enrollment token? | (a) A just-in-time init container with a Cluster-scoped API token (proposed); (b) a pool; (c) a service account credential | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
 | OQ-deployment-topologies-3 | What happens to scaled-in Nodes' identities and volumes? | (a) Kept until certificates expire (current); (b) revoked after disconnection; (c) deleted and revoked | control-plane-and-gitops | No |
 | OQ-deployment-topologies-4 | What changes serial promotion at the edge (T6)? | (a) Parallel waves (OQ-control-plane-and-gitops-4 (c)); (b) skipping failed Clusters, or lag-tolerant plans; (c) fewer, larger Clusters; (d) file mode (current) | control-plane-and-gitops | No |
-| OQ-deployment-topologies-5 | Can one Ruralz Control serve several Bundles? | (a) [Process configuration](../architecture/04-control-plane-and-gitops.md#process-configuration) binds Environments to Bundle paths (proposed); (b) no | control-plane-and-gitops | Yes, for Planned (M2) per-team layouts |
-| OQ-deployment-topologies-9 | In T10, who holds the offline trust-root key and Plugin trust policy? | (a) The customer (proposed; OQ-control-plane-and-gitops-8); (b) the managed party | security-and-identity | No |
+| OQ-deployment-topologies-9 | In T10, who holds the offline trust-root key and Plugin trust policy? | (a) The customer (proposed), the root staying offline as in every deployment ([Revision signing](../architecture/04-control-plane-and-gitops.md#revision-signing-and-verification)); (b) the managed party | security-and-identity | No |
 | OQ-deployment-topologies-10 | How does a managed Ruralz Control reach a forge or registry refusing inbound connections? | (a) Customer CI pushes Bundles and runs the Plugin check; (b) reachable mirrors; (c) both | deployment-topologies | No |
-| OQ-deployment-topologies-12 | How do chart ordinals 1 and 2 get join tokens? | (a) A bootstrap Job with the bootstrap credential (proposed); (b) a manual step | deployment-topologies | Yes, for the Planned (M2) chart |
 | OQ-deployment-topologies-13 | Which port serves the CRD conversion webhook, absent from pack 8.4? | (a) A new port in pack 8.4 (proposed); (b) a path on 8090 | deployment-topologies | Yes, before `ruralz.io/v1beta1`, Planned (M3) |
 | OQ-deployment-topologies-14 | How does the chart scale in only below half of every threshold? | (a) Scale-down policies only (current); (b) an external autoscaler | deployment-topologies | No |
-| OQ-deployment-topologies-15 | How are `Enroll` rates and lockouts keyed when Nodes share an egress address? | (a) Source plus the token's Cluster (proposed); (b) per token; (c) an allowed-CIDR exemption | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
 | OQ-deployment-topologies-16 | Which setting holds a file-mode Node's jittered OCI poll interval? | (a) A process setting beside OQ-system-overview-19 (proposed); (b) a Gateway field | configuration-model | No |
 | OQ-deployment-topologies-17 | What do Nodes do when all their Region's relays are lost? | (a) Stay detached; (b) dial the home Region, sized to cover them | control-plane-and-gitops | Yes, for Planned (M4) |
-| OQ-deployment-topologies-18 | How do thousands of Nodes re-enroll after a restore without a revocation list? | (a) Bulk procedure, batched tokens (proposed); (b) require the list | high-availability-and-disaster-recovery | No |
-| OQ-deployment-topologies-19 | Should a namespace-primary Environment show as Drift, and can object sets promote? | (a) A normal source whose object sets promote (proposed); (b) Drift, no promotion | control-plane-and-gitops | Yes, for the Planned (M2) CRD source |
-| OQ-deployment-topologies-20 | After volume or zone loss, does the chart automate replacing a `ruralz-control` replica via `DELETE /api/v1/replicas/{serverId}`, and how are stranded Node pods released ([HA and DR](04-high-availability-and-disaster-recovery.md))? | (a) A chart Job holding a standing credential removes the voter, mints a join token; runbooks force-delete Node pods (proposed); (b) manual steps; (c) higher `minReplicas` or zone-replicated volumes; (d) Nodes as a Deployment | high-availability-and-disaster-recovery | Yes, for the Planned (M2) chart |
 | OQ-deployment-topologies-21 | Can small Nodes get a lower connection ceiling? | (a) Fixed (current, OQ-data-plane-1 (a)); (b) or (c) of OQ-data-plane-1, with OQ-capacity-planning-5 | data-plane | No |
 | OQ-deployment-topologies-22 | Should a declared per-Node cap bound the derived ceiling, min(derived, cap), not replace it? | (a) Yes (proposed); (b) replace (current) | traffic-management-and-resilience | No |
+| OQ-deployment-topologies-23 | Which values, with which shapes, does `values.schema.json` define for mode, image tags, persistence, autoscaling, RBAC namespaces, CRD bindings and the `ruralz-control` partition? | (a) Two maps, closed to unknown keys: `control` with `enabled`, `replicas`, `image.tag`, `persistence.size`, `partition` and `config`, the process configuration file, which holds the CRD bindings; `nodes` with `config`, the Node's `RURALZ_CONFIG`, whose scheme selects the mode, `image.tag`, `persistence.size`, `autoscaling` (`minReplicas`, `maxReplicas`, `metrics` and `behavior`, passed to the HorizontalPodAutoscaler) and `rbac.discoveryNamespaces` (proposed); (b) one map per chart object, named after its Kubernetes fields | deployment-topologies | Yes, for the Planned (M2) chart |
+| OQ-deployment-topologies-24 | Which fields name the issuer, audience and service accounts Ruralz Control trusts for a pod's `Enroll`, each mapped to a Cluster, and how does such a pod pin the 8091 server CA and trust root without a minted token? | (a) Process configuration `enrollment.serviceAccounts[]`, each with `cluster`, `issuer` (the OIDC issuer URL), `audience`, `subjects[]` (`NAMESPACE/NAME`) and an optional `caFile`, applied on reload; the pod's `RURALZ_ENROLLMENT_TOKEN_FILE` names its projected token, and the same projected volume carries a ConfigMap, written by the bootstrap Job, with both fingerprints (proposed); (b) `Cluster.spec.enrollment` fields with the same members, pins as in (a) | control-plane-and-gitops | Yes, for Planned (M2) autoscaling |
+| OQ-deployment-topologies-25 | Which process configuration keys bind an Environment to its Bundle path, a repository and a directory, when one Ruralz Control serves several Bundles? | (a) `git.url`, `git.branch` and `git.credentialsFile` keep the repository holding `control/` and, in `bundle/`, the default Bundle; `git.bundles[]` entries, each with `environments[]`, `url`, `branch`, `credentialsFile` and `directory`, bind other Environments elsewhere, and `webhooks[].source` names any of these repositories (proposed); (b) per-Environment `environments[].git` maps with the same members | control-plane-and-gitops | Yes, for Planned (M2) per-team layouts |
+| OQ-deployment-topologies-26 | What is the replacement Job's standing credential: who issues it, what may it call, how does it meet the step-up voter removal needs, and what starts the Job? | (a) An API token an `admin` issues under Access, without expiry, whose scope admits only `POST /api/v1/replicas` and `DELETE /api/v1/replicas/{serverId}` for the voter advertising a waiting pod's address, standing in for step-up on those two calls; a CronJob runs the Job every minute (target), a no-op unless a pod waits (proposed); (b) the bootstrap credential, kept past install with the same limits, the Job run as a `helm upgrade` hook | control-plane-and-gitops | Yes, for the Planned (M2) chart |
