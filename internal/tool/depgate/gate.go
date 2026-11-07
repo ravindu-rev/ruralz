@@ -261,6 +261,14 @@ func mergeTexts(have []legalText, dir string, texts []legalText) []legalText {
 // governing directory, as licenseOverrides keys them. It returns the
 // classified licenses, the reviewed override if one applied, and a finding
 // or "".
+//
+// Texts naming several licenses mean either a choice (dual licensing, one
+// license OR another) or files under different licenses (one AND another),
+// which the texts alone cannot tell apart. So a module passes either
+// through a licenseElections entry, a reviewed choice that names one of its
+// licenses and is recorded in NOTICE, or when every license it names is
+// allowed (docs/engineering/01-tech-stack-and-libraries.md, "License
+// rules").
 func checkLicense(key, modulePath string, texts []legalText) (ids []string, override, finding string) {
 	if id, ok := licenseOverrides()[key]; ok {
 		ids, override = []string{id}, id
@@ -274,20 +282,29 @@ func checkLicense(key, modulePath string, texts []legalText) (ids []string, over
 		}
 		slices.Sort(ids)
 	}
-	for _, id := range ids {
-		switch {
-		case slices.Contains(allowedLicenses(), id):
-			return ids, override, ""
-		case id == "MPL-2.0" && slices.Contains(mplExceptions(), modulePath):
-			return ids, override, ""
-		case licenseElections()[modulePath] == id:
-			return ids, override, ""
-		}
-	}
 	if len(ids) == 0 {
 		return ids, override, "no license text found; add a reviewed override (G2)"
 	}
-	return ids, override, fmt.Sprintf("license %s is not allowed (G2)", strings.Join(ids, ", "))
+	if elected, ok := licenseElections()[modulePath]; ok {
+		if slices.Contains(ids, elected) {
+			return ids, override, ""
+		}
+		return ids, override, fmt.Sprintf("elected license %s is not among the module's licenses %s (G2)", elected, strings.Join(ids, ", "))
+	}
+	var refused []string
+	for _, id := range ids {
+		if !slices.Contains(allowedLicenses(), id) && (id != "MPL-2.0" || !slices.Contains(mplExceptions(), modulePath)) {
+			refused = append(refused, id)
+		}
+	}
+	switch {
+	case len(refused) == 0:
+		return ids, override, ""
+	case len(ids) > 1:
+		return ids, override, fmt.Sprintf("licenses %s include %s, which is not allowed; a module licensed under any one of them needs an election, and one under all of them is refused (G2)", strings.Join(ids, ", "), strings.Join(refused, ", "))
+	default:
+		return ids, override, fmt.Sprintf("license %s is not allowed (G2)", strings.Join(ids, ", "))
+	}
 }
 
 // checkCrypto applies G3 to one package and returns a finding or "".

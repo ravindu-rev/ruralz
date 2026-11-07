@@ -162,6 +162,7 @@ func TestAnalyze(t *testing.T) {
 	}
 	want := []string{
 		"example.com/gpl: license GPL is not allowed",
+		"example.com/dual: licenses GPL, MIT include GPL, which is not allowed; a module licensed under any one of them needs an election",
 		"example.com/mpl: license MPL-2.0 is not allowed",
 		"github.com/hashicorp/raft: ruralzd never links Raft",
 		"github.com/hashicorp/raft-boltdb/v2: ruralzd never links Raft",
@@ -342,6 +343,41 @@ func TestCheckLicenseOverride(t *testing.T) {
 	}
 	if _, _, finding := checkLicense("github.com/hashicorp/raft", "github.com/hashicorp/raft", lic(mplText)); finding != "" {
 		t.Errorf("MPL-2.0 exception: finding %q", finding)
+	}
+}
+
+// TestCheckLicenseSeveralLicenses: texts naming several licenses pass
+// through an election that names one of them, or when every one is
+// allowed; one disallowed license without an election is a finding, since
+// the texts cannot tell a choice from files under different licenses.
+func TestCheckLicenseSeveralLicenses(t *testing.T) {
+	edl := legalText{Rel: "edl-v10", Kind: kindLicense, Text: "Eclipse Distribution License - v 1.0 ... Redistribution and use in source and binary forms"}
+	epl := legalText{Rel: "epl-v20", Kind: kindLicense, Text: "Eclipse Public License - v 2.0"}
+	gpl := legalText{Rel: "LICENSE-GPL", Kind: kindLicense, Text: gplText}
+	bsd := legalText{Rel: "LICENSE.BSD", Kind: kindLicense, Text: bsdText}
+	mpl := legalText{Rel: "LICENSE.MPL", Kind: kindLicense, Text: mplText}
+	tests := []struct {
+		name, module string
+		texts        []legalText
+		want         string // a substring of the finding; "" passes
+	}{
+		{name: "an election naming one of the licenses", module: "github.com/eclipse/paho.golang", texts: []legalText{edl, epl}},
+		{name: "an election naming no license of the module", module: "github.com/eclipse/paho.golang", texts: []legalText{epl, gpl}, want: "elected license EDL-1.0 is not among the module's licenses EPL, GPL"},
+		{name: "every license allowed", module: "example.com/m", texts: append(lic(mitText), legalText{Rel: "LICENSE-APACHE", Kind: kindLicense, Text: "Apache License Version 2.0, January 2004"})},
+		{name: "an allowed and a refused license without an election", module: "example.com/m", texts: append(lic(mitText), gpl), want: "licenses GPL, MIT include GPL, which is not allowed"},
+		{name: "per-file BSD and MPL-2.0 without an exception", module: "example.com/securejoin", texts: []legalText{bsd, mpl}, want: "include MPL-2.0, which is not allowed"},
+		{name: "per-file BSD and MPL-2.0 with an MPL-2.0 exception", module: "github.com/hashicorp/raft", texts: []legalText{bsd, mpl}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, finding := checkLicense(tc.module, tc.module, tc.texts)
+			switch {
+			case tc.want == "" && finding != "":
+				t.Errorf("checkLicense = finding %q, want a pass", finding)
+			case tc.want != "" && !strings.Contains(finding, tc.want):
+				t.Errorf("checkLicense = finding %q, want one containing %q", finding, tc.want)
+			}
+		})
 	}
 }
 
