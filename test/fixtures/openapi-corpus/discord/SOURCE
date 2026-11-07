@@ -1,0 +1,9 @@
+name: Discord HTTP API
+url: https://github.com/discord/discord-api-spec
+commit: 3a21a01249a763cd47f1dfec3da91c5ba71bb974
+base: specs
+document: openapi.json
+file: openapi.json sha256 ef338088f4c6a73fdb9840acd1ce2bf8f16c1870f4437bfc563418c7e0de7278
+license: MIT (LICENSE)
+license-sha256: 02c955561564f3b5343c656b7eacd6c770e2624a039b81b6bc7828fbe8c9ab52
+updated-by: scripts/update-test-suites.sh

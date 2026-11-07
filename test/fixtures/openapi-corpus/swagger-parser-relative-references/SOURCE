@@ -1,0 +1,16 @@
+name: Swagger Parser test: relative path item references
+url: https://github.com/swagger-api/swagger-parser
+commit: 69f6d78250b70d2ccfcd306ff0aa74353a698f2a
+base: modules/swagger-parser-v3/src/test/resources/relative-references-example
+document: openapi.yaml
+file: openapi.yaml sha256 cc8d31fdfbdda57c4ff733fe9e9758e15d66f26a31f31d46e1974e1b9f3299f6
+file: _responses/UnexpectedError.yaml sha256 616a4c615aebd358e15fad372fb7af038836f72aed443eea86a3c4bdc65b57d9
+file: _schemas/error.yaml sha256 e8c5786dd375df3c47f87255ec8c41c78a5f39127c414aa701e9a80f624a104d
+file: security/_resources/authorize.yaml sha256 169491748342d6120a37ce63e42d836226fdd299b6bdfa41f5ef676e73a0fbc3
+file: security/_resources/login.yaml sha256 6217de7e8d32435823e8da8f5237362bdd6224272874a68b31fefea39a561771
+file: security/_schemas/usernamepasswordcredentials.yaml sha256 ec0ac44c738e84fd15e3d173ebe3c3ce55926db2e379f433ad4934d36d7f3894
+license: Apache-2.0 (LICENSE)
+license-sha256: 2f5628cc896692143c029ab9446585db445a25137562e1321faadc70ed8bc9c9
+notice: NOTICE
+notice-sha256: 61e35e0cc285a492bb5dd90bafb9695afaa6b7b93a460a9d6be37b432b4922a0
+updated-by: scripts/update-test-suites.sh

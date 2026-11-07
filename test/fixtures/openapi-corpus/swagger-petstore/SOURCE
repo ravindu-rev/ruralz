@@ -1,0 +1,9 @@
+name: Swagger Petstore (OpenAPI 3.0)
+url: https://github.com/swagger-api/swagger-petstore
+commit: 5cb909fc7780bc708151bce0014939acba8b212a
+base: src/main/resources
+document: openapi.yaml
+file: openapi.yaml sha256 65cfe2e8826c81db0eea34c51d18da3a305ae4840f1a778cd63b89d396efb687
+license: Apache-2.0 (LICENSE)
+license-sha256: b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1
+updated-by: scripts/update-test-suites.sh

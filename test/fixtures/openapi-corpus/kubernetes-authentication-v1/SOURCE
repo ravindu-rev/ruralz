@@ -1,0 +1,9 @@
+name: Kubernetes API authentication.k8s.io/v1
+url: https://github.com/kubernetes/kubernetes
+commit: 3a92e6afd51585de38b0916494c7bf7c638b1b74
+base: api/openapi-spec/v3
+document: apis__authentication.k8s.io__v1_openapi.json
+file: apis__authentication.k8s.io__v1_openapi.json sha256 443427d822f77db77202c96df06d453845abc5cc67390180129a67e6c74d421e
+license: Apache-2.0 (LICENSE)
+license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+updated-by: scripts/update-test-suites.sh

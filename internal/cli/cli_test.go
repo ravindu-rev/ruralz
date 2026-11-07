@@ -94,11 +94,16 @@ func TestRegistryIsValid(t *testing.T) {
 }
 
 // runnablePaths are the runnable commands: the rows of the reference's
-// command table that carry no Planned tag of their own.
+// command table that carry no Planned tag of their own, and the commands
+// of the milestone in progress this build already runs, whose rows keep
+// their tag until the milestone exits.
 func runnablePaths() [][]string {
 	return [][]string{
+		{"bundle", "audit"},
 		{"bundle", "build"},
 		{"bundle", "diff"},
+		{"bundle", "export"},
+		{"bundle", "import"},
 		{"bundle", "render"},
 		{"bundle", "validate"},
 		{"completion"},
@@ -121,7 +126,8 @@ func specIndex(specs []command.Spec) map[string]command.Spec {
 
 // TestRegistryRunsTheReleasedCommands pins the runnable commands: exactly
 // the rows of the reference's command table that carry no Planned tag of
-// their own.
+// their own, and the commands of the milestone in progress already built
+// (runnablePaths).
 func TestRegistryRunsTheReleasedCommands(t *testing.T) {
 	var got [][]string
 	for _, s := range Registry(testOptions()) {

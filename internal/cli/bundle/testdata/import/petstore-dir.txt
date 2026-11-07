@@ -1,0 +1,94 @@
+== routes/create-pets.yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: create-pets
+spec:
+  match:
+    path:
+      exact: /v1/pets
+    methods:
+      - POST
+  upstreams:
+    - name: petstore-example
+== routes/delete-pets-pet-id.yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: delete-pets-pet-id
+spec:
+  match:
+    path:
+      template: "/pets/{pet_id}"
+    methods:
+      - DELETE
+  upstreams:
+    - name: admin-petstore-example-8080
+== routes/get-photo.yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: get-photo
+spec:
+  match:
+    path:
+      regex: "/v1/pets/[^/]+/photo\\.[^/]+"
+    methods:
+      - GET
+  upstreams:
+    - name: petstore-example
+== routes/list-pets.yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: list-pets
+spec:
+  match:
+    path:
+      exact: /v1/pets
+    methods:
+      - GET
+  upstreams:
+    - name: petstore-example
+== routes/show-pet-by-id.yaml
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: show-pet-by-id
+spec:
+  match:
+    path:
+      template: "/v1/pets/{pet_id}"
+    methods:
+      - GET
+  upstreams:
+    - name: petstore-example
+== ruralz.yaml
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+== upstreams/admin-petstore-example-8080.yaml
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: admin-petstore-example-8080
+spec:
+  protocol: http
+  endpoints:
+    - address: "admin.petstore.example:8080"
+== upstreams/petstore-example.yaml
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: petstore-example
+spec:
+  protocol: http
+  endpoints:
+    - address: "petstore.example:443"
+  tls: {}

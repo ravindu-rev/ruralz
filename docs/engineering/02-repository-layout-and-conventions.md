@@ -64,7 +64,7 @@ github.com/ravindu-rev/ruralz
 │   ├── control/                 api, rollout, drift, enroll, gitsource (M0 stub until Planned (M2))
 │   ├── controlstore/            raft (default), postgres (Planned (M4))
 │   ├── controlstream/           client (Node side), server (Ruralz Control side)
-│   ├── cli/                     root, command, completion, adminclient; one package per noun
+│   ├── cli/                     root, command, completion, adminclient, openapi, export, audit; one package per noun
 │   ├── config/                  diag, tree, hub, revision, stages loader to canonical, pipeline
 │   ├── expr/, cel/              CEL contracts (stdlib only) and the cel-go implementation
 │   ├── filter/                  Filter SPI; built-in Filters, one package per Policy type; builtin
@@ -144,7 +144,7 @@ Every hand-written TypeScript file starts with the license header of [Code conve
 
 ### Package layers
 
-M1 packages form layers L0 to L8. The rule is "acyclic, never upward": a package imports only packages of its own layer or a lower one. Test support and CI tools sit outside the layers and may import any production package; production code never imports them. The map lists every M1 package; paths are under `internal/` unless they start with `pkg/`, `api/`, `cmd/` or `test/`.
+Packages form layers L0 to L8. The rule is "acyclic, never upward": a package imports only packages of its own layer or a lower one. Test support and CI tools sit outside the layers and may import any production package; production code never imports them. The map lists every package; paths are under `internal/` unless they start with `pkg/`, `api/`, `cmd/` or `test/`.
 
 ```text
 L8    cmd/ruralzd -> gateway    cmd/ruralz -> cli    cmd/ruralz-control -> control (M0 stub)
@@ -152,7 +152,7 @@ L7    gateway (Run)    cli (root)    control (M0 stub)
 L6    gateway/{reload,lkg,source}    cli/{bundle,launch,dev}
 L5    config/pipeline    gateway/{handler,handover,compile}    filter/builtin    filter/builtin/checks    cli/node
 L4    config/{loader,validate,diff,render}    gateway/{composition,drain,replay}    gateway/upstream/forward
-      cli/adminclient
+      cli/adminclient    cli/openapi
 L3    cel    telemetry (Runtime)    config/{profile,schemaview,overlay,subst,defaults,convert,precedence,canonical}
       statestore/{memory,redis,manager,postcommit}
       gateway/{executor,exchange,retire,router,listener,reuseport,tap,readiness,admin,upstream}
@@ -163,7 +163,7 @@ L2    config/{schemaidx,registry}    identity    filter/auth    filter/auth/jwt/
       secret/resolver    cel/celtypes
       telemetry/{aggregate,tracing,logsink,accesslog}    statestore/{breaker,keys}    nodedir
       gateway/{setting,admission,body,sdnotify}    gateway/upstream/{balance,discovery,health,resilience}
-      clientaddr    egress    tlsconf    adminauth    redact    signing    cli/{command,completion}
+      clientaddr    egress    tlsconf    adminauth    redact    signing    cli/{command,completion,export,audit}
 L1    expr    secret    config/{tree,hub}    telemetry/emit    statestore    filter    gateway/snapshot
 L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{diag,revision}    telemetry/catalog
       ulid    jsonval    httpfield    sfv    routematch    netaddr    pkg/config/v1alpha1    api/schema

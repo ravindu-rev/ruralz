@@ -1,0 +1,11 @@
+name: NGINX Unit control API
+url: https://github.com/nginx/unit
+commit: 76b39e928bd29f09278b60c3878b9f3d032b45b6
+base: docs
+document: unit-openapi.yaml
+file: unit-openapi.yaml sha256 e820c4dc1aaeea9d7df1bd4df55481b796e108b2054c37616a1f6708dde79b9b
+license: Apache-2.0 (LICENSE)
+license-sha256: 809fa1ed21450f59827d1e9aec720bbc4b687434fa22283c6cb5dd82a47ab9c0
+notice: NOTICE
+notice-sha256: b6db4fa21365eed73579e9c2a987e46e6556797fc304c431ceb68b73c6b63854
+updated-by: scripts/update-test-suites.sh

@@ -1,0 +1,9 @@
+name: Temporal HTTP API
+url: https://github.com/temporalio/api
+commit: fb8922776dc847f5cbac40a24df8960793812f40
+base: openapi
+document: openapiv3.yaml
+file: openapiv3.yaml sha256 966e8c4366b99506f071492764e028449501c926759f41ca3f38042008f0cff1
+license: MIT (LICENSE)
+license-sha256: dfab09792f0b0df7b589581f87654f7da8f6c191145c4d3e994f35027a85e193
+updated-by: scripts/update-test-suites.sh

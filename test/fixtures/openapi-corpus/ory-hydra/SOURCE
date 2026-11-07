@@ -1,0 +1,9 @@
+name: Ory Hydra API v26.2.0
+url: https://github.com/ory/sdk
+commit: 08490de25ee292f76ef22fd5f264e204739b17c0
+base: spec/hydra
+document: v26.2.0.json
+file: v26.2.0.json sha256 aa95a73bb14a90b8f2ce1f852cc41418cdbef3ac3bdedc09a48df0bc97a40540
+license: Apache-2.0 (LICENSE)
+license-sha256: c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4
+updated-by: scripts/update-test-suites.sh

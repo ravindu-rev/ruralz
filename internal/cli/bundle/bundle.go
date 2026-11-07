@@ -4,19 +4,22 @@
 // Package bundle implements the ruralz bundle commands of
 // docs/reference/01-cli-and-api-surface.md ("Bundle verbs in detail",
 // "Global flags", "Output formats and exit codes"): ruralz bundle validate,
-// render, diff and build, which run Bundles through the configuration
-// pipeline facade (internal/config/pipeline) with the offline Policy checks
-// every binary links (checks.Table()) and the CEL compiler, so the CLI
-// reports what Ruralz Control ingest and Node activation report for the
-// same overlay and variables. The M2 verbs push, import, export and audit
-// are table rows marked Planned.
+// render, diff, build, export and audit, which run Bundles through the
+// configuration pipeline facade (internal/config/pipeline) with the
+// offline Policy checks every binary links (checks.Table()) and the CEL
+// compiler, so the CLI reports what Ruralz Control ingest and Node
+// activation report for the same overlay and variables, and ruralz bundle
+// import, which writes a Bundle from an OpenAPI document and runs it
+// through the same stages first. The M2 verb push is a table row marked
+// Planned.
 //
 // # Registration
 //
 // The package holds no state. Specs returns the rows of the bundle noun,
-// ValidateSpec, RenderSpec, DiffSpec and BuildSpec one command each; the
-// root's command table (cli.Registry) appends them and command.Execute
-// dispatches them. Options carries the dependencies: the clock of the
+// ValidateSpec, RenderSpec, DiffSpec, BuildSpec, ImportSpec, ExportSpec
+// and AuditSpec one command each; the root's command table (cli.Registry)
+// appends them and command.Execute dispatches them. Options carries the
+// dependencies: the clock of the
 // admin client's deadlines and of the pipeline's yield timer, the admin
 // client's randomness, the CLI's build version and standard input; the
 // zero value is the real machine. Each run builds one pipeline.
@@ -107,6 +110,42 @@
 // Plugin exits 1 until the Plugin check ships. --output-file receives the
 // ruralz.canonical.v1 content, which hashes to the printed digest.
 //
+// # ruralz bundle import
+//
+// ruralz bundle import openapi FILE reads an OpenAPI 3.0 or 3.1 document
+// with the files its relative references name (internal/cli/openapi) and
+// writes a Bundle: a Gateway edge with one http listener on 8080, one
+// Upstream per server the operations use and one Route per operation. A
+// document that cannot be read, or that is no readable OpenAPI 3.0 or 3.1
+// document, exits 2, each problem printed on standard error as
+// "<file>:<line>:<column>: <message>". What the mapping leaves out prints
+// as "warning: <file>:<line>:<column>: <message>". The Bundle runs through
+// every offline stage before anything is written; a Bundle that does not
+// validate prints its diagnostics and exits 2. It then goes to --output-dir
+// DIR, which must not exist or must be empty, as ruralz.yaml, upstreams/
+// and routes/, all files or none (render.WriteTree), or else as a one-file
+// Bundle to standard output.
+//
+// # ruralz bundle export
+//
+// ruralz bundle export openapi|postman|dot [DIR] renders one Environment
+// offline and writes an OpenAPI 3.1 document of its HTTP Routes (YAML, or
+// JSON with --output json), a Postman collection v2.1 of the same
+// operations, or a Graphviz DOT graph of its Routes, Policies and
+// Upstreams, of one Route with --route (internal/cli/export). A Route or
+// method without an operation prints "warning: Route/<name>: <reason>"; an
+// invalid Bundle prints its diagnostics on standard error and exits 1.
+//
+// # ruralz bundle audit
+//
+// ruralz bundle audit [DIR] validates as ruralz bundle validate does,
+// once per Environment of --environments without --env, and runs the
+// rules of internal/cli/audit on the rendered Bundle of each run without
+// error. It prints every finding, the run's diagnostics included with
+// their RZ code as rule, in the diagnostic text form with the rule in the
+// code position, or with --output json as one array, and exits 1 when a
+// finding is an error.
+//
 // # Diagnostics and color
 //
 // render, build and diff print their diagnostics, errors and warnings
@@ -188,20 +227,20 @@ func (o Options) isTerminalFunc() func(io.Writer) bool {
 }
 
 // Specs returns the rows of the bundle noun for the root's command table:
-// the noun description, ruralz bundle validate, render, diff and build,
-// and the M2 verbs push, import, export and audit as Planned rows, which
-// exit 2 naming their milestone and stay out of help and completion.
+// the noun description, ruralz bundle validate, render, diff, build,
+// import, export and audit, and push as a Planned row, which exits 2
+// naming its milestone and stays out of help and completion.
 func Specs(o Options) []command.Spec {
 	return []command.Spec{
-		{Path: []string{"bundle"}, Summary: "Validate, render, diff and build Bundles"},
+		{Path: []string{"bundle"}, Summary: "Validate, render, diff, build, import, export and audit Bundles"},
 		ValidateSpec(o),
 		RenderSpec(o),
 		DiffSpec(o),
 		BuildSpec(o),
 		{Path: []string{"bundle", "push"}, Summary: "Send source to Ruralz Control, or a signed Revision to OCI", Planned: "M2"},
-		{Path: []string{"bundle", "import"}, Summary: "Routes and Upstreams from OpenAPI 3.x", Planned: "M2"},
-		{Path: []string{"bundle", "export"}, Summary: "OpenAPI 3.x, Postman collection or DOT graph of a Bundle", Planned: "M2"},
-		{Path: []string{"bundle", "audit"}, Summary: "Security and best-practice findings", Planned: "M2"},
+		ImportSpec(o),
+		ExportSpec(o),
+		AuditSpec(o),
 	}
 }
 

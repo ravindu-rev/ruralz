@@ -1,0 +1,9 @@
+name: OpenAPI Generator test: petstore with fake endpoints
+url: https://github.com/OpenAPITools/openapi-generator
+commit: 47df6d38bba64a7f83da6d76946efa85b1984eec
+base: modules/openapi-generator/src/test/resources/3_0
+document: petstore-with-fake-endpoints-models-for-testing.yaml
+file: petstore-with-fake-endpoints-models-for-testing.yaml sha256 3f3599838b433ca44f387a94c6dec4f431a943adb3c8823f86102a60a8affdf4
+license: Apache-2.0 (LICENSE)
+license-sha256: 91a2fcdfc23cbd1188a22cc3b76647bf6eb05c87889e376a19fe478f0398ff02
+updated-by: scripts/update-test-suites.sh

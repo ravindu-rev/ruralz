@@ -1,0 +1,13 @@
+name: Swagger Parser test: references to an upper directory
+url: https://github.com/swagger-api/swagger-parser
+commit: 69f6d78250b70d2ccfcd306ff0aa74353a698f2a
+base: modules/swagger-parser-v3/src/test/resources/relative-upper-directory
+document: swagger.yaml
+file: swagger.yaml sha256 2bb79e690f44215ab8edde2425bbc44ed5867a718f392338bcfe93d69734a02b
+file: Paths/Address.yaml sha256 3879973298fb3b546bfee09c3a5c0befadb276ad86d007f4bc062238a2d27131
+file: Schemas/schema.yaml sha256 1c99955ef5741d8f6982acf2628da5128af16efec45e7bf4cccd7d1faca9fea5
+license: Apache-2.0 (LICENSE)
+license-sha256: 2f5628cc896692143c029ab9446585db445a25137562e1321faadc70ed8bc9c9
+notice: NOTICE
+notice-sha256: 61e35e0cc285a492bb5dd90bafb9695afaa6b7b93a460a9d6be37b432b4922a0
+updated-by: scripts/update-test-suites.sh

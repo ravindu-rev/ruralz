@@ -1,0 +1,9 @@
+name: ReadMe OpenAPI example: readme (the ReadMe API)
+url: https://github.com/readmeio/oas-examples
+commit: 060d4ffbbe63003f923c8cd7268ee39a495cf21f
+base: 3.0/json
+document: readme.json
+file: readme.json sha256 9ff0381e6525b3d02a1b1dec5869d95505378ca0f7c2195be37ac57e08fb8369
+license: MIT (LICENSE.md)
+license-sha256: 1a06eef8fa5a219003aeacdb8b709924a3d2b9f47e882b23d8ac2fce7f696cdb
+updated-by: scripts/update-test-suites.sh

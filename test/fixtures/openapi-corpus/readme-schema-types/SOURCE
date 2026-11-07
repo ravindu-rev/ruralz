@@ -1,0 +1,9 @@
+name: ReadMe OpenAPI example: schema-types (3.1)
+url: https://github.com/readmeio/oas-examples
+commit: 060d4ffbbe63003f923c8cd7268ee39a495cf21f
+base: 3.1/json
+document: schema-types.json
+file: schema-types.json sha256 c579d200997c137aedfb0558eec8f9c67f6f18556b9799002ede266ab27a01ab
+license: MIT (LICENSE.md)
+license-sha256: 1a06eef8fa5a219003aeacdb8b709924a3d2b9f47e882b23d8ac2fce7f696cdb
+updated-by: scripts/update-test-suites.sh

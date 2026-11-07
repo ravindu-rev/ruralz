@@ -12,7 +12,6 @@ The work left in the current milestone, M2 WASM + Control/GitOps, in build order
 | JWT signing | `internal/filter/auth/` | [Security and identity](../architecture/08-security-and-identity.md) |
 | `secretRef` providers `kubernetes` and `vault` | `internal/secret/` | [Security and identity](../architecture/08-security-and-identity.md) |
 | Route redirects and mirroring | `internal/gateway/`, `pkg/config/v1alpha1/` | [Traffic management](../architecture/09-traffic-management-and-resilience.md), [Configuration model](../architecture/02-configuration-model.md) |
-| Bundle tooling: `ruralz bundle import openapi`, `export openapi`, `export postman`, `export dot` and `audit` | `internal/cli/` | [CLI and API surface](../reference/01-cli-and-api-surface.md), [Configuration model](../architecture/02-configuration-model.md) |
 | `ruralz test run` | `internal/cli/` | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | WASM runtime: wazero host, Plugin ABI v1 Host Functions, Capabilities, limits and failure semantics, with Host Function fuzzing | `internal/pluginhost/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md), [ADR-0004](../adr/0004-wasm-runtime-wazero.md), [ADR-0005](../adr/0005-plugin-abi-v1.md) |
 | `Plugin` kind and `plugin` Policy, hot-swap and `rzplg:` keys | `internal/pluginhost/`, `pkg/config/v1alpha1/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md), [Configuration model](../architecture/02-configuration-model.md) |

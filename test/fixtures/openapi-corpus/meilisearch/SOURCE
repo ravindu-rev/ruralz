@@ -1,0 +1,9 @@
+name: Meilisearch API
+url: https://github.com/meilisearch/open-api
+commit: 0b0b0fdbb9d5821ec018a3db2777986a231eec37
+base: .
+document: open-api.json
+file: open-api.json sha256 83cbd10cea1ca75590dc31f1d2e40ef2b636297d47b39c9aefd813e41454cfd1
+license: MIT (LICENSE)
+license-sha256: 3496e9534ef63a0c99b349f384508227aaac05056603081d879277e89b5ed155
+updated-by: scripts/update-test-suites.sh

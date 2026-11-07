@@ -1,0 +1,9 @@
+name: Qdrant API
+url: https://github.com/qdrant/qdrant
+commit: 222b2e44ab1c3f17e8246396ead6558e45041df7
+base: docs/redoc/master
+document: openapi.json
+file: openapi.json sha256 a8dab6917779c13ef6babcf4834a968fb65b95d34979a7479d1f607bffe84ed8
+license: Apache-2.0 (LICENSE)
+license-sha256: 210b508429e913d9de5301f90508bc2cbf5b2281de5b45e607c04d58f0f3bd8f
+updated-by: scripts/update-test-suites.sh

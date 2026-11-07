@@ -1,0 +1,107 @@
+exit 0
+--- stdout ---
+[
+  {
+    "severity": "warning",
+    "rule": "route-without-auth",
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "message": "Route \"orders\" runs no authentication Policy",
+    "file": "routes/orders.yaml",
+    "line": 1,
+    "column": 1,
+    "environment": "staging"
+  },
+  {
+    "severity": "warning",
+    "rule": "cleartext-hop",
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "message": "listener \"http\" serves cleartext HTTP",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 17,
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "http"
+      },
+      "protocol"
+    ],
+    "environment": "staging"
+  },
+  {
+    "severity": "warning",
+    "rule": "cleartext-hop",
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "message": "Upstream \"orders\" connects to its Endpoints without TLS",
+    "file": "upstreams.yaml",
+    "line": 6,
+    "column": 13,
+    "path": [
+      "spec",
+      "protocol"
+    ],
+    "environment": "staging"
+  },
+  {
+    "severity": "warning",
+    "rule": "route-without-auth",
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "message": "Route \"orders\" runs no authentication Policy",
+    "file": "routes/orders.yaml",
+    "line": 1,
+    "column": 1,
+    "environment": "prod"
+  },
+  {
+    "severity": "warning",
+    "rule": "cleartext-hop",
+    "resource": {
+      "kind": "Gateway",
+      "name": "edge"
+    },
+    "message": "listener \"http\" serves cleartext HTTP",
+    "file": "ruralz.yaml",
+    "line": 8,
+    "column": 17,
+    "path": [
+      "spec",
+      "listeners",
+      {
+        "name": "http"
+      },
+      "protocol"
+    ],
+    "environment": "prod"
+  },
+  {
+    "severity": "warning",
+    "rule": "cleartext-hop",
+    "resource": {
+      "kind": "Upstream",
+      "name": "orders"
+    },
+    "message": "Upstream \"orders\" connects to its Endpoints without TLS",
+    "file": "upstreams.yaml",
+    "line": 6,
+    "column": 13,
+    "path": [
+      "spec",
+      "protocol"
+    ],
+    "environment": "prod"
+  }
+]
+--- stderr ---

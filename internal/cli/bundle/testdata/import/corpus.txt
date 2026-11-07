@@ -1,0 +1,48 @@
+adyen-legal-entity: 34 of 34 operations imported, clean
+box: 297 of 297 operations imported, clean
+discord: 250 of 250 operations imported, clean
+kubernetes-apps-v1: 0 of 77 operations imported, operations left out
+kubernetes-authentication-v1: 0 of 3 operations imported, operations left out
+kubernetes-batch-v1: 0 of 29 operations imported, operations left out
+meilisearch: 0 of 113 operations imported, operations left out
+nginx-unit: 184 of 184 operations imported, clean
+oai-api-with-examples: 0 of 2 operations imported, operations left out
+oai-callback-example: 0 of 1 operations imported, operations left out
+oai-link-example: 0 of 6 operations imported, operations left out
+oai-non-oauth-scopes: 0 of 1 operations imported, operations left out
+oai-petstore: 3 of 3 operations imported, clean
+oai-petstore-expanded: 4 of 4 operations imported, clean
+oai-uspto: 3 of 3 operations imported, clean
+oai-webhook-example: 0 of 0 operations imported, clean
+openapi-generator-common-parameters: 3 of 3 operations imported, clean
+openapi-generator-echo: 28 of 28 operations imported, clean
+openapi-generator-fake-endpoints: not imported, exit 2: data/petstore-with-fake-endpoints-models-for-testing.yaml:1290:21: required is a string, not a boolean
+openapi-generator-petstore-3-1: 20 of 20 operations imported, clean
+ory-hydra: 0 of 50 operations imported, operations left out
+ory-kratos: 0 of 56 operations imported, operations left out
+qdrant: 69 of 69 operations imported, clean
+readme-api: 36 of 36 operations imported, clean
+readme-callbacks: 0 of 1 operations imported, operations left out
+readme-circular-paths: 3 of 3 operations imported, clean
+readme-complex-nesting: 5 of 5 operations imported, clean
+readme-discriminators: 10 of 10 operations imported, clean
+readme-file-uploads: 3 of 3 operations imported, clean
+readme-parameters-extreme: 1 of 1 operations imported, clean
+readme-parameters-style: 25 of 25 operations imported, clean
+readme-response-multiple-mediatypes: 4 of 4 operations imported, clean
+readme-schema-circular: 3 of 3 operations imported, clean
+readme-schema-types: 23 of 23 operations imported, clean
+readme-schema-validation-local: 5 of 5 operations imported, clean
+readme-security: 15 of 15 operations imported, clean
+readme-server-variables: 4 of 4 operations imported, clean
+redocly-museum: 8 of 8 operations imported, clean
+sendgrid-mail: 3 of 3 operations imported, clean
+swagger-parser-oas3-refs: 1 of 1 operations imported, clean
+swagger-parser-relative-file-references: 0 of 1 operations imported, operations left out
+swagger-parser-relative-references: 0 of 2 operations imported, operations left out
+swagger-parser-relative-upper-directory: 2 of 2 operations imported, clean
+swagger-petstore: 19 of 19 operations imported, clean
+temporal: 0 of 228 operations imported, operations left out
+twilio-api-v2010: 197 of 197 operations imported, clean
+twilio-lookups-v2: 10 of 10 operations imported, clean
+imported without manual edits: 32 of 47 documents (68.1%)

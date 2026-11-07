@@ -1,0 +1,9 @@
+name: OpenAPI Generator test: petstore (3.1)
+url: https://github.com/OpenAPITools/openapi-generator
+commit: 47df6d38bba64a7f83da6d76946efa85b1984eec
+base: modules/openapi-generator/src/test/resources/3_1
+document: petstore.yaml
+file: petstore.yaml sha256 b6f586f7faaf0dd7fed9d32ffacda092b33523fd9f27d0b903fb0191605e7daa
+license: Apache-2.0 (LICENSE)
+license-sha256: 91a2fcdfc23cbd1188a22cc3b76647bf6eb05c87889e376a19fe478f0398ff02
+updated-by: scripts/update-test-suites.sh

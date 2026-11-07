@@ -1,0 +1,7 @@
+exit 0
+--- stdout ---
+policies.yaml:8:21 warning RZ-CFG-013 Policy/geo-keyed spec.config.backend: credential-shaped value (URL with a password) (keep credentials out of the Bundle: reference a secret with secretRef)
+routes/orders.yaml:1:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP
+upstreams.yaml:6:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS
+--- stderr ---

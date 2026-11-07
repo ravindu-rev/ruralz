@@ -1,0 +1,4 @@
+$DIR/openapi.yaml:3:27: operationId is a number, not a string
+$DIR/openapi.yaml:3:36: tags is a string, not a list
+$DIR/openapi.yaml:4:14: $ref "https://example.com/b.yaml" is a URI with a scheme; only references within the document and to relative files resolve
+ruralz bundle import: $DIR/openapi.yaml is no readable OpenAPI 3.0 or 3.1 document

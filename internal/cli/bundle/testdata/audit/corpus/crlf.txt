@@ -1,0 +1,6 @@
+exit 0
+--- stdout ---
+raw/orders.yaml:7:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS
+raw/orders.yaml:10:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP
+--- stderr ---

@@ -1,0 +1,14 @@
+digraph "edge" {
+  rankdir=LR;
+  node [shape=box];
+  "Route/assets" [label="Route\nassets"];
+  "Route/feed" [label="Route\nfeed"];
+  "Route/orders" [label="Route\norders"];
+  "Policy/validate-order" [shape=ellipse, label="Policy\nvalidate-order\nvalidation.json-schema"];
+  "Upstream/feed" [shape=cylinder, label="Upstream\nfeed"];
+  "Upstream/orders" [shape=cylinder, label="Upstream\norders"];
+  "Route/assets" -> "Upstream/orders";
+  "Route/feed" -> "Upstream/feed";
+  "Route/orders" -> "Policy/validate-order";
+  "Route/orders" -> "Upstream/orders";
+}

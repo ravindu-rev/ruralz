@@ -1,0 +1,9 @@
+name: Kubernetes API apps/v1
+url: https://github.com/kubernetes/kubernetes
+commit: 3a92e6afd51585de38b0916494c7bf7c638b1b74
+base: api/openapi-spec/v3
+document: apis__apps__v1_openapi.json
+file: apis__apps__v1_openapi.json sha256 40741a6b6ffa7f75fcd73efbaf492de2132a74d8e1fb4ab8cbad0a94f0d7e0f7
+license: Apache-2.0 (LICENSE)
+license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+updated-by: scripts/update-test-suites.sh

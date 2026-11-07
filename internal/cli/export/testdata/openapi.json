@@ -1,0 +1,124 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "edge",
+    "version": "rev-aeb643aaccaa"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "operationId": "health-get"
+      },
+      "put": {
+        "operationId": "health-put"
+      },
+      "post": {
+        "operationId": "health-post"
+      },
+      "delete": {
+        "operationId": "health-delete"
+      },
+      "options": {
+        "operationId": "health-options"
+      },
+      "head": {
+        "operationId": "health-head"
+      },
+      "patch": {
+        "operationId": "health-patch"
+      },
+      "trace": {
+        "operationId": "health-trace"
+      }
+    },
+    "/v1/orders/{orderId}": {
+      "get": {
+        "operationId": "orders-get",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "quantity": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "sku": {
+                    "pattern": "^[A-Z]{3}-[0-9]+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sku"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "orders-post",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "quantity": {
+                    "minimum": 1,
+                    "type": "integer"
+                  },
+                  "sku": {
+                    "pattern": "^[A-Z]{3}-[0-9]+$",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sku"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/orders/{orderId}/items": {
+      "get": {
+        "operationId": "items",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
+      }
+    }
+  }
+}

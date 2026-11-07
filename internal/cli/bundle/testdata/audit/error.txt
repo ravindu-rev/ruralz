@@ -1,0 +1,8 @@
+exit 1
+--- stdout ---
+plugins.yaml:9:40 warning plugin-can-deny-traffic Plugin/geo spec.capabilities[item=response.send]: Plugin "geo" grants response.send: the Plugin can deny traffic
+policies.yaml:8:16 error plugin-enforcing-open Policy/geo-open spec.failureMode: Policy "geo-open" runs enforcing Plugin "geo" with failureMode open, which a fault breaker trip bypasses
+routes/orders.yaml:1:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP
+upstreams.yaml:6:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS
+--- stderr ---

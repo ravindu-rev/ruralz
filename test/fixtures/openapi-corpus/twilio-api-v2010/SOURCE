@@ -1,0 +1,9 @@
+name: Twilio REST API v2010
+url: https://github.com/twilio/twilio-oai
+commit: 6891362428239e2b29339718ffb7bd9fb86ff9cb
+base: spec/yaml
+document: twilio_api_v2010.yaml
+file: twilio_api_v2010.yaml sha256 e74d26964a0de6dbf9c75f2b26dcfc76362faf65c99b132e463d994ac07c05be
+license: MIT (LICENSE)
+license-sha256: 282418d5a4ca0a6cd3476637c41bb229e592fc289156d22fbfa188cec1169ff3
+updated-by: scripts/update-test-suites.sh

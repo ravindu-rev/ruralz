@@ -54,7 +54,7 @@ The loader parses with Ruralz code in `internal/config/profile`, written for the
 
 ### OpenAPI, Postman and test tooling
 
-`ruralz bundle import openapi` builds Routes and Upstreams from an OpenAPI document; `ruralz bundle export openapi`, `ruralz bundle export postman` and `ruralz bundle export dot` publish a Bundle as an OpenAPI document, a Postman collection or a DOT graph; and `ruralz test run` executes end-to-end test cases against a Gateway. All are `Planned (M2)` (foundation pack section 9); test cases live outside the Bundle.
+`ruralz bundle import openapi` builds Routes and Upstreams from an OpenAPI document; `ruralz bundle export openapi`, `ruralz bundle export postman` and `ruralz bundle export dot` publish a Bundle as an OpenAPI document, a Postman collection or a DOT graph; and `ruralz test run` executes end-to-end test cases against a Gateway. All are `Planned (M2)` (foundation pack section 9); test cases live outside the Bundle. The import writes an ordinary Bundle that has passed every offline stage, and the exports read one Environment's rendered Bundle; the mapping and the document shapes are in [CLI and API surface](../reference/01-cli-and-api-surface.md#openapi-import).
 
 ## Resource model
 

@@ -1,0 +1,73 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "edge",
+    "version": "rev-43c625e518fc"
+  },
+  "paths": {
+    "/v1/orders/{orderId}": {
+      "get": {
+        "operationId": "orders-get",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sku"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "orders-post",
+        "parameters": [
+          {
+            "name": "orderId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "properties": {
+                  "sku": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "sku"
+                ],
+                "type": "object"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,4 @@
+warning: $DIR/openapi.yaml:3:10: only server "https://api.example" of this servers list is imported; 1 more are not
+warning: $DIR/openapi.yaml:10:5: GET /relative is not imported: server URL "/v2" is relative: it names no host
+warning: $DIR/openapi.yaml:12:5: GET /broken/{id is not imported: the path "/broken/{id" has an unbalanced { or } or an empty {}
+warning: $DIR/openapi.yaml:14:3: webhooks are not imported: they are requests the API sends, not requests a Route receives
