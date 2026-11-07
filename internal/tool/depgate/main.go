@@ -19,6 +19,9 @@
 //	  - the ruralz jwx denylist: the offline Policy checks every binary
 //	    links import no module the CLI does not link, so the CLI links no
 //	    JOSE;
+//	  - the MaxMind DB reader denylist of ruralz and ruralz-control: only
+//	    ruralzd links github.com/oschwald/maxminddb-golang, which the
+//	    authz.geoip Filter alone uses;
 //	  - advisory version floors;
 //	  - no test support in any binary: this module's internal/testkit,
 //	    internal/tool and test/ trees and its "<name>test" packages, the
@@ -79,7 +82,7 @@ func runMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "depgate: %d finding(s)\n", len(findings))
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, "depgate: G2, G3, the Raft and jwx denylists, advisory floors and test support denial pass")
+	_, _ = fmt.Fprintln(stdout, "depgate: G2, G3, the Raft, jwx and MaxMind DB reader denylists, advisory floors and test support denial pass")
 	if o.notices != "" {
 		_, _ = fmt.Fprintf(stdout, "depgate: wrote THIRD_PARTY_LICENSES and NOTICE of %d artifacts under %s\n", len(targets()), o.notices)
 	}

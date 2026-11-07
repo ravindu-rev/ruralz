@@ -330,6 +330,7 @@ func (n *node) buildParts(ctx context.Context) *refusal {
 	}
 	n.filters, err = builtin.New(builtin.Options{
 		Clock: clk, Logger: rt.Logger(componentFilter), Status: rt, Counter: meter.Counter, Guard: guard,
+		GeoIPDatabaseFile: s.GeoIPDatabaseFile,
 	})
 	if err != nil {
 		return fail("filters: %w", err)

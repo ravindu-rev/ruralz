@@ -1,7 +1,7 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-package geoip
+package check
 
 import (
 	"testing"
@@ -29,8 +29,8 @@ func checkText(t *testing.T, cfg any) []string {
 
 // TestCheckBothEmpty: config.allow and config.deny both empty, whether
 // absent or written as empty lists, is RZ-CFG-005 at spec.config (the
-// configuration model's "checked offline in every binary from M1"); one
-// non-empty list is enough.
+// configuration model's "checked offline in every binary"); one non-empty
+// list is enough.
 func TestCheckBothEmpty(t *testing.T) {
 	const finding = `policies/geo.yaml:4:3 error RZ-CFG-005 Policy/geo spec.config: config.allow and config.deny are both empty (list the ISO 3166-1 alpha-2 country codes to allow or to deny)`
 	tests := []struct {
@@ -58,6 +58,27 @@ func TestCheckBothEmpty(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestEmpty: Empty is the rule both Check and the Factory apply: no
+// country in either list, absent, written empty or with a nil config.
+func TestEmpty(t *testing.T) {
+	tests := []struct {
+		name string
+		cfg  *v1alpha1.AuthzGeoIPConfig
+		want bool
+	}{
+		{"nil config", nil, true},
+		{"both absent", &v1alpha1.AuthzGeoIPConfig{}, true},
+		{"both written empty", &v1alpha1.AuthzGeoIPConfig{Allow: []v1alpha1.CountryCode{}, Deny: []v1alpha1.CountryCode{}}, true},
+		{"allow only", &v1alpha1.AuthzGeoIPConfig{Allow: []v1alpha1.CountryCode{"DE"}}, false},
+		{"deny only", &v1alpha1.AuthzGeoIPConfig{Deny: []v1alpha1.CountryCode{"KP"}}, false},
+	}
+	for _, tt := range tests {
+		if got := Empty(tt.cfg); got != tt.want {
+			t.Errorf("Empty(%s) = %v, want %v", tt.name, got, tt.want)
+		}
 	}
 }
 

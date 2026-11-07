@@ -77,6 +77,9 @@ func validCases() []configCase {
 		{typ: v1alpha1.PolicyTypeTransformResponse, name: "header and body", config: `{"set":[{"target":"header","name":"x-r","valueExpression":"\"1\""}],"remove":[{"target":"body","name":"secret"}],"arrayOps":[{"op":"delete","from":"items.*.internal"}]}`},
 		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "client credentials", config: `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `,"scopes":["read"],"timeout":"3s"}`},
 		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "default timeout", config: `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `}`},
+		// Appended last, so the fuzz corpus keeps its type indexes.
+		{typ: v1alpha1.PolicyTypeAuthzGeoIP, name: "both lists", config: `{"allow":["DE","FR"],"deny":["KP"]}`},
+		{typ: v1alpha1.PolicyTypeAuthzGeoIP, name: "deny beside an empty allow", config: `{"allow":[],"deny":["KP"]}`},
 	}
 }
 
@@ -159,6 +162,9 @@ func refusedCases() []configCase {
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "http tokenUrl", `{"tokenUrl":"http://idp.example/token","clientId":"shop","clientSecret":` + oauthRef + `}`, codeHTTPS},
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "tokenUrl without host", `{"tokenUrl":"https://","clientId":"shop","clientSecret":` + oauthRef + `}`, codeHTTPS},
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "zero timeout", `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `,"timeout":"0s"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthzGeoIP, "both written empty", `{"allow":[],"deny":[]}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthzGeoIP, "lower-case code", `{"allow":["de"]}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthzGeoIP, "three letters", `{"deny":["DEU"]}`, codeCFG5},
 	}
 }
 

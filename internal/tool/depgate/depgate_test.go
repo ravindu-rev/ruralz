@@ -110,6 +110,7 @@ const (
 	gplText = "GNU General Public License"
 	mplText = "Mozilla Public License Version 2.0"
 	bsdText = "Redistribution and use in source and binary forms. Neither the name of"
+	iscText = "Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted"
 )
 
 func mod(path, version string) *goModule {
@@ -253,6 +254,45 @@ func TestAnalyzeJWXDenylist(t *testing.T) {
 		{"ruralz links dsig alone", target{"ruralz", "linux", "amd64"}, dsig, ""},
 		{"ruralzd", target{"ruralzd", "linux", "amd64"}, jwx, ""},
 		{"ruralz-control", target{"ruralz-control", "darwin", "arm64"}, jwx, ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := analyze(tt.target, tt.pkgs, read)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.want == "" {
+				if len(got.findings) != 0 {
+					t.Errorf("findings = %q, want none", got.findings)
+				}
+				return
+			}
+			if len(got.findings) != 1 || !strings.HasPrefix(got.findings[0], tt.want) {
+				t.Errorf("findings = %q, want one starting %q", got.findings, tt.want)
+			}
+		})
+	}
+}
+
+// TestAnalyzeGatewayOnly: only ruralzd links the MaxMind DB reader, which
+// the authz.geoip Filter alone uses; ruralz and ruralz-control linking it,
+// at any major version, is a finding.
+func TestAnalyzeGatewayOnly(t *testing.T) {
+	read := fakeFS(map[string][]legalText{
+		"github.com/oschwald/maxminddb-golang/v2": lic(iscText),
+		"github.com/oschwald/maxminddb-golang":    lic(iscText),
+	})
+	v2 := []goPackage{pkg("github.com/oschwald/maxminddb-golang/v2", mod("github.com/oschwald/maxminddb-golang/v2", "v2.9.0"))}
+	v1 := []goPackage{pkg("github.com/oschwald/maxminddb-golang", mod("github.com/oschwald/maxminddb-golang", "v1.13.1"))}
+	for _, tt := range []struct {
+		name   string
+		target target
+		pkgs   []goPackage
+		want   string
+	}{
+		{"ruralzd", target{"ruralzd", "linux", "amd64"}, v2, ""},
+		{"ruralz", target{"ruralz", "windows", "amd64"}, v2, "ruralz windows/amd64: github.com/oschwald/maxminddb-golang/v2: only ruralzd links the MaxMind DB reader"},
+		{"ruralz-control", target{"ruralz-control", "linux", "arm64"}, v2, "ruralz-control linux/arm64: github.com/oschwald/maxminddb-golang/v2: only ruralzd links the MaxMind DB reader"},
+		{"ruralz, v1", target{"ruralz", "darwin", "arm64"}, v1, "ruralz darwin/arm64: github.com/oschwald/maxminddb-golang: only ruralzd links the MaxMind DB reader"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			got, err := analyze(tt.target, tt.pkgs, read)

@@ -176,6 +176,9 @@ func analyze(t target, pkgs []goPackage, read dirReader) (analysis, error) {
 			if t.binary == "ruralz" && denied(mod.Path, jwxModules()) {
 				add(mod.Path, "ruralz never links jwx: the offline Policy checks it links import no module the CLI does not link (Dependency graph)")
 			}
+			if t.binary != "ruralzd" && denied(mod.Path, gatewayOnlyModules()) {
+				add(mod.Path, "only ruralzd links the MaxMind DB reader: the authz.geoip Filter runs on Nodes alone, and its offline check imports no reader (Library catalog)")
+			}
 			if floor, ok := advisoryFloors()[mod.Path]; ok && compareSemver(mod.Version, floor) < 0 {
 				out = append(out, fmt.Sprintf("%s: %s %s is below the advisory floor %s", where, mod.Path, mod.Version, floor))
 			}

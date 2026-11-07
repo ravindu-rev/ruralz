@@ -35,13 +35,13 @@ func TestServeCheck(t *testing.T) {
 		doc("Upstream", "legacy", "  protocol: grpc\n  endpoints:\n    - address: \"127.0.0.1:9100\"\n"),
 		routeDoc("r", "/", "up", attach("hdr")),
 		policyDoc("hdr", "headers", headersConfig, ""),
-		policyDoc("geo", "authz.geoip", `{"deny":["XX"]}`, ""),
+		policyDoc("guard", "ai.guardrail", `{}`, ""),
 	)
 	got := h.rejects(res)
 	want := []string{
 		`ruralz.yaml:13:14 error RZ-CFG-040 Gateway/edge spec.listeners[name=https].http3: field "http3" is not served by this release (Planned (M3))`,
 		`ruralz.yaml:34:13 error RZ-CFG-040 Upstream/legacy spec.protocol: protocol "grpc" is not served by this release (Planned (M3))`,
-		`ruralz.yaml:64:9 error RZ-CFG-040 Policy/geo spec.type: Policy type "authz.geoip" is not served by this release (Planned (M2))`,
+		`ruralz.yaml:64:9 error RZ-CFG-040 Policy/guard spec.type: Policy type "ai.guardrail" is not served by this release (Planned (M3))`,
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("findings\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

@@ -7,6 +7,7 @@ toolchain go1.27.3
 require (
 	cel.dev/cel-go v0.33.1
 	github.com/lestrrat-go/jwx/v4 v4.6.0
+	github.com/oschwald/maxminddb-golang/v2 v2.9.0
 	github.com/prometheus/client_golang v1.25.0
 	github.com/prometheus/common v0.73.1
 	github.com/prometheus/otlptranslator v1.0.0

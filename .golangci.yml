@@ -49,6 +49,8 @@ linters:
             - golang.org/x/net/http2
             - golang.org/x/sys/unix
             - google.golang.org/grpc
+            # M2 modules; each has a Tech stack catalog row.
+            - github.com/oschwald/maxminddb-golang/v2
         banned:
           list-mode: lax
           files: ["$all"]
@@ -105,6 +107,11 @@ linters:
           deny:
             - pkg: github.com/lestrrat-go/jwx
               desc: JOSE is confined to internal/filter/auth/jwt
+        maxminddb:
+          files: ["$all", "!**/internal/filter/authz/geoip/*.go", "!**/internal/filter/authz/geoip/geoiptest/*_test.go"]
+          deny:
+            - pkg: github.com/oschwald/maxminddb-golang
+              desc: the MaxMind DB reader is confined to the authz.geoip Filter, which only ruralzd links; its check lives apart
         jwxpackages:
           files: ["$all"]
           deny:
@@ -139,13 +146,15 @@ linters:
             - pkg: github.com/testcontainers
               desc: test tooling, never linked into a binary
         testsupport:
-          files: ["$all", "!$test", "!**/internal/testkit/**", "!**/test/**", "!**/internal/statestore/statestoretest/**", "!**/internal/filter/filtertest/**", "!**/internal/clock/clocktest/**", "!**/internal/cel/celtest/**", "!**/internal/gateway/handler/handlertest/**"]
+          files: ["$all", "!$test", "!**/internal/testkit/**", "!**/test/**", "!**/internal/statestore/statestoretest/**", "!**/internal/filter/filtertest/**", "!**/internal/filter/authz/geoip/geoiptest/**", "!**/internal/clock/clocktest/**", "!**/internal/cel/celtest/**", "!**/internal/gateway/handler/handlertest/**"]
           deny:
             - pkg: github.com/ravindu-rev/ruralz/internal/testkit
               desc: test support is imported by tests only
             - pkg: github.com/ravindu-rev/ruralz/internal/statestore/statestoretest
               desc: test support is imported by tests only
             - pkg: github.com/ravindu-rev/ruralz/internal/filter/filtertest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/filter/authz/geoip/geoiptest
               desc: test support is imported by tests only
             - pkg: github.com/ravindu-rev/ruralz/internal/clock/clocktest
               desc: test support is imported by tests only

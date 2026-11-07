@@ -157,9 +157,11 @@ Upstreams: per Upstream u and survivor Node
 Memory per Node
   m_conn = m_tls on `https` listeners, m_clear on `http`; m_up = m_tls or m_clear by Upstream TLS
   P_plg  = K-21 when a Route attaches a `plugin` Policy, else 0
-  M_node  = M_fix + m_route × R + P_plg + (1 + h) × (C × m_conn + I × m_unit + C_up × m_up) / N_s
+  G_geo  = 2 × the `RURALZ_GEOIP_DATABASE_FILE` file size when set, else 0: the GeoIP database
+           in use and a new file loading                                                (hypothesis)
+  M_node  = M_fix + m_route × R + P_plg + G_geo + (1 + h) × (C × m_conn + I × m_unit + C_up × m_up) / N_s
             conservative, as M_fix reserves the full maxBufferedBytes and state tables
-  M_flood = M_fix + m_route × R + P_plg + (K + 2) × s_snap + M_rej + C_cap × m_c
+  M_flood = M_fix + m_route × R + P_plg + G_geo + (K + 2) × s_snap + M_rej + C_cap × m_c
             + min(I_max, C_cap × n_str) × m_u + min(I_max, Σ_u maxConnections_u) × m_up  (hypothesis)
   C_cap   ≥ planned connections per survivor / 0.8                                      (target)
   GOMEMLIMIT ≥ max(M_node, M_flood);  container = GOMEMLIMIT / 0.9                       (target)

@@ -156,10 +156,10 @@ L4    config/{loader,validate,diff,render}    gateway/{composition,drain,replay}
 L3    cel    telemetry (Runtime)    config/{profile,schemaview,overlay,subst,defaults,convert,precedence,canonical}
       statestore/{memory,redis,manager,postcommit}
       gateway/{executor,exchange,retire,router,listener,reuseport,tap,readiness,admin,upstream}
-      filter/auth/{jwt,jwt/jwks,apikey,basic,mtls,upstreamoauth2}    filter/authz/{ip,cel}    filter/cors
+      filter/auth/{jwt,jwt/jwks,apikey,basic,mtls,upstreamoauth2}    filter/authz/{ip,cel,geoip}    filter/cors
       filter/validation/jsonschema    filter/header    filter/transform{,/dotpath,/request,/response}
       filter/{ratelimit,quota,cache}    filter/cache/{revalidate,coalesce}
-L2    config/{schemaidx,registry}    identity    filter/auth    filter/auth/jwt/check    filter/authz/geoip
+L2    config/{schemaidx,registry}    identity    filter/auth    filter/auth/jwt/check    filter/authz/geoip/check
       secret/resolver    cel/celtypes
       telemetry/{aggregate,tracing,logsink,accesslog}    statestore/{breaker,keys}    nodedir
       gateway/{setting,admission,body,sdnotify}    gateway/upstream/{balance,discovery,health,resilience}
@@ -167,7 +167,7 @@ L2    config/{schemaidx,registry}    identity    filter/auth    filter/auth/jwt/
 L1    expr    secret    config/{tree,hub}    telemetry/emit    statestore    filter    gateway/snapshot
 L0    errcode    buildinfo    clock    phase    problem    adminapi    config/{diag,revision}    telemetry/catalog
       ulid    jsonval    httpfield    sfv    routematch    netaddr    pkg/config/v1alpha1    api/schema
-test  clock/clocktest    filter/filtertest    cel/celtest    gateway/handler/handlertest
+test  clock/clocktest    filter/filtertest    filter/authz/geoip/geoiptest    cel/celtest    gateway/handler/handlertest
       statestore/statestoretest{,/redisserver,/respproxy}
       testkit/{binaries,proc,pki,faultproxy,canary,promtext,corpus,allocs}
       testkit/{mockup,mockidp,otlpsink,loadgen,topology}
@@ -178,7 +178,7 @@ tool  tool/{repocheck,commitcheck,depgate,schemagen,telemetrygen,releasekit}
 
 Wiring injects what an import would climb for: the admin server's `/metrics`, `/config/dump` and `/debug/upstreams` handlers, the State Store drivers' openers, and the pipeline's offline Policy checks (`checks.Table()`) and CEL compiler.
 
-`checks.Table()` links into all three binaries, so an offline check never imports a module that `cmd/ruralz` does not link ([Dependency graph](01-tech-stack-and-libraries.md#dependency-graph)). A Policy type's check lives in its Filter package unless that package links such a module, as `auth.jwt`'s links jwx; then it lives in a `check` package beside it, `filter/auth/jwt/check`, which the Filter's Build imports for the same rules. A type the schema admits whose Filter is not served yet keeps its check at its own path, as `filter/authz/geoip` does until the `authz.geoip` Filter ships, Planned (M2). depgate fails a `cmd/ruralz` build that links jwx.
+`checks.Table()` links into all three binaries, so an offline check never imports a module that `cmd/ruralz` does not link ([Dependency graph](01-tech-stack-and-libraries.md#dependency-graph)). A Policy type's check lives in its Filter package unless that package links such a module, as `auth.jwt`'s links jwx and `authz.geoip`'s links `maxminddb-golang`; then it lives in a `check` package beside it, `filter/auth/jwt/check` and `filter/authz/geoip/check`, which the Filter's Build imports for the same rules. A type the schema admits whose Filter is not served yet keeps its check at its own path until the Filter ships. depgate fails a `cmd/ruralz` build that links jwx, and a `ruralz` or `ruralz-control` build that links `maxminddb-golang`.
 
 ### Import boundaries
 
