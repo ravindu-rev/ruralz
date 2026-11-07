@@ -6,10 +6,12 @@
 # release.yml runs it again on the main commit it releases, through
 # workflow_call. Its jobs run in order, each after the one before passed:
 #   ci           make lint (golangci-lint with .golangci.yml, gofumpt and
-#                goimports, actionlint with the pinned shellcheck), make dco
-#                (the sign-off of the change's own non-merge commits,
-#                Dependabot's aside) and make supply-chain (go mod verify,
-#                govulncheck, depgate)
+#                goimports, actionlint with the pinned shellcheck, and the
+#                buf rules checks: buf format, buf lint, buf breaking
+#                against origin/main and the newest release tags, and the
+#                generated protobuf code), make dco (the sign-off of the
+#                change's own non-merge commits, Dependabot's aside) and
+#                make supply-chain (go mod verify, govulncheck, depgate)
 #   unit         make test: the race tests with cgo, then CGO_ENABLED=0
 #   integration  make integration: the integration-tagged tests, with a
 #                local redis-server and the runner's Docker
@@ -45,7 +47,8 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The DCO check reads the change's commits.
+          # The DCO check reads the change's commits, and buf breaking
+          # origin/main and the release tags.
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

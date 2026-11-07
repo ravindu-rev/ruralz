@@ -1,0 +1,14 @@
+# buf.gen.yaml (buf configuration, not a Ruralz Bundle). Generation is
+# hermetic: only the local plugins make tools installs into bin/, each at the
+# go.mod version of the module that ships it, never a Buf Schema Registry
+# plugin. The output is committed under internal/gen/proto/; make lint fails
+# on a stale copy and make generate rewrites it
+# (docs/engineering/02-repository-layout-and-conventions.md, "buf rules").
+version: v2
+plugins:
+  - local: bin/protoc-gen-go
+    out: internal/gen/proto
+    opt: paths=source_relative
+  - local: bin/protoc-gen-connect-go
+    out: internal/gen/proto
+    opt: paths=source_relative

@@ -26,7 +26,7 @@ A defect found in a higher layer MUST add a regression test at the lowest layer 
 
 ### PR pipeline
 
-One workflow, the PR pipeline, runs on every pull request to `main`, with no path filter. Its jobs run in order, each once the one before passed: `ci` runs golangci-lint with the repository's `.golangci.yml`, actionlint on the workflows, the DCO sign-off check of the pull request's own non-merge commits, Dependabot's exempt, `go mod verify`, govulncheck and depgate; `unit` runs `go test -race -shuffle=on ./...` with cgo, then `CGO_ENABLED=0 go test -shuffle=on ./...`; `integration` runs `go test -race -tags integration ./...` on Ubuntu with a local `redis-server` and the runner's Docker for the testcontainers cases. A last job, `pr`, needs all three and is the one required status check. [CI stages](02-repository-layout-and-conventions.md#ci-stages) owns the workflow and its make targets.
+One workflow, the PR pipeline, runs on every pull request to `main`, with no path filter. Its jobs run in order, each once the one before passed: `ci` runs golangci-lint with the repository's `.golangci.yml`, actionlint on the workflows, the [buf rules](02-repository-layout-and-conventions.md#buf-rules) checks (format, lint, breaking changes and the generated protobuf code), Planned (M2), the DCO sign-off check of the pull request's own non-merge commits, Dependabot's exempt, `go mod verify`, govulncheck and depgate; `unit` runs `go test -race -shuffle=on ./...` with cgo, then `CGO_ENABLED=0 go test -shuffle=on ./...`; `integration` runs `go test -race -tags integration ./...` on Ubuntu with a local `redis-server` and the runner's Docker for the testcontainers cases. A last job, `pr`, needs all three and is the one required status check. [CI stages](02-repository-layout-and-conventions.md#ci-stages) owns the workflow and its make targets.
 
 Every push to `main` runs the same pipeline again on the merged commit, through `workflow_call`, and the release flow tags, builds and publishes that commit only after it passed and only when its commits call for a release ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)).
 
@@ -34,7 +34,7 @@ Every push to `main` runs the same pipeline again on the merged commit, through 
 
 ```mermaid
 flowchart LR
-    pr["Pull request to main"] --> ci["ci: lint, actionlint, DCO, govulncheck, depgate"]
+    pr["Pull request to main"] --> ci["ci: lint, actionlint, buf, DCO, govulncheck, depgate"]
     ci --> unit["unit: race tests with cgo, then CGO_ENABLED=0"]
     unit --> integ["integration: tag integration, redis-server, Docker"]
     integ --> req["pr: the one required check"]
@@ -267,7 +267,7 @@ Static checks run in the `ci` job, block merge and enforce the [tech stack](01-t
 | License gate (G2) | A linked package outside the allowlist and named MPL-2.0 exceptions | `ci`, in depgate | Planned (M0) |
 | Crypto denylist (G3) | A crypto package off the allowlist; a FIPS job adds `GOFIPS140` builds and tests, HTTP/3 cases excepted | `ci`, in depgate | Planned (M0); FIPS job Planned (M5) |
 | golangci-lint | A finding; a pinned binary, since it is GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE)) | `ci` | Planned (M0) |
-| `buf lint` and `buf breaking` | A breaking change to `ruralz.control.v1` or `ruralz.plugin.v1` ([source](https://github.com/bufbuild/buf)) | `ci` | Planned (M2) |
+| `buf lint` and `buf breaking` | A lint finding, or a breaking change to `ruralz.control.v1` or `ruralz.plugin.v1` against `main` or the newest release tag of N or N-1 ([source](https://github.com/bufbuild/buf)) | `ci` | Planned (M2) |
 | No-license-check scan | A license-key or entitlement check, found by the [repocheck](02-repository-layout-and-conventions.md) source scan (P1; SM-1: 0 gated features, target) | `unit` | Planned (M0) |
 | Redaction unit tests | A `secretRef` value in `/config/dump`, diff or log encoder output | `unit` | Planned (M1) |
 | Secret leak tests | A run's canary appears in any output the [process harness](#process-harness) captured | `integration` | Planned (M1) |

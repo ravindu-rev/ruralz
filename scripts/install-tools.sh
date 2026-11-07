@@ -5,8 +5,9 @@
 # Installs the pinned CI tools into bin/ (`make tools`), or only the tools
 # named as arguments. Tools never enter go.mod: release binaries and
 # archives are checked against a pinned SHA-256 before anything is
-# installed, and govulncheck is built with `go install`, which the Go
-# checksum database verifies (docs/engineering/02-repository-layout-and-conventions.md,
+# installed, and govulncheck and the protoc plugins are built with
+# `go install`, which the Go checksum database verifies
+# (docs/engineering/02-repository-layout-and-conventions.md,
 # docs/engineering/01-tech-stack-and-libraries.md "CI tooling").
 #
 #   golangci-lint  make lint: lint and format
@@ -14,6 +15,13 @@
 #   actionlint     make lint: workflow lint, running the pinned shellcheck
 #                  on the workflows' run steps, the same version on every
 #                  host
+#   buf            make lint and make generate: the buf rules checks and
+#                  the protobuf code generation
+#   protoc-gen-go, protoc-gen-connect-go
+#                  buf's local plugins, built from the module at the go.mod
+#                  version of google.golang.org/protobuf and of
+#                  connectrpc.com/connect, so generated code and runtime
+#                  move together
 #   promtool       make integration: the alert rule tests (from the
 #                  Prometheus release archive)
 #   cosign, syft   the release: keyless signing and CycloneDX SBOMs
@@ -28,6 +36,7 @@ GOLANGCI_LINT_VERSION=2.15.0
 GOVULNCHECK_VERSION=v1.8.0
 ACTIONLINT_VERSION=1.7.12
 SHELLCHECK_VERSION=0.11.0
+BUF_VERSION=1.73.0
 PROMETHEUS_VERSION=3.15.0
 COSIGN_VERSION=3.1.3
 SYFT_VERSION=1.52.0
@@ -47,6 +56,10 @@ pin() {
     "shellcheck linux-arm64") echo 68a8133197a50beb8803f8d42f9908d1af1c5540d4bb05fdfca8c1fa47decefc ;;
     "shellcheck darwin-amd64") echo c2c15e08df0e8fbc374c335b230a7ee958c313fa5714817a59aa59f1aa594f51 ;;
     "shellcheck darwin-arm64") echo 339b930feb1ea764467013cc1f72d09cd6b869ebf1013296ba9055ab2ffbd26f ;;
+    "buf linux-amd64") echo 8f2986298ad08f0cc1bf999b9797b7c383adf32d7edf0f73d6f1e1a701baeac1 ;;
+    "buf linux-arm64") echo 902b75267db7f4391e99b7fa0756050e5354234cc0437ef50eee9c788950c7a3 ;;
+    "buf darwin-amd64") echo ff78d0ebf34180ebfa81d370275851ec630fcb088bf33e213fd723d0fd7444a6 ;;
+    "buf darwin-arm64") echo 6e6df0fef4522e4e43dfe7c341873c3f2c29ceb45a9dfa5e0bad5580b8b2022f ;;
     "promtool linux-amd64") echo 2a542df32eac02ee17b9d844fb2aa1de00dafa5476579ba8a3ba862e9d572ea0 ;;
     "promtool linux-arm64") echo f1f90ec08e849d494ca66c611470afc50192f0355f1a61c33f2cbde02d067823 ;;
     "promtool darwin-amd64") echo 2d79e744c2d7e505db936fbc898e05abc74fcb6e437c25befd26e9c9f00aa58b ;;
@@ -107,6 +120,7 @@ current() {
     golangci-lint) "$bin/$1" version 2>/dev/null | grep -q "version $2 " ;;
     actionlint | syft) "$bin/$1" --version 2>&1 | grep -q "$2" ;;
     shellcheck) "$bin/$1" --version 2>&1 | grep -qx "version: $2" ;;
+    buf) "$bin/$1" --version 2>&1 | grep -qx "$2" ;;
     cosign) "$bin/$1" version 2>&1 | grep -q "GitVersion: *v$2\$" ;;
     promtool) "$bin/$1" --version 2>&1 | grep -q "version $2 " ;;
     *) return 1 ;;
@@ -194,6 +208,42 @@ install_syft() {
     syft
 }
 
+install_buf() {
+  local plat os arch
+  plat=$(platform)
+  # The buf release assets name the systems Linux and Darwin and the
+  # architectures x86_64, and aarch64 on Linux but arm64 on Darwin.
+  case "${plat%-*}" in
+    linux) os=Linux ;;
+    darwin) os=Darwin ;;
+  esac
+  case "$plat" in
+    *-amd64) arch=x86_64 ;;
+    linux-arm64) arch=aarch64 ;;
+    darwin-arm64) arch=arm64 ;;
+  esac
+  install_binary buf "$BUF_VERSION" \
+    "https://github.com/bufbuild/buf/releases/download/v$BUF_VERSION/buf-$os-$arch"
+}
+
+# install_protoc_plugin <tool> <module> <package> builds a protoc plugin from
+# the module at its go.mod version, which a dependency update moves, so the
+# check compares the installed binary's version with go.mod each time.
+# protoc-gen-go prints "protoc-gen-go v1.36.12", protoc-gen-connect-go
+# "1.21.1".
+install_protoc_plugin() {
+  local tool=$1 module=$2 pkg=$3 want got
+  want=$(cd "$root" && go list -m -f '{{.Version}}' "$module")
+  if [[ -x "$bin/$tool" ]]; then
+    got=$("$bin/$tool" --version 2>/dev/null || true)
+    if [[ "$got" == "$tool $want" || "$got" == "${want#v}" ]]; then
+      return
+    fi
+  fi
+  (cd "$root" && GOBIN="$bin" go install "$pkg")
+  echo "installed $tool $want"
+}
+
 # govulncheck type-checks the standard library, so it is built with the same
 # Go release as the module (the go.mod toolchain line, or the local Go).
 install_govulncheck() {
@@ -207,16 +257,19 @@ install_govulncheck() {
   echo "installed govulncheck $GOVULNCHECK_VERSION built with $gover"
 }
 
-# With no arguments install the tools of `make tools` (make lint,
+# With no arguments install the tools of `make tools` (make lint, generate,
 # supply-chain and integration); otherwise only the named ones.
 tools=("$@")
-(( ${#tools[@]} )) || tools=(golangci-lint govulncheck actionlint shellcheck promtool)
+(( ${#tools[@]} )) || tools=(golangci-lint govulncheck actionlint shellcheck buf protoc-gen-go protoc-gen-connect-go promtool)
 for tool in "${tools[@]}"; do
   case "$tool" in
     golangci-lint) install_golangci_lint ;;
     govulncheck) install_govulncheck ;;
     actionlint) install_actionlint ;;
     shellcheck) install_shellcheck ;;
+    buf) install_buf ;;
+    protoc-gen-go) install_protoc_plugin protoc-gen-go google.golang.org/protobuf google.golang.org/protobuf/cmd/protoc-gen-go ;;
+    protoc-gen-connect-go) install_protoc_plugin protoc-gen-connect-go connectrpc.com/connect connectrpc.com/connect/cmd/protoc-gen-connect-go ;;
     promtool) install_promtool ;;
     cosign) install_cosign ;;
     syft) install_syft ;;

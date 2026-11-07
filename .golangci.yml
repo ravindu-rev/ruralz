@@ -49,6 +49,9 @@ linters:
             - golang.org/x/net/http2
             - golang.org/x/sys/unix
             - google.golang.org/grpc
+            # M2 modules; each has a Tech stack catalog row.
+            - connectrpc.com/connect
+            - google.golang.org/protobuf
         banned:
           list-mode: lax
           files: ["$all"]
@@ -83,6 +86,11 @@ linters:
           deny:
             - pkg: github.com/redis/rueidis
               desc: rueidis is wrapped by internal/statestore/redis
+        connect:
+          files: ["$all", "!**/internal/gen/proto/**", "!**/internal/controlstream/**"]
+          deny:
+            - pkg: connectrpc.com/connect
+              desc: the Control Stream's connect client and server live in internal/controlstream, beside the generated internal/gen/proto (ADR-0007)
         yamlv3:
           files: ["$all", "!**/internal/config/profile/*_test.go"]
           deny:

@@ -20,6 +20,9 @@ GOLANGCI_LINT := $(BIN)/golangci-lint
 GOVULNCHECK := $(BIN)/govulncheck
 ACTIONLINT := $(BIN)/actionlint
 SHELLCHECK := $(BIN)/shellcheck
+BUF := $(BIN)/buf
+PROTOC_GEN_GO := $(BIN)/protoc-gen-go
+PROTOC_GEN_CONNECT_GO := $(BIN)/protoc-gen-connect-go
 PROMTOOL := $(BIN)/promtool
 COSIGN := $(BIN)/cosign
 SYFT := $(BIN)/syft
@@ -53,6 +56,22 @@ LDFLAGS := -s -w \
 # it into the shell command line.
 DCO_RANGE ?= origin/main..HEAD
 export DCO_RANGE
+
+# make lint runs buf breaking against BREAKING_MAIN, by default origin/main,
+# and the newest release tags of the two newest release lines
+# (docs/engineering/02-repository-layout-and-conventions.md, "buf rules").
+# Recipes read it from the environment.
+BREAKING_MAIN ?= origin/main
+export BREAKING_MAIN
+
+# The protobuf code buf generate writes with the local plugins of
+# buf.gen.yaml. PROTO_OUT names every output directory of buf.gen.yaml,
+# which bufcheck compares with buf generate's output; PROTO_GENERATED
+# matches the generated files in them, whose stale copies make generate
+# reports with the other generated trees, and leaves out the hand-written
+# tests beside them.
+PROTO_OUT := internal/gen/proto
+PROTO_GENERATED := 'internal/gen/proto/*.pb.go' 'internal/gen/proto/*.connect.go'
 
 # make integration. RURALZ_TEST_STATESTORE (process, container or
 # process,container) and RURALZ_TEST_REDIS_SERVER select the State Store
@@ -92,7 +111,7 @@ TEST_FLAGS ?=
 help: ## List targets
 	@grep -E '^[a-z0-9-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
 
-tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(ACTIONLINT) $(SHELLCHECK) $(PROMTOOL) ## Install the pinned, checksum-verified developer tools into bin/
+tools: $(GOLANGCI_LINT) $(GOVULNCHECK) $(ACTIONLINT) $(SHELLCHECK) $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_CONNECT_GO) $(PROMTOOL) ## Install the pinned, checksum-verified developer tools into bin/
 
 $(GOLANGCI_LINT): scripts/install-tools.sh
 	bash scripts/install-tools.sh golangci-lint
@@ -106,28 +125,47 @@ $(ACTIONLINT): scripts/install-tools.sh
 $(SHELLCHECK): scripts/install-tools.sh
 	bash scripts/install-tools.sh shellcheck
 
+$(BUF): scripts/install-tools.sh
+	bash scripts/install-tools.sh buf
+
+# The protoc plugins follow the go.mod versions of their modules, so a
+# go.mod change sends make to the installer, which rebuilds a plugin only
+# when its version moved.
+$(PROTOC_GEN_GO): scripts/install-tools.sh go.mod
+	bash scripts/install-tools.sh protoc-gen-go
+
+$(PROTOC_GEN_CONNECT_GO): scripts/install-tools.sh go.mod
+	bash scripts/install-tools.sh protoc-gen-connect-go
+
 $(PROMTOOL): scripts/install-tools.sh
 	bash scripts/install-tools.sh promtool
 
-lint: $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) ## golangci-lint with .golangci.yml (config check, gofumpt and goimports diff, linters), then actionlint with the pinned shellcheck on the workflows
+lint: $(GOLANGCI_LINT) $(ACTIONLINT) $(SHELLCHECK) $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_CONNECT_GO) ## golangci-lint with .golangci.yml (config check, gofumpt and goimports diff, linters), actionlint with the pinned shellcheck on the workflows, then the buf rules checks: buf format, buf lint, buf breaking against BREAKING_MAIN and the newest release tags, and the generated protobuf code against buf generate
 	$(GOLANGCI_LINT) config verify
 	$(GOLANGCI_LINT) fmt --diff ./...
 	$(GOLANGCI_LINT) run ./...
 	$(ACTIONLINT) -shellcheck=$(SHELLCHECK)
+	$(BUF) format --diff --exit-code
+	$(BUF) lint
+	go run ./internal/tool/bufcheck breaking -buf $(BUF) -main "$$BREAKING_MAIN"
+	go run ./internal/tool/bufcheck generate -buf $(BUF) $(addprefix -out ,$(PROTO_OUT))
 
-fmt: $(GOLANGCI_LINT) ## Rewrite files with gofumpt and goimports
+fmt: $(GOLANGCI_LINT) $(BUF) ## Rewrite files with gofumpt and goimports, and the protos with buf format
 	$(GOLANGCI_LINT) fmt ./...
+	$(BUF) format --write
 
 dco: ## DCO sign-off of every non-merge commit of DCO_RANGE (default origin/main..HEAD), Dependabot's commits aside
 	go run ./internal/tool/commitcheck dco -range "$$DCO_RANGE"
 
 # Generated trees: the JSON Schema and the served-feature table
 # (schemagen), and the alert rules and dashboards generated from the
-# telemetry catalog (telemetrygen). The unit tests fail on a stale copy.
-GENERATED := api/schema/ruralz internal/config/registry/planned_gen.go deploy/grafana
+# telemetry catalog (telemetrygen), whose stale copies the unit tests fail
+# on; and the protobuf code, whose stale copy make lint fails on.
+GENERATED := api/schema/ruralz internal/config/registry/planned_gen.go deploy/grafana $(PROTO_GENERATED)
 
-generate: ## Regenerate the JSON Schema, served-feature table, alert rules and dashboards, and fail where they differ from the index
+generate: $(BUF) $(PROTOC_GEN_GO) $(PROTOC_GEN_CONNECT_GO) ## Regenerate the JSON Schema, served-feature table, alert rules and dashboards, and the protobuf code, and fail where they differ from the index
 	go generate ./...
+	go run ./internal/tool/bufcheck generate -write -buf $(BUF) $(addprefix -out ,$(PROTO_OUT))
 	git diff --exit-code -- $(GENERATED) || { echo "generated files are stale: commit the output of 'make generate'" >&2; exit 1; }
 	untracked=$$(git ls-files --others --exclude-standard -- $(GENERATED)); \
 	if [[ -n "$$untracked" ]]; then echo "untracked generated files: $$untracked" >&2; exit 1; fi

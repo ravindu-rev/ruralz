@@ -132,7 +132,7 @@ Plugin ABI v1 is a capability-based contract with conventions modeled on Extism'
 | Configuration | `rz_configure` receives the schema-checked Policy `config` as canonical JSON, with each secret field's Node-resolved value in place of its reference ([Cryptography, keys and secrets](#host-function-table)); non-zero fails activation, or is `RZ-PLG-008` in a refill |
 | Requested Capabilities | Derived from imports; a subset of `spec.capabilities`, re-checked with the Phase on every call |
 
-The proto package defines the numeric constants below (errors, `level`, `alg`, field identifiers and directions), and each PDK generates its own from it ([API and protobuf definitions](../engineering/02-repository-layout-and-conventions.md#api-and-protobuf-definitions)).
+The proto package defines the numeric constants below (errors, `level`, `alg`, field identifiers and directions), and each PDK generates its own from it ([API and protobuf definitions](../engineering/02-repository-layout-and-conventions.md#api-and-protobuf-definitions)): `api/proto/ruralz/plugin/v1/abi.proto` holds them as the enums `Err`, `Level`, `Alg`, `RequestInfoField`, `ConsumerInfoField` and `Direction`, at these numbers, and `artifact.proto` the artifact config message `ArtifactConfig`, Planned (M2).
 
 | Constant or encoding | Values |
 |---|---|
@@ -333,7 +333,7 @@ In file mode a Node authenticates to registries with the credentials in the file
 | Part | Media type (proposed) | Content |
 |---|---|---|
 | Manifest | OCI image manifest, artifact type `application/vnd.ruralz.plugin.v1` | One config and one layer |
-| Config | `application/vnd.ruralz.plugin.config.v1+json` | The `ruralz.plugin.v1` artifact config message in its JSON encoding: ABI, Phases, Capabilities, `configSchema`, PDK version |
+| Config | `application/vnd.ruralz.plugin.config.v1+json` | The `ruralz.plugin.v1` artifact config message `ArtifactConfig` in its JSON encoding: ABI, Phases, Capabilities, `configSchema`, PDK version, as `abi`, `phases`, `capabilities`, `configSchema` and `pdkVersion` |
 | Layer | `application/wasm` | The guest binary |
 | Signature | OCI referrer holding a Sigstore bundle | Publisher identity, keyless OIDC or key |
 
