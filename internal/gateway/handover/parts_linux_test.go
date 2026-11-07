@@ -14,6 +14,7 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -59,27 +60,78 @@ func tagHandler(tag string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, tag) })
 }
 
+// holdingHandler is the holder's handler: it answers every request with
+// its tag. Armed, it answers the next request in full, with its
+// Content-Length, and flushed, then returns only once the arming's gate is
+// closed. The holder's server closes a connection only after its handler
+// returned, so that connection stays open, and counted, after its client
+// read the whole answer and closed: the state of a routing check's fresh
+// connection from its answer to the server's close.
+type holdingHandler struct {
+	tag string
+	mu  sync.Mutex
+	// gate, while set, arms the handler: the next request's handler waits
+	// until it is closed.
+	gate chan struct{}
+}
+
+// arm makes the next request's handler wait, after its answer, until gate
+// is closed.
+func (h *holdingHandler) arm(gate chan struct{}) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.gate = gate
+}
+
+func (h *holdingHandler) ServeHTTP(w http.ResponseWriter, _ *http.Request) {
+	h.mu.Lock()
+	gate := h.gate
+	h.gate = nil
+	h.mu.Unlock()
+	w.Header().Set("Content-Length", strconv.Itoa(len(h.tag)))
+	_, _ = io.WriteString(w, h.tag)
+	if gate == nil {
+		return
+	}
+	// The client reads the whole answer now. Its close ends the request's
+	// context, so the handler waits for the gate alone.
+	_ = http.NewResponseController(w).Flush()
+	<-gate
+}
+
+// freshClient returns a client that opens a fresh connection per request.
+func freshClient() *http.Client {
+	return &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: bound}
+}
+
+// fetch sends GET / to addr through c and returns the answer.
+func fetch(ctx context.Context, c *http.Client, addr string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+addr+"/", nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		return "", err
+	}
+	b, err := io.ReadAll(resp.Body)
+	_ = resp.Body.Close()
+	return string(b), err
+}
+
 // routes sends one request on each of fresh connections to addr and
 // counts the answers by tag ("" for none).
 func routes(t *testing.T, addr string) map[string]int {
 	t.Helper()
-	tr := &http.Transport{DisableKeepAlives: true}
-	defer tr.CloseIdleConnections()
-	c := &http.Client{Transport: tr, Timeout: bound}
+	c := freshClient()
 	got := make(map[string]int)
 	for range fresh {
-		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://"+addr+"/", nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		resp, err := c.Do(req)
+		tag, err := fetch(t.Context(), c, addr)
 		if err != nil {
 			got[""]++
 			continue
 		}
-		b, _ := io.ReadAll(resp.Body)
-		_ = resp.Body.Close()
-		got[string(b)]++
+		got[tag]++
 	}
 	return got
 }
@@ -195,14 +247,14 @@ type partsNode struct {
 	done  chan int // the Drain's exit code
 }
 
-// newPartsNode builds a process's listeners, admin port, Drain and Lock;
-// a holder (steer) listens on fresh ports, a new process binds the
-// holder's ports without listening.
-func newPartsNode(t *testing.T, clk *clocktest.Fake, ev *events, tag string, steer bool, webPort, adminPort int) (*partsNode, *listener.Plan) {
+// newPartsNode builds a process's listeners, serving handler, admin port,
+// Drain and Lock; a holder (steer) listens on fresh ports, a new process
+// binds the holder's ports without listening.
+func newPartsNode(t *testing.T, clk *clocktest.Fake, ev *events, handler http.Handler, steer bool, webPort, adminPort int) (*partsNode, *listener.Plan) {
 	t.Helper()
 	ctx := t.Context()
 	n := &partsNode{conns: admission.NewConnLimiter(admission.DefaultConnections), lock: NewLock(), done: make(chan int, 1)}
-	set, err := listener.New(listener.Options{Handler: tagHandler(tag), Conns: n.conns, Clock: clk, Hosts: []string{"127.0.0.1"}, Steer: steer})
+	set, err := listener.New(listener.Options{Handler: handler, Conns: n.conns, Clock: clk, Hosts: []string{"127.0.0.1"}, Steer: steer})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -248,10 +300,12 @@ func portOf(a net.Addr) int { return a.(*net.TCPAddr).Port }
 // partsRig is a holder serving on real sockets and a new process bound
 // beside it.
 type partsRig struct {
+	t          *testing.T
 	clk        *clocktest.Fake
 	dir        *nodedir.Dir
 	ev         *events
 	holder     *partsNode
+	holderWeb  *holdingHandler
 	holderSrv  *Holder
 	acts       *fakeActivations
 	successor  *partsNode
@@ -262,16 +316,21 @@ type partsRig struct {
 	adminAddr  string
 	keepAlive  *keepAlive
 	holderPage *httpAdmin
+	// kept counts the client connections the test keeps open on the
+	// holder: the keep-alive connection, and each connection hold keeps
+	// until its release. Only the test's goroutine touches it.
+	kept int64
 }
 
 func newPartsRig(t *testing.T) *partsRig {
 	t.Helper()
 	ctx := t.Context()
-	r := &partsRig{clk: newClock(), dir: dataDir(t), ev: &events{}, mem: &fakeMemory{limit: ownLimit}}
+	r := &partsRig{t: t, clk: newClock(), dir: dataDir(t), ev: &events{}, mem: &fakeMemory{limit: ownLimit}}
 	r.notifier = &fakeNotifier{ev: r.ev}
 
 	var plan *listener.Plan
-	r.holder, plan = newPartsNode(t, r.clk, r.ev, "holder", true, 0, 0)
+	r.holderWeb = &holdingHandler{tag: "holder"}
+	r.holder, plan = newPartsNode(t, r.clk, r.ev, r.holderWeb, true, 0, 0)
 	if err := plan.Commit(); err != nil {
 		t.Fatal(err)
 	}
@@ -307,10 +366,11 @@ func newPartsRig(t *testing.T) *partsRig {
 	if got := r.keepAlive.get(t); got != "holder" {
 		t.Fatalf("keep-alive answer %q, want holder", got)
 	}
-	waitFor(t, "the holder's one open connection", func() bool { return r.holder.conns.Open() == 1 })
+	r.kept = 1
+	waitFor(t, "the holder's one open connection", func() bool { return r.holder.conns.Open() == r.kept })
 
 	var succPlan *listener.Plan
-	r.successor, succPlan = newPartsNode(t, r.clk, r.ev, "successor", false, portOf(r.holder.set.Addr("web")), portOf(r.holder.admin.Addr()))
+	r.successor, succPlan = newPartsNode(t, r.clk, r.ev, tagHandler("successor"), false, portOf(r.holder.set.Addr("web")), portOf(r.holder.admin.Addr()))
 	r.succ, err = NewSuccessor(SuccessorConfig{
 		Dir:      r.dir,
 		Lock:     r.successor.lock,
@@ -334,14 +394,62 @@ func newPartsRig(t *testing.T) *partsRig {
 	return r
 }
 
-// run starts the new process's handover under ctx.
+// run starts the new process's handover under ctx once the holder serves
+// only the connections the test keeps open on it. The holder's server
+// closes a routing check's fresh connection after its client read the
+// answer, and counts it until then: a handover started at once can be
+// accepted with that connection in the holder's usage.
 func (r *partsRig) run(ctx context.Context) <-chan runResult {
+	r.t.Helper()
+	waitFor(r.t, "the holder serving only the connections the test keeps open", func() bool {
+		return r.holder.conns.Open() == r.kept
+	})
 	ch := make(chan runResult, 1)
 	go func() {
 		out, err := r.succ.Run(ctx)
 		ch <- runResult{out, err}
 	}()
 	return ch
+}
+
+// awaitSteering waits until the holder steered every group to the new
+// process and armed its linger. The clock stands still from the
+// handover's start until the test advances it, so the linger ends Linger
+// after the time read here; the holder arms it after steering, and an
+// advance before that would leave it armed from the advanced time.
+func (r *partsRig) awaitSteering() {
+	r.t.Helper()
+	waitFor(r.t, "the steering", func() bool { return r.ev.count("admin:keepalives off") == 1 })
+	ctx, cancel := context.WithTimeout(r.t.Context(), bound)
+	defer cancel()
+	if err := r.clk.BlockUntilDue(ctx, r.clk.Now().Add(Linger)); err != nil {
+		r.t.Fatalf("the holder's linger is not armed: %v", err)
+	}
+}
+
+// hold makes the holder keep one connection open past its client's end: a
+// request on a fresh connection is answered in full while the holder's
+// handler stays in it, so the client reads the answer and closes, and the
+// holder serves the connection, and counts it, until release. release
+// lets the handler return and waits until the holder closed the
+// connection.
+func (r *partsRig) hold() (release func()) {
+	r.t.Helper()
+	gate := make(chan struct{})
+	open := sync.OnceFunc(func() { close(gate) })
+	r.t.Cleanup(open)
+	r.holderWeb.arm(gate)
+	if got, err := fetch(r.t.Context(), freshClient(), r.webAddr); err != nil || got != "holder" {
+		r.t.Fatalf("held connection's answer %q, %v, want holder", got, err)
+	}
+	r.kept++
+	waitFor(r.t, "the holder serving the held connection", func() bool { return r.holder.conns.Open() == r.kept })
+	return func() {
+		r.t.Helper()
+		open()
+		r.kept--
+		waitFor(r.t, "the holder's close of the held connection", func() bool { return r.holder.conns.Open() == r.kept })
+	}
 }
 
 // TestHandoverOverRealParts runs a whole handover between two processes'
@@ -364,7 +472,7 @@ func TestHandoverOverRealParts(t *testing.T) {
 		t.Fatalf("admin before the handover: %v, want every connection on the holder", got)
 	}
 	done := r.run(t.Context())
-	waitFor(t, "the steering", func() bool { return r.ev.count("admin:keepalives off") == 1 })
+	r.awaitSteering()
 	if got := r.successor.conns.Ceiling(); got != admission.DefaultConnections-1 {
 		t.Errorf("new process's connection ceiling %d, want %d minus the holder's connection", got, admission.DefaultConnections)
 	}
@@ -415,6 +523,41 @@ func TestHandoverOverRealParts(t *testing.T) {
 	})
 }
 
+// TestHandoverCeilingCountsHeldConnections runs a handover accepted while
+// the holder still serves a connection whose client already read the
+// whole answer and closed, as the holder's server keeps every connection
+// until its handler returned: the new process's ceiling is lowered by
+// both of the holder's connections, the keep-alive and that one, and stays
+// so after the holder closed it until the next usage report, UsageInterval
+// after accepted, gives that one back; once the holder is gone the ceiling
+// is whole again.
+func TestHandoverCeilingCountsHeldConnections(t *testing.T) {
+	r := newPartsRig(t)
+	release := r.hold()
+	done := r.run(t.Context())
+	r.awaitSteering()
+	if got := r.successor.conns.Ceiling(); got != admission.DefaultConnections-2 {
+		t.Fatalf("new process's connection ceiling %d, want %d minus the holder's keep-alive and held connections", got, admission.DefaultConnections)
+	}
+	release()
+	if got := r.successor.conns.Ceiling(); got != admission.DefaultConnections-2 {
+		t.Fatalf("connection ceiling %d once the holder closed the held connection, want %d until the next usage report", got, admission.DefaultConnections-2)
+	}
+	r.clk.Advance(UsageInterval)
+	waitFor(t, "the usage report without the held connection", func() bool {
+		return r.successor.conns.Ceiling() == admission.DefaultConnections-1
+	})
+
+	r.clk.Advance(Linger - UsageInterval)
+	if res := recv(t, "the new process's handover", done); res.out != OutcomeHolder || res.err != nil {
+		t.Fatalf("Run = %v, %v, want holder", res.out, res.err)
+	}
+	if err := r.holderSrv.Close(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the ceiling restored", func() bool { return r.successor.conns.Ceiling() == admission.DefaultConnections })
+}
+
 // TestHandoverLostSuccessorOverRealParts runs a new process lost during
 // the linger: the holder re-pins its groups, so every new connection
 // reaches it although the lost process's sockets still listen, and skips
@@ -430,7 +573,7 @@ func TestHandoverLostSuccessorOverRealParts(t *testing.T) {
 			r := newPartsRig(t)
 			ctx, cancel := context.WithCancel(t.Context())
 			done := r.run(ctx)
-			waitFor(t, "the steering", func() bool { return r.ev.count("admin:keepalives off") == 1 })
+			r.awaitSteering()
 			if signaled {
 				r.holder.drain.Signal()
 			}
@@ -461,9 +604,9 @@ func TestHandoverLostSuccessorOverRealParts(t *testing.T) {
 			if started() {
 				t.Fatal("the holder drained after its successor was lost")
 			}
-			if r.acts.isHeld() {
-				t.Error("the holder's activations stay held")
-			}
+			// The holder releases its activations after the re-pin the
+			// test waited for.
+			waitFor(t, "the holder's activations released", func() bool { return !r.acts.isHeld() })
 		})
 	}
 }

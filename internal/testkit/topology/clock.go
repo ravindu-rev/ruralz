@@ -51,9 +51,6 @@ func newClock(enabled bool, timeout time.Duration) *Clock {
 	return &Clock{enabled: enabled, timeout: timeout}
 }
 
-// Enabled reports whether the Nodes follow the clock (Config.TestClock).
-func (c *Clock) Enabled() bool { return c.enabled }
-
 // Now returns the clock's reading, the time every running Node's clock
 // shows; the zero time before the first Node process starts, and always
 // on a real-time topology.

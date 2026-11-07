@@ -7,33 +7,28 @@
 // (a State Store) and injects faults on live and new connections:
 //
 //   - Pass forwards bytes unchanged.
-//   - Delay holds every chunk, per direction, for a normally distributed
-//     time (clamped at 0) while keeping byte order; reading continues, so
-//     pipelined traffic is delayed, not serialized.
 //   - Blackhole keeps sockets open, reads and discards, never forwards;
 //     connections accepted meanwhile are not dialed upstream until the
 //     mode changes.
 //   - Reset sends RST (SO_LINGER 0) on existing and new connections.
-//   - Refuse closes the listener (new connections get ECONNREFUSED) and
-//     resets live ones; the next other mode reopens the same address.
 //
 // SetUpstream switches new connections to another upstream (scripted State
-// Store failover). A Tap sees every forwarded byte synchronously
-// (the State Store's RESP counting proxy is a Tap). A connection's Hold
-// may hold the chunks it reads, as the counting proxy holds the replies to
-// named commands: reading continues while chunks are held and every chunk
-// is forwarded in the order read, so held chunks delay the chunks behind
-// them, never each other's holds. Every goroutine belongs to the Proxy: one
-// accept loop, and two per connection (one per direction), bounded by
-// MaxConns; Close stops and waits for all of them.
+// Store failover). A connection's hooks (Config.ConnTap) see every byte
+// it forwards synchronously, as the State Store's RESP counting proxy
+// does, and its Hold may hold the chunks it reads, as the counting proxy
+// holds the replies to named commands: reading continues while chunks are
+// held and every chunk is forwarded in the order read, so held chunks
+// delay the chunks behind them, never each other's holds. Every goroutine
+// belongs to the Proxy: one accept loop, and two per connection (one per
+// direction), bounded by MaxConns; Close stops and waits for all of them.
 package faultproxy
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand/v2"
 	"net"
 	"os"
 	"slices"
@@ -46,8 +41,8 @@ import (
 const (
 	DefaultMaxConns    = 16384
 	DefaultDialTimeout = 5 * time.Second
-	// DefaultMaxQueuedBytes bounds the bytes a delayed direction holds;
-	// reading pauses while it is full.
+	// DefaultMaxQueuedBytes bounds the bytes a direction holds queued
+	// behind a held chunk; reading pauses while it is full.
 	DefaultMaxQueuedBytes = 4 << 20
 	// chunkSize is the read buffer per direction.
 	chunkSize = 32 << 10
@@ -78,17 +73,11 @@ func (d Direction) String() string {
 	return fmt.Sprintf("Direction(%d)", int(d))
 }
 
-// Mode is a fault mode: Pass, Delay, Blackhole, Reset or Refuse.
+// Mode is a fault mode: Pass, Blackhole or Reset.
 type Mode interface{ mode() }
 
 // Pass forwards bytes unchanged.
 type Pass struct{}
-
-// Delay holds each chunk, in each direction, for a duration drawn from a
-// normal distribution with mean Mean and standard deviation StdDev,
-// clamped at 0. Order is kept: a chunk is never released before the one
-// read ahead of it.
-type Delay struct{ Mean, StdDev time.Duration }
 
 // Blackhole keeps sockets open, reads and discards, and never forwards.
 type Blackhole struct{}
@@ -96,21 +85,12 @@ type Blackhole struct{}
 // Reset resets existing and new connections with RST (SO_LINGER 0).
 type Reset struct{}
 
-// Refuse closes the listener, so dials get ECONNREFUSED, and resets live
-// connections; the next non-Refuse mode reopens the same address.
-type Refuse struct{}
-
 func (Pass) mode()      {}
-func (Delay) mode()     {}
 func (Blackhole) mode() {}
 func (Reset) mode()     {}
-func (Refuse) mode()    {}
 
 // String names the mode.
 func (Pass) String() string { return "pass" }
-
-// String names the mode and its distribution.
-func (d Delay) String() string { return fmt.Sprintf("delay(%v±%v)", d.Mean, d.StdDev) }
 
 // String names the mode.
 func (Blackhole) String() string { return "blackhole" }
@@ -118,17 +98,9 @@ func (Blackhole) String() string { return "blackhole" }
 // String names the mode.
 func (Reset) String() string { return "reset" }
 
-// String names the mode.
-func (Refuse) String() string { return "refuse" }
-
 func validMode(m Mode) error {
-	switch m := m.(type) {
-	case Pass, Blackhole, Reset, Refuse:
-		return nil
-	case Delay:
-		if m.Mean < 0 || m.StdDev < 0 {
-			return fmt.Errorf("faultproxy: negative delay %v", m)
-		}
+	switch m.(type) {
+	case Pass, Blackhole, Reset:
 		return nil
 	case nil:
 		return errors.New("faultproxy: nil mode")
@@ -152,13 +124,13 @@ type TapFunc func(dir Direction, b []byte)
 // connection ended; calls after the first do nothing. A chunk the mode
 // drops (Blackhole) or the connection's end discards is never forwarded,
 // held or not. Hold runs synchronously on the direction's goroutine before
-// any tap sees the chunk; b must not be retained.
+// the tap sees the chunk; b must not be retained.
 type HoldFunc func(dir Direction, b []byte, release func()) bool
 
 // ConnHooks are one connection's own hooks, which Config.ConnTap returns;
 // the zero value has none.
 type ConnHooks struct {
-	// Tap sees the connection's forwarded chunks, after Config.Tap.
+	// Tap sees the connection's forwarded chunks.
 	Tap TapFunc
 	// Hold, when set, may hold each chunk the connection reads.
 	Hold HoldFunc
@@ -168,10 +140,6 @@ type ConnHooks struct {
 type ConnInfo struct {
 	// ID numbers connections from 1 in accept order.
 	ID uint64
-	// Client is the client's address as the proxy sees it.
-	Client string
-	// Upstream is the upstream address dialed ("" until dialed).
-	Upstream string
 }
 
 // Config configures a Proxy.
@@ -186,20 +154,16 @@ type Config struct {
 	// DialTimeout bounds each upstream dial; default DefaultDialTimeout. A
 	// failed dial resets the client connection.
 	DialTimeout time.Duration
-	// MaxQueuedBytes bounds the bytes each delayed direction holds;
-	// reading from that side pauses while it is full. Default
+	// MaxQueuedBytes bounds the bytes each direction holds queued behind a
+	// held chunk; reading from that side pauses while it is full. Default
 	// DefaultMaxQueuedBytes.
 	MaxQueuedBytes int
 	// Mode is the initial mode; default Pass.
 	Mode Mode
-	// Tap, when set, sees every forwarded chunk of every connection.
-	Tap TapFunc
 	// ConnTap, when set, is called once per connection when it is dialed
 	// and returns that connection's own hooks, so stateful parsers such as
 	// a RESP command counter keep per-connection state.
 	ConnTap func(ConnInfo) ConnHooks
-	// Seed seeds the delay distribution; 0 picks a random seed.
-	Seed uint64
 }
 
 // Stats counts connections and forwarded bytes.
@@ -208,9 +172,6 @@ type Stats struct {
 	Accepted int64
 	// Active counts open connections.
 	Active int64
-	// Reset counts connections the proxy reset (Reset and Refuse modes,
-	// MaxConns overflow, failed upstream dials).
-	Reset int64
 	// BytesUp and BytesDown count forwarded bytes. Each write is counted
 	// after it completes, so a peer can read bytes before they appear here.
 	BytesUp, BytesDown int64
@@ -240,11 +201,8 @@ type Proxy struct {
 	closeOnce sync.Once
 	closeErr  error
 
-	rngMu sync.Mutex
-	rng   *rand.Rand
-
-	accepted, active, resets, bytesUp, bytesDown atomic.Int64
-	queuedUp                                     atomic.Int64 // bytes the client-to-upstream pumps hold queued; tests wait on it
+	accepted, active, bytesUp, bytesDown atomic.Int64
+	queuedUp                             atomic.Int64 // bytes the client-to-upstream pumps hold queued; tests wait on it
 }
 
 // Start listens and starts proxying. The proxy closes when ctx ends or
@@ -271,32 +229,23 @@ func Start(ctx context.Context, c Config) (*Proxy, error) {
 	if err := validMode(c.Mode); err != nil {
 		return nil, err
 	}
-	seed := c.Seed
-	if seed == 0 {
-		seed = rand.Uint64() //nolint:gosec // G404: delay jitter, not security
-	}
-	ln, err := listen(ctx, c.Listen)
+	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", c.Listen)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("faultproxy: listen %s: %w", c.Listen, err)
 	}
 	p := &Proxy{
 		cfg:     c,
 		addr:    ln.Addr().String(),
+		ln:      ln,
 		conns:   map[uint64]*conn{},
 		closing: make(chan struct{}),
-		rng:     rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), //nolint:gosec // G404: delay jitter, not security
 	}
 	p.upstream.Store(&c.Upstream)
 	p.mode.Store(&modeBox{c.Mode})
-	if _, refuse := c.Mode.(Refuse); refuse {
-		_ = ln.Close()
-	} else {
-		p.ln = ln
-		p.wg.Add(1)
-		// Connections outlive neither Close nor ctx (the AfterFunc below
-		// closes the proxy), so they carry ctx's values, not its end.
-		go p.acceptLoop(context.WithoutCancel(ctx), ln)
-	}
+	p.wg.Add(1)
+	// Connections outlive neither Close nor ctx (the AfterFunc below
+	// closes the proxy), so they carry ctx's values, not its end.
+	go p.acceptLoop(context.WithoutCancel(ctx), ln)
 	// The callback may run at once (ctx already done); Close then waits
 	// for p.mu, so stopAfter is always assigned before it is read.
 	p.mu.Lock()
@@ -305,19 +254,8 @@ func Start(ctx context.Context, c Config) (*Proxy, error) {
 	return p, nil
 }
 
-func listen(ctx context.Context, addr string) (net.Listener, error) {
-	ln, err := (&net.ListenConfig{}).Listen(ctx, "tcp", addr)
-	if err != nil {
-		return nil, fmt.Errorf("faultproxy: listen %s: %w", addr, err)
-	}
-	return ln, nil
-}
-
-// Addr returns the listen address; it stays the same across Refuse.
+// Addr returns the listen address.
 func (p *Proxy) Addr() string { return p.addr }
-
-// Mode returns the current mode.
-func (p *Proxy) Mode() Mode { return p.mode.Load().m }
 
 // Upstream returns the address new connections dial.
 func (p *Proxy) Upstream() string { return *p.upstream.Load() }
@@ -326,10 +264,8 @@ func (p *Proxy) Upstream() string { return *p.upstream.Load() }
 // their upstream (scripted failover).
 func (p *Proxy) SetUpstream(addr string) { p.upstream.Store(&addr) }
 
-// SetMode switches the mode for live and new connections. Reset and Refuse
-// reset every live connection (per-connection modes included); leaving
-// Refuse reopens the listener on Addr, which fails when the port was
-// taken meanwhile.
+// SetMode switches the mode for live and new connections; Reset resets
+// every live connection.
 func (p *Proxy) SetMode(m Mode) error {
 	if err := validMode(m); err != nil {
 		return err
@@ -339,59 +275,15 @@ func (p *Proxy) SetMode(m Mode) error {
 	if p.closed {
 		return ErrClosed
 	}
-	_, refuse := m.(Refuse)
-	switch {
-	case refuse && p.ln != nil:
-		_ = p.ln.Close()
-		p.ln = nil
-	case !refuse && p.ln == nil:
-		ln, err := listen(context.Background(), p.addr)
-		if err != nil {
-			return err
-		}
-		p.ln = ln
-		p.wg.Add(1)
-		go p.acceptLoop(context.Background(), ln)
-	}
 	p.mode.Store(&modeBox{m})
+	_, reset := m.(Reset)
 	for _, c := range p.conns {
-		switch m.(type) {
-		case Reset, Refuse:
+		if reset {
 			c.reset()
-		default:
+		} else {
 			c.poke()
 		}
 	}
-	return nil
-}
-
-// SetConnMode overrides the mode of one live connection (nil clears the
-// override). Refuse is not a connection mode.
-func (p *Proxy) SetConnMode(id uint64, m Mode) error {
-	if m != nil {
-		if err := validMode(m); err != nil {
-			return err
-		}
-		if _, ok := m.(Refuse); ok {
-			return errors.New("faultproxy: Refuse applies to the listener, not a connection")
-		}
-	}
-	p.mu.Lock()
-	c, ok := p.conns[id]
-	p.mu.Unlock()
-	if !ok {
-		return fmt.Errorf("faultproxy: no connection %d", id)
-	}
-	if m == nil {
-		c.override.Store(nil)
-	} else {
-		c.override.Store(&modeBox{m})
-	}
-	if _, ok := m.(Reset); ok {
-		c.reset()
-		return nil
-	}
-	c.poke()
 	return nil
 }
 
@@ -400,18 +292,10 @@ func (p *Proxy) Conns() []ConnInfo {
 	p.mu.Lock()
 	out := make([]ConnInfo, 0, len(p.conns))
 	for _, c := range p.conns {
-		out = append(out, c.info())
+		out = append(out, ConnInfo{ID: c.id})
 	}
 	p.mu.Unlock()
-	slices.SortFunc(out, func(a, b ConnInfo) int {
-		switch {
-		case a.ID < b.ID:
-			return -1
-		case a.ID > b.ID:
-			return 1
-		}
-		return 0
-	})
+	slices.SortFunc(out, func(a, b ConnInfo) int { return cmp.Compare(a.ID, b.ID) })
 	return out
 }
 
@@ -420,7 +304,6 @@ func (p *Proxy) Stats() Stats {
 	return Stats{
 		Accepted:  p.accepted.Load(),
 		Active:    p.active.Load(),
-		Reset:     p.resets.Load(),
 		BytesUp:   p.bytesUp.Load(),
 		BytesDown: p.bytesDown.Load(),
 	}
@@ -454,8 +337,8 @@ func (p *Proxy) Close() error {
 	return nil
 }
 
-// acceptLoop accepts until ln closes (Refuse or Close); ctx is the base of
-// the connections' dials.
+// acceptLoop accepts until ln closes (Close); ctx is the base of the
+// connections' dials.
 func (p *Proxy) acceptLoop(ctx context.Context, ln net.Listener) {
 	defer p.wg.Done()
 	for {
@@ -487,15 +370,10 @@ func (p *Proxy) acceptLoop(ctx context.Context, ln net.Listener) {
 // admit registers a new connection or resets it.
 func (p *Proxy) admit(ctx context.Context, tc *net.TCPConn) {
 	p.mu.Lock()
-	switch p.mode.Load().m.(type) {
-	case Reset, Refuse:
+	_, reset := p.mode.Load().m.(Reset)
+	if reset || p.closed || len(p.conns) >= p.cfg.MaxConns {
 		p.mu.Unlock()
-		p.resetTCP(tc)
-		return
-	}
-	if p.closed || len(p.conns) >= p.cfg.MaxConns {
-		p.mu.Unlock()
-		p.resetTCP(tc)
+		resetTCP(tc)
 		return
 	}
 	p.nextID++
@@ -507,9 +385,8 @@ func (p *Proxy) admit(ctx context.Context, tc *net.TCPConn) {
 	go c.run(ctx)
 }
 
-// resetTCP closes tc with RST and counts it (before the peer can see it).
-func (p *Proxy) resetTCP(tc *net.TCPConn) {
-	p.resets.Add(1)
+// resetTCP closes tc with RST.
+func resetTCP(tc *net.TCPConn) {
 	_ = tc.SetLinger(0)
 	_ = tc.Close()
 }
@@ -521,32 +398,15 @@ func (p *Proxy) remove(c *conn) {
 	p.active.Add(-1)
 }
 
-// sampleDelay draws one delay of d.
-func (p *Proxy) sampleDelay(d Delay) time.Duration {
-	if d.StdDev == 0 {
-		return d.Mean
-	}
-	p.rngMu.Lock()
-	z := p.rng.NormFloat64()
-	p.rngMu.Unlock()
-	v := float64(d.Mean) + z*float64(d.StdDev)
-	if v < 0 {
-		return 0
-	}
-	return time.Duration(v)
-}
-
 // conn is one proxied connection.
 type conn struct {
-	p        *Proxy
-	id       uint64
-	client   *net.TCPConn
-	override atomic.Pointer[modeBox]
-	done     chan struct{} // closed by abort
+	p      *Proxy
+	id     uint64
+	client *net.TCPConn
+	done   chan struct{} // closed by abort
 
-	mu         sync.Mutex // guards upstream, upAddr, aborted, cancelDial, pumps
+	mu         sync.Mutex // guards upstream, aborted, cancelDial, pumps
 	upstream   *net.TCPConn
-	upAddr     string
 	aborted    bool
 	cancelDial context.CancelFunc // ends an upstream dial in progress
 	up, down   *pump
@@ -562,19 +422,8 @@ func newConn(p *Proxy, id uint64, client *net.TCPConn) *conn {
 	return c
 }
 
-func (c *conn) info() ConnInfo {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return ConnInfo{ID: c.id, Client: c.client.RemoteAddr().String(), Upstream: c.upAddr}
-}
-
-// mode is the connection's override, else the proxy's mode.
-func (c *conn) mode() Mode {
-	if o := c.override.Load(); o != nil {
-		return o.m
-	}
-	return c.p.mode.Load().m
-}
+// mode is the proxy's mode.
+func (c *conn) mode() Mode { return c.p.mode.Load().m }
 
 // poke wakes both directions to re-read the mode.
 func (c *conn) poke() {
@@ -605,7 +454,6 @@ func (c *conn) abort(rst bool) {
 		cancelDial()
 	}
 	if rst {
-		c.p.resets.Add(1)
 		_ = c.client.SetLinger(0)
 		if up != nil {
 			_ = up.SetLinger(0)
@@ -660,14 +508,14 @@ func (c *conn) run(ctx context.Context) {
 		_ = up.Close()
 		return
 	}
-	c.upstream, c.upAddr = up, addr
+	c.upstream = up
 	c.up.dst = up
 	c.down = newPump(c, Down, up)
 	c.down.dst = c.client
 	c.mu.Unlock()
 	var hooks ConnHooks
 	if c.p.cfg.ConnTap != nil {
-		hooks = c.p.cfg.ConnTap(c.info())
+		hooks = c.p.cfg.ConnTap(ConnInfo{ID: c.id})
 	}
 	c.up.tap, c.down.tap = hooks.Tap, hooks.Tap
 	c.up.holdFn, c.down.holdFn = hooks.Hold, hooks.Hold
@@ -689,12 +537,12 @@ func (c *conn) run(ctx context.Context) {
 	<-downDone
 }
 
-// hold reads and discards client bytes while the connection's mode is
-// Blackhole and nothing was dialed; it reports whether to dial. Like the
-// pumps, it treats bytes by the mode when it has read them: a poke's past
-// deadline readies the blocked read, but bytes that arrive before that
-// read runs are returned instead of the timeout, and once the mode has
-// left Blackhole they are kept for the upstream.
+// hold reads and discards client bytes while the mode is Blackhole and
+// nothing was dialed; it reports whether to dial. Like the pumps, it
+// treats bytes by the mode when it has read them: a poke's past deadline
+// readies the blocked read, but bytes that arrive before that read runs
+// are returned instead of the timeout, and once the mode has left
+// Blackhole they are kept for the upstream.
 func (c *conn) hold() bool {
 	pm := c.up
 	for {
@@ -705,19 +553,18 @@ func (c *conn) hold() bool {
 		default:
 		}
 		switch c.mode().(type) {
-		case Reset, Refuse:
+		case Reset:
 			c.reset()
 			return false
-		case Pass, Delay:
+		case Pass:
 			return true
 		}
-		if !pm.armRead(seen, time.Time{}) {
+		if !pm.armRead(seen) {
 			continue
 		}
 		n, err := c.client.Read(pm.buf)
 		if n > 0 {
-			switch c.mode().(type) {
-			case Pass, Delay:
+			if _, pass := c.mode().(Pass); pass {
 				c.kept = append(c.kept, pm.buf[:n]...)
 			}
 		}
@@ -727,12 +574,11 @@ func (c *conn) hold() bool {
 	}
 }
 
-// chunk is bytes a direction keeps queued: under Delay until due, and
-// while the hold a HoldFunc took on it waits for its release. The queue
+// chunk is bytes a direction keeps queued while the hold a HoldFunc took
+// on it, or on a chunk ahead of it, waits for its release. The queue
 // forwards its chunks in the order read.
 type chunk struct {
 	b    []byte
-	due  time.Time
 	hold *hold // nil unless the connection's Hold held the chunk
 }
 
@@ -768,9 +614,8 @@ type pump struct {
 	mu  sync.Mutex // guards gen and the read deadline of src
 	gen uint64
 
-	queue   []chunk
-	queued  int
-	lastDue time.Time
+	queue  []chunk
+	queued int
 	// spare is a hold the last HoldFunc call did not take, for the next.
 	spare *hold
 }
@@ -800,29 +645,22 @@ func (pm *pump) generation() uint64 {
 	return pm.gen
 }
 
-// armRead sets the read deadline unless a poke arrived since seen was
+// armRead clears the read deadline unless a poke arrived since seen was
 // read; it reports whether the caller may read.
-func (pm *pump) armRead(seen uint64, deadline time.Time) bool {
+func (pm *pump) armRead(seen uint64) bool {
 	pm.mu.Lock()
 	defer pm.mu.Unlock()
 	if pm.gen != seen {
 		return false
 	}
-	_ = pm.src.SetReadDeadline(deadline)
+	_ = pm.src.SetReadDeadline(time.Time{})
 	return true
 }
 
-// wait blocks until t, a poke, or the connection's end; it reports false
-// at the connection's end.
-func (pm *pump) wait(t time.Time) bool {
-	var timer <-chan time.Time
-	if !t.IsZero() {
-		tm := time.NewTimer(time.Until(t))
-		defer tm.Stop()
-		timer = tm.C
-	}
+// wait blocks until a poke or the connection's end; it reports false at
+// the connection's end.
+func (pm *pump) wait() bool {
 	select {
-	case <-timer:
 	case <-pm.wake:
 	case <-pm.c.done:
 		return false
@@ -851,46 +689,35 @@ func (pm *pump) run() {
 		}
 		m := pm.c.mode()
 		switch m.(type) {
-		case Reset, Refuse:
+		case Reset:
 			pm.c.reset()
 			return
 		case Blackhole:
 			pm.queue = nil
 			pm.setQueued(0)
 		case Pass:
-			if err := pm.flush(time.Time{}); err != nil {
-				pm.c.abortFrom(err)
-				return
-			}
-		case Delay:
-			if err := pm.flush(time.Now()); err != nil {
+			if err := pm.flush(); err != nil {
 				pm.c.abortFrom(err)
 				return
 			}
 		}
 		if eof {
-			if _, bh := m.(Blackhole); bh {
-				if !pm.wait(time.Time{}) {
-					return
-				}
-				continue
-			}
-			if len(pm.queue) == 0 {
+			if _, bh := m.(Blackhole); !bh && len(pm.queue) == 0 {
 				_ = pm.dst.CloseWrite()
 				return
 			}
-			if !pm.wait(pm.wakeAt()) {
+			if !pm.wait() {
 				return
 			}
 			continue
 		}
 		if pm.queued >= pm.c.p.cfg.MaxQueuedBytes {
-			if !pm.wait(pm.wakeAt()) {
+			if !pm.wait() {
 				return
 			}
 			continue
 		}
-		if !pm.armRead(seen, pm.wakeAt()) {
+		if !pm.armRead(seen) {
 			continue
 		}
 		n, err := pm.src.Read(pm.buf)
@@ -911,37 +738,22 @@ func (pm *pump) run() {
 	}
 }
 
-// handle forwards, queues or drops one chunk per the current mode; the
-// connection's Hold sees every chunk forwarded or queued, as it is read.
+// handle forwards or queues one chunk under Pass and drops it under
+// Blackhole; the connection's Hold sees every chunk forwarded or queued,
+// as it is read.
 func (pm *pump) handle(b []byte) error {
-	switch m := pm.c.mode().(type) {
-	case Pass:
-		h := pm.holdOf(b)
-		// Chunks queued under Pass have no due: they wait only for a hold,
-		// theirs or one ahead of them.
-		pm.lastDue = time.Time{}
-		if err := pm.flush(time.Time{}); err != nil {
-			return err
-		}
-		if h == nil && len(pm.queue) == 0 {
-			return pm.forward(b)
-		}
-		pm.enqueue(b, time.Time{}, h)
-	case Delay:
-		// Order only binds chunks still queued: once Pass flushed or
-		// Blackhole dropped the queue, an earlier, longer delay must not
-		// hold back the chunks of a later, shorter one.
-		if len(pm.queue) == 0 {
-			pm.lastDue = time.Time{}
-		}
-		due := time.Now().Add(pm.c.p.sampleDelay(m))
-		if due.Before(pm.lastDue) {
-			due = pm.lastDue
-		}
-		pm.lastDue = due
-		pm.enqueue(b, due, pm.holdOf(b))
+	if _, pass := pm.c.mode().(Pass); !pass {
+		// Blackhole drops; Reset is handled by the loop.
+		return nil
 	}
-	// Blackhole drops; Reset and Refuse are handled by the loop.
+	h := pm.holdOf(b)
+	if err := pm.flush(); err != nil {
+		return err
+	}
+	if h == nil && len(pm.queue) == 0 {
+		return pm.forward(b)
+	}
+	pm.enqueue(b, h)
 	return nil
 }
 
@@ -965,27 +777,16 @@ func (pm *pump) holdOf(b []byte) *hold {
 	return h
 }
 
-// enqueue queues a copy of b, due at due (zero for at once) and held by h
-// (nil for no hold).
-func (pm *pump) enqueue(b []byte, due time.Time, h *hold) {
-	pm.queue = append(pm.queue, chunk{b: slices.Clone(b), due: due, hold: h})
+// enqueue queues a copy of b, held by h (nil for no hold).
+func (pm *pump) enqueue(b []byte, h *hold) {
+	pm.queue = append(pm.queue, chunk{b: slices.Clone(b), hold: h})
 	pm.setQueued(pm.queued + len(b))
 }
 
-// wakeAt returns when the first queued chunk can go, the deadline of a
-// read or a wait: its due, or zero, no deadline, while it waits for its
-// release, which pokes the pump.
-func (pm *pump) wakeAt() time.Time {
-	if len(pm.queue) == 0 || pm.queue[0].waiting() {
-		return time.Time{}
-	}
-	return pm.queue[0].due
-}
-
 // flush forwards the queued chunks in order while the first one waits for
-// no release and is due by now (whatever its due when now is zero).
-func (pm *pump) flush(now time.Time) error {
-	for len(pm.queue) > 0 && !pm.queue[0].waiting() && (now.IsZero() || !pm.queue[0].due.After(now)) {
+// no release.
+func (pm *pump) flush() error {
+	for len(pm.queue) > 0 && !pm.queue[0].waiting() {
 		ch := pm.queue[0]
 		pm.queue[0] = chunk{}
 		pm.queue = pm.queue[1:]
@@ -1002,9 +803,6 @@ func (pm *pump) flush(now time.Time) error {
 
 // forward taps and writes b to the destination.
 func (pm *pump) forward(b []byte) error {
-	if t := pm.c.p.cfg.Tap; t != nil {
-		t(pm.dir, b)
-	}
 	if pm.tap != nil {
 		pm.tap(pm.dir, b)
 	}

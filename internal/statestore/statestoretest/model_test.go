@@ -250,9 +250,8 @@ type skewed struct {
 func (s *skewed) Now() time.Time { return s.Clock.Now().Add(time.Duration(s.off.Load())) }
 
 func TestConformanceSplitClocks(t *testing.T) {
-	// The suite's clock-skew cases run through the Fake on a memory driver
-	// with separate Node and server clocks; and, without -short, the
-	// real-time path.
+	// The suite's clock-skew cases run on a memory driver with separate
+	// Node and server clocks; and, without -short, the real-time path.
 	for _, exact := range []bool{true, false} {
 		if !exact && testing.Short() {
 			continue
@@ -288,11 +287,10 @@ func TestConformanceSplitClocks(t *testing.T) {
 							t.Error(err)
 						}
 					})
-					f := &statestoretest.Fake{Inner: mem, Clock: p.node}
 					mu.Lock()
-					reg[f] = p
+					reg[mem] = p
 					mu.Unlock()
-					return f
+					return mem
 				},
 				Advance: func(t *testing.T, d statestore.Driver, by time.Duration) {
 					if p := get(d); p.server != nil {

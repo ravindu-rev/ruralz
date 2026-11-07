@@ -7,12 +7,12 @@ package redisserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net"
 	"net/url"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
@@ -23,10 +23,9 @@ import (
 // Integration tests against real servers: redis-server for the process
 // flavor, the images for the container flavor. Where a kind cannot run
 // (no redis-server, no Docker, a cluster or sentinel container off
-// Linux), its test
-// fails when RURALZ_TEST_STATESTORE selects the kind's flavor and skips
-// otherwise; a container kind also skips unless the variable is
-// container.
+// Linux), its test fails when RURALZ_TEST_STATESTORE selects the kind's
+// flavor and skips otherwise; a container kind also skips unless the
+// variable selects the container flavor.
 
 // TestSelectedKinds starts every kind RURALZ_TEST_STATESTORE selects and
 // checks that it serves at its URL: each primary answers, holds a key, a
@@ -41,7 +40,7 @@ func TestSelectedKinds(t *testing.T) {
 			}
 			nodes := d.Nodes()
 			if d.Topology() == statestore.TopologySentinel {
-				s := d.Sentinels()[0]
+				s := d.sentinels[0]
 				if u.Scheme != "redis" || u.Host != s.ClientAddr() || u.Query().Get("master_set") != MasterSet || len(nodes) != 1 {
 					t.Errorf("URL %q for %d nodes", d.URL(), len(nodes))
 				}
@@ -67,117 +66,15 @@ func TestSelectedKinds(t *testing.T) {
 			slotsServed := 0
 			for _, r := range mustDo(t, nodes[0], "CLUSTER", "SLOTS").Elems {
 				slotsServed += int(r.Elems[1].Int-r.Elems[0].Int) + 1
-				// Each shard lists its primary, then its one replica.
-				if len(r.Elems) != 4 {
-					t.Errorf("CLUSTER SLOTS shard %v lists %d servers, want a primary and one replica", r.Elems[:2], len(r.Elems)-2)
+				// Each shard lists its primary alone.
+				if len(r.Elems) != 3 {
+					t.Errorf("CLUSTER SLOTS shard %v lists %d servers, want its primary", r.Elems[:2], len(r.Elems)-2)
 				}
 			}
 			if slotsServed != slots {
 				t.Errorf("CLUSTER SLOTS serves %d slots, want %d", slotsServed, slots)
 			}
-			for i, r := range d.Replicas() {
-				if info := mustInfo(t, r, "replication"); info["role"] != "slave" || info["master_link_status"] != "up" {
-					t.Errorf("replica %d: role %q, link %q", i, info["role"], info["master_link_status"])
-				}
-			}
 		})
-	}
-}
-
-// keyOnShard returns a key whose slot lies in the slot range of shard
-// i of a three-primary cluster, asking s with CLUSTER KEYSLOT.
-func keyOnShard(t *testing.T, s *Server, i int) string {
-	t.Helper()
-	r := slotRanges(3)[i]
-	for n := 0; ; n++ {
-		k := "ruralz:k" + strconv.Itoa(n)
-		slot := int(mustDo(t, s, "CLUSTER", "KEYSLOT", k).Int)
-		if r[0] <= slot && slot <= r[1] {
-			return k
-		}
-	}
-}
-
-// TestProcessClusterFailoverLive checks the cluster failover on real
-// servers with TLS and users: a key written on shard 1 and replicated
-// (WAIT) survives a SIGKILL of the shard's primary and the promotion of
-// its replica with CLUSTER FAILOVER TAKEOVER, which takes writes and
-// which the other primaries map the shard to; the killed primary,
-// restarted, rejoins as the replica of the promoted one.
-func TestProcessClusterFailoverLive(t *testing.T) {
-	d := Start(t, ProcessCluster, Options{TLS: true, Users: []User{{Name: "ruralz", Password: "s3cret pw"}}})
-	primary, replica := d.Nodes()[1], d.Replicas()[1]
-	k := keyOnShard(t, primary, 1)
-	replicate(t, primary, k)
-	if err := primary.Kill(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.ClusterFailover(t.Context(), 1); err != nil {
-		t.Fatal(err)
-	}
-	if d.Nodes()[1] != replica || d.Replicas()[1] != primary {
-		t.Fatalf("after ClusterFailover: primary %s, replica %s", d.Nodes()[1].Name(), d.Replicas()[1].Name())
-	}
-	if v := mustDo(t, replica, "GET", k); v.Str != "v" {
-		t.Errorf("promoted replica GET %s = %v, want the replicated value", k, v)
-	}
-	mustDo(t, replica, "SET", k, "v2")
-	r := slotRanges(3)[1]
-	if owner, err := slotOwner(t.Context(), d.Nodes()[0], r[0]); err != nil || owner != replica.ClientAddr() {
-		t.Errorf("shard 0 maps slot %d to %s (%v), want the promoted %s", r[0], owner, err, replica.ClientAddr())
-	}
-	if err := primary.Restart(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := waitUntil(t.Context(), "the former primary to rejoin as a replica", func(ctx context.Context) error {
-		info, err := primary.Info(ctx, "replication")
-		if err != nil {
-			return err
-		}
-		if info["role"] != "slave" || info["master_link_status"] != "up" {
-			return fmt.Errorf("role %q, link %q", info["role"], info["master_link_status"])
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// TestProcessSentinelAutoFailoverLive checks the failover a sentinel
-// starts on its own: after a SIGKILL of the primary, the sentinel
-// promotes the replica once the primary is down past its
-// down-after-milliseconds, AwaitFailover follows it, and the restarted
-// former primary becomes the new primary's replica.
-func TestProcessSentinelAutoFailoverLive(t *testing.T) {
-	d := Start(t, ProcessSentinel, Options{Users: []User{{Name: "ruralz", Password: "pw"}}})
-	primary, replica := d.Primary(), d.Replica()
-	replicate(t, primary, "k")
-	if err := primary.Kill(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := d.AwaitFailover(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if d.Primary() != replica {
-		t.Fatalf("after AwaitFailover the primary is %s", d.Primary().Name())
-	}
-	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
-		t.Errorf("promoted GET = %v", v)
-	}
-	if err := primary.Restart(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if err := waitUntil(t.Context(), "the former primary to follow", func(ctx context.Context) error {
-		info, err := primary.Info(ctx, "replication")
-		if err != nil {
-			return err
-		}
-		if info["role"] != "slave" || info["master_link_status"] != "up" {
-			return fmt.Errorf("role %q, link %q", info["role"], info["master_link_status"])
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
 	}
 }
 
@@ -194,8 +91,7 @@ func TestProcessTLSAndUsersLive(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
-	var re *ReplyError
-	if _, err := c.Do(t.Context(), "GET", "x"); !errors.As(err, &re) || re.Code() != "NOAUTH" {
+	if _, err := c.Do(t.Context(), "GET", "x"); err == nil || !strings.Contains(err.Error(), "error reply: NOAUTH") {
 		t.Errorf("GET without AUTH = %v, want NOAUTH", err)
 	}
 	if u, _ := url.Parse(d.URL()); u.Scheme != "rediss" || u.User.Username() != "ruralz" {
@@ -249,8 +145,7 @@ func replicate(t *testing.T, s *Server, key string) {
 
 // TestProcessFailoverLive checks the scripted failover on a real
 // redis-server: data written to the primary reaches the replica, the
-// primary is killed, the replica promoted takes writes, and a restart of
-// the old primary comes back empty on its port.
+// primary is killed, and the replica promoted takes writes.
 func TestProcessFailoverLive(t *testing.T) {
 	d := Start(t, Process, Options{Replica: true})
 	primary, replica := d.Primary(), d.Replica()
@@ -268,12 +163,6 @@ func TestProcessFailoverLive(t *testing.T) {
 	if info := mustInfo(t, d.Primary(), "replication"); info["role"] != "master" {
 		t.Errorf("promoted role %q", info["role"])
 	}
-	if err := primary.Restart(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if v := mustDo(t, primary, "GET", "k"); !v.Null {
-		t.Errorf("restarted primary GET = %v, want nil", v)
-	}
 }
 
 // TestProcessSentinelFailoverLive checks the sentinel kind on real
@@ -287,7 +176,7 @@ func TestProcessSentinelFailoverLive(t *testing.T) {
 	if v := mustDo(t, replica, "GET", "k"); v.Str != "v" {
 		t.Fatalf("replica GET = %v", v)
 	}
-	if v := mustDo(t, d.Sentinels()[0], "ACL", "WHOAMI"); v.Str != "ruralz" {
+	if v := mustDo(t, d.sentinels[0], "ACL", "WHOAMI"); v.Str != "ruralz" {
 		t.Errorf("sentinel ACL WHOAMI = %v", v)
 	}
 	if err := d.Failover(t.Context()); err != nil {
@@ -314,8 +203,6 @@ func TestProcessSentinelFailoverLive(t *testing.T) {
 // TestProcessClusterBehindProxies checks Options.Announce on a real
 // cluster: each primary announces a counting RESP proxy, so CLUSTER
 // SLOTS names the proxies and commands sent through them are counted.
-// The replicas replicate through the announced proxies too, so the test
-// counts a command no replication link sends.
 func TestProcessClusterBehindProxies(t *testing.T) {
 	proxies := map[int]*respproxy.Proxy{} // the last start attempt of each node wins
 	d := Start(t, ProcessCluster, Options{Announce: func(node int, addr string) string {

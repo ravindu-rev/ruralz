@@ -28,7 +28,6 @@ import (
 	"fmt"
 	"math"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ravindu-rev/ruralz/internal/clock"
@@ -128,26 +127,12 @@ func OutcomeForStatus(status int) Outcome {
 	return Success
 }
 
-// Request is one scheduled request.
-type Request struct {
-	// Seq numbers requests from 0 in schedule order.
-	Seq uint64
-	// Intended is the request's intended send time on the run's clock.
-	Intended time.Time
-}
-
 // Target sends one request. Do runs on a worker goroutine, concurrently
 // with other calls; ctx ends at the request's Timeout (cause ErrTimeout)
 // or when the run's context ends.
 type Target interface {
-	Do(ctx context.Context, r Request) Response
+	Do(ctx context.Context) Response
 }
-
-// TargetFunc adapts a function to Target.
-type TargetFunc func(ctx context.Context, r Request) Response
-
-// Do calls f.
-func (f TargetFunc) Do(ctx context.Context, r Request) Response { return f(ctx, r) }
 
 // Response is what a Target reports for one request.
 type Response struct {
@@ -165,11 +150,9 @@ type Response struct {
 type Config struct {
 	// Rate is the fixed arrival rate in requests per second.
 	Rate float64
-	// Duration is the run's length; Requests its number of requests. Set
-	// at most one; with neither the run lasts until Stop or the end of its
-	// context.
+	// Duration is the run's length; without it the run lasts until the
+	// end of its context.
 	Duration time.Duration
-	Requests uint64
 	// MaxInFlight bounds concurrent requests; 0 means DefaultMaxInFlight.
 	MaxInFlight int
 	// MaxBacklog bounds requests waiting for a free worker; beyond it a
@@ -188,8 +171,6 @@ func (c *Config) setDefaults() error {
 		return fmt.Errorf("loadgen: rate %v is not a positive number", c.Rate)
 	case c.Duration < 0, c.Timeout < 0, c.MaxInFlight < 0:
 		return errors.New("loadgen: negative duration, timeout or in-flight bound")
-	case c.Duration > 0 && c.Requests > 0:
-		return errors.New("loadgen: set Duration or Requests, not both")
 	}
 	if c.MaxInFlight == 0 {
 		c.MaxInFlight = DefaultMaxInFlight
@@ -209,21 +190,6 @@ func (c *Config) setDefaults() error {
 	return nil
 }
 
-// Progress is a running generator's counters.
-type Progress struct {
-	// Scheduled counts requests whose intended time came, Missed ones
-	// included; Done those that ended.
-	Scheduled, Done int64
-	// Missed counts requests never sent.
-	Missed int64
-	// InFlight counts requests being sent; Backlog those waiting.
-	InFlight, Backlog int64
-	// Next is the intended send time of the next request to schedule;
-	// once it lies after the clock's time, every due request has been
-	// dispatched.
-	Next time.Time
-}
-
 // Generator is a running load generator.
 type Generator struct {
 	cfg    Config
@@ -231,21 +197,16 @@ type Generator struct {
 	clk    clock.Clock
 	start  time.Time
 
-	stopCh   chan struct{}
-	stopOnce sync.Once
-	done     chan struct{} // closed when the result is ready
-	stats    Stats
-	err      error
+	done  chan struct{} // closed when the result is ready
+	stats Stats
+	err   error
 
 	mu       sync.Mutex // guards inFlight and backlog
 	inFlight int
-	backlog  []Request // FIFO, at most cfg.MaxBacklog
+	backlog  int // requests waiting for a free worker, at most cfg.MaxBacklog
 	workers  sync.WaitGroup
 
 	rec recorder
-
-	scheduled, finished, missed atomic.Int64
-	next                        atomic.Int64 // offset of the next request to schedule
 }
 
 // Run starts a run and waits for its result; see Start.
@@ -258,8 +219,8 @@ func Run(ctx context.Context, t Target, c Config) (Stats, error) {
 }
 
 // Start begins offering load to t. The run ends when its last request is
-// due, at Stop, or when ctx ends (which also cancels requests in flight);
-// Wait then returns the result.
+// due, or when ctx ends, which also cancels requests in flight; Wait then
+// returns the result.
 func Start(ctx context.Context, t Target, c Config) (*Generator, error) {
 	if t == nil {
 		return nil, errors.New("loadgen: nil target")
@@ -271,7 +232,6 @@ func Start(ctx context.Context, t Target, c Config) (*Generator, error) {
 		cfg:    c,
 		target: t,
 		clk:    c.Clock,
-		stopCh: make(chan struct{}),
 		done:   make(chan struct{}),
 	}
 	g.start = g.clk.Now()
@@ -279,33 +239,11 @@ func Start(ctx context.Context, t Target, c Config) (*Generator, error) {
 	return g, nil
 }
 
-// Stop ends the schedule: requests already due are still sent and those in
-// flight finish. It is idempotent.
-func (g *Generator) Stop() { g.stopOnce.Do(func() { close(g.stopCh) }) }
-
-// Done is closed when the result is ready.
-func (g *Generator) Done() <-chan struct{} { return g.done }
-
 // Wait waits for the run to end and returns its result, with the context's
 // error when the context ended the run.
 func (g *Generator) Wait() (Stats, error) {
 	<-g.done
 	return g.stats, g.err
-}
-
-// Progress returns the current counters.
-func (g *Generator) Progress() Progress {
-	g.mu.Lock()
-	inFlight, backlog := g.inFlight, len(g.backlog)
-	g.mu.Unlock()
-	return Progress{
-		Scheduled: g.scheduled.Load(),
-		Done:      g.finished.Load(),
-		Missed:    g.missed.Load(),
-		InFlight:  int64(inFlight),
-		Backlog:   int64(backlog),
-		Next:      g.start.Add(time.Duration(g.next.Load())),
-	}
 }
 
 // offset returns request seq's intended offset from the start.
@@ -329,114 +267,83 @@ func (g *Generator) schedule(ctx context.Context) error {
 	timer := g.clk.NewTimer(time.Hour)
 	timer.Stop()
 	defer timer.Stop()
-	var seq uint64
-	stopAt := time.Duration(-1)
-	for {
+	for seq := uint64(0); ; {
 		if err := ctx.Err(); err != nil {
 			// The context ends the run at once; nothing more is sent.
 			return err
 		}
-		if stopAt < 0 && g.stopped() {
-			stopAt = g.clk.Since(g.start)
-		}
 		off := g.offset(seq)
-		if (stopAt >= 0 && off >= stopAt) || g.over(seq, off) {
-			// Requests due before the stop instant were still sent.
+		if g.cfg.Duration > 0 && off >= g.cfg.Duration {
 			return nil
 		}
 		if now := g.clk.Since(g.start); now < off {
 			g.waitDue(ctx, timer, off-now)
 			continue
 		}
-		g.dispatch(ctx, Request{Seq: seq, Intended: g.start.Add(off)})
+		g.dispatch(ctx)
 		seq++
-		g.next.Store(int64(g.offset(seq)))
 	}
 }
 
-// over reports whether request seq, due at off, lies past the run's end.
-func (g *Generator) over(seq uint64, off time.Duration) bool {
-	switch {
-	case g.cfg.Duration > 0:
-		return off >= g.cfg.Duration
-	case g.cfg.Requests > 0:
-		return seq >= g.cfg.Requests
-	}
-	return false
-}
-
-// waitDue waits for d, Stop or the context's end.
+// waitDue waits for d or the context's end.
 func (g *Generator) waitDue(ctx context.Context, timer clock.Timer, d time.Duration) {
 	timer.Reset(d)
 	select {
 	case <-timer.C():
 		return
-	case <-g.stopCh:
 	case <-ctx.Done():
 	}
 	timer.Stop()
 }
 
-func (g *Generator) stopped() bool {
-	select {
-	case <-g.stopCh:
-		return true
-	default:
-		return false
-	}
-}
-
-// dispatch hands r to a free worker, queues it, or counts it Missed.
-func (g *Generator) dispatch(ctx context.Context, r Request) {
+// dispatch hands a due request to a free worker, queues it, or counts it
+// Missed.
+func (g *Generator) dispatch(ctx context.Context) {
 	g.rec.dispatched()
-	g.scheduled.Add(1)
 	g.mu.Lock()
 	switch {
 	case g.inFlight < g.cfg.MaxInFlight:
 		g.inFlight++
 		g.mu.Unlock()
 		g.workers.Add(1)
-		go g.worker(ctx, r)
-	case len(g.backlog) < g.cfg.MaxBacklog:
-		g.backlog = append(g.backlog, r)
+		go g.worker(ctx)
+	case g.backlog < g.cfg.MaxBacklog:
+		g.backlog++
 		g.mu.Unlock()
 	default:
 		g.mu.Unlock()
-		g.missed.Add(1)
-		g.finish(Response{Outcome: Missed})
+		g.rec.add(Response{Outcome: Missed})
 	}
 }
 
-// worker sends r, then backlogged requests, until the backlog is empty.
-func (g *Generator) worker(ctx context.Context, r Request) {
+// worker sends a request, then backlogged requests, until the backlog is
+// empty.
+func (g *Generator) worker(ctx context.Context) {
 	defer g.workers.Done()
 	for {
-		g.send(ctx, r)
+		g.send(ctx)
 		g.mu.Lock()
-		if len(g.backlog) == 0 {
+		if g.backlog == 0 {
 			g.inFlight--
-			g.backlog = nil
 			g.mu.Unlock()
 			return
 		}
-		r = g.backlog[0]
-		g.backlog[0] = Request{}
-		g.backlog = g.backlog[1:]
+		g.backlog--
 		g.mu.Unlock()
 	}
 }
 
 // send runs one request against the target, within Timeout of the run's
 // context ctx.
-func (g *Generator) send(ctx context.Context, r Request) {
+func (g *Generator) send(ctx context.Context) {
 	rctx, cancel := context.WithCancelCause(ctx)
 	t := g.clk.AfterFunc(g.cfg.Timeout, func() { cancel(ErrTimeout) })
-	resp := g.target.Do(rctx, r)
+	resp := g.target.Do(rctx)
 	t.Stop()
 	timedOut := errors.Is(context.Cause(rctx), ErrTimeout)
 	cancel(nil)
 	resp.Outcome = normalize(resp, timedOut, ctx.Err() != nil)
-	g.finish(resp)
+	g.rec.add(resp)
 }
 
 // normalize derives a zero Outcome from Err or Status, then turns a
@@ -462,10 +369,4 @@ func normalize(r Response, timedOut, runEnded bool) Outcome {
 		return Canceled
 	}
 	return o
-}
-
-// finish records a finished request.
-func (g *Generator) finish(r Response) {
-	g.rec.add(r)
-	g.finished.Add(1)
 }

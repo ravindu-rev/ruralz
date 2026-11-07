@@ -108,6 +108,15 @@ func addNodes(t *testing.T, topo *Topology, n int, o NodeOptions) []*Node {
 	return nodes
 }
 
+// secretValue returns the value the harness wrote for the reference ref
+// of n, supplied or generated.
+func secretValue(n *Node, ref string) ([]byte, bool) {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	v, ok := n.secrets[ref]
+	return v, ok
+}
+
 // answer is the status, header and TLS state of a GET's response, whose
 // body get read and closed.
 type answer struct {

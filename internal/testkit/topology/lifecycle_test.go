@@ -84,7 +84,7 @@ func TestReloadKeepsPortsAndActivates(t *testing.T) {
 	topo := standinTopology(t)
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	old := n.Render()
-	urlBefore, _ := n.SecretValue(refStoreURL)
+	urlBefore, _ := secretValue(n, refStoreURL)
 	added := strings.Replace(testBundle, "  admin:\n", "    - name: extra\n      protocol: http\n      port: 9090\n  admin:\n", 1)
 	r, err := n.Reload(t.Context(), []byte(added))
 	if err != nil {
@@ -94,7 +94,7 @@ func TestReloadKeepsPortsAndActivates(t *testing.T) {
 		r.AdminPort != old.AdminPort || r.Listeners[2].Name != "extra" || r.Listeners[2].Port == old.Listeners[0].Port {
 		t.Fatalf("reload render %+v, want the old ports kept and a new one for extra", r)
 	}
-	if v, _ := n.SecretValue(refStoreURL); !bytes.Equal(v, urlBefore) {
+	if v, _ := secretValue(n, refStoreURL); !bytes.Equal(v, urlBefore) {
 		t.Error("a re-render changed a generated secret")
 	}
 	if err := topo.Advance(t.Context(), standinWatch); err != nil {

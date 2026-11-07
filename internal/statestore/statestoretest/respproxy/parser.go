@@ -18,9 +18,9 @@ const (
 	maxLine = 64 << 10
 	// maxDepth bounds the nesting of a reply's aggregates.
 	maxDepth = 128
-	// maxArgs is the number of arguments kept per command; later ones
-	// are counted, not kept.
-	maxArgs = 64
+	// maxArgs is the number of arguments kept per command: its name and,
+	// for a container command, its subcommand.
+	maxArgs = 2
 	// maxArgBytes is the number of bytes kept per argument.
 	maxArgBytes = 256
 	// maxErrBytes is the number of bytes kept of an error reply.
@@ -31,9 +31,8 @@ const (
 // Byte slices are valid only during the call.
 type sink interface {
 	// command is one complete command: its first maxArgs arguments, each
-	// cut to maxArgBytes, the full argument count, and whether anything
-	// was cut.
-	command(args [][]byte, argc int64, cut bool)
+	// cut to maxArgBytes.
+	command(args [][]byte)
 	// replyStart is the first line of a reply (an attribute ahead of it
 	// excluded).
 	replyStart()
@@ -84,14 +83,11 @@ type parser struct {
 	end  int   // bytes of the CRLF after a blob payload seen
 	keep int   // bytes of the current blob to keep
 	kept []byte
-	cut  bool // the current blob had more bytes than keep
 
 	// Commands.
-	argsLeft int64 // bulk strings still to read in the current command
-	argc     int64
+	argsLeft int64    // bulk strings still to read in the current command
 	args     [][]byte // storage of the kept arguments, reused
 	nargs    int      // kept arguments of the current command
-	cmdCut   bool
 
 	// Replies.
 	stack []frame
@@ -168,7 +164,7 @@ func (p *parser) fail(format string, args ...any) {
 
 // startBlob begins a blob of n payload bytes, keeping the first keep.
 func (p *parser) startBlob(n int64, keep int) {
-	p.left, p.keep, p.kept, p.cut = n, keep, p.kept[:0], false
+	p.left, p.keep, p.kept = n, keep, p.kept[:0]
 	p.st, p.end = stBlob, 0
 	if n == 0 {
 		p.st = stBlobEnd
@@ -177,7 +173,6 @@ func (p *parser) startBlob(n int64, keep int) {
 
 func (p *parser) keepBytes(b []byte) {
 	if room := p.keep - len(p.kept); room < len(b) {
-		p.cut = true
 		b = b[:max(room, 0)]
 	}
 	p.kept = append(p.kept, b...)
@@ -193,7 +188,7 @@ func (p *parser) onLine(line []byte) {
 
 func (p *parser) onBlob() {
 	if !p.replies {
-		p.addArg(p.kept, p.cut)
+		p.addArg(p.kept)
 		if p.argsLeft--; p.argsLeft == 0 {
 			p.endCommand()
 		}
@@ -216,7 +211,7 @@ func (p *parser) commandLine(line []byte) {
 		}
 		p.beginCommand(int64(len(fields)))
 		for _, f := range fields {
-			p.addArg(f[:min(len(f), maxArgBytes)], len(f) > maxArgBytes)
+			p.addArg(f[:min(len(f), maxArgBytes)])
 		}
 		p.endCommand()
 	case p.argsLeft == 0:
@@ -244,14 +239,13 @@ func (p *parser) commandLine(line []byte) {
 }
 
 func (p *parser) beginCommand(n int64) {
-	p.argsLeft, p.argc, p.nargs, p.cmdCut = n, n, 0, false
+	p.argsLeft, p.nargs = n, 0
 }
 
 // addArg keeps one argument of the current command while fewer than
 // maxArgs are kept.
-func (p *parser) addArg(b []byte, cut bool) {
+func (p *parser) addArg(b []byte) {
 	if p.nargs == maxArgs {
-		p.cmdCut = true
 		return
 	}
 	if p.nargs == len(p.args) {
@@ -259,12 +253,11 @@ func (p *parser) addArg(b []byte, cut bool) {
 	}
 	p.args[p.nargs] = append(p.args[p.nargs][:0], b...)
 	p.nargs++
-	p.cmdCut = p.cmdCut || cut
 }
 
 func (p *parser) endCommand() {
 	p.argsLeft = 0
-	p.sink.command(p.args[:p.nargs], p.argc, p.cmdCut)
+	p.sink.command(p.args[:p.nargs])
 }
 
 // replyLine handles a line of the server stream: a scalar, or the header

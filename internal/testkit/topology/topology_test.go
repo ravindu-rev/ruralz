@@ -217,7 +217,7 @@ func checkRewrittenRefs(t *testing.T, n *Node, r *Render) {
 		if path, _ := n.SecretPath(ref); path != s.Path {
 			t.Errorf("SecretPath(%s) = %s, want %s", ref, path, s.Path)
 		}
-		v, ok := n.SecretValue(ref)
+		v, ok := secretValue(n, ref)
 		if !ok || !n.t.canaries.carries(v) {
 			t.Errorf("%s secret %s = %q, want a value carrying a canary", n.Name(), ref, v)
 		}
@@ -234,7 +234,7 @@ func checkRewrittenRefs(t *testing.T, n *Node, r *Render) {
 	if err := json.Unmarshal(data, &obj); err != nil || len(obj) != 3 {
 		t.Fatalf("%s creds.json = %s (%v), want a JSON object of three keys", n.Name(), data, err)
 	}
-	if v, _ := n.SecretValue(refCredsCA); obj["ca"] != string(v) {
+	if v, _ := secretValue(n, refCredsCA); obj["ca"] != string(v) {
 		t.Errorf("creds.json ca = %q, want %q", obj["ca"], v)
 	}
 	if fi, err := os.Stat(byRef[refKey].Path); err != nil || fi.Mode().Perm() != 0o600 {

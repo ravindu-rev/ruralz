@@ -126,7 +126,7 @@ func TestRealTimeTopologyRefusesTheClock(t *testing.T) {
 		c.Env = []string{standinEnv + "=1"}
 	})
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	if topo.TestClock() || topo.Clock().Enabled() {
+	if topo.TestClock() || topo.clock.enabled {
 		t.Error("TestClock reports the controllable clock")
 	}
 	if err := topo.Advance(t.Context(), time.Second); !errors.Is(err, ErrNoTestClock) {

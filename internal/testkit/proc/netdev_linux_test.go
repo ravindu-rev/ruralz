@@ -167,13 +167,12 @@ func TestAddDevice(t *testing.T) { // a non-loopback address inside a network na
 	user := netnsUser(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	var out bytes.Buffer
-	_, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestAddDeviceChild", User: user, Output: &out})
+	_, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestAddDeviceChild", User: user})
 	if errors.Is(err, ErrChildSkipped) {
 		t.Skip(err)
 	}
 	if err != nil {
-		t.Fatalf("RunInNetNS = %v\n%s", err, out.String())
+		t.Fatalf("RunInNetNS = %v", err)
 	}
 }
 

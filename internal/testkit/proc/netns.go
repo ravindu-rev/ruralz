@@ -5,11 +5,8 @@ package proc
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"regexp"
@@ -17,24 +14,22 @@ import (
 	"testing"
 )
 
-// Environment variables of an InNetNS child.
+// Environment variables of a RunInNetNS child.
 const (
-	// EnvInNetNS is "1" in the child InNetNS starts.
+	// EnvInNetNS is "1" in the child RunInNetNS starts.
 	EnvInNetNS = "RURALZ_TEST_IN_NETNS"
-	// EnvNetNSSysctls carries the requested sysctls as a JSON object.
-	EnvNetNSSysctls = "RURALZ_TEST_NETNS_SYSCTLS"
 	// EnvNetNSUser is "1" in a child started with NetNSOptions.User and
 	// empty otherwise.
 	EnvNetNSUser = "RURALZ_TEST_NETNS_USER"
 )
 
-// ErrChildFailed reports that the InNetNS child test failed, ran no test
-// or reported no result.
+// ErrChildFailed reports that the RunInNetNS child test failed, ran no
+// test or reported no result.
 var ErrChildFailed = errors.New("proc: network namespace child failed")
 
-// ErrChildSkipped reports that the InNetNS child test skipped; the error
-// carries the child's skip reason, so the parent can pass it to t.Skip
-// instead of reporting a pass for a run that never happened.
+// ErrChildSkipped reports that the RunInNetNS child test skipped; the
+// error carries the child's skip reason, so the parent can pass it to
+// t.Skip instead of reporting a pass for a run that never happened.
 var ErrChildSkipped = errors.New("proc: network namespace child skipped")
 
 // ErrNamespace reports that the child's namespaces could not be created:
@@ -52,13 +47,18 @@ const (
 	maxReasonLines = 8
 )
 
-// NetNSOptions configures RunInNetNS.
+// NetNSOptions configures RunInNetNS, which re-executes the running test
+// binary with -test.run matching only TestName inside a new network
+// namespace (CLONE_NEWNET) and returns its exit status. The child sees
+// RURALZ_TEST_IN_NETNS=1 and calls NetNSChild, which brings the loopback
+// interface up there. Success means exit 0 and a "--- PASS" line for
+// TestName. A child that skips returns ErrChildSkipped with its reason; a
+// child that fails, runs no test or prints no result line returns
+// ErrChildFailed with its output tail. It needs Linux, and root (or
+// CAP_SYS_ADMIN) or, with User, unprivileged user namespaces.
 type NetNSOptions struct {
 	// TestName is the test to run in the child, as t.Name() reports it.
 	TestName string
-	// Sysctls are written under /proc/sys in the child's namespace, for
-	// example {"net.ipv4.tcp_migrate_req": "1"}.
-	Sysctls map[string]string
 	// Args are extra test flags for the child, for example
 	// -test.timeout=2m. -test.v is always true, because the verbose result
 	// line tells a pass from a skip: it is passed before Args, so a "--"
@@ -68,61 +68,26 @@ type NetNSOptions struct {
 	// Env is appended to the child's environment (it inherits the
 	// parent's, unlike Start).
 	Env []string
-	// Output receives the child's combined output as it runs; the last
-	// 64 KiB are also kept for the error of a failed child.
-	Output io.Writer
 	// User also puts the child in a new user namespace (CLONE_NEWUSER)
 	// that maps the caller's user and group to root, so a caller without
 	// CAP_SYS_ADMIN gets CAP_NET_ADMIN over the new network namespace
-	// where the kernel admits unprivileged user namespaces. Such a child
-	// cannot write every sysctl a root caller can.
+	// where the kernel admits unprivileged user namespaces.
 	User bool
 }
 
-// InNetNS re-executes the running test binary with -test.run matching
-// only testName inside a new network namespace (CLONE_NEWNET) and returns
-// its exit status. The child sees RURALZ_TEST_IN_NETNS=1 and calls
-// NetNSChild, which brings the loopback interface up and applies sysctls
-// there. Success means exit 0 and a "--- PASS" line for testName. A child
-// that skips returns ErrChildSkipped with its reason; a child that fails,
-// runs no test or prints no result line returns ErrChildFailed with its
-// output tail. It needs root (or CAP_SYS_ADMIN) and Linux; RunInNetNS
-// with NetNSOptions.User needs unprivileged user namespaces instead.
-//
-//	func TestHandover(t *testing.T) {
-//		if proc.NetNSChild(t) {
-//			runHandover(t) // inside the namespace
-//			return
-//		}
-//		_, err := proc.InNetNS(ctx, t.Name(), map[string]string{"net.ipv4.tcp_migrate_req": "1"})
-//		if errors.Is(err, proc.ErrChildSkipped) {
-//			t.Skip(err)
-//		}
-//		if err != nil {
-//			t.Fatal(err)
-//		}
-//	}
-func InNetNS(ctx context.Context, testName string, sysctls map[string]string) (int, error) {
-	return RunInNetNS(ctx, NetNSOptions{TestName: testName, Sysctls: sysctls})
-}
-
-// NetNSChild reports whether this process is an InNetNS child. In the
-// child it brings the loopback interface up, applies the parent's sysctls
-// (idempotent), failing t when either fails. A child in a user namespace whose root holds no capability
-// over the network namespace, as Ubuntu's AppArmor leaves every
-// unprivileged one (kernel.apparmor_restrict_unprivileged_userns=1),
-// skips with ErrNamespace in its reason: it could not have the
-// namespaces, as when clone(2) refuses them.
+// NetNSChild reports whether this process is a RunInNetNS child. In the
+// child it brings the loopback interface up, failing t when that fails. A
+// child in a user namespace whose root holds no capability over the
+// network namespace, as Ubuntu's AppArmor leaves every unprivileged one
+// (kernel.apparmor_restrict_unprivileged_userns=1), skips with
+// ErrNamespace in its reason: it could not have the namespaces, as when
+// clone(2) refuses them.
 func NetNSChild(t testing.TB) bool {
 	if os.Getenv(EnvInNetNS) != "1" {
 		return false
 	}
 	t.Helper()
-	sysctls, err := decodeSysctls(os.Getenv(EnvNetNSSysctls))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := SetupNetNS(sysctls); err != nil {
+	if err := SetupNetNS(); err != nil {
 		if os.Getenv(EnvNetNSUser) == "1" && errors.Is(err, os.ErrPermission) {
 			t.Skipf("%v: the user namespace grants no capability over the network namespace: %v", ErrNamespace, err)
 		}
@@ -139,51 +104,6 @@ func RunPattern(name string) string {
 		parts[i] = "^" + regexp.QuoteMeta(p) + "$"
 	}
 	return strings.Join(parts, "/")
-}
-
-// sysctlPath returns the /proc/sys file of a sysctl name.
-func sysctlPath(name string) (string, error) {
-	if name == "" || strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".") || strings.Contains(name, "..") {
-		return "", fmt.Errorf("proc: bad sysctl name %q", name)
-	}
-	for i := range len(name) {
-		if !sysctlByte(name[i]) {
-			return "", fmt.Errorf("proc: bad sysctl name %q", name)
-		}
-	}
-	return "/proc/sys/" + strings.ReplaceAll(name, ".", "/"), nil
-}
-
-// sysctlByte reports whether c may appear in a sysctl name.
-func sysctlByte(c byte) bool {
-	return ('a' <= c && c <= 'z') || ('A' <= c && c <= 'Z') || ('0' <= c && c <= '9') || c == '_' || c == '-' || c == '.'
-}
-
-func encodeSysctls(m map[string]string) (string, error) {
-	for name := range m {
-		if _, err := sysctlPath(name); err != nil {
-			return "", err
-		}
-	}
-	if m == nil {
-		m = map[string]string{}
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "", fmt.Errorf("proc: encode sysctls: %w", err)
-	}
-	return string(b), nil
-}
-
-func decodeSysctls(s string) (map[string]string, error) {
-	m := map[string]string{}
-	if s == "" {
-		return m, nil
-	}
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil, fmt.Errorf("proc: %s: %w", EnvNetNSSysctls, err)
-	}
-	return m, nil
 }
 
 // testResult reads a test binary's -test.v output for the result line of

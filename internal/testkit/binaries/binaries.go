@@ -81,9 +81,6 @@ type BuildOptions struct {
 	// Commands lists the cmd/ directories to build; default ruralzd and
 	// ruralz.
 	Commands []string
-	// GoCmd is the go command; default $GOROOT/bin/go when GOROOT is set,
-	// else "go" from PATH.
-	GoCmd string
 	// TestClock builds ruralzd as the controllable-clock test build, with
 	// the build tag TestClockTag; ruralz is built without it. With
 	// RURALZ_TEST_BIN_DIR set, the prebuilt binaries are used whatever
@@ -129,7 +126,7 @@ func Build(ctx context.Context, repoRoot, dir string, o BuildOptions) (Set, erro
 		return Set{}, fmt.Errorf("binaries: %w", err)
 	}
 	base := []string{"build", "-trimpath", "-ldflags", LDFlags(DefaultVersion, DefaultCommit, DefaultFlavor), "-o", out + string(filepath.Separator)}
-	goCmd, err := goCommand(o.GoCmd)
+	goCmd, err := goCommand()
 	if err != nil {
 		return Set{}, err
 	}
@@ -244,22 +241,9 @@ func collect(dir, goos string, cmds []string) (Set, error) {
 	return s, nil
 }
 
-// Path returns the path of the named binary in s, or "".
-func (s Set) Path(name string) string {
-	switch name {
-	case Ruralzd:
-		return s.Ruralzd
-	case Ruralz:
-		return s.Ruralz
-	}
-	return ""
-}
-
-// goCommand resolves the go command.
-func goCommand(explicit string) (string, error) {
-	if explicit != "" {
-		return explicit, nil
-	}
+// goCommand resolves the go command: $GOROOT/bin/go when GOROOT is set
+// and holds one, else "go" from PATH.
+func goCommand() (string, error) {
 	if gr := os.Getenv("GOROOT"); gr != "" {
 		p := filepath.Join(gr, "bin", "go")
 		if runtime.GOOS == "windows" {

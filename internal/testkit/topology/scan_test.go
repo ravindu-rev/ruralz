@@ -131,7 +131,7 @@ func TestDesignatedDestinationsAndIncompleteLogs(t *testing.T) {
 		}
 	})
 	cfg := standinCfg(t)
-	cfg.ArtifactDir = t.TempDir() // the recorded failure keeps its evidence here
+	t.Setenv(ArtifactDirEnv, t.TempDir()) // the recorded failure keeps its evidence here
 	topo := New(rtb, cfg)
 	idp, err := topo.StartIDP(mockidp.Config{})
 	if err != nil {
@@ -190,24 +190,21 @@ func TestProxiedURL(t *testing.T) {
 	}
 }
 
-// With the Transport toggles a State Store runs in cleartext without a
-// user, and its URL says so.
-func TestStateStoreCleartextWithoutUser(t *testing.T) {
-	topo := standinTopology(t, func(c *Config) {
-		c.Transport.CleartextStateStore = true
-		c.Transport.NoStateStoreUser = true
-	})
+// With Transport.NoStateStoreUser a State Store still runs over TLS but
+// without an ACL user, and its URL carries no credentials.
+func TestStateStoreWithoutUser(t *testing.T) {
+	topo := standinTopology(t, func(c *Config) { c.Transport.NoStateStoreUser = true })
 	ss := topo.StartStateStore("plain", StateStoreOptions{})
-	if ss.CAPEM() != nil {
-		t.Error("a cleartext State Store has a CA")
+	if ss.CAPEM() == nil {
+		t.Error("a State Store without a user has no CA")
 	}
 	o := nodeOptions(t, topo)
 	o.StateStoreURLs = map[string]string{refStoreURL: "plain"}
 	n := addNodes(t, topo, 1, o)[0]
-	v, _ := n.SecretValue(refStoreURL)
+	v, _ := secretValue(n, refStoreURL)
 	u, err := url.Parse(string(v))
-	if err != nil || u.Scheme != "redis" || u.User != nil {
-		t.Fatalf("URL %s (%v), want redis:// without credentials", v, err)
+	if err != nil || u.Scheme != "rediss" || u.User != nil {
+		t.Fatalf("URL %s (%v), want rediss:// without credentials", v, err)
 	}
 	proxies, ok := n.StateStoreProxy("plain")
 	if !ok || len(proxies) != 1 || proxies[0].Addr() != u.Host {

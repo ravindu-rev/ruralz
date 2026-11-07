@@ -242,7 +242,7 @@ func TestNoFalsePositives(t *testing.T) { // 10,000 random cases
 	}
 }
 
-func TestScanFileAndDir(t *testing.T) {
+func TestScanDir(t *testing.T) {
 	c := Canary{Value: fixedValue}
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o750); err != nil {
@@ -268,13 +268,6 @@ func TestScanFileAndDir(t *testing.T) {
 	}
 	if !strings.Contains(got[0].String(), "sub/node.err: canary (hex) at byte 2") || strings.Contains(got[0].String(), c.Value) {
 		t.Fatalf("String() = %q", got[0].String())
-	}
-	found, err := c.ScanFile(leak)
-	if err != nil || len(found) != 1 || found[0].Source != leak {
-		t.Fatalf("ScanFile = %v, %v", found, err)
-	}
-	if _, err := c.ScanFile(filepath.Join(dir, "missing")); err == nil {
-		t.Fatal("ScanFile on a missing file: want error")
 	}
 	if _, err := c.ScanDir(filepath.Join(dir, "missing")); err == nil {
 		t.Fatal("ScanDir on a missing directory: want error")

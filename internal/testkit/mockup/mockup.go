@@ -1,31 +1,28 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mockup is the mock Upstream of the test kit: an HTTP server on
-// loopback that speaks HTTP/1.1 and h2c (HTTP/2 over cleartext with prior
-// knowledge) or, with a TLS configuration passed in (from testkit/pki),
-// HTTP/1.1 and HTTP/2 over TLS negotiated by ALPN.
+// Package mockup is the mock Upstream of the process harness
+// (docs/engineering/03-testing-and-quality-strategy.md, "Process
+// harness"): an HTTP server on loopback that speaks HTTP/1.1 and h2c
+// (HTTP/2 over cleartext with prior knowledge) or, with a TLS
+// configuration passed in (from testkit/pki), HTTP/1.1 and HTTP/2 over TLS
+// negotiated by ALPN.
 //
 // Its answers are programmable per Server and per path with a Behavior:
-// status, headers, a literal or generated body of any size, a delay drawn
-// from a distribution (Fixed, Uniform, Normal, Exponential), a slow body
-// (chunks paced by an interval), a reset (TCP RST of the connection, or
-// an aborted HTTP/2 stream) before or after the headers, and echo (a JSON
-// description of the request). With Config.Overrides, X-Mockup-* request
-// headers override the Behavior per request, so a test drives the mock
-// through a Node.
+// status, headers, a literal or generated body of any size, a delay
+// before the headers, and echo (a JSON description of the request).
 //
 // Every request is counted and, unless disabled, kept in a bounded
-// request log (method, URI, headers, framing, body prefix, protocol,
-// TLS), which secret leak tests scan for credentials a Node must
+// request log (method, URI, protocol, headers, trailers and a body
+// prefix), which secret leak tests scan for credentials a Node must
 // strip; Stats.LogEvicted and Request.BodyTruncated, with the
 // conditions on Request, tell such a scan whether the log dropped
 // anything.
 //
 // Goroutines: the http.Server's serve loop and its per-connection
 // goroutines, owned by the Server; Close, or the end of the Start
-// context, closes the listener and every connection, ends delayed and
-// slow responses, and waits for the serve loop and every handler.
+// context, closes the listener and every connection, ends delayed
+// responses, and waits for the serve loop and every handler.
 package mockup
 
 import (
@@ -37,7 +34,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"net"
 	"net/http"
 	"strconv"
@@ -46,29 +42,25 @@ import (
 	"time"
 )
 
-// Defaults.
+// Defaults and bounds.
 const (
 	// DefaultLogSize is the request log capacity.
 	DefaultLogSize = 1024
 	// DefaultMaxLoggedBody bounds the body bytes kept per logged request.
 	DefaultMaxLoggedBody = 64 << 10
-	// DefaultMaxEchoBody bounds the request body bytes an Echo returns.
-	DefaultMaxEchoBody = 1 << 20
-	// DefaultReadHeaderTimeout bounds reading request headers.
-	DefaultReadHeaderTimeout = 10 * time.Second
-	// DefaultChunkSize is a slow body's chunk.
-	DefaultChunkSize = 1024
+	// maxEchoBody bounds the request body bytes an Echo returns.
+	maxEchoBody = 1 << 20
+	// readHeaderTimeout bounds reading request headers.
+	readHeaderTimeout = 10 * time.Second
 )
 
-// ErrClosed is returned by SetBehavior and SetRoute on a closed Server,
-// and by WaitRequests when the Server closed before enough requests
-// arrived.
+// ErrClosed is returned by SetRoute on a closed Server, and by
+// WaitRequests when the Server closed before enough requests arrived.
 var ErrClosed = errors.New("mockup: closed")
 
 // Config configures a Server.
 type Config struct {
-	// Name identifies the mock; when set, every response carries it in
-	// HeaderServer and Echo reports it.
+	// Name identifies the mock, which Echo reports.
 	Name string
 	// Listen is the listen address; default "127.0.0.1:0".
 	Listen string
@@ -76,42 +68,17 @@ type Config struct {
 	// h2 and http/1.1). When nil the Server serves cleartext HTTP/1.1
 	// and h2c with prior knowledge on the same port.
 	TLS *tls.Config
-	// DisableHTTP2 serves HTTP/1.1 only (no h2c, no h2 over TLS).
-	DisableHTTP2 bool
-	// MaxConcurrentStreams bounds streams per HTTP/2 connection; 0 keeps
-	// the net/http default (250).
-	MaxConcurrentStreams int
 	// Behavior answers every path without a route.
 	Behavior Behavior
-	// Overrides honors the X-Mockup-* request headers.
-	Overrides bool
 	// LogSize is the request log capacity (a ring keeping the newest,
 	// counting the dropped ones in Stats.LogEvicted); 0 means
 	// DefaultLogSize and a negative value disables the log (the request
-	// count still runs), as benchmarks do.
+	// count still runs).
 	LogSize int
 	// MaxLoggedBody bounds the body bytes kept per logged request
 	// (Request.BodyTruncated marks a cut body); 0 means
 	// DefaultMaxLoggedBody, negative keeps none.
 	MaxLoggedBody int
-	// MaxEchoBody bounds the request body bytes an Echo returns; 0 means
-	// DefaultMaxEchoBody.
-	MaxEchoBody int
-	// ReadHeaderTimeout bounds reading request headers; default
-	// DefaultReadHeaderTimeout.
-	ReadHeaderTimeout time.Duration
-	// IdleTimeout closes idle keep-alive connections; 0 keeps them.
-	IdleTimeout time.Duration
-	// ErrorLog receives the net/http server's own errors (for example
-	// TLS handshake failures); nil discards them.
-	ErrorLog slog.Handler
-	// Seed seeds the delay distributions; 0 picks a random seed.
-	Seed uint64
-	// OnServed, when set, sees every answered request as its handler
-	// returns: the time the handler took and the delay its Behavior drew,
-	// so a benchmark measures the mock's own latency beyond its configured
-	// delay. It runs on the handler's goroutine and must not block.
-	OnServed func(elapsed, delay time.Duration)
 
 	// listen, when set, makes the Server's listener in place of a TCP
 	// listener on Listen. Tests only.
@@ -122,17 +89,11 @@ type Config struct {
 type Stats struct {
 	// Requests counts requests received (logged or not).
 	Requests int64
-	// Active is the number of requests being answered now.
-	Active int64
-	// Resets counts responses broken by a reset.
-	Resets int64
-	// Connections counts accepted connections; OpenConnections is the
-	// number open now.
-	Connections, OpenConnections int64
+	// Connections counts accepted connections.
+	Connections int64
 	// LogEvicted counts logged requests dropped from the full request
-	// log to make room for newer ones (ClearRequests is not counted). A
-	// leak scan over Requests is incomplete unless it is 0 (see Request
-	// for the other conditions).
+	// log to make room for newer ones. A leak scan over Requests is
+	// incomplete unless it is 0 (see Request for the other conditions).
 	LogEvicted int64
 }
 
@@ -154,9 +115,6 @@ type Server struct {
 
 	table atomic.Pointer[routes]
 
-	rngMu sync.Mutex
-	rng   *rand.Rand
-
 	mu        sync.Mutex // guards closed, stopAfter and handler admission
 	closed    bool
 	stopAfter func() bool
@@ -164,10 +122,8 @@ type Server struct {
 	serveDone chan struct{}
 	closeOnce sync.Once
 
-	requests, active, resets, conns, openConns atomic.Int64
+	requests, conns atomic.Int64
 }
-
-type connKey struct{}
 
 // Start listens on c.Listen and serves until Close is called or ctx ends.
 func Start(ctx context.Context, c Config) (*Server, error) {
@@ -180,24 +136,11 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	if c.MaxLoggedBody == 0 {
 		c.MaxLoggedBody = DefaultMaxLoggedBody
 	}
-	if c.MaxEchoBody <= 0 {
-		c.MaxEchoBody = DefaultMaxEchoBody
-	}
-	if c.ReadHeaderTimeout <= 0 {
-		c.ReadHeaderTimeout = DefaultReadHeaderTimeout
-	}
-	if c.MaxConcurrentStreams < 0 {
-		return nil, errors.New("mockup: negative MaxConcurrentStreams")
-	}
 	if err := c.Behavior.validate(); err != nil {
 		return nil, fmt.Errorf("mockup: %w", err)
 	}
 	if c.TLS != nil {
 		c.TLS = c.TLS.Clone()
-	}
-	seed := c.Seed
-	if seed == 0 {
-		seed = rand.Uint64() //nolint:gosec // G404: delay jitter, not security
 	}
 	var ln net.Listener
 	var err error
@@ -216,21 +159,14 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 		log:       newRequestLog(c.LogSize),
 		closing:   make(chan struct{}),
 		drained:   make(chan struct{}),
-		rng:       rand.New(rand.NewPCG(seed, seed^0x9e3779b97f4a7c15)), //nolint:gosec // G404: delay jitter, not security
 		serveDone: make(chan struct{}),
 	}
 	s.table.Store(&routes{def: c.Behavior.clone(), paths: map[string]Behavior{}})
-	errorLog := c.ErrorLog
-	if errorLog == nil {
-		errorLog = slog.DiscardHandler
-	}
 	protocols := new(http.Protocols)
 	protocols.SetHTTP1(true)
-	switch {
-	case c.DisableHTTP2:
-	case c.TLS != nil:
+	if c.TLS != nil {
 		protocols.SetHTTP2(true)
-	default:
+	} else {
 		protocols.SetUnencryptedHTTP2(true)
 		// net/http then reads the h2c preface's first bytes alone, under the
 		// header deadline: each connection's first read takes more.
@@ -239,24 +175,13 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	s.srv = &http.Server{
 		Handler:           s,
 		TLSConfig:         c.TLS,
-		ReadHeaderTimeout: c.ReadHeaderTimeout,
-		IdleTimeout:       c.IdleTimeout,
+		ReadHeaderTimeout: readHeaderTimeout,
 		Protocols:         protocols,
-		HTTP2:             &http.HTTP2Config{MaxConcurrentStreams: c.MaxConcurrentStreams},
-		ErrorLog:          slog.NewLogLogger(errorLog, slog.LevelError),
+		ErrorLog:          slog.NewLogLogger(slog.DiscardHandler, slog.LevelError),
 		// Handlers outlive neither Close nor ctx (the AfterFunc below
 		// closes the Server), so they carry ctx's values, not its end.
 		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
-		ConnContext: func(ctx context.Context, c net.Conn) context.Context {
-			switch x := c.(type) {
-			case *tls.Conn:
-				c = x.NetConn()
-			case *firstReadConn:
-				c = x.Conn
-			}
-			return context.WithValue(ctx, connKey{}, c)
-		},
-		ConnState: s.connState,
+		ConnState:   s.connState,
 	}
 	go func() {
 		defer close(s.serveDone)
@@ -275,13 +200,8 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 }
 
 func (s *Server) connState(_ net.Conn, st http.ConnState) {
-	switch st {
-	case http.StateNew:
+	if st == http.StateNew {
 		s.conns.Add(1)
-		s.openConns.Add(1)
-	case http.StateClosed, http.StateHijacked:
-		s.openConns.Add(-1)
-	case http.StateActive, http.StateIdle:
 	}
 }
 
@@ -299,27 +219,6 @@ func (s *Server) URL() string {
 	return "http://" + s.addr
 }
 
-// Behavior returns the default Behavior.
-func (s *Server) Behavior() Behavior { return s.table.Load().def.clone() }
-
-// SetBehavior replaces the default Behavior for new requests. It returns
-// ErrClosed once the Server is closed.
-func (s *Server) SetBehavior(b Behavior) error {
-	if s.isClosing() {
-		return ErrClosed
-	}
-	if err := b.validate(); err != nil {
-		return fmt.Errorf("mockup: %w", err)
-	}
-	b = b.clone()
-	for {
-		old := s.table.Load()
-		if s.table.CompareAndSwap(old, &routes{def: b, paths: old.paths}) {
-			return nil
-		}
-	}
-}
-
 // SetRoute answers requests whose URL path equals path with b instead of
 // the default Behavior. It returns ErrClosed once the Server is closed.
 func (s *Server) SetRoute(path string, b Behavior) error {
@@ -330,8 +229,17 @@ func (s *Server) SetRoute(path string, b Behavior) error {
 		return fmt.Errorf("mockup: %w", err)
 	}
 	b = b.clone()
-	s.updatePaths(func(m map[string]Behavior) { m[path] = b })
-	return nil
+	for {
+		old := s.table.Load()
+		paths := make(map[string]Behavior, len(old.paths)+1)
+		for k, v := range old.paths {
+			paths[k] = v
+		}
+		paths[path] = b
+		if s.table.CompareAndSwap(old, &routes{def: old.def, paths: paths}) {
+			return nil
+		}
+	}
 }
 
 // isClosing reports whether Close has started.
@@ -344,39 +252,17 @@ func (s *Server) isClosing() bool {
 	}
 }
 
-// DeleteRoute returns path to the default Behavior.
-func (s *Server) DeleteRoute(path string) {
-	s.updatePaths(func(m map[string]Behavior) { delete(m, path) })
-}
-
-func (s *Server) updatePaths(edit func(map[string]Behavior)) {
-	for {
-		old := s.table.Load()
-		paths := make(map[string]Behavior, len(old.paths)+1)
-		for k, v := range old.paths {
-			paths[k] = v
-		}
-		edit(paths)
-		if s.table.CompareAndSwap(old, &routes{def: old.def, paths: paths}) {
-			return
-		}
-	}
-}
-
 // Stats returns the counters.
 func (s *Server) Stats() Stats {
 	_, evicted := s.log.counts()
 	return Stats{
-		Requests:        s.requests.Load(),
-		Active:          s.active.Load(),
-		Resets:          s.resets.Load(),
-		Connections:     s.conns.Load(),
-		OpenConnections: s.openConns.Load(),
-		LogEvicted:      evicted,
+		Requests:    s.requests.Load(),
+		Connections: s.conns.Load(),
+		LogEvicted:  evicted,
 	}
 }
 
-// Close closes the listener and every connection, ends delayed and slow
+// Close closes the listener and every connection, ends delayed
 // responses, and waits for the serve loop and every handler. It is
 // idempotent; the request log stays readable.
 func (s *Server) Close() error {
@@ -411,15 +297,6 @@ func (s *Server) enter() bool {
 	return true
 }
 
-func (s *Server) sample(d Distribution) time.Duration {
-	if d == nil {
-		return 0
-	}
-	s.rngMu.Lock()
-	defer s.rngMu.Unlock()
-	return d.Sample(s.rng)
-}
-
 // ServeHTTP answers one request with its Behavior.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !s.enter() {
@@ -427,25 +304,11 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.handlers.Done()
 	s.requests.Add(1)
-	s.active.Add(1)
-	defer s.active.Add(-1)
-	var delay time.Duration
-	if f := s.cfg.OnServed; f != nil {
-		start := time.Now()
-		defer func() { f(time.Since(start), delay) }()
-	}
-	if s.cfg.Name != "" {
-		w.Header().Set(HeaderServer, s.cfg.Name)
-	}
 
 	t := s.table.Load()
 	b, ok := t.paths[r.URL.Path]
 	if !ok {
 		b = t.def
-	}
-	var overrideErr error
-	if s.cfg.Overrides {
-		b, overrideErr = applyOverrides(b, r.Header)
 	}
 
 	keep := max(s.cfg.MaxLoggedBody, 0)
@@ -453,21 +316,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		keep = 0
 	}
 	if b.Echo {
-		keep = max(keep, s.cfg.MaxEchoBody)
+		keep = max(keep, maxEchoBody)
 	}
 	body, n := readBody(r.Body, keep)
-	delay = s.sample(b.Delay)
-	s.log.add(r, body, n, s.cfg.MaxLoggedBody, delay, s.cfg.LogSize > 0)
+	s.log.add(r, body, n, s.cfg.MaxLoggedBody, s.cfg.LogSize > 0)
 
-	if overrideErr != nil {
-		http.Error(w, "mockup: "+overrideErr.Error(), http.StatusBadRequest)
-		return
-	}
-	if !s.wait(r.Context(), delay) {
+	if !s.wait(r.Context(), b.Delay) {
 		panic(http.ErrAbortHandler)
-	}
-	if b.Reset != NoReset && !b.ResetAfterHeaders {
-		s.reset(r, b.Reset)
 	}
 
 	status := b.Status
@@ -480,7 +335,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctype := b.ContentType
 	if b.Echo {
-		lit = s.echo(r, body[:min(len(body), s.cfg.MaxEchoBody)], n)
+		lit = s.echo(r, body[:min(len(body), maxEchoBody)], n)
 		size = int64(len(lit))
 		if ctype == "" {
 			ctype = "application/json"
@@ -493,7 +348,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h := w.Header()
 	if !bodyless || r.Method == http.MethodHead {
 		h.Set("Content-Type", ctype)
-		if !b.Chunked && status != http.StatusNoContent && status != http.StatusNotModified {
+		if status != http.StatusNoContent && status != http.StatusNotModified {
 			h.Set("Content-Length", strconv.FormatInt(size, 10))
 		}
 	}
@@ -501,20 +356,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		h[k] = append([]string(nil), v...)
 	}
 	w.WriteHeader(status)
-	rc := http.NewResponseController(w)
-
-	if b.Reset != NoReset {
-		_ = rc.Flush()
-		if !bodyless {
-			_ = s.writeBody(r.Context(), w, rc, lit, min(size, b.ResetAfterBytes), b)
-			_ = rc.Flush()
-		}
-		s.reset(r, b.Reset)
-	}
 	if bodyless {
 		return
 	}
-	if err := s.writeBody(r.Context(), w, rc, lit, size, b); err != nil {
+	if err := s.writeBody(w, lit, size); err != nil {
 		panic(http.ErrAbortHandler)
 	}
 }
@@ -536,49 +381,14 @@ func (s *Server) wait(ctx context.Context, d time.Duration) bool {
 	}
 }
 
-// reset breaks the response and never returns.
-func (s *Server) reset(r *http.Request, kind ResetKind) {
-	s.resets.Add(1)
-	if kind == ResetConn {
-		if c, ok := r.Context().Value(connKey{}).(net.Conn); ok {
-			if tc, ok := c.(*net.TCPConn); ok {
-				_ = tc.SetLinger(0)
-			}
-			_ = c.Close()
-		}
-	}
-	panic(http.ErrAbortHandler)
-}
-
-// writeBody writes the first n bytes of the body (lit, or the generated
-// pattern when lit is nil), paced by b's chunk interval.
-func (s *Server) writeBody(ctx context.Context, w io.Writer, rc *http.ResponseController, lit []byte, n int64, b Behavior) error {
-	chunk := int64(1 << 30)
-	if b.ChunkInterval > 0 {
-		chunk = int64(b.ChunkSize)
-		if chunk <= 0 {
-			chunk = DefaultChunkSize
-		}
-	}
+// writeBody writes the first n bytes of the body: lit, or the generated
+// pattern when lit is nil.
+func (s *Server) writeBody(w io.Writer, lit []byte, n int64) error {
 	for off := int64(0); off < n; {
-		if off > 0 && b.ChunkInterval > 0 {
-			if !s.wait(ctx, b.ChunkInterval) {
-				return context.Canceled
-			}
-		}
-		end := min(off+chunk, n)
-		for off < end {
-			p := s.piece(lit, off, end-off)
-			k, err := w.Write(p)
-			off += int64(k)
-			if err != nil {
-				return err
-			}
-		}
-		if b.ChunkInterval > 0 {
-			if err := rc.Flush(); err != nil {
-				return err
-			}
+		k, err := w.Write(s.piece(lit, off, n-off))
+		off += int64(k)
+		if err != nil {
+			return err
 		}
 	}
 	return nil
