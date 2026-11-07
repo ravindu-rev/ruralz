@@ -1,0 +1,19 @@
+Usage: ruralz bundle import FORMAT FILE [FLAGS]
+
+Routes and Upstreams from OpenAPI 3.x.
+
+Reads an OpenAPI 3.0 or 3.1 document, YAML or JSON, with the files its
+relative $ref references name, and writes a Bundle: a Gateway with one http
+listener on port 8080, one Upstream per server the operations use and one
+Route per operation. The Bundle goes to --output-dir DIR, which must not exist
+or must be empty, or as a one-file Bundle to standard output. An operation
+that cannot be mapped is left out with a warning on standard error. Exits 2
+when the document cannot be read or is no OpenAPI 3.0 or 3.1 document.
+
+Arguments:
+  FORMAT  Document format (openapi)
+  FILE    OpenAPI document, YAML or JSON
+
+Flags:
+  --help            Print this help
+  --output-dir DIR  Write the Bundle as a directory to DIR, which must not exist or must be empty

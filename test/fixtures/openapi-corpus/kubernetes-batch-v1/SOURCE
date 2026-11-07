@@ -1,0 +1,9 @@
+name: Kubernetes API batch/v1
+url: https://github.com/kubernetes/kubernetes
+commit: 3a92e6afd51585de38b0916494c7bf7c638b1b74
+base: api/openapi-spec/v3
+document: apis__batch__v1_openapi.json
+file: apis__batch__v1_openapi.json sha256 7ade77a3537afe6fd7ece309737da806c7dc89dfbe87f18232818264c7956312
+license: Apache-2.0 (LICENSE)
+license-sha256: cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30
+updated-by: scripts/update-test-suites.sh

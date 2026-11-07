@@ -1,0 +1,9 @@
+name: Box Platform API
+url: https://github.com/box/box-openapi
+commit: ab1f6b9e91c85057ee6c3b74cf7b9926a237f3b7
+base: openapi
+document: openapi.json
+file: openapi.json sha256 6d1530ea42928345f9dea1d14ccda66863b0a1aa8062098eebb4666a7d2b5de4
+license: Apache-2.0 (LICENSE)
+license-sha256: c666b2511719a979ae3311021b97e0e8e0a16000946024e7262670dee0615144
+updated-by: scripts/update-test-suites.sh

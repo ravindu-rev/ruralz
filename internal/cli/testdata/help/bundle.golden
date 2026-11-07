@@ -1,10 +1,13 @@
 Usage: ruralz bundle <verb> [ARGS] [FLAGS]
 
-Validate, render, diff and build Bundles.
+Validate, render, diff, build, import, export and audit Bundles.
 
 Verbs:
+  audit     Security and best-practice findings
   build     Build a Revision, print its digest
   diff      Compare FROM with TO
+  export    OpenAPI 3.x, Postman collection or DOT graph of a Bundle
+  import    Routes and Upstreams from OpenAPI 3.x
   render    Render one Environment's one-file Bundle
   validate  Offline validation, source-mapped diagnostics
 

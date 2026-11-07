@@ -1,8 +1,11 @@
 Usage: ruralz <noun> <verb> [ARGS] [FLAGS]
 
 Commands:
+  bundle audit     Security and best-practice findings
   bundle build     Build a Revision, print its digest
   bundle diff      Compare FROM with TO
+  bundle export    OpenAPI 3.x, Postman collection or DOT graph of a Bundle
+  bundle import    Routes and Upstreams from OpenAPI 3.x
   bundle render    Render one Environment's one-file Bundle
   bundle validate  Offline validation, source-mapped diagnostics
   completion       Shell completion script

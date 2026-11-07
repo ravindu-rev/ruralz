@@ -1,0 +1,22 @@
+name: Swagger Parser test: relative file references (YAML)
+url: https://github.com/swagger-api/swagger-parser
+commit: 69f6d78250b70d2ccfcd306ff0aa74353a698f2a
+base: modules/swagger-parser-v3/src/test/resources/relative-file-references/yaml
+document: parent.yaml
+file: parent.yaml sha256 7d4fd6273189fd41b7f19f92c4d55f4b669d2b70efdb901dff2f75150e4cd463
+file: models/conflict.yaml sha256 c4ab1c894659888d7a23e3109dd026806f989f533579adeb3818642fec1d1622
+file: models/error.yaml sha256 f7a990e717031c248c394ab161ecf944b7f519b0c482965fb61ce0f9acbea89b
+file: models/example.yaml sha256 7a950814e8a5207f89da8b2aed098aca46b31c194bc4c652246b343f3025412a
+file: models/foo.yaml sha256 d204905ef25e38894f0b8e527c4d4b58f982df2596651d8ffe48c18cb07b8e36
+file: models/health.yaml sha256 b52474f40d46832281513062db3c560e9ea5a9e3967e8d8516bb688285083fc7
+file: models/localreference.yaml sha256 807798e47608f766500368a768299a4159fb4423d34e8afcf2d8ca63025c7f86
+file: models/pet.yaml sha256 89832616b03946a1d963b80cff8db625e46bdb2a3b03f8a8f0ad5a7abbab09ce
+file: models/reflex.yaml sha256 9894a2954bd89c926ef2b5b148c927aeae11c8471f0e86d4423840234a6364dd
+file: parameters/params.yaml sha256 d3206792a52bff869fd223572df3020a655ed2b4313f97f9dcece1c073aaf1ef
+file: paths/healthPath.yaml sha256 1a992083e80db59bce4e2d4c04c4a7e16423bf7d4668eaa9c0d7c3d525316ba7
+file: responses/errorResponses.yaml sha256 527243ff2ae9961d69c133dac89b3d7a471736b1ce01ee06720c9246d35226d1
+license: Apache-2.0 (LICENSE)
+license-sha256: 2f5628cc896692143c029ab9446585db445a25137562e1321faadc70ed8bc9c9
+notice: NOTICE
+notice-sha256: 61e35e0cc285a492bb5dd90bafb9695afaa6b7b93a460a9d6be37b432b4922a0
+updated-by: scripts/update-test-suites.sh

@@ -1,0 +1,9 @@
+name: ReadMe OpenAPI example: schema-circular
+url: https://github.com/readmeio/oas-examples
+commit: 060d4ffbbe63003f923c8cd7268ee39a495cf21f
+base: 3.0/json
+document: schema-circular.json
+file: schema-circular.json sha256 2d0bf33e91963c55d993ed3c373822c9f83eb48b2ded4a28b1ac4381a12bea1c
+license: MIT (LICENSE.md)
+license-sha256: 1a06eef8fa5a219003aeacdb8b709924a3d2b9f47e882b23d8ac2fce7f696cdb
+updated-by: scripts/update-test-suites.sh

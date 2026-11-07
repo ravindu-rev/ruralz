@@ -1,0 +1,19 @@
+Usage: ruralz bundle audit [DIR] [FLAGS]
+
+Security and best-practice findings.
+
+Validates the Bundle as ruralz bundle validate does, then checks the rendered
+Bundle for security and best-practice findings: Routes without authentication,
+cleartext hops, broad Plugin Capabilities and Plugin pool sizing. Prints one
+finding per line, a diagnostic's rule being its code, or with --output json one
+JSON array. With --environments and no --env it runs once per Environment of
+the file, in file order. Exits 1 when a finding is an error, 0 otherwise.
+
+Arguments:
+  DIR  Bundle directory or one-file Bundle (default .)
+
+Flags:
+  --env NAME           Render with this Environment's overlay and variables, read from --environments
+  --environments FILE  Local Environment resources
+  --help               Print this help
+  --output text|json   Output format (text or json, default text)

@@ -1,0 +1,15 @@
+exit 0
+--- stdout ---
+ruralz.yaml:10:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP
+upstreams/services.yaml:6:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS
+upstreams/services.yaml:29:13 warning cleartext-hop Upstream/inventory spec.protocol: Upstream "inventory" connects to its Endpoints without TLS
+--- stderr ---
+exit 0
+--- stdout ---
+ruralz.yaml:10:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP [environment=staging]
+upstreams/services.yaml:6:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS [environment=staging]
+upstreams/services.yaml:29:13 warning cleartext-hop Upstream/inventory spec.protocol: Upstream "inventory" connects to its Endpoints without TLS [environment=staging]
+ruralz.yaml:10:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP [environment=prod]
+upstreams/services.yaml:6:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS [environment=prod]
+upstreams/services.yaml:29:13 warning cleartext-hop Upstream/inventory spec.protocol: Upstream "inventory" connects to its Endpoints without TLS [environment=prod]
+--- stderr ---

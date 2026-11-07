@@ -1,0 +1,2 @@
+$DIR/openapi.yaml:1:1: a Swagger 2.0 document; ruralz bundle import openapi reads OpenAPI 3.0 and 3.1
+ruralz bundle import: $DIR/openapi.yaml is no readable OpenAPI 3.0 or 3.1 document

@@ -1,0 +1,9 @@
+digraph "edge" {
+  rankdir=LR;
+  node [shape=box];
+  "Route/orders" [label="Route\norders"];
+  "Policy/validate-order" [shape=ellipse, label="Policy\nvalidate-order\nvalidation.json-schema"];
+  "Upstream/orders" [shape=cylinder, label="Upstream\norders"];
+  "Route/orders" -> "Policy/validate-order";
+  "Route/orders" -> "Upstream/orders";
+}

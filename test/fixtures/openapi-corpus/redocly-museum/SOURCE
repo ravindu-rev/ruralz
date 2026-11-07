@@ -1,0 +1,9 @@
+name: Redocly Museum API
+url: https://github.com/Redocly/museum-openapi-example
+commit: 2770b2b2e59832d245c7b0eb0badf6568d7efb53
+base: .
+document: openapi.yaml
+file: openapi.yaml sha256 2d88e96a1860382fa86e15af892c50d95ae81d53324ac9b07aa9e6a72a8974aa
+license: MIT (LICENSE)
+license-sha256: 4d0ce4bb2c2322e27e8089cda89a4025ea9e0354e20866329522efe4525cc72e
+updated-by: scripts/update-test-suites.sh

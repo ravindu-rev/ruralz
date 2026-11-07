@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+routes/orders.yaml:9:13 error RZ-CFG-009 Route/orders spec.upstreams[name=ordrs].name: Upstream "ordrs" not found (did you mean "orders"?)
+--- stderr ---

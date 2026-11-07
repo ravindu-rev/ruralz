@@ -1,0 +1,9 @@
+name: Twilio Lookups API v2
+url: https://github.com/twilio/twilio-oai
+commit: 6891362428239e2b29339718ffb7bd9fb86ff9cb
+base: spec/yaml
+document: twilio_lookups_v2.yaml
+file: twilio_lookups_v2.yaml sha256 41d4d6f74271b7fcd70fd7de8d6acd30a20210d7f4bb58dd920821161c52d177
+license: MIT (LICENSE)
+license-sha256: 282418d5a4ca0a6cd3476637c41bb229e592fc289156d22fbfa188cec1169ff3
+updated-by: scripts/update-test-suites.sh

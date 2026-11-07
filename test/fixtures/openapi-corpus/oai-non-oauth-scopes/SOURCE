@@ -1,0 +1,9 @@
+name: OpenAPI Specification example: non-oauth-scopes
+url: https://github.com/OAI/OpenAPI-Specification
+commit: fad4c13dd669bf5c794f477ffaf31900f8e64418
+base: examples/v3.1
+document: non-oauth-scopes.json
+file: non-oauth-scopes.json sha256 84b9bbaff7d3c4e3abd91f7a96cc4e5efc35b4b4e8aff9bad8d2d8c960982150
+license: Apache-2.0 (LICENSE)
+license-sha256: 4948367c65e1ce06690e2cadc6e86fce1a6a6db55ef874ce4b78c0f472ce5f13
+updated-by: scripts/update-test-suites.sh

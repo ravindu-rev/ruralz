@@ -1,0 +1,26 @@
+exit 1
+--- stdout ---
+[
+  {
+    "severity": "error",
+    "rule": "RZ-CFG-009",
+    "resource": {
+      "kind": "Route",
+      "name": "orders"
+    },
+    "message": "Upstream \"ordrs\" not found",
+    "file": "routes/orders.yaml",
+    "line": 9,
+    "column": 13,
+    "path": [
+      "spec",
+      "upstreams",
+      {
+        "name": "ordrs"
+      },
+      "name"
+    ],
+    "hint": "did you mean \"orders\"?"
+  }
+]
+--- stderr ---

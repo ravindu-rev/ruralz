@@ -1,0 +1,9 @@
+name: Adyen Legal Entity Management API v4
+url: https://github.com/Adyen/adyen-openapi
+commit: e7986c7dad1253fed107c4e7b90716497165b86d
+base: json
+document: LegalEntityService-v4.json
+file: LegalEntityService-v4.json sha256 19ce87e7a22d8f263f41a51f4fe0a92a5004a8c152420efce54f5b1e8b195504
+license: MIT (LICENSE)
+license-sha256: 8e89c3a1118ad53e7fad5b1a27c577c1602b7c57e8d3f88555e85d9561499d06
+updated-by: scripts/update-test-suites.sh

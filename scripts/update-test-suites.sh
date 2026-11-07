@@ -4,9 +4,10 @@
 #
 # Refreshes the vendored upstream conformance suites that the integration
 # tests run at their pinned versions (ADR-0003 "Confirmation" upstream
-# suites):
+# suites), and the SM-8 OpenAPI corpus (docs/vision/01-vision-and-
+# positioning.md "Success metrics") that ruralz bundle import openapi runs:
 #
-#   scripts/update-test-suites.sh [yaml] [json-schema]   (default: both)
+#   scripts/update-test-suites.sh [yaml] [json-schema] [openapi]   (default: all)
 #   scripts/update-test-suites.sh --digest URL COMMIT    (prints a new pin)
 #
 # Layout (FIXTURES_ROOT overrides test/fixtures):
@@ -21,17 +22,33 @@
 #     data/remotes/            the runner skips optional/ except the formats
 #     LICENSE                  Ruralz uses; remotes/ serves the
 #     SOURCE                   http://localhost:1234/ references
+#   openapi-corpus/<entry>/    one public OpenAPI 3.0 or 3.1 document per
+#     data/...                 entry, with the files its relative $refs name
+#     LICENSE                  at their upstream relative paths, the
+#     NOTICE                   upstream license text, and the upstream
+#     SOURCE                   NOTICE when the work has one
 #
-# Only data/, LICENSE and SOURCE are replaced; other files in a suite
-# directory (expected-failures.txt) are kept. Both suites are MIT licensed.
+# Only data/, LICENSE and SOURCE are replaced, and of an OpenAPI corpus
+# entry only data/, LICENSE and NOTICE; other files in a suite directory
+# (expected-failures.txt) are kept. The YAML and JSON Schema suites are MIT
+# licensed. An OpenAPI corpus entry's SOURCE is its pin, read and kept: it
+# names the entry's repository, commit, the upstream directory its data/
+# mirrors (base), its root document, every file with its SHA-256, its
+# license (an SPDX identifier and the license file's path at the commit)
+# with that file's SHA-256, and, for a work with a NOTICE, the notice's
+# path and SHA-256, so adding an entry is adding its SOURCE.
 #
-# Integrity: each suite is pinned by commit and by the SHA-256 of
-# `git archive --format=tar <commit>`, which is deterministic for a commit
-# (GitHub's compressed archive downloads are not guaranteed byte-stable).
-# The script fetches the pinned commit with git, rebuilds that tarball,
-# checks its digest, then extracts it. To move a pin, print the new digest
-# with --digest, then update the *_COMMIT and *_SHA256 lines below and
-# rerun the script.
+# Integrity: the YAML and JSON Schema suites are pinned by commit and by the
+# SHA-256 of `git archive --format=tar <commit>`, which is deterministic for
+# a commit (GitHub's compressed archive downloads are not guaranteed
+# byte-stable). The script fetches the pinned commit with git, rebuilds that
+# tarball, checks its digest, then extracts it. To move a pin, print the new
+# digest with --digest, then update the *_COMMIT and *_SHA256 lines below and
+# rerun the script. The OpenAPI corpus pins each file instead, since its
+# entries come from many repositories, some of them large: each file and
+# license is downloaded from raw.githubusercontent.com at the pinned commit,
+# which serves a commit's blobs byte for byte, and checked against its
+# SHA-256 before anything is replaced.
 set -euo pipefail
 
 YAML_NAME="YAML Test Suite"
@@ -137,6 +154,109 @@ vendor_json_schema() {
   echo "vendored $JSON_NAME $JSON_COMMIT into ${dest#"$root"/}"
 }
 
+OPENAPI_RAW=https://raw.githubusercontent.com
+
+# source_field <SOURCE> <key> prints the value of the SOURCE file's first
+# "<key>: " line, and fails when it has none.
+source_field() {
+  local line
+  while IFS= read -r line; do
+    if [[ "$line" == "$2: "* ]]; then
+      printf '%s\n' "${line#"$2: "}"
+      return 0
+    fi
+  done <"$1"
+  echo "update-test-suites: ${1#"$root"/} has no $2 line" >&2
+  exit 1
+}
+
+# safe_path <path> <what> fails unless path is relative and stays below the
+# directory it is joined to: no leading /, no backslash and no . or ..
+# segment.
+safe_path() {
+  local seg
+  local -a segs
+  if [[ -z "$1" || "$1" == /* || "$1" == *\\* ]]; then
+    echo "update-test-suites: $2: path $1 is not a relative slash path" >&2
+    exit 1
+  fi
+  IFS=/ read -r -a segs <<<"$1"
+  for seg in "${segs[@]}"; do
+    if [[ -z "$seg" || "$seg" == . || "$seg" == .. ]]; then
+      echo "update-test-suites: $2: path $1 has an empty, . or .. segment" >&2
+      exit 1
+    fi
+  done
+}
+
+# download <url> <out> downloads one file, creating out's directory.
+download() {
+  mkdir -p "$(dirname "$2")"
+  curl -fsSL --retry 3 -o "$2" "$1"
+}
+
+vendor_openapi() {
+  local corpus="$fixtures/openapi-corpus" src entry url repo commit base prefix lic lic_path lic_sum notice stage line rel sum n=0
+  for src in "$corpus"/*/SOURCE; do
+    [[ -f "$src" ]] || continue
+    entry=$(basename "$(dirname "$src")")
+    url=$(source_field "$src" url)
+    repo=${url#https://github.com/}
+    if [[ "$repo" == "$url" || "$repo" != */* ]]; then
+      echo "update-test-suites: $entry: url $url is not a GitHub repository" >&2
+      exit 1
+    fi
+    commit=$(source_field "$src" commit)
+    if [[ ! "$commit" =~ ^[0-9a-f]{40}$ ]]; then
+      echo "update-test-suites: $entry: commit $commit is not a full commit SHA" >&2
+      exit 1
+    fi
+    base=$(source_field "$src" base)
+    prefix=""
+    if [[ "$base" != . ]]; then
+      safe_path "$base" "$entry base"
+      prefix="$base/"
+    fi
+    lic=$(source_field "$src" license)
+    lic_path=${lic##*\(}
+    lic_path=${lic_path%\)}
+    safe_path "$lic_path" "$entry license"
+    lic_sum=$(source_field "$src" license-sha256)
+    stage="$work/openapi/$entry"
+    mkdir -p "$stage/data"
+    while IFS= read -r line; do
+      [[ "$line" == "file: "* ]] || continue
+      line=${line#file: }
+      rel=${line%% sha256 *}
+      sum=${line##* sha256 }
+      safe_path "$rel" "$entry file"
+      download "$OPENAPI_RAW/$repo/$commit/$prefix$rel" "$stage/data/$rel"
+      check "$stage/data/$rel" "$sum" "$entry $rel"
+    done <"$src"
+    download "$OPENAPI_RAW/$repo/$commit/$lic_path" "$stage/LICENSE"
+    check "$stage/LICENSE" "$lic_sum" "$entry $lic_path"
+    # An Apache-2.0 work's NOTICE travels with every copy (section 4(d)).
+    notice=""
+    if grep -q '^notice: ' "$src"; then
+      notice=$(source_field "$src" notice)
+      safe_path "$notice" "$entry notice"
+      download "$OPENAPI_RAW/$repo/$commit/$notice" "$stage/NOTICE"
+      check "$stage/NOTICE" "$(source_field "$src" notice-sha256)" "$entry $notice"
+    fi
+    replace "$corpus/$entry" "$stage/data"
+    cp "$stage/LICENSE" "$corpus/$entry/LICENSE"
+    if [[ -n "$notice" ]]; then
+      cp "$stage/NOTICE" "$corpus/$entry/NOTICE"
+    fi
+    n=$((n + 1))
+  done
+  if ((n == 0)); then
+    echo "update-test-suites: no OpenAPI corpus entry under ${corpus#"$root"/}" >&2
+    exit 1
+  fi
+  echo "vendored $n OpenAPI corpus entries into ${corpus#"$root"/}"
+}
+
 if [[ "${1:-}" == --digest ]]; then
   if (($# != 3)); then
     echo "usage: update-test-suites.sh --digest URL COMMIT" >&2
@@ -149,13 +269,14 @@ if [[ "${1:-}" == --digest ]]; then
 fi
 
 suites=("$@")
-((${#suites[@]})) || suites=(yaml json-schema)
+((${#suites[@]})) || suites=(yaml json-schema openapi)
 for suite in "${suites[@]}"; do
   case "$suite" in
     yaml) vendor_yaml ;;
     json-schema) vendor_json_schema ;;
+    openapi) vendor_openapi ;;
     *)
-      echo "update-test-suites: unknown suite $suite (want yaml or json-schema)" >&2
+      echo "update-test-suites: unknown suite $suite (want yaml, json-schema or openapi)" >&2
       exit 2
       ;;
   esac

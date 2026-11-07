@@ -1,0 +1,29 @@
+digraph "edge" {
+  rankdir=LR;
+  node [shape=box];
+  "Route/assets" [label="Route\nassets"];
+  "Route/feed" [label="Route\nfeed"];
+  "Route/health" [label="Route\nhealth"];
+  "Route/items" [label="Route\nitems"];
+  "Route/orders" [label="Route\norders"];
+  "Policy/apikey" [shape=ellipse, label="Policy\napikey\nauth.api-key"];
+  "Policy/cors-default" [shape=ellipse, label="Policy\ncors-default\ncors"];
+  "Policy/headers-internal" [shape=ellipse, label="Policy\nheaders-internal\nheaders"];
+  "Policy/office" [shape=ellipse, label="Policy\noffice\nauthz.ip"];
+  "Policy/validate-order" [shape=ellipse, label="Policy\nvalidate-order\nvalidation.json-schema"];
+  "Upstream/feed" [shape=cylinder, label="Upstream\nfeed"];
+  "Upstream/orders" [shape=cylinder, label="Upstream\norders"];
+  "Upstream/spare" [shape=cylinder, label="Upstream\nspare"];
+  "Route/assets" -> "Policy/cors-default";
+  "Route/assets" -> "Upstream/spare";
+  "Route/feed" -> "Policy/cors-default";
+  "Route/feed" -> "Upstream/feed";
+  "Route/health" -> "Upstream/orders";
+  "Route/items" -> "Policy/cors-default";
+  "Route/items" -> "Upstream/orders";
+  "Route/orders" -> "Policy/cors-default";
+  "Route/orders" -> "Policy/apikey";
+  "Route/orders" -> "Policy/validate-order";
+  "Route/orders" -> "Upstream/orders";
+  "Upstream/orders" -> "Policy/headers-internal";
+}

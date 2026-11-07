@@ -1,0 +1,9 @@
+name: ReadMe OpenAPI example: circular-paths
+url: https://github.com/readmeio/oas-examples
+commit: 060d4ffbbe63003f923c8cd7268ee39a495cf21f
+base: 3.0/yaml
+document: circular-paths.yaml
+file: circular-paths.yaml sha256 769d173434a15d485138dec5f9316797d8b1db500f840a88a9812fcb8980f9b4
+license: MIT (LICENSE.md)
+license-sha256: 1a06eef8fa5a219003aeacdb8b709924a3d2b9f47e882b23d8ac2fce7f696cdb
+updated-by: scripts/update-test-suites.sh

@@ -19,9 +19,9 @@ import (
 )
 
 // TestSpecsAreValid: the rows pass command.Check and name the bundle noun,
-// its four M1 commands and the M2 verbs as Planned, with the summaries of
-// the command table (docs/reference/01-cli-and-api-surface.md, "Command
-// table").
+// its released commands, the M2 commands import, export and audit, which
+// run, and push, still Planned, with the summaries of the command table
+// (docs/reference/01-cli-and-api-surface.md, "Command table").
 func TestSpecsAreValid(t *testing.T) {
 	specs := Specs(Options{})
 	if err := command.Check(specs); err != nil {
@@ -33,15 +33,15 @@ func TestSpecsAreValid(t *testing.T) {
 		got = append(got, row{s.Name(), s.Summary, s.Planned})
 	}
 	want := []row{
-		{"bundle", "Validate, render, diff and build Bundles", ""},
+		{"bundle", "Validate, render, diff, build, import, export and audit Bundles", ""},
 		{"bundle validate", "Offline validation, source-mapped diagnostics", ""},
 		{"bundle render", "Render one Environment's one-file Bundle", ""},
 		{"bundle diff", "Compare FROM with TO", ""},
 		{"bundle build", "Build a Revision, print its digest", ""},
 		{"bundle push", "Send source to Ruralz Control, or a signed Revision to OCI", "M2"},
-		{"bundle import", "Routes and Upstreams from OpenAPI 3.x", "M2"},
-		{"bundle export", "OpenAPI 3.x, Postman collection or DOT graph of a Bundle", "M2"},
-		{"bundle audit", "Security and best-practice findings", "M2"},
+		{"bundle import", "Routes and Upstreams from OpenAPI 3.x", ""},
+		{"bundle export", "OpenAPI 3.x, Postman collection or DOT graph of a Bundle", ""},
+		{"bundle audit", "Security and best-practice findings", ""},
 	}
 	if !slices.Equal(got, want) {
 		t.Errorf("Specs = %+v, want %+v", got, want)
@@ -49,8 +49,34 @@ func TestSpecsAreValid(t *testing.T) {
 }
 
 // TestArguments: validate, render and build take an optional DIR, "." by
-// default, that may be a file or "-"; diff takes FROM and TO.
+// default, that may be a file or "-"; diff takes FROM and TO; import
+// FORMAT and FILE; export FORMAT and an optional DIR; audit an optional
+// DIR.
 func TestArguments(t *testing.T) {
+	type arg struct {
+		name, def string
+		optional  bool
+		values    string
+	}
+	args := func(s command.Spec) []arg {
+		var out []arg
+		for _, a := range s.Args {
+			out = append(out, arg{a.Name, a.Default, a.Optional, strings.Join(a.Values, "|")})
+		}
+		return out
+	}
+	for _, tc := range []struct {
+		spec command.Spec
+		want []arg
+	}{
+		{ImportSpec(Options{}), []arg{{"FORMAT", "", false, "openapi"}, {"FILE", "", false, ""}}},
+		{ExportSpec(Options{}), []arg{{"FORMAT", "", false, "openapi|postman|dot"}, {"DIR", ".", true, ""}}},
+		{AuditSpec(Options{}), []arg{{"DIR", ".", true, ""}}},
+	} {
+		if got := args(tc.spec); !slices.Equal(got, tc.want) {
+			t.Errorf("%s args = %+v, want %+v", tc.spec.Name(), got, tc.want)
+		}
+	}
 	for _, s := range []command.Spec{ValidateSpec(Options{}), RenderSpec(Options{}), BuildSpec(Options{})} {
 		if len(s.Args) != 1 || s.Args[0].Name != "DIR" || !s.Args[0].Optional || s.Args[0].Default != "." ||
 			s.Args[0].Complete != command.CompleteFile {
@@ -63,11 +89,13 @@ func TestArguments(t *testing.T) {
 	}
 }
 
-// TestFlags: every command takes the Bundle flags and its own: validate
-// --online, render --effective, --route, --api-version, --output-dir and
-// --output-file, diff --from-env, --to-env, the shared and per-side admin
-// credentials and --timeout (5m, 0 meaning none), build --offline and
-// --output-file; with their --output formats.
+// TestFlags: every Bundle reader takes the Bundle flags and its own:
+// validate --online, render --effective, --route, --api-version,
+// --output-dir and --output-file, diff --from-env, --to-env, the shared
+// and per-side admin credentials and --timeout (5m, 0 meaning none), build
+// --offline and --output-file, export --route and --output-file; import,
+// which reads an OpenAPI document, takes --output-dir alone; with their
+// --output formats.
 func TestFlags(t *testing.T) {
 	type flag struct{ name, def string }
 	flags := func(s command.Spec) []flag {
@@ -111,6 +139,9 @@ func TestFlags(t *testing.T) {
 			{"to-env", ""},
 		}},
 		{BuildSpec(Options{}), []flag{{"env", ""}, {"environments", ""}, {"offline", ""}, {"output", "text"}, {"output-file", ""}}},
+		{ImportSpec(Options{}), []flag{{"output-dir", ""}}},
+		{ExportSpec(Options{}), []flag{{"env", ""}, {"environments", ""}, {"output", "yaml"}, {"output-file", ""}, {"route", ""}}},
+		{AuditSpec(Options{}), []flag{{"env", ""}, {"environments", ""}, {"output", "text"}}},
 	}
 	for _, tc := range cases {
 		if got := flags(tc.spec); !slices.Equal(got, tc.want) {
@@ -134,21 +165,17 @@ func TestFlags(t *testing.T) {
 	}
 }
 
-// TestPlannedVerbs: push, import, export and audit exit 2 naming M2, and
-// stay out of help and completion.
+// TestPlannedVerbs: push exits 2 naming M2 and stays out of help and
+// completion; the runnable verbs, import, export and audit among them,
+// are in both.
 func TestPlannedVerbs(t *testing.T) {
-	planned := []string{"push", "import", "export", "audit"}
-	for _, verb := range planned {
-		r := execute(t, Options{}, nil, "bundle", verb, "--env", "prod")
-		r.want(t, "bundle "+verb, command.ExitNoResult, "", "ruralz bundle "+verb+" is Planned (M2) and not in this build\n")
+	r := execute(t, Options{}, nil, "bundle", "push", "--env", "prod")
+	r.want(t, "bundle push", command.ExitNoResult, "", "ruralz bundle push is Planned (M2) and not in this build\n")
+	r = execute(t, Options{}, nil, "bundle", "--help")
+	if strings.Contains(r.stdout, "  push ") {
+		t.Errorf("bundle help lists Planned push:\n%s", r.stdout)
 	}
-	r := execute(t, Options{}, nil, "bundle", "--help")
-	for _, verb := range planned {
-		if strings.Contains(r.stdout, "  "+verb+" ") {
-			t.Errorf("bundle help lists Planned %s:\n%s", verb, r.stdout)
-		}
-	}
-	for _, verb := range []string{"build", "diff", "render", "validate"} {
+	for _, verb := range []string{"audit", "build", "diff", "export", "import", "render", "validate"} {
 		if !strings.Contains(r.stdout, "  "+verb+" ") {
 			t.Errorf("bundle help lacks %s:\n%s", verb, r.stdout)
 		}
@@ -157,7 +184,10 @@ func TestPlannedVerbs(t *testing.T) {
 	for _, e := range completion.Entries(Specs(Options{})) {
 		paths = append(paths, strings.Join(e.Path, " "))
 	}
-	if want := []string{"bundle", "bundle build", "bundle diff", "bundle render", "bundle validate"}; !slices.Equal(paths, want) {
+	want := []string{
+		"bundle", "bundle audit", "bundle build", "bundle diff", "bundle export", "bundle import", "bundle render", "bundle validate",
+	}
+	if !slices.Equal(paths, want) {
 		t.Errorf("completion entries = %q, want %q", paths, want)
 	}
 }

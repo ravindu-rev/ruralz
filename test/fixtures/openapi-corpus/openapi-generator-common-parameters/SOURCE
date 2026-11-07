@@ -1,0 +1,9 @@
+name: OpenAPI Generator test: common parameters (3.1)
+url: https://github.com/OpenAPITools/openapi-generator
+commit: 47df6d38bba64a7f83da6d76946efa85b1984eec
+base: modules/openapi-generator/src/test/resources/3_1
+document: common-parameters.yaml
+file: common-parameters.yaml sha256 c7e4522fe0b7ea6bc429dd053c8759c8ffd1a473a73c0b958f553440caf5ff1a
+license: Apache-2.0 (LICENSE)
+license-sha256: 91a2fcdfc23cbd1188a22cc3b76647bf6eb05c87889e376a19fe478f0398ff02
+updated-by: scripts/update-test-suites.sh

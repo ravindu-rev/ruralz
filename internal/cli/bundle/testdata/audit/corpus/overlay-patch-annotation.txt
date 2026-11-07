@@ -1,0 +1,17 @@
+exit 0
+--- stdout ---
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP
+ruralz.yaml:16:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS
+ruralz.yaml:23:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy
+ruralz.yaml:33:1 warning route-without-auth Route/orders-beta: Route "orders-beta" runs no authentication Policy
+--- stderr ---
+exit 0
+--- stdout ---
+overlays/replace/orders.yaml:10:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS [environment=replace]
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP [environment=replace]
+ruralz.yaml:23:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy [environment=replace]
+ruralz.yaml:33:1 warning route-without-auth Route/orders-beta: Route "orders-beta" runs no authentication Policy [environment=replace]
+ruralz.yaml:8:17 warning cleartext-hop Gateway/edge spec.listeners[name=http].protocol: listener "http" serves cleartext HTTP [environment=delete]
+ruralz.yaml:16:13 warning cleartext-hop Upstream/orders spec.protocol: Upstream "orders" connects to its Endpoints without TLS [environment=delete]
+ruralz.yaml:23:1 warning route-without-auth Route/orders: Route "orders" runs no authentication Policy [environment=delete]
+--- stderr ---

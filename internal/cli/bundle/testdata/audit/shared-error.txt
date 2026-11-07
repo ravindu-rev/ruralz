@@ -1,0 +1,4 @@
+exit 1
+--- stdout ---
+upstreams.yaml:4:9 error RZ-CFG-008 Upstream/orders metadata.name: Upstream/orders is declared twice: a resource lives in exactly one place (first declared in upstreams-2.yaml:4:9)
+--- stderr ---
