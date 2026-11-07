@@ -62,7 +62,7 @@ The four differentiators are (1) **WASM plugin system**, (2) **AI/LLM gateway**,
 
 ## Status
 
-Ruralz is building milestone M1 Core gateway. Release `0.1.0` closes M1 and is the first release the automated release flow makes: once the other [M1 exit criteria](docs/roadmap/01-roadmap-and-milestones.md#m1-exit-criteria) hold, the merge that brings the M1 work to `main` releases it, and every later merge to `main` releases what its Conventional Commits titles call for ([Release pipeline](docs/engineering/04-release-versioning-and-compatibility.md#release-pipeline)). `0.1.0` is not out yet: until the [releases page](https://github.com/ravindu-rev/ruralz/releases) lists it, there is no archive or image to install, and `ruralzd` and the `ruralz` CLI build from source with `make build`. Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete. Milestones have an order but no dates.
+Release `0.1.0`, on the [releases page](https://github.com/ravindu-rev/ruralz/releases), ships milestones M0 Foundations and M1 Core gateway: the file-mode Ruralz Gateway with core Policies and Hot Reload, and the `ruralz` CLI. Ruralz is building milestone M2 WASM + Control/GitOps, and every merge to `main` releases what its Conventional Commits titles call for ([Release pipeline](docs/engineering/04-release-versioning-and-compatibility.md#release-pipeline)). Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete; the capabilities of M0 and M1 are released. Milestones have an order but no dates.
 
 | Milestone | Scope |
 |---|---|
