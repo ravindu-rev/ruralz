@@ -412,7 +412,11 @@ func warmDocs(a, b string, configs ...string) []string {
 // TestWarmReservation: one warm instance per pool; a total of exactly
 // half of the Node cap is clean, one byte more is a warning at the
 // Gateway; Policies with an equal canonical config share one pool, and so
-// do Plugins with one image digest, config and limits.
+// do Plugins with one image digest, config and limits. Every Plugin stays
+// within its pool's share of the cap, 25% (1Gi) for these non-state
+// Plugins, as validation refuses a larger one (RZ-CFG-052), so a total
+// above half takes three pools; each sharing case would warn if its
+// Policies did not share.
 func TestWarmReservation(t *testing.T) {
 	warning := `warning plugin-warm-reservation Gateway/edge: warm Plugin reservations of 2147483649 bytes exceed half of the 4294967296-byte Node cap`
 	tests := []struct {
@@ -420,11 +424,11 @@ func TestWarmReservation(t *testing.T) {
 		docs []string
 		want []string
 	}{
-		{name: "exactly half of the cap", docs: warmDocs("1Gi", "1Gi", "{}")},
-		{name: "one byte above half of the cap", docs: warmDocs("1073741825", "1Gi", "{}"), want: []string{warning}},
-		{name: "two configs make two pools", docs: warmDocs("512Mi", "1073741825", "{a: 1}", "{a: 2}"), want: []string{warning}},
-		{name: "equal canonical configs share one pool", docs: warmDocs("512Mi", "1073741825", "{a: 1, b: [1.0]}", "{b: [1], a: 1.0}")},
-		{name: "one digest, config and limits share one pool", docs: warmDocs("1073741825", "1073741825", "{b: true}")},
+		{name: "exactly half of the cap", docs: warmDocs("512Mi", "1Gi", "{a: 1}", "{a: 2}")},
+		{name: "one byte above half of the cap", docs: warmDocs("536870913", "1073741823", "{a: 1}", "{a: 2}"), want: []string{warning}},
+		{name: "two configs make two pools", docs: warmDocs("768Mi", "536870913", "{a: 1}", "{a: 2}"), want: []string{warning}},
+		{name: "equal canonical configs share one pool", docs: warmDocs("1Gi", "1Gi", "{a: 1, b: [1.0]}", "{b: [1], a: 1.0}")},
+		{name: "one digest, config and limits share one pool", docs: warmDocs("1Gi", "1Gi", "{b: true}", "{a: 1}")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -459,7 +463,7 @@ func TestPoolFindingLocations(t *testing.T) {
 		},
 		{
 			name: "an authored maxPluginMemoryBytes",
-			docs: warmDocs("1073741825", "1Gi", "{}"), rule: RulePluginWarmReservation,
+			docs: warmDocs("536870913", "1073741823", "{a: 1}", "{a: 2}"), rule: RulePluginWarmReservation,
 			want: `ruralz.yaml:15:34 warning plugin-warm-reservation Gateway/edge spec.limits.maxPluginMemoryBytes: ` +
 				`warm Plugin reservations of 2147483649 bytes exceed half of the 4294967296-byte Node cap`,
 		},
@@ -475,15 +479,19 @@ func TestPoolFindingLocations(t *testing.T) {
 }
 
 // TestDefaultCapWarmReservation: without Gateway limits the default 2Gi
-// Node cap applies, and the finding sits at the Gateway's spec.
+// Node cap applies, and the finding sits at the Gateway's spec. Three
+// pools at the 512Mi share of a non-state pool pass half of that cap.
 func TestDefaultCapWarmReservation(t *testing.T) {
 	docs := []string{
 		gateway(""), orders(),
-		plugin("a", "request.headers.read", "  limits: {memoryBytes: 1073741825}\n"),
-		pluginPolicy("run", "a", "  config: {}\n"), route("orders", "  policies: [{name: run}]\n"),
+		plugin("a", "request.headers.read", "  limits: {memoryBytes: 512Mi}\n"),
+		pluginPolicy("run-1", "a", "  config: {a: 1}\n"),
+		pluginPolicy("run-2", "a", "  config: {a: 2}\n"),
+		pluginPolicy("run-3", "a", "  config: {a: 3}\n"),
+		route("orders", "  policies: [{name: run-1}, {name: run-2}, {name: run-3}]\n"),
 	}
 	want := []string{`ruralz.yaml:6:3 warning plugin-warm-reservation Gateway/edge spec.limits.maxPluginMemoryBytes: ` +
-		`warm Plugin reservations of 1073741825 bytes exceed half of the 2147483648-byte Node cap`}
+		`warm Plugin reservations of 1610612736 bytes exceed half of the 2147483648-byte Node cap`}
 	if got := ofRule(audited(t, docs...), RulePluginWarmReservation); !slices.Equal(got, want) {
 		t.Errorf("warm reservation findings = %q, want %q", got, want)
 	}
