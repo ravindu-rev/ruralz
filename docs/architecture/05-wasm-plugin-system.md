@@ -71,15 +71,27 @@ The runtime is wazero, module `github.com/tetratelabs/wazero` ([ADR-0004](../adr
 | Fault breaker | Faults above 50% of at least 200 calls in 10 s trip it for 5 s (target) | Per pool; half-open: 5% of calls (target) reach the guest | Others take `failureMode`: `RZ-PLG-009`, reason `plugin_pool_degraded` |
 | Instance recycling | After 100,000 calls (target) or a fault | Per instance | Transparent |
 | Node Plugin memory (Gateway `limits.maxPluginMemoryBytes`) | 2 GiB (target) | Instances reserve their full limit; 10% swap headroom (target) | New instance refused: `RZ-PLG-004` |
-| Compiled code per Node | 512 MiB (target), accounted as 4 × Wasm bytes per distinct digest and `limits.memoryBytes` (target) | Active, retained and candidate snapshots | RZ-CFG-028 when the Revision's accounted code alone exceeds it, computed alike everywhere; transient NACK while retained code blocks it or on a measured overrun (OQ-wasm-plugin-system-16) |
+| Compiled code per Node | 512 MiB (target), accounted as 4 × Wasm bytes per distinct digest and `limits.memoryBytes` (target), the interim factor of the [wazero study](#wazero-study) | Active, retained and candidate snapshots | RZ-CFG-028 when the Revision's accounted code alone exceeds it, computed alike everywhere; transient NACK while retained code blocks it or on a measured overrun |
 | Guest logs | 4 KiB per message, 16 KiB per call, 1 MiB/s (target) | Per Policy | Truncated or dropped, counted |
 | Per-request context | 4 KiB per Plugin Policy per request (target) | Freed after `onLog` | `ERR_LIMIT` |
 | Artifact size and structure | 32 MiB; 100,000 functions, 50,000 locals each, 16 MiB data (target) | Before compiling | RZ-CFG-028 |
-| Cold compilation | 30 s per artifact (target); one at a time, `WithCompilationWorkers` at most max(1, `GOMAXPROCS`/4) ([source](https://github.com/wazero/wazero/blob/main/experimental/compilationworkers.go)) | Uncancellable: at most 1 abandoned per Node (target) | Transient NACK, 2 retries (target); deterministic if the online stage reproduces it |
+| Cold compilation | 30 s per artifact (target); one at a time, `WithCompilationWorkers` at most max(1, `GOMAXPROCS`/4) ([source](https://github.com/wazero/wazero/blob/main/experimental/compilationworkers.go)) | Uncancellable: at most 1 abandoned per Node (target), the interim rule of the [wazero study](#wazero-study) | Transient NACK, 2 retries (target); deterministic if the online stage reproduces it |
 
 Full reservation makes the Node cap a hard bound on linear memory. The cap is in the Revision, so audit computes N offline. A Node activating a `state.*` pool whose guaranteed parked bound, N − ceil(N/4), is below 16 (target) logs it and reports `ruralz_node_degraded_info{reason="plugin_parked_bound_low"}` (proposed to [Observability](10-observability.md)). A default 16 MiB pool parks at least 48, about 48,000 calls/s at a 1 ms round trip (hypothesis); busier Nodes need a larger cap.
 
 Compiled size varies with architecture and wazero version, so only accounted size decides RZ-CFG-028. A sampled resident-memory delta per compile above the limit is a transient NACK with `reason="plugin_compiled_code_over_estimate"` (proposed).
+
+### wazero study
+
+The rules for compile cancellation, the early release of one module's compiled code, compiled-code accounting and garbage collection during guest calls are set from a study of wazero's API and source and of compile and memory behavior measured on amd64 and arm64, before the runtime is built (OQ-wasm-plugin-system-22). Until the study sets them, the interim rules hold:
+
+| Concern | Interim rule |
+|---|---|
+| Compile cancellation | None: at most 1 abandoned compile per Node (target), per the cold compilation row of [Default limits](#default-limits) |
+| Early release | Retire calls `CompiledModule.Close` on unshared compiled code ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)) |
+| Accounting | 4 × Wasm bytes per distinct digest and `limits.memoryBytes` (target) decides RZ-CFG-028, computed alike on every Node, in `ruralz bundle audit` and in the online stage; a sampled resident-memory delta above the limit is only a transient NACK |
+| Garbage collection | Gateway-added p99 stays at 1 ms or less with long guest calls during garbage collection (target) ([Performance model](#performance-model)) |
+| Linear memory | Go heap under `GOMEMLIMIT`; an off-heap `experimental.MemoryAllocator` is the fallback ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)) |
 
 ### Failure semantics and the RZ-PLG registry
 
@@ -99,7 +111,7 @@ A Plugin failure applies `failureMode` per pack section 8.10; auth and authz `pl
 | `RZ-PLG-010` | Parked bound reached; State Store call not attempted, and the guest returned cannot-decide |
 | `RZ-PLG-011` | Guest returned cannot-decide without a preceding `ERR_UNAVAILABLE` or parked-bound refusal |
 
-Deterministic failures reproduce from the Revision and fail the gate at once (pack section 8.3): digest mismatch, disagreement with `Plugin.spec`, size, structure or accounted compiled-code limits, compile errors, Capability excess and `config` rejection, all RZ-CFG-028 pending OQ-wasm-plugin-system-9; bad signatures are RZ-CFG-033. Registry outages, timeouts and Node-local compiled-code pressure are transient NACKs, retried, then quarantined (OQ-wasm-plugin-system-14); timeouts become deterministic only when the online stage (`ruralz bundle build`, `ruralz bundle validate --online`, ingest) reproduces them. That stage and activation SHOULD compile, instantiate and run `rz_configure` per Policy.
+Deterministic failures reproduce from the Revision and fail the gate at once (pack section 8.3): digest mismatch, disagreement with `Plugin.spec`, size, structure or accounted compiled-code limits, compile errors, Capability excess and `config` rejection, all RZ-CFG-028 pending OQ-wasm-plugin-system-9; bad signatures are RZ-CFG-033. Registry outages, timeouts and Node-local compiled-code pressure are transient: the `Nack` carries class `transient` beside its RZ code ([Control Stream](04-control-plane-and-gitops.md#control-stream)), so Ruralz Control retries the Node with backoff, then quarantines it as lagging (pack section 8.3); timeouts become deterministic only when the online stage (`ruralz bundle build`, `ruralz bundle validate --online`, ingest) reproduces them. That stage and activation SHOULD compile, instantiate and run `rz_configure` per Policy.
 
 ## Plugin ABI v1
 
@@ -109,7 +121,7 @@ Plugin ABI v1 is a capability-based contract with conventions modeled on Extism'
 
 | Element | Rule |
 |---|---|
-| Identifier | `ruralz.plugin.v1` names the ABI and the Host Function import module; no protobuf messages are proposed (OQ-wasm-plugin-system-12) |
+| Identifier | `ruralz.plugin.v1` names the ABI, the Host Function import module and the proto package in `api/proto/ruralz/plugin/v1/`, which defines the Host Function field identifiers, the return codes and the artifact config message; every PDK generates its constants from it, and no protobuf message crosses the ABI |
 | Data passing | `(ptr i32, len i32)` buffers from `rz_alloc`; the host copies and never retains guest pointers |
 | Returns | Every Host Function returns `i32`, negative only for errors; numbers are written at an `out` pointer |
 | Output buffers | Writes to `(o, c)` return the full length; above `c`, nothing was written and the guest retries. Body and chunk reads return bytes written, 0 at the end |
@@ -117,8 +129,10 @@ Plugin ABI v1 is a capability-based contract with conventions modeled on Extism'
 | Phase exports | `rz_` plus each Phase in snake case; the set MUST equal `spec.phases` (RZ-CFG-028) |
 | Phase result | `0` CONTINUE; `1` RESPOND after an accepted `response_send`; `2` END_STREAM in `onChunk`; negative: cannot decide, so `failureMode` applies |
 | Error classes | Advisory, the guest may continue: `ERR_ABSENT`, `ERR_LIMIT`, `ERR_INVALID`, `ERR_UNAVAILABLE`. Sticky: after `ERR_PHASE`, `ERR_BUDGET` or `ERR_DENIED` the call fails with `RZ-PLG-006` whatever the guest returns |
-| Configuration | `rz_configure` receives the schema-checked Policy `config` as canonical JSON; non-zero fails activation, or is `RZ-PLG-008` in a refill |
+| Configuration | `rz_configure` receives the schema-checked Policy `config` as canonical JSON, with each secret field's Node-resolved value in place of its reference ([Cryptography, keys and secrets](#host-function-table)); non-zero fails activation, or is `RZ-PLG-008` in a refill |
 | Requested Capabilities | Derived from imports; a subset of `spec.capabilities`, re-checked with the Phase on every call |
+
+The proto package defines the numeric constants below (errors, `level`, `alg`, field identifiers and directions), and each PDK generates its own from it ([API and protobuf definitions](../engineering/02-repository-layout-and-conventions.md#api-and-protobuf-definitions)).
 
 | Constant or encoding | Values |
 |---|---|
@@ -168,7 +182,7 @@ Host Function rules:
 - **Credentials.** Credential headers are `authorization`, `proxy-authorization`, `cookie`, each `auth.api-key` Policy's `config.header` in the Revision, and response `set-cookie`. Without `credentials.read`, header gets return `ERR_ABSENT` for them and lists, proxy-wasm header maps included, omit them. Headers set by upstream-auth Filters stay hidden even with it. Guest logs redact known credentials.
 - **State Store.** One blocking call per Plugin Policy per request before commit (pack section 8.7), in chain order; a second returns `ERR_BUDGET`. Keys are `rzplg:`, the Environment name as namespace, `:`, the length-prefixed Policy name and the guest key, apart from every built-in key (pack section 8.7 rule 7). The `onLog` write goes through the post-commit queue's own Plugin class, a sub-queue that never displaces Quota and Token Budget settlement writes (pack section 8.7 rule 4, [Post-commit write queue](11-scalability-and-distributed-state.md#post-commit-write-queue)). Limits (target): 256-byte keys, `ttlMillis` 1 ms to 24 h, 10,000 keys per Policy per Node per minute, one `onLog` write per request; beyond is `ERR_LIMIT`.
 - **Metrics.** One family, `ruralz_plugin_guest_events_total{policy, name}`; `name` matches `^[a-z][a-z0-9_]{0,31}$`; a negative value or 17th name returns `ERR_LIMIT`.
-- **Cryptography.** FIPS mode does not cover Wasm ([source](https://go.dev/doc/security/fips140)), so FIPS builds (Planned (M5)) offer approved algorithms only through `crypto.use` ([tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)). Keys MUST NOT appear in plaintext `config` (OQ-wasm-plugin-system-4).
+- **Cryptography, keys and secrets.** Cryptography runs in the host: FIPS mode does not cover Wasm ([source](https://go.dev/doc/security/fips140)), so FIPS builds (Planned (M5)) offer approved algorithms only through `crypto.use` ([tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)). Keys are host-held: the Node resolves each key a `plugin` Policy references through `secretRef`, and the guest signs, verifies and computes HMACs with it through handle-based crypto Host Functions, so key bytes never enter guest memory (names and signatures: OQ-wasm-plugin-system-19). Other secrets, such as a token a Plugin sets on upstream requests, are Node-resolved secret fields of `config`, passed only to `rz_configure` and redacted from guest logs; like every `secretRef` value, they never appear in a Revision, diff, `/config/dump` or log (field marking: OQ-wasm-plugin-system-20). Keys MUST NOT appear in plaintext `config`. JWT signing is a built-in Policy type, and `auth.upstream-oauth2` covers GCP authentication ([Security and identity](08-security-and-identity.md#upstream-authentication)), so neither needs a Plugin.
 - **Streams.** `onChunk` calls for one request and Policy are serialized per direction.
 - **Excluded.** Outbound calls, timers and shared queues (pack section 8.7 rule 6; OQ-wasm-plugin-system-5).
 
@@ -303,7 +317,7 @@ Additional rules:
 | Memory | Bounds-checked linear memory per instance, checked accessors |
 | Authority | No filesystem, sockets, environment or threads; every effect is a gated import |
 | Resources | Page limit, deadline, budget, pool share, parked bound, fault breaker, Node cap |
-| Data | No other Policies' state keys, TLS keys, `secretRef` values or upstream-auth credentials; client credential headers only with `credentials.read`; reused instances may retain data (PT-11) |
+| Data | No key bytes, TLS keys, upstream-auth credentials, or other Policies' state keys and secrets; a Plugin sees only its own Policy's secret fields, in `rz_configure`, and client credential headers only with `credentials.read`; reused instances may retain data (PT-11) |
 | Faults | Traps become `RZ-PLG` results and the instance is discarded |
 
 These layers realize TB-2 ([System overview](01-system-overview.md#trust-boundaries)).
@@ -314,10 +328,12 @@ These layers realize TB-2 ([System overview](01-system-overview.md#trust-boundar
 
 A Plugin is an OCI artifact referenced by `Plugin.spec.image` with a required `@sha256:` digest (RZ-CFG-021), fetched with `oras-go` and verified with `sigstore-go` ([tech stack catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)). Fetches reach only allowlisted registry hosts (process configuration), refuse loopback, link-local and private addresses unless allowed, and never send credentials to another host; violations are RZ-CFG-028.
 
+In file mode a Node authenticates to registries with the credentials in the file `RURALZ_REGISTRY_AUTH_FILE` names ([Node process configuration](04-control-plane-and-gitops.md#node-process-configuration)), each sent only to its own host. In Control mode Ruralz Control relays Plugin pulls as a pull-through cache: it fetches each artifact and its signature referrers by digest with its own registry credentials, caches them and serves them to its Nodes, so pull fan-out ends at Ruralz Control. Nodes verify every relayed artifact's digest and signature as they verify a registry pull (relay interface: OQ-wasm-plugin-system-21).
+
 | Part | Media type (proposed) | Content |
 |---|---|---|
 | Manifest | OCI image manifest, artifact type `application/vnd.ruralz.plugin.v1` | One config and one layer |
-| Config | `application/vnd.ruralz.plugin.config.v1+json` | ABI, Phases, Capabilities, `configSchema`, PDK version |
+| Config | `application/vnd.ruralz.plugin.config.v1+json` | The `ruralz.plugin.v1` artifact config message in its JSON encoding: ABI, Phases, Capabilities, `configSchema`, PDK version |
 | Layer | `application/wasm` | The guest binary |
 | Signature | OCI referrer holding a Sigstore bundle | Publisher identity, keyless OIDC or key |
 
@@ -325,7 +341,7 @@ The inline `Plugin.spec` stays authoritative over the config blob ([Configuratio
 
 ### Signing and verification
 
-Publishers sign at `ruralz plugin push` with Sigstore, keyless or with a key, as an OCI referrer (pack section 8.14). The online stage and activation verify offline against local trust roots: `enforce` by default, `warn` in `ruralz dev run`, `off` degraded; failure is RZ-CFG-033. Referrers written by cosign should verify (hypothesis), checked in CI. Air-gapped installs copy artifacts and referrers by digest; registry credentials are OQ-wasm-plugin-system-6.
+Publishers sign at `ruralz plugin push` with Sigstore, keyless or with a key, as an OCI referrer (pack section 8.14). The online stage and activation verify offline against local trust roots: `enforce` by default, `warn` in `ruralz dev run`, `off` degraded; failure is RZ-CFG-033. Referrers written by cosign should verify (hypothesis), checked in CI. Air-gapped installs copy artifacts and referrers by digest.
 
 ### Plugin commands
 
@@ -376,7 +392,7 @@ spec:
 
 A Plugin changes only through a new Revision, so every swap rides the Hot Reload of [Compile before swap](01-system-overview.md#compile-before-swap); Plugin hot-swap is Planned (M2).
 
-1. **Fetch.** From the artifact cache or a pull by digest.
+1. **Fetch.** From the artifact cache, or a pull by digest: from the registry in file mode, through Ruralz Control's relay in Control mode.
 2. **Verify.** Digest and Sigstore signature, before compilation.
 3. **Compile.** Once per digest and memory limit, after the structure check.
 4. **Warm.** Unchanged pools carry over ([Compile before swap](01-system-overview.md#compile-before-swap) step 3). Replacement pools warm to their predecessor's 1-minute peak busy count plus headroom (target), within share and swap headroom, auth and authz first; other new pools warm to 1, or 0 if they do not fit, never a NACK. Replaced pools trim idle instances to max(1, busy) (target). At boot `/readyz` turns 200 only after warming (pack section 8.5).
@@ -430,7 +446,7 @@ A per-request canary pairs two `plugin` Policies in separate slots with `when` e
 
 ## SDK matrix
 
-Each PDK wraps Phases and Host Functions, zeroes buffers that held host data and MUST pass the ABI conformance suite. PDKs are Apache-2.0 under `sdk/`; names are proposals.
+Each PDK wraps Phases and Host Functions, generates its constants from the `ruralz.plugin.v1` proto package, zeroes buffers that held host data and MUST pass the ABI conformance suite. PDKs are Apache-2.0 under `sdk/`; names are proposals.
 
 | Language | Toolchain target | PDK (proposed) | Phases | Milestone | Notes |
 |---|---|---|---|---|---|
@@ -464,7 +480,7 @@ ruralz dev run ./shop-bundle
 | Phase cases | Declarative inputs and expected actions, mutations and logs | `ruralz plugin test` |
 | Host fakes | State Store, clock and random source with injectable failures | `ruralz plugin test` |
 | Limit cases | Traps, deadline, memory, budget and parking match `ruralzd` | `ruralz plugin test` |
-| ABI conformance | Host Function, encoding and WASI tables; the Go/TinyGo and TypeScript scaffolds activate; a Plugin with only `request.headers.read` cannot read `authorization`; CONTINUE after an advisory error continues, after a sticky one gets `RZ-PLG-006`; no data crosses requests | Ruralz CI, [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md) |
+| ABI conformance | Host Function, encoding and WASI tables; the Go/TinyGo and TypeScript scaffolds activate; a Plugin with only `request.headers.read` cannot read `authorization`; CONTINUE after an advisory error continues, after a sticky one gets `RZ-PLG-006`; a key handle signs, verifies and computes HMACs while no key byte reaches guest memory; secret fields reach only `rz_configure`; no data crosses requests | Ruralz CI, [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md) |
 | Hot Reload case | A request spanning a swap finishes on the old version; a `state.read` swap at 20,000 requests/s (target) yields no `RZ-PLG-005` | Ruralz CI |
 | Fuzzing | Malformed pointers, lengths, header writes, memory growth past the limit | Ruralz CI |
 | End to end | A Route with the Plugin behind a local `ruralzd` | `ruralz test run` |
@@ -487,8 +503,8 @@ One wazero host-call microbenchmark measured 47.62 ns ([source](https://github.c
 | Instance creation, `rz_configure` included | 1 ms or less typical, 100 ms at most (hypothesis) |
 | Creation throughput, 8 cores, 4 workers | 4,000 per second typical, 40 at the maximum (hypothesis) |
 | `state.read` reference pool ramp from 1 to 25 instances | 250 ms or less (target) |
-| Compiled code per MiB of Wasm, on amd64 and arm64 | 4 MiB or less (hypothesis), the accounting factor |
-| Gateway-added p99 with long guest calls during garbage collection | 1 ms or less (target) (OQ-wasm-plugin-system-16) |
+| Compiled code per MiB of Wasm, on amd64 and arm64 | 4 MiB or less (hypothesis), the interim accounting factor of the [wazero study](#wazero-study) |
+| Gateway-added p99 with long guest calls during garbage collection | 1 ms or less (target), checked by the [wazero study](#wazero-study) |
 
 ### Sizing
 
@@ -521,7 +537,7 @@ This is the Plugin part of the threat model [Security and identity](08-security-
 | PT-7 | Host work amplification | Call budget; log and metric caps | Bounded cost |
 | PT-8 | Pool exhaustion by slow input or State Store brownout | Bounded wait; pool share; parked bound; breaker short-circuit | That pool degrades |
 | PT-9 | Compile bomb | Structure limits; compile in CI and at ingest; one bounded worker; retries, then quarantine | Watched directories without CI |
-| PT-10 | Exfiltration through logs, metrics or state | Credential headers hidden without `credentials.read`; redaction; combined-Capability audit; TB-12 | Granted reads leak, even across Regions |
+| PT-10 | Exfiltration through logs, metrics or state | Credential headers hidden without `credentials.read`; keys only as handles; redaction; combined-Capability audit; TB-12 | Granted reads and the Policy's own secret fields leak, even across Regions |
 | PT-11 | Cross-request leakage through instance reuse | PDKs zero host data; conformance; recycling | A buggy guest (OQ-wasm-plugin-system-18) |
 | PT-12 | Side channels between Plugins | None | Not mitigated |
 | PT-13 | Signature checks disabled | `off` is explicit and degraded | Operator choice |
@@ -552,18 +568,17 @@ Decision ([ADR-0005](../adr/0005-plugin-abi-v1.md)): Plugin ABI v1 is the only p
 |---|---|---|---|---|
 | OQ-wasm-plugin-system-1 | Should `Plugin.spec.limits` gain pool and budget fields? | (a) Node defaults (current); (b) New fields | configuration-model | No |
 | OQ-wasm-plugin-system-2 | How is a weighted per-request canary expressed? | (a) Rollout canary only (current); (b) A Policy weight; (c) A CEL hash | configuration-model | No |
-| OQ-wasm-plugin-system-4 | How do Plugins use keys, and can JWT signing and GCP authentication (OQ-security-and-identity-11, -12) be Plugins? | (a) No keys; (b) Node-resolved `x-ruralz-secret` `configSchema` fields passed only to `rz_configure` (recommended); (c) Host-held keys | configuration-model | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-5 | Should Plugins make outbound calls? | (a) No (current); (b) An `http.call` Capability | wasm-plugin-system | No |
-| OQ-wasm-plugin-system-6 | How do Nodes authenticate to registries and absorb pull fan-out? | (a) Node process configuration; (b) Ruralz Control relays; (c) Both | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-7 | May `ruralz dev run` load an unpushed artifact? | (a) No, use a local registry; (b) A local path | cli-and-api-surface | No |
 | OQ-wasm-plugin-system-8 | How does a Plugin declare the proxy-wasm ABI? | (a) A new `abi` value; (b) Import detection; (c) A separate kind | configuration-model | Yes, for Planned (M4) |
 | OQ-wasm-plugin-system-9 | Do compile, structure, size and `config` failures extend RZ-CFG-028, and which code rejects impossible warm reservations or oversized `limits.memoryBytes`? | (a) Extend RZ-CFG-028, add one code (current); (b) Separate codes | configuration-model | No |
 | OQ-wasm-plugin-system-10 | Is a wall-clock limit enough? | (a) Wall clock, budget, fault breaker (current); (b) CPU time; (c) Upstream metering | wasm-plugin-system | No |
 | OQ-wasm-plugin-system-11 | Does Ruralz ship a Python PDK? | (a) Not planned (current); (b) Community | wasm-plugin-system | No |
-| OQ-wasm-plugin-system-12 | Should pack section 12 and the tech stack drop the `ruralz.plugin.v1` proto package, since Plugin ABI v1 passes no protobuf messages? | (a) Drop it (proposed); (b) Keep it for a future descriptor | tech-stack-and-libraries | Yes, for the pack section 12 change |
 | OQ-wasm-plugin-system-13 | How do Nodes advertise their ABI level to Rollouts? | (a) A heartbeat field; (b) A new identifier per addition | control-plane-and-gitops | Yes, for the first addition |
-| OQ-wasm-plugin-system-14 | How does a NACK mark registry, timeout or compiled-code pressure failures as transient? | (a) A NACK flag; (b) A separate code | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-15 | Will the Configuration model register maxima of 256 MiB and 1 s (target) and grant `response.send` in `geo-block`? | (a) Yes (proposed); (b) Other values | configuration-model | No |
-| OQ-wasm-plugin-system-16 | Can wazero cancel compiles or free one module early, can garbage collection preempt guest code, does pack section 8.11 cover compiled code, and how does a Node measure compiled size without a wazero API? | (a) Current: 4 × Wasm bytes decides, a resident-memory delta is advisory; (b) Revise after research | wasm-plugin-system | Yes, for Planned (M2) |
 | OQ-wasm-plugin-system-17 | How does adapter pinning interact with recycling and faults? | (a) Recycle only when unpinned; (b) No adapter recycling | wasm-plugin-system | Yes, for Planned (M4) |
 | OQ-wasm-plugin-system-18 | Should Security and identity reword "never share memory across requests"? | (a) Reword (proposed); (b) A fresh-instance mode | security-and-identity | No |
+| OQ-wasm-plugin-system-19 | What are the names and signatures of the handle-based crypto Host Functions? | (a) Three `crypto.use` Host Functions, valid in every Phase, taking the key handle `rz_configure` received: `crypto_key_sign(key i32, in p, l, o, c)`, `crypto_key_verify(key i32, in p, l, sig p, l)`, which returns 0 or `ERR_INVALID`, and `crypto_key_hmac(key i32, in p, l, o, c)`, the algorithm fixed by the key's declaration (proposed); (b) A `crypto_key_get(name p, l, out i32)` lookup by `config` field name, and an `alg` argument on each operation | wasm-plugin-system | Yes, for Plugin keys, Planned (M2) |
+| OQ-wasm-plugin-system-20 | How does a Plugin `configSchema` mark a Node-resolved secret field and a host-held key field, and what does `rz_configure` receive for each? | (a) `x-ruralz-secret: true` on a secret field and `x-ruralz-key: {algorithm, operations}` on a key field, `algorithm` a JWA name such as `ES256` or `HS256` and `operations` from `sign`, `verify` and `hmac`, each field holding a `SecretValue`; `rz_configure` receives the secret's resolved value and the key's handle (proposed); (b) A `Policy.spec.keys` map of `SecretValue` keys beside `config`, only secret fields marked in `configSchema` | configuration-model | Yes, for Plugin secrets and keys, Planned (M2) |
+| OQ-wasm-plugin-system-21 | Through which interface do Nodes pull Plugin artifacts from Ruralz Control in Control mode, where does Ruralz Control read its registry credentials, and what bounds its cache? | (a) A read-only OCI distribution pull API on 8091 for enrolled Nodes (manifests, blobs and referrers by digest), which `oras-go` reads like any registry; credentials from the file `RURALZ_REGISTRY_AUTH_FILE` names in Ruralz Control's process configuration; a disk cache keyed by digest that evicts digests no retained Revision references (proposed); (b) A Control Stream message streaming an artifact and its referrers by digest from the content store | control-plane-and-gitops | Yes, for the Plugin pull relay, Planned (M2) |
+| OQ-wasm-plugin-system-22 | Which rules does the [wazero study](#wazero-study) set, from wazero's API and source and compile and memory behavior measured on amd64 and arm64: can a compile be cancelled, can one module's compiled code be freed early, how is compiled code accounted and measured, does garbage collection wait on running guest code, and does linear memory stay on the Go heap? | (a) Keep each interim rule the measurements confirm (at most 1 abandoned compile per Node (target), `CompiledModule.Close` at retire, 4 × Wasm bytes (target) with a resident-memory delta as a transient NACK only, Go-heap linear memory under `GOMEMLIMIT`) and state a measured replacement for each one they refute (proposed); (b) Bound compiled code by artifact bytes alone and move linear memory off the Go heap with `experimental.MemoryAllocator` | wasm-plugin-system | Yes, for the WASM runtime step, Planned (M2) |

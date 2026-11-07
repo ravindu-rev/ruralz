@@ -137,7 +137,7 @@ An Upstream's own non-OK `grpc-status` passes through with its message and detai
 
 ### HTTP/JSON transcoding and reflection
 
-A Route matching HTTP criteria to a `grpc` Upstream transcodes unary calls: `google.api.http` annotations name the method, path parameters, query and JSON body build the request, and the reply becomes JSON (protobuf runtime: OQ-tech-stack-and-libraries-14); reverse transcoding applies them the other way.
+A Route matching HTTP criteria to a `grpc` Upstream transcodes unary calls: `google.api.http` annotations name the method, path parameters, query and JSON body build the request, and the reply becomes JSON (protobuf runtime: `google.golang.org/protobuf`, [Tech stack](../engineering/01-tech-stack-and-libraries.md#library-catalog)); reverse transcoding applies them the other way.
 
 ```yaml
 apiVersion: ruralz/v1alpha1

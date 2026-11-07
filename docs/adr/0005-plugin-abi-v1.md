@@ -34,7 +34,7 @@ Chosen option: "Custom capability-based Plugin ABI v1 (`ruralz.plugin.v1`) with 
 
 | Concern | Rule |
 |---|---|
-| Identifier | `ruralz.plugin.v1` names the ABI and the import namespace; `Plugin.spec.abi` accepts only that value |
+| Identifier | `ruralz.plugin.v1` names the ABI, the import namespace and the proto package from which every PDK generates its constants; `Plugin.spec.abi` accepts only that value |
 | Memory | `(ptr i32, len i32)` buffers from the guest's `rz_alloc`; the host copies and never retains guest pointers |
 | Results | Every Host Function returns `i32`, negative only for errors (`-1` ERR_ABSENT to `-7` ERR_DENIED); an output write above its capacity writes nothing and returns the full length, except that `request_body_read`, `response_body_read` (at an offset) and `chunk_read` return bytes written, 0 at the end, streaming a body through a fixed buffer |
 | Exports | `rz_abi_version`, `rz_alloc`, `rz_free`, `rz_configure`, plus `rz_` Phase exports whose set MUST equal `spec.phases` (RZ-CFG-028) |
@@ -43,6 +43,7 @@ Chosen option: "Custom capability-based Plugin ABI v1 (`ruralz.plugin.v1`) with 
 | Ambient authority | None: a `wasi_snapshot_preview1` shim maps log, clock and random calls to their Capabilities and fails file and socket calls; ungated, `args_*` and `environ_*` return zero entries and `proc_exit` traps (`RZ-PLG-001`); no outbound calls, timers or shared queues |
 | State Store | One blocking `state_get` or `state_incr` per Plugin Policy per request before commit, a second returning `ERR_BUDGET`; in upstream-leg Phases, later attempts and steps replay the first result for the same Host Function and key without a round trip, parallel steps serializing; `onLog` writes asynchronous; none in `onChunk` |
 | Credentials | Credential headers need `credentials.read` |
+| Keys and secrets | Keys stay in the host: the guest signs, verifies and computes HMACs through handle-based crypto Host Functions, so key bytes never enter guest memory; other secrets reach the guest only as Node-resolved `config` fields passed to `rz_configure` |
 | Evolution | Frozen when it ships; additions are new Host Functions only, each raising an ABI level while `rz_abi_version()` stays 1; anything else needs `ruralz.plugin.v2`, except optional guest JSON fields (OQ-release-versioning-and-compatibility-10) ([versioning](../engineering/04-release-versioning-and-compatibility.md#plugin-abi-versioning)) |
 | proxy-wasm, Planned (M4) | Ruralz adapter with the same host, Capabilities, limits, `RZ-PLG` codes and `failureMode`; a pinned call waits for its instance at most the 1 ms (target) pool wait, else `RZ-PLG-005`; a trap fails every context pinned to that instance, each under its own Policy's `failureMode`; outbound calls, timers and shared queues fail activation (RZ-CFG-028); declaration: OQ-wasm-plugin-system-8 |
 
@@ -99,7 +100,7 @@ sequenceDiagram
 - Bad, because Ruralz maintains four PDKs (Rust and Go/TinyGo Planned (M2), TypeScript Planned (M3), C# Planned (M4)), the WASI shim and a conformance suite.
 - Bad, because no existing binary runs at launch: Extism plugins need rebuilding; proxy-wasm filters wait for the adapter.
 - Bad, because engine-based PDKs (TypeScript, C#) need an import shim and more memory: a 64 MiB `state.*` Plugin (hypothesis) gets a parked bound of 12 under the 2 GiB default cap, below the audit threshold of 16 (target), so it needs a 4 GiB cap ([Sizing](../architecture/05-wasm-plugin-system.md#sizing)).
-- Bad, because Plugins cannot call out (OQ-wasm-plugin-system-5) or hold plaintext keys (OQ-wasm-plugin-system-4).
+- Bad, because Plugins cannot call out (OQ-wasm-plugin-system-5) or use key bytes: keys stay behind handles, which limit Plugins to the host's sign, verify and HMAC operations.
 - Bad, because an Upstream-scoped Plugin gets one State Store result per request: retries and steps replay it, another key returns `ERR_BUDGET`, and parallel `aggregate` steps wait on the first call.
 - Bad, because once v1 ships, an ABI mistake costs `ruralz.plugin.v2`, served beside v1 for 4 minor releases (target).
 - Bad, because the adapter pins each request to the instance holding its stream state: up to 1,000 contexts (target) share its serialized calls and traps, with recycling and fault radius open (OQ-wasm-plugin-system-17).
@@ -108,7 +109,7 @@ sequenceDiagram
 
 Planned (M2) unless tagged:
 
-- **Plugin ABI conformance suite** in the PR pipeline's `integration` job, on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
+- **Plugin ABI conformance suite** in the PR pipeline's `integration` job, on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; key handles work while no key byte reaches guest memory; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
 - **Adapter conformance**, Planned (M4): the suite plus a proxy-wasm filter corpus; a trapping context leaves other instances' contexts unaffected, and pinned waits respect the 1 ms bound (target).
 - **Online Plugin check**: `ruralz bundle build`, `ruralz bundle validate --online`, ingest and activation reject artifacts disagreeing with `Plugin.spec` (RZ-CFG-028).
 - **Host Function fuzzing**: out-of-bounds pointers and lengths trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
@@ -138,5 +139,5 @@ Planned (M2) unless tagged:
 
 - Owning document: [WASM plugin system](../architecture/05-wasm-plugin-system.md).
 - Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
-- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -12 (proto package), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius) and OQ-release-versioning-and-compatibility-10.
+- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius), -19 and -20 (key Host Functions, secret and key fields) and OQ-release-versioning-and-compatibility-10.
 - Revisit if proxy-wasm gains a capability model and a maintained pure-Go host; admitting outbound calls would add Host Functions within v1, plus a Policy-declared timeout and `failureMode` (pack section 8.7 rule 6) that the Configuration model does not define yet (OQ-wasm-plugin-system-5).
