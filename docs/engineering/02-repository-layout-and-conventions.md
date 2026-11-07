@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document fixes how the monorepo `github.com/ravindu-rev/ruralz` is organized and how code enters it: the tree and import rules for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control) and the `ruralz` CLI; Go conventions and golangci-lint; protobuf layout and buf; JSON Schema generation from Go types; commit, DCO and pull request rules; CI stages; and documentation verification. Untagged conventions are Planned (M0).
+This document fixes how the monorepo `github.com/ravindu-rev/ruralz` is organized and how code enters it: the tree and import rules for `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control) and the `ruralz` CLI; Go conventions and golangci-lint; protobuf layout and buf; JSON Schema generation from Go types; commit, DCO and pull request rules; CI stages; and documentation verification.
 
 ## Scope and non-goals
 
@@ -18,7 +18,7 @@ Non-goals:
 
 ## Monorepo tree
 
-Ruralz is one Git repository and one root Go module, `github.com/ravindu-rev/ruralz`, with the top-level Go directories fixed by the [foundation pack](../_meta/foundation-pack.md) section 2: `cmd/ruralzd`, `cmd/ruralz-control`, `cmd/ruralz`, `internal/`, `pkg/`, `api/` and `sdk/`. The layout is Planned (M0) and grows with each milestone.
+Ruralz is one Git repository and one root Go module, `github.com/ravindu-rev/ruralz`, with the top-level Go directories fixed by the [foundation pack](../_meta/foundation-pack.md) section 2: `cmd/ruralzd`, `cmd/ruralz-control`, `cmd/ruralz`, `internal/`, `pkg/`, `api/` and `sdk/`. The layout grows with each milestone.
 
 *Figure 1: top-level directories of the monorepo `github.com/ravindu-rev/ruralz`.*
 
@@ -104,16 +104,16 @@ github.com/ravindu-rev/ruralz
 
 | Path | Contents | Owning document | Milestone |
 |---|---|---|---|
-| `cmd/ruralzd` | `main` for Ruralz Gateway: wiring only; `internal/gateway/setting` parses `RURALZ_*` | [Data plane](../architecture/03-data-plane.md) | Planned (M1) |
+| `cmd/ruralzd` | `main` for Ruralz Gateway: wiring only; `internal/gateway/setting` parses `RURALZ_*` | [Data plane](../architecture/03-data-plane.md) | M1 |
 | `cmd/ruralz-control` | `main` for Ruralz Control | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
-| `cmd/ruralz` | `main` for the CLI | [CLI and API surface](../reference/01-cli-and-api-surface.md) | Planned (M1) |
-| `internal/` | Every non-public Go package; the default home for new code | Feature documents (content); this document (boundaries) | Planned (M0) |
-| `pkg/` | Public Go API, only `pkg/config/v1alpha1` at first; product SemVer from `1.0.0` | [Release](04-release-versioning-and-compatibility.md) | Planned (M0) |
-| `api/` | Protos, generated JSON Schema, OpenAPI; the importable `api/schema` package has the same promise as `pkg/` | This document (layout); contract owners (content) | Planned (M0) schema; Planned (M2) protos |
+| `cmd/ruralz` | `main` for the CLI | [CLI and API surface](../reference/01-cli-and-api-surface.md) | M1 |
+| `internal/` | Every non-public Go package; the default home for new code | Feature documents (content); this document (boundaries) | M0 |
+| `pkg/` | Public Go API, only `pkg/config/v1alpha1` at first; product SemVer from `1.0.0` | [Release](04-release-versioning-and-compatibility.md) | M0 |
+| `api/` | Protos, generated JSON Schema, OpenAPI; the importable `api/schema` package has the same promise as `pkg/` | This document (layout); contract owners (content) | M0 schema; Planned (M2) protos |
 | `sdk/` | Plugin PDKs; the Go PDK is its own module, tagged `sdk/go/vX.Y.Z` on its own SemVer | [WASM plugin system](../architecture/05-wasm-plugin-system.md#sdk-matrix) | Planned (M2) Go and Rust; Planned (M3) TypeScript; Planned (M4) C# |
 | `console/` | Ruralz Console source, a React and TypeScript SPA | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) (content); this document (toolchain) | Planned (M2) |
-| `deploy/` | Dockerfile, systemd unit and helper, alert rules and Grafana dashboards; Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Deployment topologies](../operations/01-deployment-topologies.md) | Planned (M1); chart and CRDs Planned (M2) |
-| `test/`, `examples/` | Suites needing built binaries or a State Store, fixtures; example Bundles | [Testing and quality strategy](03-testing-and-quality-strategy.md) | Planned (M1) |
+| `deploy/` | Dockerfile, systemd unit and helper, alert rules and Grafana dashboards; Helm chart, CRDs ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed) | [Deployment topologies](../operations/01-deployment-topologies.md) | M1; chart and CRDs Planned (M2) |
+| `test/`, `examples/` | Suites needing built binaries or a State Store, fixtures; example Bundles | [Testing and quality strategy](03-testing-and-quality-strategy.md) | M1 |
 
 ### Where Go code goes
 
@@ -144,7 +144,7 @@ Every hand-written TypeScript file starts with the license header of [Code conve
 
 ### Package layers
 
-M1 packages, Planned (M1), form layers L0 to L8. The rule is "acyclic, never upward": a package imports only packages of its own layer or a lower one. Test support and CI tools sit outside the layers and may import any production package; production code never imports them. The map lists every M1 package; paths are under `internal/` unless they start with `pkg/`, `api/`, `cmd/` or `test/`.
+M1 packages form layers L0 to L8. The rule is "acyclic, never upward": a package imports only packages of its own layer or a lower one. Test support and CI tools sit outside the layers and may import any production package; production code never imports them. The map lists every M1 package; paths are under `internal/` unless they start with `pkg/`, `api/`, `cmd/` or `test/`.
 
 ```text
 L8    cmd/ruralzd -> gateway    cmd/ruralz -> cli    cmd/ruralz-control -> control (M0 stub)
@@ -229,7 +229,7 @@ Build tools stay out of `go.mod`. Go 1.24 added `tool` directives that put execu
 
 ### golangci-lint linter set
 
-golangci-lint v2.15.x ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0)), a binary built with Go 1.27 or newer, runs every linter below in `make lint`, which the PR pipeline's `ci` job runs, Planned (M0). A finding blocks merge. A suppression MUST name the linter and give a reason (`//nolint:gosec // reason`).
+golangci-lint v2.15.x ([source](https://github.com/golangci/golangci-lint/releases/tag/v2.15.0)), a binary built with Go 1.27 or newer, runs every linter below in `make lint`, which the PR pipeline's `ci` job runs. A finding blocks merge. A suppression MUST name the linter and give a reason (`//nolint:gosec // reason`).
 
 | Linter | Purpose in Ruralz |
 |---|---|
@@ -303,7 +303,7 @@ formatters:
 
 ### Ruralz-specific checks
 
-`internal/tool/repocheck`, a standard-library Go program whose `TestRepositoryIsClean` runs it on the repository in the unit tests, Planned (M0), checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. From Planned (M1), it also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
+`internal/tool/repocheck`, a standard-library Go program whose `TestRepositoryIsClean` runs it on the repository in the unit tests, checks what no linter covers: `cmd/` holds wiring only; metric and span names match foundation pack section 2; every `RZ-<AREA>-<NNN>` literal is registered; `pkg/` and `api/schema` expose no third-party types; proto and TypeScript license headers; no `import "C"`; the Ruralz Console placeholder is unchanged. It also runs the no-license-check scan of [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) over every file in `cmd/`, `internal/`, `pkg/`, `sdk/` and `console/`: any denylisted identifier, string or hostname absent from the allowlist file blocks merge (P1). Terms match ignoring case and the separators `-`, `_` and spaces, so `licenseKey`, `license_key` and `LICENSE-KEY` all match; the allowlist is `internal/tool/repocheck/nolicensecheck.allow`, one `<path or directory/> <term> # <reason>` line per entry. It also checks `internal/telemetry/catalog` and every `ruralz_*` name under `docs/architecture/` against the [Observability](../architecture/10-observability.md#metrics-catalog) metrics and degraded-state tables; the Ruralz Console check starts with `internal/console`, Planned (M2).
 
 Other standard-library programs: `internal/tool/commitcheck` checks the DCO sign-off of every non-merge commit of a range (`make dco`); `internal/tool/depgate` runs G2, G3, the `ruralzd` Raft denylist, the `ruralz` jwx denylist and the advisory floors ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), from M1 also denies test support and `internal/tool` in every binary and writes each artifact's `THIRD_PARTY_LICENSES` and `NOTICE` (`-notices`); `telemetrygen` generates alert rules and Grafana dashboards, whose unit tests fail on stale committed output; and `releasekit` builds and audits the release ([Release pipeline](04-release-versioning-and-compatibility.md#release-pipeline)).
 
@@ -316,7 +316,7 @@ All language-neutral contracts live under `api/`. Protobuf files are the source 
 | `api/proto/ruralz/control/v1/` | `ruralz.control.v1` | Service `ControlStream` with unary `Enroll` and bidirectional `Stream` ([ADR-0007](../adr/0007-control-stream-protocol.md)) | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
 | `api/proto/ruralz/plugin/v1/` | `ruralz.plugin.v1` | Plugin ABI v1 Host Function field identifiers, return codes and the artifact config message, from which every PDK generates its constants ([ADR-0005](../adr/0005-plugin-abi-v1.md)) | [WASM plugin system](../architecture/05-wasm-plugin-system.md#contract) | Planned (M2) |
 | `api/openapi/` | None | REST API under `/api/v1/` on 8090; authoring is OQ-repository-layout-and-conventions-5 | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
-| `api/schema/ruralz/v1alpha1/` | None | Generated JSON Schema ([Schema generation from Go types](#schema-generation-from-go-types)) | [Configuration model](../architecture/02-configuration-model.md) | Planned (M0) |
+| `api/schema/ruralz/v1alpha1/` | None | Generated JSON Schema ([Schema generation from Go types](#schema-generation-from-go-types)) | [Configuration model](../architecture/02-configuration-model.md) | M0 |
 
 The WASM import module `ruralz.plugin.v1` is the ABI contract; the proto package of the same name describes its constants and the artifact config message and never crosses the ABI, which passes raw buffers and canonical JSON ([WASM plugin system](../architecture/05-wasm-plugin-system.md#contract)).
 
@@ -366,7 +366,7 @@ Proto style: files are `lower_snake_case.proto`, messages and services `PascalCa
 
 ## Schema generation from Go types
 
-The Configuration model publishes one JSON Schema (draft 2020-12) in two views, authoring and rendered, "generated from one source" ([ADR-0003](../adr/0003-configuration-format.md), [schema keywords](../architecture/02-configuration-model.md#schema-keywords-that-drive-tooling)). This document fixes that source and the output, Planned (M0):
+The Configuration model publishes one JSON Schema (draft 2020-12) in two views, authoring and rendered, "generated from one source" ([ADR-0003](../adr/0003-configuration-format.md), [schema keywords](../architecture/02-configuration-model.md#schema-keywords-that-drive-tooling)). This document fixes that source and the output:
 
 | Item | Value |
 |---|---|
@@ -434,7 +434,7 @@ Markers on a type declaration apply to its definition; markers on a field apply 
 
 ### Presence and defaults
 
-A Go zero value cannot tell an absent field from an explicit `false` or `0`, so, Planned (M0):
+A Go zero value cannot tell an absent field from an explicit `false` or `0`, so:
 
 - `required` comes only from `+ruralz:required`, never from a missing `omitempty`.
 - Every optional bool and number, and every optional field whose default is not the Go zero value, is a pointer, so an authored `overridable: false` decodes as set.
@@ -482,7 +482,7 @@ type PolicySpec struct {
 
 - `schemagen` uses only the standard library (`reflect` for structure, `go/parser` and `go/doc` for comments and markers). Adopting a third-party generator needs a catalog row first (foundation pack section 7).
 - Output is deterministic: keys sorted, two-space indentation, LF line endings, a trailing newline, no timestamps. Regenerating on any OS yields identical bytes, and `TestCommittedSchemaIsCurrent` and `TestCommittedPlannedIsCurrent` fail on any diff from the committed files.
-- A Go test in `internal/config/schemaview` meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6`, Planned (M1). The example Bundle tests of the configuration conformance suite, in `test/conformance/config` ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)), validate `examples/` through the configuration pipeline facade with `checks.Table()` and the CEL compiler, so every stage runs: every document of a Bundle or of `examples/control/` against the authoring view, and every Bundle rendered without `--env` and for each Environment of `examples/control/` with no diagnostic, warnings included. `examples/shop-bundle/` and `examples/control/` hold the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle), `examples/shop-rest-bundle/` its [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle), each byte for byte, and the test fails when a file differs from its document or a configuration file is in none; it also checks that an M1 Node serves the REST example Bundle.
+- A Go test in `internal/config/schemaview` meta-validates both files against draft 2020-12 with `santhosh-tekuri/jsonschema/v6`. The example Bundle tests of the configuration conformance suite, in `test/conformance/config` ([Golden tests](03-testing-and-quality-strategy.md#golden-tests)), validate `examples/` through the configuration pipeline facade with `checks.Table()` and the CEL compiler, so every stage runs: every document of a Bundle or of `examples/control/` against the authoring view, and every Bundle rendered without `--env` and for each Environment of `examples/control/` with no diagnostic, warnings included. `examples/shop-bundle/` and `examples/control/` hold the Configuration model's [example Bundle](../architecture/02-configuration-model.md#complete-annotated-example-bundle), `examples/shop-rest-bundle/` its [REST example Bundle](../architecture/02-configuration-model.md#rest-example-bundle), each byte for byte, and the test fails when a file differs from its document or a configuration file is in none; it also checks that an M1 Node serves the REST example Bundle.
 - A Plugin `configSchema` is authored by the Plugin publisher and never generated.
 
 ## Commits and pull requests
@@ -491,7 +491,7 @@ type PolicySpec struct {
 
 Ruralz uses the Developer Certificate of Origin, not a CLA ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)). Every commit MUST carry a `Signed-off-by:` trailer whose name and email match the commit author, which certifies DCO 1.1 ([source](https://developercertificate.org/)). `git commit -s` adds the trailer; `git rebase --signoff` repairs a branch. The PR pipeline's `ci` job (`make dco`) rejects a pull request with any non-merge commit of its own lacking a matching sign-off. Dependabot, the weekly update bot ([Update policy](01-tech-stack-and-libraries.md#update-policy)), cannot sign off, so the check skips commits it authors.
 
-The DCO keeps contributor paperwork low ([source](https://helm.sh/blog/helm-dco/)) but is not what keeps Ruralz free: Apache-2.0 lets a redistributor ship later derivative works under other terms ([source](https://www.apache.org/licenses/LICENSE-2.0)), so that commitment comes from P1 and ADR-0002. The DCO check is Planned (M0).
+The DCO keeps contributor paperwork low ([source](https://helm.sh/blog/helm-dco/)) but is not what keeps Ruralz free: Apache-2.0 lets a redistributor ship later derivative works under other terms ([source](https://www.apache.org/licenses/LICENSE-2.0)), so that commitment comes from P1 and ADR-0002.
 
 ### Conventional Commits
 

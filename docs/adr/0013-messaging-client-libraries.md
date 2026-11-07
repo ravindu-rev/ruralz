@@ -91,9 +91,9 @@ flowchart LR
 
 - **Integration tests**, Planned (M4), in the PR pipeline's `integration` job on testcontainers-go ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)): Kafka (KRaft), NATS and Mosquitto modules ([source](https://golang.testcontainers.org/modules/)) assert 202 after the acknowledgment, commit or ack after settle, and embedded broker PUBACK codes. With the Kafka or Mosquitto container paused, publishes end in 503 or 502 (`mqtt`: 502) within the Upstream `timeout`, an `http` Route on the same Node keeps answering 200, and reserved bytes return to zero within that `timeout` after the last publish; two Nodes publishing to one Mosquitto broker see no session-takeover disconnects.
 - **Embedded MQTT broker spike**, Planned (M4), before the broker ships, on held PUBACKs: one connection sends 16 QoS 1 PUBLISHes to a Route whose Upstream answers slowly; it asserts 16 concurrent Upstream calls and a PINGRESP within the keep-alive, else the fallback applies and this ADR is amended.
-- **G1 cross-build and G2 license gate**, Planned (M0): [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) rows marked Pending CI are removed if they fail `CGO_ENABLED=0`; paho.golang passes only under EDL-1.0 ([License rules](../engineering/01-tech-stack-and-libraries.md#license-rules)).
+- **G1 cross-build and G2 license gate**: [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) rows marked Pending CI are removed if they fail `CGO_ENABLED=0`; paho.golang passes only under EDL-1.0 ([License rules](../engineering/01-tech-stack-and-libraries.md#license-rules)).
 - **Quarterly health review** against the [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) triggers.
-- **`govulncheck`** on every pull request, Planned (M0) ([Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy)).
+- **`govulncheck`** on every pull request ([Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy)).
 - **Amendment trigger**, from M4: a pull request adding a broker library, a wire-protocol listener, a mochi-mqtt inline client call, or a mochi-mqtt import beyond core and auth MUST amend this ADR; one touching `NOTICE` keeps the EDL-1.0 election.
 
 ## Pros and cons of the options

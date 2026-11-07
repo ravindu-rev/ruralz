@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document tells operators what fails, what keeps working and how to recover: degraded modes (Last-Known-Good, local rate-limit fallback, `failureMode`), recovery objectives, backups, runbooks and game days. Nodes never wait on Ruralz Control, so its failures cost requests nothing; State Store and Region losses have their own traffic RTOs. Node recovery is Planned (M1), Ruralz Control and backups Planned (M2), multi-region Planned (M4). For operators and architects.
+This document tells operators what fails, what keeps working and how to recover: degraded modes (Last-Known-Good, local rate-limit fallback, `failureMode`), recovery objectives, backups, runbooks and game days. Nodes never wait on Ruralz Control, so its failures cost requests nothing; State Store and Region losses have their own traffic RTOs. Ruralz Control and backups are Planned (M2), multi-region Planned (M4). For operators and architects.
 
 ## Scope and non-goals
 
@@ -224,7 +224,7 @@ Rules:
 
 ## Runbooks
 
-Runbooks are Planned per component: Ruralz Control Planned (M2), relays and multi-region Planned (M4), State Store Planned (M1). First confirm request traffic is healthy; most failures here are management-only.
+Ruralz Control runbooks are Planned (M2), and relay and multi-region runbooks Planned (M4). First confirm request traffic is healthy; most failures here are management-only.
 
 ### Holding deliveries during recovery
 
@@ -394,11 +394,11 @@ Game days rehearse the runbooks of this document. An operator runs each procedur
 
 | ID | Game day | Procedure | Expected behavior | Milestone |
 |---|---|---|---|---|
-| GD-1 | Node loss | SIGKILL one Node at 50% load (target), then restart it at once, three times: with its data directory, with a wiped one, and with an unreadable Bundle, so it boots Last-Known-Good; on Kubernetes, Planned (M2), power off a host and run the [stranded pod runbook](#stranded-pods-on-kubernetes) | Errors only on its in-flight requests; no Quota under-charge; each restart ready within 30 s of its start (target), admitting at most one extra ceiling per key (FC-1), the unreadable Bundle under degraded reason `lkg_boot`; on Kubernetes, the replacement ready 30 s after the runbook releases the pod (target) | Planned (M1) |
-| GD-2 | Zone loss | Freeze one zone's Nodes and its State Store primary with SIGSTOP, or block every path into them with firewall rules, with the Nodes at the three-zone scale-out threshold, 53% CPU (target), and the cut zone holding the fewest Nodes | Survivors under 80% CPU (target); State Store `failureMode` 15 s or less (target) until the replica in another zone is promoted; the balancer's health checks take the cut zone's Nodes out (FC-3) | Planned (M1) |
-| GD-3 | State Store outage | Black-hole the State Store for 60 s (target) | Admission within fail-open bounds; `closed` `ratelimit` and `quota` Policies get `RZ-STS-001`, then `RZ-STS-003`, as `closed` Token Budgets do from M3 | Planned (M1) |
-| GD-4 | State Store partition | Cut half the Nodes from the State Store: black-holed for 60 s, then refused for 60 s (target) | Per key, the cut-off Nodes admit within the declared-ceiling or file-mode fail-open rows and the connected Nodes within the healthy GCRA row (target); only the cut-off Nodes raise `state_store_breaker_open` (FC-11) | Planned (M1) |
-| GD-5 | State Store rebuild | Delete the deployment with its data, keep it gone 60 s (target), then run the runbook: a `noeviction` replacement at the same URL; then rotate a `file` secret's URL to a second replacement in place, and change an `env` URL by a zone-by-zone Drain and restart | Traffic RTO met: `failureMode` throughout the outage, every Node serving GCRA within 10 s of the replacement accepting connections (target); counters start empty; `ruralz_state_writes_dropped_total` returns to baseline; no `state_store_eviction_policy` reason afterward | Planned (M1) |
+| GD-1 | Node loss | SIGKILL one Node at 50% load (target), then restart it at once, three times: with its data directory, with a wiped one, and with an unreadable Bundle, so it boots Last-Known-Good; on Kubernetes, Planned (M2), power off a host and run the [stranded pod runbook](#stranded-pods-on-kubernetes) | Errors only on its in-flight requests; no Quota under-charge; each restart ready within 30 s of its start (target), admitting at most one extra ceiling per key (FC-1), the unreadable Bundle under degraded reason `lkg_boot`; on Kubernetes, the replacement ready 30 s after the runbook releases the pod (target) | M1 |
+| GD-2 | Zone loss | Freeze one zone's Nodes and its State Store primary with SIGSTOP, or block every path into them with firewall rules, with the Nodes at the three-zone scale-out threshold, 53% CPU (target), and the cut zone holding the fewest Nodes | Survivors under 80% CPU (target); State Store `failureMode` 15 s or less (target) until the replica in another zone is promoted; the balancer's health checks take the cut zone's Nodes out (FC-3) | M1 |
+| GD-3 | State Store outage | Black-hole the State Store for 60 s (target) | Admission within fail-open bounds; `closed` `ratelimit` and `quota` Policies get `RZ-STS-001`, then `RZ-STS-003`, as `closed` Token Budgets do from M3 | M1 |
+| GD-4 | State Store partition | Cut half the Nodes from the State Store: black-holed for 60 s, then refused for 60 s (target) | Per key, the cut-off Nodes admit within the declared-ceiling or file-mode fail-open rows and the connected Nodes within the healthy GCRA row (target); only the cut-off Nodes raise `state_store_breaker_open` (FC-11) | M1 |
+| GD-5 | State Store rebuild | Delete the deployment with its data, keep it gone 60 s (target), then run the runbook: a `noeviction` replacement at the same URL; then rotate a `file` secret's URL to a second replacement in place, and change an `env` URL by a zone-by-zone Drain and restart | Traffic RTO met: `failureMode` throughout the outage, every Node serving GCRA within 10 s of the replacement accepting connections (target); counters start empty; `ruralz_state_writes_dropped_total` returns to baseline; no `state_store_eviction_policy` reason afterward | M1 |
 | GD-6 | Leader loss | Kill the leader mid-Rollout | Zero request errors; the Rollout resumes | Planned (M2) |
 | GD-7 | Quorum loss with restarts | Remove quorum, restart 10% of Nodes (target) | Restarts boot Last-Known-Good within 30 s (target) | Planned (M2) |
 | GD-8 | Replica replacement | Delete one voter's volume; on Kubernetes, its pod and PersistentVolumeClaim | Replaced with no quorum loss; on Kubernetes the replacement Job removes the old voter and mints the join token | Planned (M2) |

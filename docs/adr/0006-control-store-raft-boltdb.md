@@ -42,7 +42,7 @@ Chosen option: "Embedded hashicorp/raft with raft-boltdb/v2", because, of the re
 | Telemetry | `go-hclog` logs go to `log/slog` ([ADR-0018](0018-telemetry-opentelemetry-prometheus-exporter.md)); a Ruralz go-metrics `MetricSink` forwards Raft metrics to OpenTelemetry for `/metrics` on 9902, so quorum loss and leader churn raise degraded-state metrics (P10); go-metrics' Prometheus and Circonus sinks are never imported | Planned (M2) |
 | Backup | `ruralz control backup` writes a Raft snapshot plus referenced content at one index, encrypted to one or more operator public keys and signed; `ruralz control restore`, given the matching private key, fills an empty deployment at a higher `storeEpoch` | Planned (M2) |
 | `postgres` | Metadata in PostgreSQL over TLS; content placement and status forwarding stay OQ-control-plane-and-gitops-22 (proposed: PostgreSQL tables), and 8092 stays unused (pack section 8.4) unless it picks option (b). A fenced lease row renewed every 2 s and expiring after 10 s (target) elects the leader; sequence checks run in a transaction; switching implementations opens a new `storeEpoch` | Planned (M4) |
-| Licenses | `hashicorp/raft`, `raft-boltdb/v2`, `go-immutable-radix` and `golang-lru` are the MPL-2.0 exceptions: unmodified, notices kept, patches to their files published under MPL-2.0 | Planned (M0) license gate |
+| Licenses | `hashicorp/raft`, `raft-boltdb/v2`, `go-immutable-radix` and `golang-lru` are the MPL-2.0 exceptions: unmodified, notices kept, patches to their files published under MPL-2.0 | |
 
 *Figure 1: one replica's storage layers; dashed edges are optional or external.*
 
@@ -114,7 +114,7 @@ sequenceDiagram
 
 ### Confirmation
 
-- **License gate (G2)**, in the PR pipeline's `ci` job, Planned (M0): fails on any MPL-2.0 module outside the exception table in each binary's `go list -deps -test=false` ([PR pipeline](../engineering/03-testing-and-quality-strategy.md#pr-pipeline)).
+- **License gate (G2)**, in the PR pipeline's `ci` job: fails on any MPL-2.0 module outside the exception table in each binary's `go list -deps -test=false` ([PR pipeline](../engineering/03-testing-and-quality-strategy.md#pr-pipeline)).
 - **Raft denylist**, same job: `go list -deps ./cmd/ruralzd` never contains Raft (P2). **depguard** keeps `hashicorp/raft` inside `internal/controlstore/raft` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
 - **Version floor**: a `require` holds `raft-boltdb/v2` at v2.4.2 or newer; `govulncheck` runs per pull request ([Version floors from advisories](../engineering/01-tech-stack-and-libraries.md#version-floors-from-advisories)).
 - **Container-free integration tests**, Planned (M2): three replicas over loopback mutual TLS, with backup then restore and a persisted commit index ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); 8092 MUST refuse Node certificates and certificate-less connections outside `Join`.

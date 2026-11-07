@@ -210,7 +210,7 @@ Every figure below is a (target) for a three-zone Cell (Z = 3, u_z = 0.53, f_z =
 
 ### Example 1: REST aggregation at 20k rps (target)
 
-A partner API aggregates three Upstreams over HTTP/2 and TLS at 20,000 rps (target), with `auth.jwt` and a `redis` `ratelimit`. Planned (M1).
+A partner API aggregates three Upstreams over HTTP/2 and TLS at 20,000 rps (target), with `auth.jwt` and a `redis` `ratelimit`.
 
 | Input | Value |
 |---|---|

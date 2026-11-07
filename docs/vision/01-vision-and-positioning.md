@@ -40,11 +40,11 @@ Each need maps to one of the four differentiators or to the core gateway:
 | Persona | Audience | Need | Ruralz answer |
 |---|---|---|---|
 | Platform engineer running many Clusters | operators, architects | One control plane for many Clusters and Environments, driven from Git | Ruralz Control and Ruralz Console with RBAC, audit log and Drift, Planned (M2) |
-| API team lead evaluating a gateway | evaluators, architects | Production features without per-feature licensing or an expiry date | Every capability in the [Feature Catalog](../features/01-feature-catalog.md), free and self-hosted, Planned (M1) to Planned (M5) |
+| API team lead evaluating a gateway | evaluators, architects | Production features without per-feature licensing or an expiry date | Every capability in the [Feature Catalog](../features/01-feature-catalog.md), free and self-hosted, including those Planned (M2) to Planned (M5) |
 | AI platform engineer | ai-platform-engineers | Model routing, Provider Fallback, token limits and cost attribution for LLM traffic | `AIProvider`, `AIModel`, Token Budget in the State Store, Semantic Cache, Planned (M3) |
 | Plugin author | plugin-authors | Custom logic in a familiar language without rebuilding the gateway | Plugin ABI v1, deny-by-default Capabilities, `ruralz plugin init` and `ruralz plugin test`, Planned (M2) |
-| Security engineer | security-engineers | Secrets out of configuration, auditable changes, signed artifacts, FIPS | `secretRef`, Planned (M1); Capabilities, audit log, Revision and Plugin signing ([ADR-0017](../adr/0017-artifact-signing.md)), Planned (M2); FIPS build and Ruralz Console SSO/SAML, Planned (M5) |
-| Contributor | contributors | A project whose license will not change under them | DCO, no CLA, Apache-2.0 everywhere ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)), Planned (M0) |
+| Security engineer | security-engineers | Secrets out of configuration, auditable changes, signed artifacts, FIPS | `secretRef`; Capabilities, audit log, Revision and Plugin signing ([ADR-0017](../adr/0017-artifact-signing.md)), Planned (M2); FIPS build and Ruralz Console SSO/SAML, Planned (M5) |
+| Contributor | contributors | A project whose license will not change under them | DCO, no CLA, Apache-2.0 everywhere ([ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md)) |
 
 ## Positioning
 
@@ -67,11 +67,11 @@ Everything is free. The groups below show the breadth; the [Feature Catalog](../
 
 | Capability group | In Ruralz | Milestone |
 |---|---|---|
-| Authentication | Core `Policy` types `auth.jwt`, `auth.api-key`, `auth.basic` and `auth.mtls`, with multiple identity providers per Route | Planned (M1) |
-| Rate Limits and Quotas | `ratelimit` and `quota`: local token bucket plus GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | Planned (M1) |
-| IP filtering and GeoIP | Built-in `authz.ip`, Planned (M1), and `authz.geoip`, Planned (M2); a release that does not serve `authz.geoip` rejects it with RZ-CFG-040 ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | Planned (M1) to Planned (M2) |
-| Authorization engines | `authz.cel`, Planned (M1); `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | Planned (M1) to Planned (M2) |
-| Bundle and Plugin tooling | CLI commands ([pack section 9](../_meta/foundation-pack.md#9-cli-command-registry)): `ruralz node dump`, Planned (M1); `ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2); serving OpenAPI documents per OQ-vision-and-positioning-11 | Planned (M1) to Planned (M2) |
+| Authentication | Core `Policy` types `auth.jwt`, `auth.api-key`, `auth.basic` and `auth.mtls`, with multiple identity providers per Route | M1 |
+| Rate Limits and Quotas | `ratelimit` and `quota`: local token bucket plus GCRA in the State Store ([ADR-0008](../adr/0008-rate-limiting-local-bucket-and-gcra.md)) | M1 |
+| IP filtering and GeoIP | Built-in `authz.ip` and, Planned (M2), `authz.geoip`; a release that does not serve `authz.geoip` rejects it with RZ-CFG-040 ([pack section 10](../_meta/foundation-pack.md#10-policy-type-registry)) | M1 to Planned (M2) |
+| Authorization engines | `authz.cel`; `authz.opa` and `authz.cedar`, Planned (M2) ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)) | M1 to Planned (M2) |
+| Bundle and Plugin tooling | CLI commands ([pack section 9](../_meta/foundation-pack.md#9-cli-command-registry)): `ruralz node dump`; `ruralz bundle import openapi`, `ruralz bundle export`, `ruralz test run`, `ruralz plugin init`, Planned (M2); serving OpenAPI documents per OQ-vision-and-positioning-11 | M1 to Planned (M2) |
 | Control plane | Ruralz Control, Ruralz Console, RBAC, audit log, Drift, canary Rollouts | Planned (M2) |
 | AI/LLM gateway | `AIProvider`, `AIModel`, Provider Fallback, Token Budget (`ai.token-budget`), Semantic Cache, cost attribution | Planned (M3) |
 | Streaming protocols | gRPC, GraphQL federation, WebSocket, SSE, HTTP/3 | Planned (M3) |
@@ -133,7 +133,7 @@ These principles bind every Ruralz document; [System Overview](../architecture/0
 
 ### License and ownership
 
-All Ruralz components are Apache-2.0: `ruralzd`, `ruralz-control`, Ruralz Console, the `ruralz` CLI, SDKs, the Helm chart and the documentation, in the monorepo `github.com/ravindu-rev/ruralz`. The copyright line is "Copyright 2026 Revington", and "Ruralz" is a trademark of Revington (revington.co). [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) records this as repository policy, Planned (M0).
+All Ruralz components are Apache-2.0: `ruralzd`, `ruralz-control`, Ruralz Console, the `ruralz` CLI, SDKs, the Helm chart and the documentation, in the monorepo `github.com/ravindu-rev/ruralz`. The copyright line is "Copyright 2026 Revington", and "Ruralz" is a trademark of Revington (revington.co). [ADR-0002](../adr/0002-apache-2-license-no-feature-gating.md) records this as repository policy.
 
 ### No feature gating
 
@@ -174,13 +174,13 @@ Every metric is measured from public data or CI.
 
 | ID | Metric | How it is measured | Value | Milestone |
 |---|---|---|---|---|
-| SM-1 | Features behind a license key or edition | The no-license-check scan of every pull request and release, and the release audit of every tag | 0 features (target) | Planned (M0), permanent |
-| SM-2 | Feature Catalog rows with a milestone or a reasoned `Not planned` | Count in the [Feature Catalog](../features/01-feature-catalog.md) | 100% of rows (target) | Planned (M1) |
-| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | Planned (M1) to Planned (M5) |
+| SM-1 | Features behind a license key or edition | The no-license-check scan of every pull request and release, and the release audit of every tag | 0 features (target) | M0, permanent |
+| SM-2 | Feature Catalog rows with a milestone or a reasoned `Not planned` | Count in the [Feature Catalog](../features/01-feature-catalog.md) | 100% of rows (target) | M1 |
+| SM-3 | Feature Catalog rows implemented at their milestone's exit | Feature Catalog status after each milestone | 100% of rows tagged that milestone or earlier and not marked `Not planned` (target) | M1 to Planned (M5) |
 | SM-8 | OpenAPI 3.x documents imported by `ruralz bundle import openapi` that validate and render without manual edits | Public OpenAPI corpus in the monorepo, run in CI | 90% or more (target) | Planned (M2) |
 | SM-10 | Token Budget overshoot under concurrent streaming | The Token Budget property test ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)) on this scenario: B = 1,000,000 tokens, 200 concurrent streams, 2,000-token prompts, `max_tokens` = 4,096, reservations per P8; the provider reports prompt usage 2% above the gateway estimate and drops usage on 5% of streams | Overshoot at most the sum of per-stream estimate error, and 1% of B or less (hypothesis) | Planned (M3) |
 | SM-11 | Prompt Cache marker preservation on native passthrough | Conformance tests for `cache_control` and equivalents | 100% of test cases (target) | Planned (M3) |
-| SM-12 | Supply-chain posture | Signed images and SBOM per release; OpenSSF Scorecard | 100% of releases signed from M1 (target); Scorecard 8.0 or higher from M2 (hypothesis) | Planned (M1) to Planned (M2) |
+| SM-12 | Supply-chain posture | Signed images and SBOM per release; OpenSSF Scorecard | 100% of releases signed from M1 (target); Scorecard 8.0 or higher from M2 (hypothesis) | M1 to Planned (M2) |
 | SM-13 | Unpatched Plugin sandbox escapes | Security advisories log | 0 older than 30 days (target) | Planned (M2) |
 | SM-14 | External contributors with merged DCO-signed commits | Git history, excluding Revington employees | 50 or more (hypothesis) | Planned (M3) |
 | SM-15 | Production adopters who publicly reference Ruralz | Public adopters file with verified entries | 25 or more (hypothesis) | Planned (M4) |

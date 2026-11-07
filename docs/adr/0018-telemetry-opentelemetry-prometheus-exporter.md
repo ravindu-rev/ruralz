@@ -10,7 +10,7 @@ status: accepted
 
 Ruralz Gateway and Ruralz Control emit traces, metrics and logs, and P10 requires OpenTelemetry signals in every build ([Vision and positioning](../vision/01-vision-and-positioning.md#principles)). OpenTelemetry Go traces and metrics are stable, but its Logs API is a release candidate ([source](https://github.com/open-telemetry/opentelemetry-go/blob/main/README.md)). Metrics come from aggregates that Ruralz owns, and they reach two exports: OTLP and the `/metrics` endpoint that Prometheus-compatible scrapers read.
 
-Which APIs do packages call, which exporter serves `/metrics` on 9901 and 9902 with the names OTLP carries, how do Ruralz aggregates reach both, and which packages may import OpenTelemetry? Ruralz Gateway telemetry is Planned (M1), Ruralz Control Planned (M2), AI Planned (M3).
+Which APIs do packages call, which exporter serves `/metrics` on 9901 and 9902 with the names OTLP carries, how do Ruralz aggregates reach both, and which packages may import OpenTelemetry? Ruralz Control telemetry is Planned (M2), AI Planned (M3).
 
 ## Decision drivers
 
@@ -34,15 +34,15 @@ Chosen option: "OpenTelemetry-first with an external producer and the OpenTeleme
 
 | Area | Rule | Planned |
 |---|---|---|
-| Traces | SDK tracer; W3C Trace Context extracted at the server span and injected into every upstream leg; no baggage; unsampled requests create no spans | Planned (M1) for HTTP; Planned (M3) for gRPC; Planned (M4) for Kafka, NATS and MQTT 5 |
-| Metrics | Ruralz-owned aggregates, not SDK synchronous instruments; one external producer serves the OTLP periodic reader and the `/metrics` exporter from one collection in flight per process | Planned (M1) |
-| `/metrics` | The OpenTelemetry Prometheus exporter, registered with `WithRegisterer` on a private `client_golang` registry and fed with `WithProducer`, with translation strategy `UnderscoreEscapingWithoutSuffixes` because the default appends suffixes ([source](https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.zip)) ([source](https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/v1.0.0.zip)); one exporter for 9901 and 9902; it MUST expose OpenMetrics exemplars | Planned (M1); 9902 Planned (M2) |
-| Confinement | Only `internal/telemetry` imports `go.opentelemetry.io`, `github.com/prometheus` and, until M3, `google.golang.org/grpc`; the in-process test collector `internal/testkit/otlpsink` is the one exception. The `otel` depguard rule in `.golangci.yml` enforces it | Planned (M1) |
-| Exemplars | Sampled requests alone write one slot per histogram label set per collection, exported through the producer and as OpenMetrics on `/metrics` | Planned (M1) |
-| Logs | Only `log/slog` through `internal/telemetry`, except the audit export; no request goroutine runs a writing handler; bounded queues drop with `ruralz_telemetry_logs_dropped_total`, per sink; one worker owns stdout, and the `otelslog` v0.20.x bridge ([source](https://github.com/open-telemetry/opentelemetry-go-contrib/blob/main/bridges/otelslog/go.mod)) takes each record when it is queued, so a blocked stdout never stops OTLP log export | Planned (M1); Ruralz Control Planned (M2) |
-| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS (TB-12); spans and logs pass bounded queues; `ruralzd` and `ruralz-control` remove every `OTEL_*` variable before any SDK constructor | Planned (M1) |
+| Traces | SDK tracer; W3C Trace Context extracted at the server span and injected into every upstream leg; no baggage; unsampled requests create no spans | Planned (M3) for gRPC; Planned (M4) for Kafka, NATS and MQTT 5 |
+| Metrics | Ruralz-owned aggregates, not SDK synchronous instruments; one external producer serves the OTLP periodic reader and the `/metrics` exporter from one collection in flight per process | |
+| `/metrics` | The OpenTelemetry Prometheus exporter, registered with `WithRegisterer` on a private `client_golang` registry and fed with `WithProducer`, with translation strategy `UnderscoreEscapingWithoutSuffixes` because the default appends suffixes ([source](https://proxy.golang.org/go.opentelemetry.io/otel/exporters/prometheus/@v/v0.68.0.zip)) ([source](https://proxy.golang.org/github.com/prometheus/otlptranslator/@v/v1.0.0.zip)); one exporter for 9901 and 9902; it MUST expose OpenMetrics exemplars | 9902 Planned (M2) |
+| Confinement | Only `internal/telemetry` imports `go.opentelemetry.io`, `github.com/prometheus` and, until M3, `google.golang.org/grpc`; the in-process test collector `internal/testkit/otlpsink` is the one exception. The `otel` depguard rule in `.golangci.yml` enforces it | |
+| Exemplars | Sampled requests alone write one slot per histogram label set per collection, exported through the producer and as OpenMetrics on `/metrics` | |
+| Logs | Only `log/slog` through `internal/telemetry`, except the audit export; no request goroutine runs a writing handler; bounded queues drop with `ruralz_telemetry_logs_dropped_total`, per sink; one worker owns stdout, and the `otelslog` v0.20.x bridge ([source](https://github.com/open-telemetry/opentelemetry-go-contrib/blob/main/bridges/otelslog/go.mod)) takes each record when it is queued, so a blocked stdout never stops OTLP log export | Ruralz Control Planned (M2) |
+| Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS (TB-12); spans and logs pass bounded queues; `ruralzd` and `ruralz-control` remove every `OTEL_*` variable before any SDK constructor | |
 | Audit export | The Ruralz Control leader exports committed entries through a dedicated OTLP log exporter, bypassing `slog`, to the audit sink across trust boundary TB-14 ([System overview](../architecture/01-system-overview.md#trust-boundaries)): durable and at least once, retried from the Control Store until acknowledged, lagging on failure and never dropping | Planned (M2) |
-| Conventions and resource | HTTP semantic conventions without `url.full` and `url.query`; `gen_ai.*` pinned to one commit per release; `service.name`, `service.version`, `service.instance.id` | Planned (M1); `gen_ai` Planned (M3) |
+| Conventions and resource | HTTP semantic conventions without `url.full` and `url.query`; `gen_ai.*` pinned to one commit per release; `service.name`, `service.version`, `service.instance.id` | `gen_ai` Planned (M3) |
 | Vendor SDKs | None; vendors read the operator's OpenTelemetry Collector or a Prometheus-compatible scraper | Not planned: one export path (P1) |
 
 The bridge feeds the Logs SDK, stable since v1.47.0 ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0)); `slog` call sites stay.
@@ -88,16 +88,16 @@ flowchart LR
 - Bad, because the producer bypasses SDK aggregation and exemplar reservoirs, so Ruralz code owns buckets, exemplar slots and their tests.
 - Bad, because the `otelslog` bridge stays pre-1.0 beside the stable Logs SDK, and v1.47.0 deprecates `otel/log/global` ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)).
 - Bad, because library instruments rename between releases (grpc-go v1.84.0 ([source](https://github.com/grpc/grpc-go/releases/tag/v1.84.0))), so Grafana dashboards and alerts use only `ruralz_*` names.
-- Bad, because the lossless audit export needs an exporter and a trust boundary of its own, TB-14, beside the dropping pipeline of TB-12, and OTLP authentication headers come after `telemetry.otlp.tls`, Planned (M1) ([Configuration model](../architecture/02-configuration-model.md#gateway)).
+- Bad, because the lossless audit export needs an exporter and a trust boundary of its own, TB-14, beside the dropping pipeline of TB-12, and OTLP authentication headers come after `telemetry.otlp.tls` ([Configuration model](../architecture/02-configuration-model.md#gateway)).
 
 ### Confirmation
 
-- **Lint**: depguard `log$` rejects `log`, Planned (M0); the `otel` rule rejects `go.opentelemetry.io`, `github.com/prometheus` and `google.golang.org/grpc` imports outside `internal/telemetry` and `internal/testkit/otlpsink`, Planned (M1) ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
-- **Name identity gate**, Planned (M1): a golden over one fixed registry, exported through `/metrics` as text and OpenMetrics and through OTLP into `internal/testkit/otlpsink`, fails when the two metric name sets differ.
-- **Catalog gate**, Planned (M1): CI fails on a `ruralz_*` name or degraded reason absent from the [Metrics catalog](../architecture/10-observability.md#metrics-catalog), or a Grafana panel on an unlisted metric.
-- **Cardinality test**, Planned (M1): 1,000 Hot Reloads renaming every Route keep retiring series within 25,000 (target).
-- **Blocked stdout and stalled Collector tests**, Planned (M1): while stdout goes unread, or the OTLP sink rejects, stalls or is down, every request completes with zero failures and the dropped records are counted ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
-- **Environment golden test**, Planned (M1): with `OTEL_*` variables set, `ruralzd` exports a byte-identical resource, headers and sampling, and `OTEL_RESOURCE_ATTRIBUTES` is empty after startup.
+- **Lint**: depguard `log$` rejects `log`; the `otel` rule rejects `go.opentelemetry.io`, `github.com/prometheus` and `google.golang.org/grpc` imports outside `internal/telemetry` and `internal/testkit/otlpsink` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
+- **Name identity gate**: a golden over one fixed registry, exported through `/metrics` as text and OpenMetrics and through OTLP into `internal/testkit/otlpsink`, fails when the two metric name sets differ.
+- **Catalog gate**: CI fails on a `ruralz_*` name or degraded reason absent from the [Metrics catalog](../architecture/10-observability.md#metrics-catalog), or a Grafana panel on an unlisted metric.
+- **Cardinality test**: 1,000 Hot Reloads renaming every Route keep retiring series within 25,000 (target).
+- **Blocked stdout and stalled Collector tests**: while stdout goes unread, or the OTLP sink rejects, stalls or is down, every request completes with zero failures and the dropped records are counted ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
+- **Environment golden test**: with `OTEL_*` variables set, `ruralzd` exports a byte-identical resource, headers and sampling, and `OTEL_RESOURCE_ATTRIBUTES` is empty after startup.
 - **Audit export test**, Planned (M2): across a leader failover, against a Collector returning partial success, every committed entry arrives at least once.
 - **Amendment trigger**: a vendor telemetry SDK, a second `/metrics` exporter, or `go.opentelemetry.io/otel/log` used beyond `internal/telemetry` and the audit export MUST amend this ADR.
 
