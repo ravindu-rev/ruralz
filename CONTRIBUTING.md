@@ -39,7 +39,7 @@ make lint dco supply-chain test integration     # what the PR pipeline runs
 |---|---|---|
 | `make lint` | `ci` | golangci-lint with `.golangci.yml`, gofumpt and goimports, and actionlint on the workflows |
 | `make dco` | `ci` | The DCO check of every non-merge commit of `DCO_RANGE` (default `origin/main..HEAD`) |
-| `make supply-chain` | `ci` | `go mod verify`, govulncheck, and `depgate`: license gate G2, crypto denylist G3, the `ruralzd` Raft and `ruralz` jwx denylists, no test support in a binary, and advisory version floors |
+| `make supply-chain` | `ci` | `go mod verify`, govulncheck, and `depgate`: license gate G2, crypto denylist G3, the `ruralzd` Raft, `ruralz` jwx and `ruralz` and `ruralz-control` MaxMind DB reader denylists, no test support in a binary, and advisory version floors |
 | `make test` | `unit` | `go test -race -shuffle=on` with cgo, then the tests again with `CGO_ENABLED=0`, including the property tests, the fuzz seed corpora and `./test/conformance/config` |
 | `make integration` | `integration` | The integration tests (tag `integration`): the conformance suites and the State Store, CLI and Node suites, with promtool's alert rule tests; needs a local `redis-server`, and Docker for the State Store container kinds |
 | `make generate` | None | `go generate ./...`, then fails if the generated JSON Schema, served-feature table, alert rules or Grafana dashboards (`deploy/grafana`) differ from the index |

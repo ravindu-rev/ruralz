@@ -304,7 +304,7 @@ func TestTableSpecRows(t *testing.T) {
 		v1alpha1.PolicyTypeAuthzOPA:   {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, false},
 		v1alpha1.PolicyTypeAuthzCedar: {phase.ClassAuthz, phase.Of(phase.OnRequestHeaders, phase.OnRequestBody), 0, scG, SlotName, closed, true, false},
 		v1alpha1.PolicyTypeAuthzIP:    {phase.ClassAuthz, rqH, 0, scG, SlotName, closed, true, true},
-		v1alpha1.PolicyTypeAuthzGeoIP: {phase.ClassAuthz, rqH, 0, scG, SlotName, closed, true, false},
+		v1alpha1.PolicyTypeAuthzGeoIP: {phase.ClassAuthz, rqH, 0, scG, SlotName, closed, true, true},
 		// Rate limits stack (slot = name), open by default.
 		v1alpha1.PolicyTypeRateLimit: {phase.ClassAdmission, rqH, 0, scG, SlotName, open, false, true},
 		// quota defaults to open.
@@ -353,16 +353,18 @@ func TestTableSpecRows(t *testing.T) {
 }
 
 // TestServedSet: RZ-CFG-040 applies to exactly plugin, authz.opa,
-// authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.*.
+// authz.cedar, auth.upstream-sigv4 and ai.*; authz.geoip, of the milestone
+// in progress, is served with the M1 types since its Filter is built.
 func TestServedSet(t *testing.T) {
 	unserved := []v1alpha1.PolicyType{
-		v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar, v1alpha1.PolicyTypeAuthzGeoIP,
+		v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar,
 		v1alpha1.PolicyTypeAuthUpstreamSigV4, v1alpha1.PolicyTypeAITokenBudget,
 		v1alpha1.PolicyTypeAISemanticCache, v1alpha1.PolicyTypeAIGuardrail, v1alpha1.PolicyTypePlugin,
 	}
 	served := []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthJWT, v1alpha1.PolicyTypeAuthAPIKey, v1alpha1.PolicyTypeAuthBasic,
 		v1alpha1.PolicyTypeAuthMTLS, v1alpha1.PolicyTypeAuthzCEL, v1alpha1.PolicyTypeAuthzIP,
+		v1alpha1.PolicyTypeAuthzGeoIP,
 		v1alpha1.PolicyTypeRateLimit, v1alpha1.PolicyTypeQuota, v1alpha1.PolicyTypeValidationJSONSchema,
 		v1alpha1.PolicyTypeCORS, v1alpha1.PolicyTypeCache, v1alpha1.PolicyTypeHeaders,
 		v1alpha1.PolicyTypeTransformRequest, v1alpha1.PolicyTypeTransformResponse,
@@ -388,16 +390,24 @@ func TestServedSet(t *testing.T) {
 	if reg.Served("rateLimit") {
 		t.Error("unknown type served")
 	}
-	// The served set is exactly the types whose Planned milestone
-	// ReleaseMilestone has reached.
+	// Every type whose Planned tag the release has reached is served, and
+	// no type of a milestone after the one in progress, the one after the
+	// release, is: a type of the milestone in progress is served once its
+	// Filter is built (internal/filter/builtin holds a Factory exactly for
+	// the served types).
 	release, ok := milestoneOf(ReleaseMilestone)
 	if !ok {
 		t.Fatalf("ReleaseMilestone %q is not a milestone", ReleaseMilestone)
 	}
 	for _, e := range reg.Entries() {
 		n, ok := milestoneOf(e.Planned)
-		if !ok || e.Served != (n <= release) {
-			t.Errorf("%s: served %v, planned %s, release %s", e.Type, e.Served, e.Planned, ReleaseMilestone)
+		switch {
+		case !ok:
+			t.Errorf("%s: planned %q is not a milestone", e.Type, e.Planned)
+		case n <= release && !e.Served:
+			t.Errorf("%s: not served, planned %s, release %s", e.Type, e.Planned, ReleaseMilestone)
+		case n > release+1 && e.Served:
+			t.Errorf("%s: served, planned %s after the milestone in progress, release %s", e.Type, e.Planned, ReleaseMilestone)
 		}
 	}
 }

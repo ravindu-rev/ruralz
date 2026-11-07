@@ -325,10 +325,10 @@ func TestCheckServed(t *testing.T) {
 	if _, bad := reg.CheckServed(policy("pol", "rateLimit")); bad {
 		t.Error("CheckServed reported an unknown type; the schema owns it")
 	}
-	d, _ := reg.CheckServed(policy("geo", v1alpha1.PolicyTypeAuthzGeoIP))
-	d.Location = diag.Location{File: "policies/geo.yaml", Line: 4, Column: 9}
+	d, _ := reg.CheckServed(policy("guard", v1alpha1.PolicyTypeAIGuardrail))
+	d.Location = diag.Location{File: "policies/guard.yaml", Line: 4, Column: 9}
 	got := string(d.AppendText(nil))
-	w := `policies/geo.yaml:4:9 error RZ-CFG-040 Policy/geo spec.type: Policy type "authz.geoip" is not served by this release (Planned (M2))`
+	w := `policies/guard.yaml:4:9 error RZ-CFG-040 Policy/guard spec.type: Policy type "ai.guardrail" is not served by this release (Planned (M3))`
 	if got != w {
 		t.Errorf("text form = %q\nwant        %q", got, w)
 	}

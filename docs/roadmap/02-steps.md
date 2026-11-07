@@ -8,7 +8,6 @@ The work left in the current milestone, M2 WASM + Control/GitOps, in build order
 | Artifact signing and OCI fetch, with the OCI registry integration tests | `internal/signing/` | [ADR-0017](../adr/0017-artifact-signing.md), [Security and identity](../architecture/08-security-and-identity.md) |
 | File mode pulling `oci://` Revisions, with registry credentials | `internal/gateway/source/` | [Deployment topologies](../operations/01-deployment-topologies.md), [ADR-0017](../adr/0017-artifact-signing.md) |
 | `authz.opa` and `authz.cedar` | `internal/filter/authz/opa/`, `internal/filter/authz/cedar/` | [Security and identity](../architecture/08-security-and-identity.md), [ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md) |
-| `authz.geoip` | `internal/filter/authz/geoip/` | [Security and identity](../architecture/08-security-and-identity.md) |
 | `auth.upstream-sigv4` with the transport-time signing hook, and `auth.upstream-oauth2` jwt-bearer and keyless Google Cloud sources | `internal/filter/auth/upstreamsigv4/`, `internal/filter/auth/upstreamoauth2/`, `internal/gateway/upstream/` | [Security and identity](../architecture/08-security-and-identity.md) |
 | JWT signing | `internal/filter/auth/` | [Security and identity](../architecture/08-security-and-identity.md) |
 | `secretRef` providers `kubernetes` and `vault` | `internal/secret/` | [Security and identity](../architecture/08-security-and-identity.md) |

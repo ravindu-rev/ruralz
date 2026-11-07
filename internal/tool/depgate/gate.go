@@ -189,6 +189,9 @@ func analyze(t target, pkgs []goPackage, read dirReader) (analysis, error) {
 			if t.binary == "ruralz" && denied(mod.Path, jwxModules()) {
 				add(mod.Path, "ruralz never links jwx: the offline Policy checks it links import no module the CLI does not link (Dependency graph)")
 			}
+			if t.binary != "ruralzd" && denied(mod.Path, gatewayOnlyModules()) {
+				add(mod.Path, "only ruralzd links the MaxMind DB reader: the authz.geoip Filter runs on Nodes alone, and its offline check imports no reader (Library catalog)")
+			}
 			if floor, ok := advisoryFloors()[mod.Path]; ok && compareSemver(mod.Version, floor) < 0 {
 				out = append(out, fmt.Sprintf("%s: %s %s is below the advisory floor %s", where, mod.Path, mod.Version, floor))
 			}
@@ -465,7 +468,7 @@ type options struct {
 }
 
 // goGatesLine is the line a run prints when every Go gate passes.
-const goGatesLine = "depgate: G2, G3, the Raft and jwx denylists, advisory floors and test support denial pass"
+const goGatesLine = "depgate: G2, G3, the Raft, jwx and MaxMind DB reader denylists, advisory floors and test support denial pass"
 
 // run applies the gates and, when asked and no gate failed, writes the
 // notices. It returns the findings, or the lines a passing run prints.

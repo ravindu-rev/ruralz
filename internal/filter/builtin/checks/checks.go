@@ -13,11 +13,11 @@
 // links a module cmd/ruralz must not link
 // (docs/engineering/01-tech-stack-and-libraries.md "Dependency graph"). A
 // type's check lives in its Filter package unless that package links such
-// a module: the auth.jwt Filter links jwx, so its check is
-// internal/filter/auth/jwt/check, which the Filter's Build imports for the
-// same rules. A type the schema admits whose Filter is not served yet
-// keeps its check at its own path, as authz.geoip's does in
-// internal/filter/authz/geoip until its Filter ships, Planned (M2)
+// a module; then it lives in a check package beside the Filter, which the
+// Filter's Build imports for the same rules: the auth.jwt Filter links
+// jwx, so its check is internal/filter/auth/jwt/check, and the authz.geoip
+// Filter links maxminddb-golang, so its check is
+// internal/filter/authz/geoip/check
 // (docs/engineering/02-repository-layout-and-conventions.md "Package
 // layers").
 package checks
@@ -28,7 +28,7 @@ import (
 	jwtcheck "github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/check"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/upstreamoauth2"
 	authzcel "github.com/ravindu-rev/ruralz/internal/filter/authz/cel"
-	"github.com/ravindu-rev/ruralz/internal/filter/authz/geoip"
+	geoipcheck "github.com/ravindu-rev/ruralz/internal/filter/authz/geoip/check"
 	"github.com/ravindu-rev/ruralz/internal/filter/authz/ip"
 	"github.com/ravindu-rev/ruralz/internal/filter/cors"
 	"github.com/ravindu-rev/ruralz/internal/filter/header"
@@ -48,8 +48,7 @@ import (
 //   - auth.api-key: a config.header that can carry keys (RZ-CFG-005);
 //   - authz.cel: a non-empty rule (RZ-CFG-005);
 //   - authz.ip: CIDR or address entries, not both lists empty (RZ-CFG-005);
-//   - authz.geoip: not both lists empty (RZ-CFG-005), from M1 although the
-//     Filter is Planned (M2);
+//   - authz.geoip: not both lists empty (RZ-CFG-005);
 //   - ratelimit: at most 8 limits[] entries with distinct requests and
 //     window, whole-millisecond windows, burst and perNodeCeiling ranges
 //     (RZ-CFG-005);
@@ -74,7 +73,7 @@ func Table() hub.Checks {
 		v1alpha1.PolicyTypeAuthAPIKey:           apikey.Check,
 		v1alpha1.PolicyTypeAuthzCEL:             authzcel.Check,
 		v1alpha1.PolicyTypeAuthzIP:              ip.Check,
-		v1alpha1.PolicyTypeAuthzGeoIP:           geoip.Check,
+		v1alpha1.PolicyTypeAuthzGeoIP:           geoipcheck.Check,
 		v1alpha1.PolicyTypeRateLimit:            ratelimit.Check,
 		v1alpha1.PolicyTypeValidationJSONSchema: jsonschema.Check,
 		v1alpha1.PolicyTypeCORS:                 cors.Check,

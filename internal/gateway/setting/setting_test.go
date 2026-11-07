@@ -112,6 +112,7 @@ func TestLoadValid(t *testing.T) {
 		EnvStateStoreURL, "redis://user:pw@127.0.0.1:6379",
 		EnvZone, "eu-west-1a",
 		EnvBindLoopback, "true",
+		EnvGeoIPDatabaseFile, filepath.Join(f.base, "geoip", ".", "GeoLite2-Country.mmdb"),
 	).lookup)
 	if err != nil {
 		t.Fatal(err)
@@ -129,6 +130,7 @@ func TestLoadValid(t *testing.T) {
 		MACKeyFile:            f.key,
 		Zone:                  "eu-west-1a",
 		BindLoopback:          true,
+		GeoIPDatabaseFile:     filepath.Join(f.base, "geoip", "GeoLite2-Country.mmdb"),
 	}
 	key := s.MACKey
 	s.MACKey = MACKey{}
@@ -149,7 +151,8 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if s.Mode != ModeFile || s.Config != "/srv/bundle" || s.DataDir != DefaultDataDir ||
 		s.LogLevel != LogInfo || s.SecretRoot != DefaultSecretRoot || s.MACKey.IsSet() ||
-		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" || s.Zone != "" || s.BindLoopback {
+		s.FetchAllow != "" || s.Unused != nil || s.AdminTokenFile != "" || s.Zone != "" || s.BindLoopback ||
+		s.GeoIPDatabaseFile != "" {
 		t.Fatalf("Load = %+v", s)
 	}
 	if DefaultDataDir != nodedir.DefaultRoot {
@@ -349,6 +352,14 @@ func TestLoadExit2(t *testing.T) {
 		{name: "bind loopback long echo bounded", env: good.with(EnvBindLoopback, strings.Repeat("t", 200)), setting: EnvBindLoopback, want: ErrBindLoopback, msg: `..."`},
 		// M2 settings only warn.
 		{name: "M2 settings set", env: good.with(EnvTrustPolicyFile, "p", EnvEnrollmentTokenFile, "/run/enroll", EnvRegistryAuthFile, "a"), want: nil},
+		// RURALZ_GEOIP_DATABASE_FILE: an absolute path, which need not
+		// exist yet and may lie inside the secret root, since the database
+		// holds no credential.
+		{name: "geoip database absolute", env: good.with(EnvGeoIPDatabaseFile, filepath.Join(f.base, "none", "GeoLite2-Country.mmdb")), want: nil},
+		{name: "geoip database inside root", env: good.with(EnvGeoIPDatabaseFile, filepath.Join(f.root, "GeoLite2-Country.mmdb")), want: nil},
+		{name: "geoip database empty is unset", env: good.with(EnvGeoIPDatabaseFile, ""), want: nil},
+		{name: "geoip database relative", env: good.with(EnvGeoIPDatabaseFile, "GeoLite2-Country.mmdb"), setting: EnvGeoIPDatabaseFile, want: ErrNotAbsolute, msg: `"GeoLite2-Country.mmdb"`},
+		{name: "geoip database dot relative", env: good.with(EnvGeoIPDatabaseFile, "./geoip/db.mmdb"), setting: EnvGeoIPDatabaseFile, want: ErrNotAbsolute},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -611,7 +622,7 @@ func TestExitCode(t *testing.T) {
 		t.Error("usage error text")
 	}
 	if !strings.HasPrefix(Usage, "usage: ruralzd\n") || !strings.Contains(Usage, EnvStateStoreMACKeyFile) || !strings.Contains(Usage, EnvZone) ||
-		!strings.Contains(Usage, EnvBindLoopback) {
+		!strings.Contains(Usage, EnvBindLoopback) || !strings.Contains(Usage, EnvGeoIPDatabaseFile) {
 		t.Error("Usage text")
 	}
 }

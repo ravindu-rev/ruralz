@@ -242,6 +242,7 @@ One goroutine's sections never overlap, and parallel `aggregate` legs overlap on
 | `snapshot_ending_overdue` | A snapshot stays ending past the zero-pin bound of [Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload), so no newer Revision activates; pages |
 | `secret_rotation_failed`, `jwks_stale` | A secret rotation or JWKS fetch fails; the last value, if any, serves until it expires |
 | `crl_stale` | An `auth.mtls` CRL is past its `nextUpdate`; the last CRL stays enforced ([Security and identity](08-security-and-identity.md#basic-and-mtls-schemas)) |
+| `geoip_database_stale` | The last read of the `RURALZ_GEOIP_DATABASE_FILE` file failed or found no valid database, the last valid one, if any, serving; or an `authz.geoip` Policy is active while the Node has no valid database, so its requests fail closed with RZ-AUTH-015 ([Security and identity](08-security-and-identity.md#ip-filtering-and-geoip)); Planned (M2) |
 | `cleartext_hop` | `ruralz_security_cleartext_hops` is above 0; alerts only for `state_store`, `telemetry` and `admin` ([Alert rules](#alert-rules)) |
 | `node_count_unknown` | A derived Rate Limit ceiling lacks the published Node count; Planned (M2) |
 | `revocation_sequence_gap` | A revocation sequence gap, or a mark older than 30 s (target); Planned (M2) |

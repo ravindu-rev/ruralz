@@ -322,7 +322,8 @@ func Lookup(name string) (Family, bool) {
 // Reason is a ruralz_node_degraded_info reason.
 type Reason uint8
 
-// M1 degraded reasons, all exported at 0 from process start.
+// Degraded reasons of docs/architecture/10-observability.md "Degraded
+// states", all exported at 0 from process start.
 const (
 	ReasonLKGBoot Reason = iota + 1
 	ReasonLKGWriteFailed
@@ -342,6 +343,7 @@ const (
 	ReasonTelemetryExportFailing
 	ReasonCRLStale
 	ReasonCacheRevalidationSaturated
+	ReasonGeoIPDatabaseStale
 	NumReasons
 )
 
@@ -360,7 +362,7 @@ func ReasonNames() []string {
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
-		"cache_revalidation_saturated",
+		"cache_revalidation_saturated", "geoip_database_stale",
 	}
 }
 

@@ -58,6 +58,8 @@ tests:
         values: '0x40'
       - series: 'ruralz_node_degraded_info{instance="n1",reason="cache_revalidation_saturated"}'
         values: '0x40'
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="geoip_database_stale"}'
+        values: '0x40'
       - series: 'ruralz_security_cleartext_hops{instance="n1",hop="client"}'
         values: '0x40'
       - series: 'ruralz_security_cleartext_hops{instance="n1",hop="upstream"}'
@@ -258,6 +260,31 @@ tests:
             exp_annotations:
               dashboard: Ruralz Gateway overview
               summary: 'Node n1 is degraded: cache_revalidation_saturated'
+      - eval_time: 10m
+        alertname: RuralzNodeDegradedPage
+        exp_alerts: []
+
+  # A GeoIP database file a Node cannot use tickets after 5 minutes and
+  # never pages.
+  - name: stale geoip database
+    interval: 1m
+    input_series:
+      - series: 'ruralz_node_degraded_info{instance="n1",reason="geoip_database_stale"}'
+        values: '0 0 1x30'
+    alert_rule_test:
+      - eval_time: 5m
+        alertname: RuralzNodeDegraded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: RuralzNodeDegraded
+        exp_alerts:
+          - exp_labels:
+              severity: ticket
+              instance: n1
+              reason: geoip_database_stale
+            exp_annotations:
+              dashboard: Ruralz Gateway overview
+              summary: 'Node n1 is degraded: geoip_database_stale'
       - eval_time: 10m
         alertname: RuralzNodeDegradedPage
         exp_alerts: []

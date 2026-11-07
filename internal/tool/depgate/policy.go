@@ -113,6 +113,15 @@ func jwxModules() []string {
 	return []string{"github.com/lestrrat-go/jwx"}
 }
 
+// gatewayOnlyModules must never be linked into ruralz or ruralz-control:
+// the MaxMind DB reader serves the authz.geoip Filter, which only ruralzd
+// links, while the offline Policy checks every binary links import its
+// check package alone (docs/engineering/01-tech-stack-and-libraries.md,
+// "Library catalog" and "Dependency graph").
+func gatewayOnlyModules() []string {
+	return []string{"github.com/oschwald/maxminddb-golang"}
+}
+
 // advisoryFloors are minimum versions forced by security advisories.
 func advisoryFloors() map[string]string {
 	return map[string]string{

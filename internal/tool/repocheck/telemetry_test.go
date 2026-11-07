@@ -305,25 +305,27 @@ func TestDocGate(t *testing.T) {
 }
 
 // TestDocGateTempDoc is the negative fixture against the real Observability
-// document: a new architecture document naming ruralz_bogus_total fails the
-// doc gate, and nothing else does.
+// document and roadmap, whose first milestone section is the milestone in
+// progress the code gate reads: a new architecture document naming
+// ruralz_bogus_total fails the doc gate, and nothing else does.
 func TestDocGateTempDoc(t *testing.T) {
-	obs, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(obsDoc)))
-	if err != nil {
-		t.Fatal(err)
-	}
 	root := t.TempDir()
-	dir := filepath.Join(root, filepath.FromSlash(archDir))
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	for name, data := range map[string][]byte{
-		"10-observability.md": obs,
-		"99-temp.md":          []byte("# Temp\n\nIt exports `ruralz_bogus_total`.\n"),
-	} {
-		if err := os.WriteFile(filepath.Join(dir, name), data, 0o600); err != nil {
+	for _, rel := range []string{obsDoc, roadmapDoc} {
+		data, err := os.ReadFile(filepath.Join("..", "..", "..", filepath.FromSlash(rel)))
+		if err != nil {
 			t.Fatal(err)
 		}
+		dst := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(dst), 0o750); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(dst, data, 0o600); err != nil { //nolint:gosec // G703: rel is one of two constant repository paths, under the test's temporary directory.
+			t.Fatal(err)
+		}
+	}
+	temp := filepath.Join(root, filepath.FromSlash(archDir), "99-temp.md")
+	if err := os.WriteFile(temp, []byte("# Temp\n\nIt exports `ruralz_bogus_total`.\n"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 	r, err := loadRepo(root)
 	if err != nil {

@@ -21,6 +21,9 @@
 //	  - the ruralz jwx denylist: the offline Policy checks every binary
 //	    links import no module the CLI does not link, so the CLI links no
 //	    JOSE;
+//	  - the MaxMind DB reader denylist of ruralz and ruralz-control: only
+//	    ruralzd links github.com/oschwald/maxminddb-golang, which the
+//	    authz.geoip Filter alone uses;
 //	  - advisory version floors;
 //	  - no test support in any binary: this module's internal/testkit,
 //	    internal/tool and test/ trees and its "<name>test" packages, the

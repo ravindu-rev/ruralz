@@ -7,6 +7,9 @@ import (
 	"context"
 	"errors"
 	"math/rand/v2"
+	"net/netip"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -17,9 +20,13 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/basic"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/upstreamoauth2"
+	"github.com/ravindu-rev/ruralz/internal/filter/authz/geoip"
+	"github.com/ravindu-rev/ruralz/internal/filter/authz/geoip/geoiptest"
 	"github.com/ravindu-rev/ruralz/internal/filter/cache/revalidate"
+	"github.com/ravindu-rev/ruralz/internal/filter/filtertest"
 	"github.com/ravindu-rev/ruralz/internal/filter/quota"
 	"github.com/ravindu-rev/ruralz/internal/filter/ratelimit"
+	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
@@ -73,7 +80,7 @@ func TestNewComponents(t *testing.T) {
 		names = append(names, c.Name())
 	}
 	want := []string{
-		"jwks", basic.ComponentName, ratelimit.TableName, quota.CacheName,
+		"jwks", basic.ComponentName, geoip.ComponentName, ratelimit.TableName, quota.CacheName,
 		revalidate.ComponentName, upstreamoauth2.ComponentName,
 	}
 	if !slices.Equal(names, want) {
@@ -215,4 +222,86 @@ func TestLockedSourceSerializes(t *testing.T) {
 		t.Errorf("next value = %d, want %d", got, goroutines*draws+1)
 	}
 	var _ rand.Source = src
+}
+
+// degradedStatus records the degraded reasons New's Components raise.
+type degradedStatus struct {
+	mu sync.Mutex
+	on map[catalog.Reason]bool
+}
+
+func (s *degradedStatus) SetDegraded(r catalog.Reason, _ string, on bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.on == nil {
+		s.on = map[catalog.Reason]bool{}
+	}
+	s.on[r] = on
+}
+
+func (*degradedStatus) SetCleartextHops(catalog.Hop, int) {}
+
+func (s *degradedStatus) raised(r catalog.Reason) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.on[r]
+}
+
+// TestNewReadsGeoIPDatabase: New reads Options.GeoIPDatabaseFile at once,
+// so the first authz.geoip Filter its table builds already places
+// addresses; a file New cannot use never fails New but raises
+// geoip_database_stale, and without the option every authz.geoip request
+// cannot decide.
+func TestNewReadsGeoIPDatabase(t *testing.T) {
+	dir := t.TempDir()
+	good := filepath.Join(dir, "country.mmdb")
+	geoiptest.Write(t, good, geoiptest.New(geoiptest.Options{}).
+		Insert("81.2.69.0/24", geoiptest.Country("GB")).Insert("2001:db8::/32", geoiptest.Country("DE")))
+	bad := filepath.Join(dir, "bad.mmdb")
+	if err := os.WriteFile(bad, []byte("not a database"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &v1alpha1.AuthzGeoIPConfig{Allow: []v1alpha1.CountryCode{"GB"}}
+	decide := func(t *testing.T, tab *filter.Registry, addr string) filter.Outcome {
+		t.Helper()
+		fac, ok := tab.Factory(v1alpha1.PolicyTypeAuthzGeoIP)
+		if !ok {
+			t.Fatal("no authz.geoip Factory")
+		}
+		f, err := fac.Build(t.Context(), filter.BuildEnv{Config: cfg})
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = f.(filter.Closer).Close() }()
+		x := &filtertest.Exchange{SourceV: filter.Source{IP: netip.MustParseAddr(addr)}}
+		return f.Handle(t.Context(), phase.OnRequestHeaders, x).Outcome
+	}
+	t.Run("valid file", func(t *testing.T) {
+		st := &degradedStatus{}
+		tab := newTable(t, Options{GeoIPDatabaseFile: good, Status: st})
+		if got := decide(t, tab, "81.2.69.142"); got != filter.Continue {
+			t.Errorf("a GB client: outcome %v, want Continue", got)
+		}
+		if got := decide(t, tab, "2001:db8::1"); got != filter.Respond {
+			t.Errorf("a DE client: outcome %v, want Respond (403)", got)
+		}
+		if st.raised(catalog.ReasonGeoIPDatabaseStale) {
+			t.Error("geoip_database_stale raised for a valid file")
+		}
+	})
+	t.Run("unusable file", func(t *testing.T) {
+		st := &degradedStatus{}
+		tab := newTable(t, Options{GeoIPDatabaseFile: bad, Status: st})
+		if !st.raised(catalog.ReasonGeoIPDatabaseStale) {
+			t.Error("geoip_database_stale not raised for an unusable file")
+		}
+		if got := decide(t, tab, "81.2.69.142"); got != filter.CannotDecide {
+			t.Errorf("outcome %v without a valid database, want CannotDecide", got)
+		}
+	})
+	t.Run("no file", func(t *testing.T) {
+		if got := decide(t, newTable(t, Options{}), "81.2.69.142"); got != filter.CannotDecide {
+			t.Errorf("outcome %v without the setting, want CannotDecide", got)
+		}
+	})
 }

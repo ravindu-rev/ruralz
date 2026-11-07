@@ -329,13 +329,14 @@ func TestLookup(t *testing.T) {
 
 func TestReasons(t *testing.T) {
 	// The M1 degraded reasons plus crl_stale and
-	// cache_revalidation_saturated.
+	// cache_revalidation_saturated, then the authz.geoip database's
+	// geoip_database_stale.
 	want := []string{
 		"lkg_boot", "lkg_write_failed", "state_store_memory_fallback", "state_store_unauthenticated",
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
-		"cache_revalidation_saturated",
+		"cache_revalidation_saturated", "geoip_database_stale",
 	}
 	if !slices.Equal(ReasonNames(), want) {
 		t.Fatalf("ReasonNames = %v", ReasonNames())
@@ -355,7 +356,8 @@ func TestReasons(t *testing.T) {
 		t.Error("an out-of-range Reason has a name")
 	}
 	if ReasonCRLStale.String() != "crl_stale" || ReasonCleartextHop.String() != "cleartext_hop" ||
-		ReasonCacheRevalidationSaturated.String() != "cache_revalidation_saturated" {
+		ReasonCacheRevalidationSaturated.String() != "cache_revalidation_saturated" ||
+		ReasonGeoIPDatabaseStale.String() != "geoip_database_stale" {
 		t.Error("named reasons do not match their constants")
 	}
 }

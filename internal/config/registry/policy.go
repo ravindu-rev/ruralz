@@ -198,10 +198,10 @@ func (r *Registry) CheckFailureMode(p *v1alpha1.Policy) (diag.Diagnostic, bool) 
 }
 
 // CheckServed reports a Policy whose type this release does not serve as
-// RZ-CFG-040 at spec.type: plugin, authz.opa, authz.cedar, authz.geoip,
-// auth.upstream-sigv4 and ai.* in M1. The caller adds the source
-// Location. An unregistered type yields no finding: the schema's
-// PolicyType enum reports it.
+// RZ-CFG-040 at spec.type: plugin, authz.opa, authz.cedar,
+// auth.upstream-sigv4 and ai.*. The caller adds the source Location. An
+// unregistered type yields no finding: the schema's PolicyType enum
+// reports it.
 func (r *Registry) CheckServed(p *v1alpha1.Policy) (diag.Diagnostic, bool) {
 	e, ok := r.Lookup(p.Spec.Type)
 	if !ok || e.Served {

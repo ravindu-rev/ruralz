@@ -41,6 +41,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/mtls"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/upstreamoauth2"
 	authzcel "github.com/ravindu-rev/ruralz/internal/filter/authz/cel"
+	"github.com/ravindu-rev/ruralz/internal/filter/authz/geoip"
 	"github.com/ravindu-rev/ruralz/internal/filter/authz/ip"
 	"github.com/ravindu-rev/ruralz/internal/filter/cache"
 	"github.com/ravindu-rev/ruralz/internal/filter/cache/revalidate"
@@ -65,14 +66,15 @@ type CounterFunc func(name string, values ...string) (emit.Counter, error)
 type Options struct {
 	// Clock is the clock of every Component and Factory: JWKS refreshes,
 	// token lifetimes, throttle and rate-limit buckets, cache holds and
-	// leases; nil uses clock.Real().
+	// leases, GeoIP database polls; nil uses clock.Real().
 	Clock clock.Clock
 	// Logger receives the Components' logs (JWKS and token fetch failures
-	// and recoveries, failed revalidation jobs, cache bypasses); nil
-	// discards them.
+	// and recoveries, failed revalidation jobs, cache bypasses, GeoIP
+	// database loads and unusable files); nil discards them.
 	Logger *slog.Logger
-	// Status receives the Components' degraded reasons, jwks_stale and
-	// cache_revalidation_saturated; nil reports none.
+	// Status receives the Components' degraded reasons, jwks_stale,
+	// cache_revalidation_saturated and geoip_database_stale; nil reports
+	// none.
 	Status emit.NodeStatus
 	// Counter supplies the Node-wide handles of
 	// ruralz_auth_basic_refusals_total and
@@ -97,6 +99,10 @@ type Options struct {
 	// uses the math/rand/v2 runtime generator. New serializes its calls,
 	// so any Source will do.
 	Rand rand.Source
+	// GeoIPDatabaseFile is RURALZ_GEOIP_DATABASE_FILE, the MaxMind-format
+	// database of authz.geoip, which New reads at once; "" means none, so
+	// every authz.geoip Policy cannot decide.
+	GeoIPDatabaseFile string
 }
 
 // New returns the table of the built-in Filters: a Factory for every
@@ -104,12 +110,15 @@ type Options struct {
 // constructed once here and shared by the Factories that use it, in
 // foundation pack section 10 row order of their types, the order the
 // supervisor starts them: the JWKS manager (auth.jwt), the auth.basic
-// throttle, the rate-limit key table (ratelimit), the quota denial cache,
-// the Response Cache revalidation workers (cache) and the upstream token
-// registry (auth.upstream-oauth2). It fails when the throttle key cannot
-// be read from Options.Entropy, when Options.Counter refuses a label set,
-// or when a Component or Factory cannot be built; nothing has started
-// then.
+// throttle, the GeoIP database (authz.geoip), the rate-limit key table
+// (ratelimit), the quota denial cache, the Response Cache revalidation
+// workers (cache) and the upstream token registry (auth.upstream-oauth2).
+// The GeoIP database reads Options.GeoIPDatabaseFile here: a file that
+// cannot be read or is not valid leaves the Node without a database and
+// raises geoip_database_stale, never an error. New fails when the
+// throttle key cannot be read from Options.Entropy, when Options.Counter
+// refuses a label set, or when a Component or Factory cannot be built;
+// nothing has started then.
 func New(o Options) (*filter.Registry, error) {
 	revoker := o.Revoker
 	if revoker == nil {
@@ -163,6 +172,10 @@ func New(o Options) (*filter.Registry, error) {
 	if err != nil {
 		return nil, fmt.Errorf("builtin: %w", err)
 	}
+	// Read last, once nothing else can fail: a database never fails New.
+	geo := geoip.NewDatabase(geoip.DatabaseOptions{
+		Path: o.GeoIPDatabaseFile, Clock: o.Clock, Logger: o.Logger, Status: o.Status,
+	})
 
 	factories := map[v1alpha1.PolicyType]filter.Factory{
 		v1alpha1.PolicyTypeAuthJWT:              jwtFactory,
@@ -171,6 +184,7 @@ func New(o Options) (*filter.Registry, error) {
 		v1alpha1.PolicyTypeAuthMTLS:             mtls.NewFactory(revoker),
 		v1alpha1.PolicyTypeAuthzCEL:             authzcel.Factory{},
 		v1alpha1.PolicyTypeAuthzIP:              ip.Factory{},
+		v1alpha1.PolicyTypeAuthzGeoIP:           geoip.Factory{Database: geo},
 		v1alpha1.PolicyTypeRateLimit:            ratelimit.Factory{Table: limits},
 		v1alpha1.PolicyTypeQuota:                quota.Factory{Cache: denials},
 		v1alpha1.PolicyTypeValidationJSONSchema: jsonschema.Factory{},
@@ -181,7 +195,7 @@ func New(o Options) (*filter.Registry, error) {
 		v1alpha1.PolicyTypeTransformResponse:    response.Factory{},
 		v1alpha1.PolicyTypeAuthUpstreamOAuth2:   upstreamoauth2.Factory{Registry: tokens},
 	}
-	return filter.NewRegistry(factories, keys, throttle, limits, denials, workers, tokens), nil
+	return filter.NewRegistry(factories, keys, throttle, geo, limits, denials, workers, tokens), nil
 }
 
 // lockedSource serializes the calls of a rand.Source that the cache

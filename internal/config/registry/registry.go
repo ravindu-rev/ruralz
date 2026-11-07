@@ -258,7 +258,8 @@ func newConfig[T any]() func() any { return func() any { return new(T) } }
 
 // table builds foundation pack section 10 row by row. Rows that list
 // several types are expanded in their listed order. Served is true exactly
-// for the types M1 builds; plugin, authz.opa, authz.cedar, authz.geoip,
+// for the types this release builds: those of M1 and authz.geoip, of the
+// milestone in progress; plugin, authz.opa, authz.cedar,
 // auth.upstream-sigv4 and ai.* are RZ-CFG-040.
 func table() []Entry {
 	const (
@@ -305,7 +306,7 @@ func table() []Entry {
 		authz(v1alpha1.PolicyTypeAuthzOPA, headersAnd, selHeadersOnly, false, m2, newConfig[v1alpha1.AuthzOPAConfig]()),
 		authz(v1alpha1.PolicyTypeAuthzCedar, headersAnd, selHeadersOnly, false, m2, newConfig[v1alpha1.AuthzCedarConfig]()),
 		authz(v1alpha1.PolicyTypeAuthzIP, reqHeaders, selFixed, true, m1, newConfig[v1alpha1.AuthzIPConfig]()),
-		authz(v1alpha1.PolicyTypeAuthzGeoIP, reqHeaders, selFixed, false, m2, newConfig[v1alpha1.AuthzGeoIPConfig]()),
+		authz(v1alpha1.PolicyTypeAuthzGeoIP, reqHeaders, selFixed, true, m2, newConfig[v1alpha1.AuthzGeoIPConfig]()),
 		{
 			Type: v1alpha1.PolicyTypeRateLimit, Class: phase.ClassAdmission, Phases: reqHeaders, Scopes: gr,
 			Slot: SlotName, DefaultFailureMode: open, Served: true, Planned: m1,

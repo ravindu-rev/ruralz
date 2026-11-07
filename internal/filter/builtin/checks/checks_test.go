@@ -42,9 +42,9 @@ func checked() []v1alpha1.PolicyType {
 }
 
 // TestTableTypes: the table holds a non-nil check for exactly the types
-// with registered config rules, authz.geoip's although its Filter is not
-// served in M1 (configuration model, "Semantic validation"), and none for
-// a type whose rules are the schema's or another stage's.
+// with registered config rules (configuration model, "Semantic
+// validation"), and none for a type whose rules are the schema's or
+// another stage's.
 func TestTableTypes(t *testing.T) {
 	tab := Table()
 	got := slices.Sorted(maps.Keys(tab))
@@ -60,9 +60,6 @@ func TestTableTypes(t *testing.T) {
 		if _, ok := reg.Lookup(typ); !ok {
 			t.Errorf("Table()[%s]: not a registered Policy type", typ)
 		}
-	}
-	if reg.Served(v1alpha1.PolicyTypeAuthzGeoIP) || tab[v1alpha1.PolicyTypeAuthzGeoIP] == nil {
-		t.Error("authz.geoip: its check must run from M1, before its Filter is served")
 	}
 	for _, typ := range []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthBasic, v1alpha1.PolicyTypeAuthMTLS, v1alpha1.PolicyTypeAuthUpstreamSigV4,
@@ -178,6 +175,7 @@ func deniedModules() []string {
 		"golang.org/x/sys",
 		"github.com/hashicorp/raft",
 		"github.com/coreos/go-oidc",
+		"github.com/oschwald/maxminddb-golang", // the authz.geoip Filter's, whose check lives apart
 	}
 }
 

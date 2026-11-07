@@ -161,9 +161,9 @@ spec: {}
 		// Policy types are CheckServed's.
 		{"unserved policy type", `apiVersion: ruralz/v1alpha1
 kind: Policy
-metadata: {name: geo}
+metadata: {name: guard}
 spec:
-  type: authz.geoip
+  type: ai.guardrail
   config: {}
 `, nil},
 	}

@@ -15,8 +15,10 @@
 // owners of the other settings read their files later: internal/adminauth
 // the admin token files and TLS directory, internal/egress.ParseAllow the
 // fetch allow-list (whose syntax Load already checked, so both reject the
-// same values), and internal/secret/resolver RURALZ_STATE_STORE_URL
-// through its env provider, which is why Settings never holds that URL.
+// same values), internal/filter/authz/geoip the GeoIP database file,
+// which it reads again when the file changes, and
+// internal/secret/resolver RURALZ_STATE_STORE_URL through its env
+// provider, which is why Settings never holds that URL.
 package setting
 
 import (
@@ -61,6 +63,9 @@ const (
 	// EnvBindLoopback binds every client listener and the admin port to
 	// loopback instead of every interface: true or false.
 	EnvBindLoopback = "RURALZ_BIND_LOOPBACK"
+	// EnvGeoIPDatabaseFile is the MaxMind-format database file of
+	// authz.geoip: an absolute path.
+	EnvGeoIPDatabaseFile = "RURALZ_GEOIP_DATABASE_FILE"
 	// EnvTrustPolicyFile is Planned (M2); unused in M1.
 	EnvTrustPolicyFile = "RURALZ_TRUST_POLICY_FILE"
 	// EnvEnrollmentTokenFile is Planned (M2); unused in M1.
@@ -117,6 +122,9 @@ once at start:
   RURALZ_ADMIN_TOKEN_FILE          admin operator token
   RURALZ_ADMIN_METRICS_TOKEN_FILE  admin /metrics token
   RURALZ_ADMIN_TLS_DIR             admin TLS directory (tls.crt, tls.key, ca.crt)
+  RURALZ_GEOIP_DATABASE_FILE       MaxMind-format database of authz.geoip,
+                                   an absolute path, read again when it
+                                   changes (default none)
 `
 
 // Errors of Load, each wrapped in an *Error naming the setting.
@@ -288,6 +296,11 @@ type Settings struct {
 	// one socket per address, instead of every interface
 	// (docs/architecture/03-data-plane.md "Listeners and protocols").
 	BindLoopback bool
+	// GeoIPDatabaseFile is RURALZ_GEOIP_DATABASE_FILE, the MaxMind-format
+	// database of authz.geoip (docs/architecture/08-security-and-identity.md
+	// "IP filtering and GeoIP"); the file need not exist yet, since the
+	// database polls it, and "" without the setting.
+	GeoIPDatabaseFile string
 	// EnrollmentTokenFile is RURALZ_ENROLLMENT_TOKEN_FILE (M2, unused);
 	// kept for the secret root rule.
 	EnrollmentTokenFile string
@@ -372,6 +385,7 @@ func Load(args []string, lookupEnv func(string) (string, bool)) (Settings, error
 	s.AdminMetricsTokenFile = l.absolute(EnvAdminMetricsTokenFile, get(EnvAdminMetricsTokenFile))
 	s.AdminTLSDir = l.absolute(EnvAdminTLSDir, get(EnvAdminTLSDir))
 	s.MACKeyFile = l.absolute(EnvStateStoreMACKeyFile, get(EnvStateStoreMACKeyFile))
+	s.GeoIPDatabaseFile = l.absolute(EnvGeoIPDatabaseFile, get(EnvGeoIPDatabaseFile))
 	for _, name := range []string{EnvTrustPolicyFile, EnvEnrollmentTokenFile, EnvRegistryAuthFile} {
 		if get(name) != "" {
 			s.Unused = append(s.Unused, name)
