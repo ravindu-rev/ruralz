@@ -11,7 +11,7 @@ type GatewaySpec struct {
 	// +ruralz:list=map,key=name
 	// +ruralz:impact=routing
 	Listeners []Listener `json:"listeners"`
-	// TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).
+	// TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty.
 	// +ruralz:list=set
 	// +ruralz:impact=security
 	TrustedProxies []string `json:"trustedProxies,omitempty"`
@@ -59,7 +59,7 @@ type Listener struct {
 	// HTTP3 adds HTTP/3 on UDP on the same port; https only. Planned (M3); off in FIPS builds.
 	// +ruralz:planned=M3
 	HTTP3 *bool `json:"http3,omitempty"`
-	// ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).
+	// ProxyProtocol, when true, requires PROXY protocol v2 on this listener.
 	// +ruralz:default=false
 	// +ruralz:impact=security
 	ProxyProtocol *bool `json:"proxyProtocol,omitempty"`
@@ -225,7 +225,7 @@ type StateStore struct {
 	// Driver is memory or redis.
 	// +ruralz:default=memory
 	Driver *StateStoreDriver `json:"driver,omitempty"`
-	// Topology applies to redis only. Planned (M1).
+	// Topology applies to redis only.
 	// +ruralz:default=standalone
 	Topology *StateStoreTopology `json:"topology,omitempty"`
 	// URL is the rueidis connection URL; it may carry credentials. Required with driver redis.

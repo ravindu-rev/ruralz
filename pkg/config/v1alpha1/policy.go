@@ -10,41 +10,41 @@ type PolicyType string
 
 // Policy types. Each has a config type below, marked with its policyType.
 const (
-	// PolicyTypeAuthJWT validates JWTs, OpenID Connect and OAuth2 tokens. Planned (M1).
+	// PolicyTypeAuthJWT validates JWTs, OpenID Connect and OAuth2 tokens.
 	PolicyTypeAuthJWT PolicyType = "auth.jwt"
-	// PolicyTypeAuthAPIKey matches API keys against Consumer apiKeys by hash. Planned (M1).
+	// PolicyTypeAuthAPIKey matches API keys against Consumer apiKeys by hash.
 	PolicyTypeAuthAPIKey PolicyType = "auth.api-key" //nolint:gosec // A Policy type name, not a credential.
-	// PolicyTypeAuthBasic checks Authorization: Basic against Consumer credentials. Planned (M1).
+	// PolicyTypeAuthBasic checks Authorization: Basic against Consumer credentials.
 	PolicyTypeAuthBasic PolicyType = "auth.basic"
-	// PolicyTypeAuthMTLS authenticates client certificates. Planned (M1).
+	// PolicyTypeAuthMTLS authenticates client certificates.
 	PolicyTypeAuthMTLS PolicyType = "auth.mtls"
-	// PolicyTypeAuthzCEL authorizes with a CEL rule. Planned (M1).
+	// PolicyTypeAuthzCEL authorizes with a CEL rule.
 	PolicyTypeAuthzCEL PolicyType = "authz.cel"
 	// PolicyTypeAuthzOPA authorizes with OPA. Planned (M2).
 	PolicyTypeAuthzOPA PolicyType = "authz.opa"
 	// PolicyTypeAuthzCedar authorizes with Cedar. Planned (M2).
 	PolicyTypeAuthzCedar PolicyType = "authz.cedar"
-	// PolicyTypeAuthzIP allows or denies by client address. Planned (M1).
+	// PolicyTypeAuthzIP allows or denies by client address.
 	PolicyTypeAuthzIP PolicyType = "authz.ip"
 	// PolicyTypeAuthzGeoIP allows or denies by client country. Planned (M2).
 	PolicyTypeAuthzGeoIP PolicyType = "authz.geoip"
-	// PolicyTypeRateLimit is a Rate Limit. Planned (M1).
+	// PolicyTypeRateLimit is a Rate Limit.
 	PolicyTypeRateLimit PolicyType = "ratelimit"
-	// PolicyTypeQuota enforces a Consumer quota in requests. Planned (M1).
+	// PolicyTypeQuota enforces a Consumer quota in requests.
 	PolicyTypeQuota PolicyType = "quota"
-	// PolicyTypeValidationJSONSchema validates request bodies. Planned (M1).
+	// PolicyTypeValidationJSONSchema validates request bodies.
 	PolicyTypeValidationJSONSchema PolicyType = "validation.json-schema"
-	// PolicyTypeCORS handles CORS. Planned (M1).
+	// PolicyTypeCORS handles CORS.
 	PolicyTypeCORS PolicyType = "cors"
-	// PolicyTypeCache is the Response Cache. Planned (M1).
+	// PolicyTypeCache is the Response Cache.
 	PolicyTypeCache PolicyType = "cache"
-	// PolicyTypeHeaders sets request and response headers. Planned (M1).
+	// PolicyTypeHeaders sets request and response headers.
 	PolicyTypeHeaders PolicyType = "headers"
-	// PolicyTypeTransformRequest transforms the request. Planned (M1).
+	// PolicyTypeTransformRequest transforms the request.
 	PolicyTypeTransformRequest PolicyType = "transform.request"
-	// PolicyTypeTransformResponse transforms the response. Planned (M1).
+	// PolicyTypeTransformResponse transforms the response.
 	PolicyTypeTransformResponse PolicyType = "transform.response"
-	// PolicyTypeAuthUpstreamOAuth2 obtains upstream OAuth2 tokens by client credentials. Planned (M1).
+	// PolicyTypeAuthUpstreamOAuth2 obtains upstream OAuth2 tokens by client credentials.
 	PolicyTypeAuthUpstreamOAuth2 PolicyType = "auth.upstream-oauth2"
 	// PolicyTypeAuthUpstreamSigV4 signs upstream requests with AWS SigV4. Planned (M2).
 	PolicyTypeAuthUpstreamSigV4 PolicyType = "auth.upstream-sigv4"

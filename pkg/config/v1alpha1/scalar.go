@@ -257,7 +257,7 @@ const (
 
 // SecretRef points to a secret held outside the Bundle.
 type SecretRef struct {
-	// Provider resolves the secret: env and file are Planned (M1), kubernetes and vault Planned (M2).
+	// Provider resolves the secret: env or file; kubernetes and vault are Planned (M2).
 	// +ruralz:required
 	Provider SecretProvider `json:"provider"`
 	// Name is the variable, absolute file path, Kubernetes Secret or Vault path.

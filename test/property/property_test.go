@@ -26,10 +26,12 @@
 // ties every row to it: it reads the current milestone from the first
 // milestone section of docs/roadmap/01-roadmap-and-milestones.md and fails
 // when a row of an exited milestone, one before the current, has no
-// registered target, when a registered target does not exist in this
-// package, or when a registered Area names no row. A milestone's rows are
-// due by its exit, so the current milestone's rows may still lack their
-// targets, and the milestone cannot exit until each has one.
+// registered target, whether its Milestone cell reads "Mn" or still
+// "Planned (Mn)", when a bare "Mn" names a milestone that has not exited,
+// when a registered target does not exist in this package, or when a
+// registered Area names no row. A milestone's rows are due by its exit, so
+// the current milestone's rows may still lack their targets, and the
+// milestone cannot exit until each has one.
 //
 // Every target is hermetic: time comes from internal/clock fakes,
 // randomness from the fuzzed seed, and nothing but loopback is reached.
@@ -97,8 +99,11 @@ func requiredTargets() []target {
 type row struct {
 	// Area is the Area cell.
 	Area string
-	// Milestone is the number n of the Milestone cell "Planned (Mn)".
+	// Milestone is the number n of the Milestone cell: "Planned (Mn)"
+	// until milestone Mn exits, then the bare "Mn".
 	Milestone int
+	// Untagged is true for a bare "Mn" cell.
+	Untagged bool
 }
 
 // TestRequiredProperties ties every row of the Required properties table
@@ -136,9 +141,9 @@ func TestRequiredProperties(t *testing.T) {
 
 // checkRegistry returns every way reg fails to tie rows to targets: a row
 // of a milestone before current, which has exited, without a registered
-// target, a registered target that is not among targets, a registered Area
-// that names no row, and an Area listed twice in the table or the
-// registry.
+// target, tagged or not, a bare milestone that has not exited, a
+// registered target that is not among targets, a registered Area that
+// names no row, and an Area listed twice in the table or the registry.
 func checkRegistry(rows []row, current int, reg []target, targets map[string]bool) []string {
 	var problems []string
 	byArea := map[string]row{}
@@ -162,6 +167,9 @@ func checkRegistry(rows []row, current int, reg []target, targets map[string]boo
 		}
 	}
 	for _, r := range rows {
+		if r.Untagged && r.Milestone >= current {
+			problems = append(problems, fmt.Sprintf("Area %q names M%d without its Planned tag, but M%d has not exited: the current milestone is M%d", r.Area, r.Milestone, r.Milestone, current))
+		}
 		if r.Milestone < current && !registered[r.Area] {
 			problems = append(problems, fmt.Sprintf("Area %q is due by M%d, which exited before the current milestone M%d, and has no registered target", r.Area, r.Milestone, current))
 		}
@@ -169,14 +177,15 @@ func checkRegistry(rows []row, current int, reg []target, targets map[string]boo
 	return problems
 }
 
-// milestoneCell matches the Milestone cell of a row.
-const milestoneCell = `^Planned \(M([1-9][0-9]*)\)$`
+// milestoneCell matches the Milestone cell of a row: "Planned (Mn)"
+// (submatch 1) or a bare "Mn" (submatch 2), n without a leading zero.
+const milestoneCell = `^(?:Planned \(M(0|[1-9][0-9]*)\)|M(0|[1-9][0-9]*))$`
 
 // requiredRows returns the rows of the first table of the Required
 // properties section of the strategy document doc, read by the header
 // cells Area and Milestone. A missing section, table or column, an empty
-// Area or a Milestone cell other than "Planned (Mn)" is an error, since
-// it would hide a row.
+// Area or a Milestone cell other than "Planned (Mn)" or "Mn" is an error,
+// since it would hide a row.
 func requiredRows(doc string) ([]row, error) {
 	lines := strings.Split(doc, "\n")
 	start := slices.Index(lines, propertiesHeading)
@@ -213,16 +222,17 @@ func requiredRows(doc string) ([]row, error) {
 		}
 		m := milestone.FindStringSubmatch(cells[milestoneCol])
 		if m == nil {
-			return nil, fmt.Errorf("row %q: Milestone %q is not \"Planned (Mn)\"", cells[areaCol], cells[milestoneCol])
+			return nil, fmt.Errorf("row %q: Milestone %q is neither \"Planned (Mn)\" nor \"Mn\"", cells[areaCol], cells[milestoneCol])
 		}
-		n, err := strconv.Atoi(m[1])
+		untagged := m[1] == ""
+		n, err := strconv.Atoi(m[1] + m[2])
 		if err != nil {
 			return nil, fmt.Errorf("row %q: %w", cells[areaCol], err)
 		}
 		if cells[areaCol] == "" {
 			return nil, fmt.Errorf("row %q has an empty Area", line)
 		}
-		rows = append(rows, row{Area: cells[areaCol], Milestone: n})
+		rows = append(rows, row{Area: cells[areaCol], Milestone: n, Untagged: untagged})
 	}
 	if header == nil {
 		return nil, fmt.Errorf("no table in %q", propertiesHeading)
@@ -331,6 +341,8 @@ func takesF(ft *ast.FuncType) bool {
 
 func TestCheckRegistry(t *testing.T) {
 	rows := []row{{Area: "A", Milestone: 1}, {Area: "B", Milestone: 1}, {Area: "Later", Milestone: 2}}
+	// bare is rows once M1 has exited and its tags are gone.
+	bare := []row{{Area: "A", Milestone: 1, Untagged: true}, {Area: "B", Milestone: 1, Untagged: true}, {Area: "Later", Milestone: 2}}
 	reg := []target{{Area: "A", Fuzz: "FuzzA"}, {Area: "B", Fuzz: "FuzzB"}}
 	targets := map[string]bool{"FuzzA": true, "FuzzB": true}
 	tests := []struct {
@@ -369,6 +381,26 @@ func TestCheckRegistry(t *testing.T) {
 			name: "an Area listed twice in the table", rows: append(slices.Clone(rows), row{Area: "A", Milestone: 1}), current: 1, reg: reg, targets: targets,
 			want: []string{`the Required properties table lists Area "A" twice`},
 		},
+		{
+			name: "every exited milestone's bare row registered", rows: bare, current: 2, reg: reg, targets: targets,
+		},
+		{
+			name: "an exited milestone's bare row without a target", rows: bare, current: 2, reg: reg[:1], targets: targets,
+			want: []string{`Area "B" is due by M1, which exited before the current milestone M2, and has no registered target`},
+		},
+		{
+			name: "a bare row of M0 without a target", rows: []row{{Area: "Foundations", Milestone: 0, Untagged: true}}, current: 2, targets: targets,
+			want: []string{`Area "Foundations" is due by M0, which exited before the current milestone M2, and has no registered target`},
+		},
+		{
+			name: "a bare row of the current milestone", rows: []row{{Area: "A", Milestone: 2, Untagged: true}}, current: 2,
+			reg: reg[:1], targets: targets,
+			want: []string{`Area "A" names M2 without its Planned tag, but M2 has not exited: the current milestone is M2`},
+		},
+		{
+			name: "a bare row of a later milestone without a target", rows: []row{{Area: "Later", Milestone: 3, Untagged: true}}, current: 2, targets: targets,
+			want: []string{`Area "Later" names M3 without its Planned tag, but M3 has not exited: the current milestone is M2`},
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -399,10 +431,25 @@ func TestRequiredRows(t *testing.T) {
 			doc:  table("| Milestone | Area |", "| Planned (M3) | Token Budget |"),
 			want: []row{{Area: "Token Budget", Milestone: 3}},
 		},
+		{
+			name: "bare milestones beside Planned tags",
+			doc:  table("| Area | Property | Milestone |", "| Canonical form | a | M1 |\n| Diff | b | M10 |\n| Rollout | c | Planned (M2) |"),
+			want: []row{{Area: "Canonical form", Milestone: 1, Untagged: true}, {Area: "Diff", Milestone: 10, Untagged: true}, {Area: "Rollout", Milestone: 2}},
+		},
+		{
+			name: "M0, bare and tagged",
+			doc:  table("| Area | Milestone |", "| A | M0 |\n| B | Planned (M0) |"),
+			want: []row{{Area: "A", Milestone: 0, Untagged: true}, {Area: "B", Milestone: 0}},
+		},
 		{name: "no section", doc: "# Doc\n\n| Area | Milestone |\n", wantErr: "no \"### Required properties\" section"},
 		{name: "no table", doc: "# Doc\n\n" + propertiesHeading + "\n\nText only.\n\n## Next\n", wantErr: "no table"},
 		{name: "no Milestone column", doc: table("| Area | Property |", "| A | b |"), wantErr: "no Area and Milestone columns"},
-		{name: "a milestone that is not Planned (Mn)", doc: table("| Area | Milestone |", "| A | Shipped |"), wantErr: `Milestone "Shipped"`},
+		{name: "a milestone that is neither Planned (Mn) nor Mn", doc: table("| Area | Milestone |", "| A | Shipped |"), wantErr: `Milestone "Shipped" is neither`},
+		{name: "a release", doc: table("| Area | Milestone |", "| A | 0.1.0 |"), wantErr: `Milestone "0.1.0" is neither`},
+		{name: "a lower-case milestone", doc: table("| Area | Milestone |", "| A | m1 |"), wantErr: `Milestone "m1" is neither`},
+		{name: "a bare milestone with a leading zero", doc: table("| Area | Milestone |", "| A | M01 |"), wantErr: `Milestone "M01" is neither`},
+		{name: "a bare milestone before later parts", doc: table("| Area | Milestone |", "| A | M1; Planned (M2) |"), wantErr: `Milestone "M1; Planned (M2)" is neither`},
+		{name: "a tag without its milestone", doc: table("| Area | Milestone |", "| A | Planned |"), wantErr: `Milestone "Planned" is neither`},
 		{name: "a row with a missing cell", doc: table("| Area | Property | Milestone |", "| A | Planned (M1) |"), wantErr: "has 2 cells"},
 		{name: "an empty Area", doc: table("| Area | Milestone |", "|  | Planned (M1) |"), wantErr: "empty Area"},
 		{name: "a table without rows", doc: table("| Area | Milestone |", ""), wantErr: "no rows"},

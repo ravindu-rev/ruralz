@@ -28,12 +28,12 @@ The documentation is split by question. Each folder answers one kind of question
 | Folder | Question it answers | Main audience |
 |---|---|---|
 | `docs/vision/` | Why Ruralz exists, who it serves, the four differentiators and the principles `P1` to `P10` | Evaluators, everyone |
-| `docs/features/` | Which capabilities Ruralz plans, each with its milestone or a `Not planned` reason | Evaluators |
+| `docs/features/` | Which capabilities Ruralz plans, each with its release or milestone, or a `Not planned` reason | Evaluators |
 | `docs/architecture/` | How Ruralz Gateway, Ruralz Control, Ruralz Console, the State Store and the Control Store are designed, from the system overview to scalability and distributed state | Architects, contributors |
 | `docs/operations/` | How to deploy, upgrade, size and recover Ruralz in production | Operators |
 | `docs/engineering/` | Which libraries are used, how the repository is laid out, how code is tested and how releases are versioned | Contributors |
 | `docs/reference/` | The `ruralz` CLI, the admin APIs, the REST API and the Control Stream service | Operators, contributors, Plugin authors |
-| `docs/roadmap/` | The order of milestones `M1` to `M5`, their scope and exit criteria, and the steps left in the current milestone | Evaluators, contributors |
+| `docs/roadmap/` | The order of the milestones not yet exited, their scope and exit criteria, and the steps left in the current milestone | Evaluators, contributors |
 | `docs/adr/` | Architecture Decision Records: one decision each, with context, options and consequences | Architects, contributors |
 | `docs/` (root) | This index and the glossary of shared terms | Everyone |
 
@@ -166,7 +166,7 @@ These rules come from the [style guide](_meta/style-guide.md) and the [foundatio
 
 | Convention | What it means for a reader |
 |---|---|
-| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability: `M0` Foundations, `M1` Core gateway, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region, `M5` Enterprise hardening. `Not planned` always carries a reason. No capability is described as supported or shipped. |
+| Milestone tags | `Planned (Mx)` names the milestone that delivers a capability not yet released: `M0` Foundations, `M1` Core gateway, `M2` WASM + Control/GitOps, `M3` AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3, `M4` Event protocols + multi-region, `M5` Enterprise hardening. A released capability carries no tag, and the [Feature Catalog](features/01-feature-catalog.md) records its release. `Not planned` always carries a reason. No capability is described as supported or shipped. |
 | Number tags | Every performance or scale figure carries `(target)` (a design goal to be met) or `(hypothesis)` (an estimate to be measured) on the same line, unless that line cites a measurement. No untagged figure is a measured result. |
 | Open question IDs | Unresolved points are listed in the Open questions table of the owning document, with IDs `OQ-<docslug>-<n>` (for example `OQ-data-plane-3`) and a Blocking? column. A document that cites an unresolved point refers to its ID; an answered question leaves the table and its answer moves into the text. |
 | ADR IDs | Decisions are cited as `ADR-NNNN`; an ADR is edited in place when its decision changes. |

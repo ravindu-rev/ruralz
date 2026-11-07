@@ -6,6 +6,7 @@ package registry
 import (
 	"bufio"
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -30,7 +31,7 @@ type fpRow struct {
 	scopes  string
 	slot    string
 	failure string
-	planned string
+	planned string // "Planned (M2)", or empty for a released type
 }
 
 // readFoundationPackRegistry parses the section 10 table of the binding
@@ -110,8 +111,68 @@ func parseScopes(t *testing.T, s string) phase.ScopeSet {
 	return phase.Scopes(out...)
 }
 
+// checkPlanned checks the entry e against the Planned cell of its
+// foundation pack section 10 row, trimmed: an empty cell is a released
+// type, which the registry serves, and a Planned (Mn) tag is the entry's
+// Planned milestone, whichever Mn is and whether or not it is served.
+func checkPlanned(cell string, e Entry) error {
+	if cell == "" {
+		if !e.Served {
+			return fmt.Errorf("not served (Planned %s), but the pack's Planned cell is empty", e.Planned)
+		}
+		return nil
+	}
+	m := regexp.MustCompile(`^Planned \((M[0-9])\)$`).FindStringSubmatch(cell)
+	if m == nil {
+		return fmt.Errorf("the Planned cell %q is neither empty nor Planned (Mn)", cell)
+	}
+	if e.Planned != m[1] {
+		return fmt.Errorf("planned = %q, but the pack says %s", e.Planned, cell)
+	}
+	return nil
+}
+
+// TestCheckPlanned: an empty Planned cell needs a served type, and a
+// Planned (Mn) cell a type Planned at Mn, served or not; any other cell
+// fails.
+func TestCheckPlanned(t *testing.T) {
+	servedM1 := Entry{Type: v1alpha1.PolicyTypeRateLimit, Served: true, Planned: "M1"}
+	unservedM2 := Entry{Type: v1alpha1.PolicyTypePlugin, Planned: "M2"}
+	tests := []struct {
+		name  string
+		cell  string
+		entry Entry
+		want  string // a substring of the error; empty for none
+	}{
+		{name: "an empty cell of a served type", cell: "", entry: servedM1},
+		{name: "an empty cell of an unserved type", cell: "", entry: unservedM2, want: "not served (Planned M2), but the pack's Planned cell is empty"},
+		{name: "a Planned tag of the entry's milestone", cell: "Planned (M2)", entry: unservedM2},
+		{name: "a Planned tag of a served type's milestone", cell: "Planned (M1)", entry: servedM1},
+		{name: "a Planned tag of another milestone", cell: "Planned (M3)", entry: unservedM2, want: `planned = "M2", but the pack says Planned (M3)`},
+		{name: "a word", cell: "Shipped", entry: servedM1, want: "neither empty nor Planned (Mn)"},
+		{name: "a release", cell: "0.1.0", entry: servedM1, want: "neither empty nor Planned (Mn)"},
+		{name: "a bare milestone", cell: "M1", entry: servedM1, want: "neither empty nor Planned (Mn)"},
+		{name: "a Planned tag before later parts", cell: "Planned (M2); OPA Planned (M3)", entry: unservedM2, want: "neither empty nor Planned (Mn)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkPlanned(tc.cell, tc.entry)
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("checkPlanned(%q) = %v, want nil", tc.cell, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("checkPlanned(%q) = %v, want an error containing %q", tc.cell, err, tc.want)
+			}
+		})
+	}
+}
+
 // TestTableMatchesFoundationPack checks that the registry equals foundation
-// pack section 10 row by row, in row order (slots and defaults).
+// pack section 10 row by row, in row order (slots, defaults and the
+// Planned column, through checkPlanned).
 func TestTableMatchesFoundationPack(t *testing.T) {
 	reg := New()
 	rows := readFoundationPackRegistry(t)
@@ -122,7 +183,6 @@ func TestTableMatchesFoundationPack(t *testing.T) {
 	if got := reg.Types(); !slices.Equal(got, fpTypes) {
 		t.Fatalf("registry types = %v\nfoundation pack types = %v", got, fpTypes)
 	}
-	planned := regexp.MustCompile(`^Planned \((M[0-9])\)$`)
 	for _, row := range rows {
 		t.Run(string(row.typ), func(t *testing.T) {
 			e, ok := reg.Lookup(row.typ)
@@ -198,9 +258,8 @@ func TestTableMatchesFoundationPack(t *testing.T) {
 				t.Fatalf("allowed failureMode cell %q", allowed)
 			}
 
-			m := planned.FindStringSubmatch(row.planned)
-			if m == nil || e.Planned != m[1] {
-				t.Errorf("planned = %q, want %q", e.Planned, row.planned)
+			if err := checkPlanned(row.planned, e); err != nil {
+				t.Error(err)
 			}
 		})
 	}
@@ -294,7 +353,7 @@ func TestTableSpecRows(t *testing.T) {
 }
 
 // TestServedSet: RZ-CFG-040 applies to exactly plugin, authz.opa,
-// authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.* in M1.
+// authz.cedar, authz.geoip, auth.upstream-sigv4 and ai.*.
 func TestServedSet(t *testing.T) {
 	unserved := []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthzOPA, v1alpha1.PolicyTypeAuthzCedar, v1alpha1.PolicyTypeAuthzGeoIP,
@@ -329,8 +388,8 @@ func TestServedSet(t *testing.T) {
 	if reg.Served("rateLimit") {
 		t.Error("unknown type served")
 	}
-	// The served set is exactly the types whose Planned tag the release
-	// has reached: in M1, the Planned (M1) types.
+	// The served set is exactly the types whose Planned milestone
+	// ReleaseMilestone has reached.
 	release, ok := milestoneOf(ReleaseMilestone)
 	if !ok {
 		t.Fatalf("ReleaseMilestone %q is not a milestone", ReleaseMilestone)

@@ -7,7 +7,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -87,8 +89,9 @@ func TestRegistryIsValid(t *testing.T) {
 	}
 }
 
-// m1Paths are the runnable commands of milestone M1.
-func m1Paths() [][]string {
+// runnablePaths are the runnable commands: the rows of the reference's
+// command table that carry no Planned tag of their own.
+func runnablePaths() [][]string {
 	return [][]string{
 		{"bundle", "build"},
 		{"bundle", "diff"},
@@ -112,9 +115,10 @@ func specIndex(specs []command.Spec) map[string]command.Spec {
 	return out
 }
 
-// TestRegistryRunsTheM1Commands pins the runnable commands: exactly the
-// Planned (M1) rows of the reference's command table.
-func TestRegistryRunsTheM1Commands(t *testing.T) {
+// TestRegistryRunsTheReleasedCommands pins the runnable commands: exactly
+// the rows of the reference's command table that carry no Planned tag of
+// their own.
+func TestRegistryRunsTheReleasedCommands(t *testing.T) {
 	var got [][]string
 	for _, s := range Registry(testOptions()) {
 		if s.New != nil {
@@ -122,51 +126,197 @@ func TestRegistryRunsTheM1Commands(t *testing.T) {
 		}
 	}
 	slices.SortFunc(got, slices.Compare)
-	if want := m1Paths(); !slices.EqualFunc(got, want, slices.Equal) {
+	if want := runnablePaths(); !slices.EqualFunc(got, want, slices.Equal) {
 		t.Fatalf("runnable commands = %q, want %q", got, want)
 	}
 }
 
-// referenceRow is one row of the reference's command table.
-type referenceRow struct {
-	command   string // "ruralz bundle export openapi"
-	purpose   string // backticks removed
-	milestone string // the first Planned (Mx) of the Planned column
+// status is the Planned cell of a command row. An empty cell is a command
+// the release runs; a cell that opens with Planned (Mn) is a command not
+// built yet, recognized as Planned at Mn; a cell of later parts only, each
+// "<part> Planned (Mn)", is a command the release runs whose parts are
+// planned. Parts after the first follow "; ", as in "Planned (M2);
+// TypeScript Planned (M3)" or "Revision sources Planned (M2)".
+type status struct {
+	runs      bool   // the cell carries no Planned tag of the command's own
+	milestone string // "M2" of the command's own Planned (M2); empty when it runs
 }
 
-// referenceRows parses the "### Command table" section of the reference.
-func referenceRows(t *testing.T) []referenceRow {
-	t.Helper()
-	data, err := os.ReadFile(referenceDoc)
-	if err != nil {
-		t.Fatal(err)
+// parseStatus reads the Planned cell of a command row.
+func parseStatus(cell string) (status, error) {
+	cell = strings.TrimSpace(cell)
+	st := status{runs: true}
+	if cell == "" {
+		return st, nil
 	}
-	_, section, ok := strings.Cut(string(data), "### Command table\n")
-	if !ok {
-		t.Fatal("the reference has no Command table section")
-	}
-	section, _, _ = strings.Cut(section, "\n### ")
-	planned := regexp.MustCompile(`Planned \((M\d)\)`)
-	var rows []referenceRow
-	for _, line := range strings.Split(section, "\n") {
-		cells := strings.Split(strings.Trim(line, "|"), "|")
-		if len(cells) != 4 || !strings.HasPrefix(strings.TrimSpace(cells[0]), "`ruralz ") {
+	own := regexp.MustCompile(`^Planned \((M[0-9])\)$`)
+	part := regexp.MustCompile(`^\S.* Planned \(M[0-9]\)$`)
+	for i, p := range strings.Split(cell, "; ") {
+		if m := own.FindStringSubmatch(p); m != nil && i == 0 {
+			st = status{milestone: m[1]}
 			continue
 		}
-		m := planned.FindStringSubmatch(cells[3])
-		if m == nil {
-			t.Fatalf("row %q has no milestone", line)
+		if !part.MatchString(p) || strings.Count(p, "Planned (") != 1 {
+			return status{}, fmt.Errorf("the Planned cell %q is neither empty, Planned (Mn) nor later parts each tagged Planned (Mn)", cell)
 		}
-		rows = append(rows, referenceRow{
-			command:   strings.Trim(strings.TrimSpace(cells[0]), "`"),
-			purpose:   strings.ReplaceAll(strings.TrimSpace(cells[1]), "`", ""),
-			milestone: m[1],
+	}
+	return st, nil
+}
+
+// checkStatus checks the registered command s against the status of its
+// row: a row without a Planned tag of its own runs it, and a Planned (Mn)
+// tag leaves it Planned at Mn.
+func checkStatus(st status, s command.Spec) error {
+	switch {
+	case st.runs:
+		if s.New == nil {
+			return errors.New("does not run, but its row carries no Planned tag of its own")
+		}
+	case s.New != nil:
+		return fmt.Errorf("runs, but its row is Planned (%s)", st.milestone)
+	case s.Planned != st.milestone:
+		return fmt.Errorf("is Planned (%s), but its row is Planned (%s)", s.Planned, st.milestone)
+	}
+	return nil
+}
+
+// commandRow is one row of a command table: the reference's command table
+// or the CLI command registry of the foundation pack.
+type commandRow struct {
+	command string // "ruralz bundle export openapi"
+	purpose string // backticks removed
+	status  status // the last cell
+}
+
+// commandRows parses the command table in section: its lines of exactly
+// columns cells whose first cell is a ruralz command. doc names the
+// document in failures.
+func commandRows(t *testing.T, doc, section string, columns int) []commandRow {
+	t.Helper()
+	var rows []commandRow
+	for _, line := range strings.Split(section, "\n") {
+		cells := strings.Split(strings.Trim(line, "|"), "|")
+		cmd := strings.Trim(strings.TrimSpace(cells[0]), "`")
+		if len(cells) != columns || !strings.HasPrefix(cmd, Program+" ") {
+			continue
+		}
+		st, err := parseStatus(cells[columns-1])
+		if err != nil {
+			t.Fatalf("%s: row %q: %v", doc, line, err)
+		}
+		rows = append(rows, commandRow{
+			command: cmd,
+			purpose: strings.ReplaceAll(strings.TrimSpace(cells[1]), "`", ""),
+			status:  st,
 		})
 	}
 	if len(rows) < 30 {
-		t.Fatalf("parsed %d rows of the command table", len(rows))
+		t.Fatalf("%s: parsed %d rows of the command table", doc, len(rows))
 	}
 	return rows
+}
+
+// docSection returns the text of the document doc after its heading line,
+// up to next, the start of the following heading.
+func docSection(t *testing.T, doc, heading, next string) string {
+	t.Helper()
+	data, err := os.ReadFile(doc) //nolint:gosec // G304: a fixed document of the repository.
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(string(data), heading+"\n")
+	if !ok {
+		t.Fatalf("%s has no %q section", doc, heading)
+	}
+	section, _, _ = strings.Cut(section, next)
+	return section
+}
+
+// referenceRows parses the "### Command table" section of the reference.
+func referenceRows(t *testing.T) []commandRow {
+	t.Helper()
+	return commandRows(t, referenceDoc, docSection(t, referenceDoc, "### Command table", "\n### "), 4)
+}
+
+// packRows parses the "## 9. CLI command registry" section of the
+// foundation pack.
+func packRows(t *testing.T) []commandRow {
+	t.Helper()
+	return commandRows(t, packDoc, docSection(t, packDoc, "## 9. CLI command registry", "\n## "), 3)
+}
+
+// TestParseStatus reads the Planned cells of command rows: empty, a
+// Planned (Mn) tag of the command's own, alone or before tagged later
+// parts, or tagged later parts only; anything else fails.
+func TestParseStatus(t *testing.T) {
+	runs := status{runs: true}
+	tests := []struct {
+		name string
+		cell string
+		want status
+		err  bool
+	}{
+		{name: "an empty cell", cell: "", want: runs},
+		{name: "a cell of spaces", cell: "  ", want: runs},
+		{name: "a Planned tag", cell: " Planned (M2) ", want: status{milestone: "M2"}},
+		{name: "a Planned tag before later parts", cell: "Planned (M2); TypeScript Planned (M3); C# Planned (M4)", want: status{milestone: "M2"}},
+		{name: "a Planned tag of an exited milestone", cell: "Planned (M1)", want: status{milestone: "M1"}},
+		{name: "a later part of a command that runs", cell: "Revision sources Planned (M2)", want: runs},
+		{name: "later parts of a command that runs", cell: "Revision sources Planned (M2); OCI sources Planned (M3)", want: runs},
+		{name: "a word", cell: "Shipped", err: true},
+		{name: "a release", cell: "0.1.0", err: true},
+		{name: "a release before later parts", cell: "0.1.0; Revision sources Planned (M2)", err: true},
+		{name: "a bare milestone", cell: "M1", err: true},
+		{name: "a part without a tag", cell: "Revision sources", err: true},
+		{name: "a Planned tag run into later text", cell: "Planned (M2) HTTP", err: true},
+		{name: "a later part without a tag", cell: "Planned (M2); TypeScript", err: true},
+		{name: "a second tag of the command's own", cell: "Planned (M2); Planned (M3)", err: true},
+		{name: "a tag of the command's own after a part", cell: "Revision sources Planned (M2); Planned (M3)", err: true},
+		{name: "a part of two tags", cell: "Planned (M2) Planned (M3)", err: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := parseStatus(tc.cell)
+			if (err != nil) != tc.err || got != tc.want {
+				t.Errorf("parseStatus(%q) = %+v, %v; want %+v, error %v", tc.cell, got, err, tc.want, tc.err)
+			}
+		})
+	}
+}
+
+// TestCheckStatus: a row without a Planned tag of its own needs a runnable
+// command, and a Planned (Mn) row a command Planned at Mn, whichever
+// milestone Mn is.
+func TestCheckStatus(t *testing.T) {
+	runs := command.Spec{Path: []string{"bundle", "build"}, New: func() command.Command { return nil }}
+	plannedM2 := command.Spec{Path: []string{"bundle", "push"}, Planned: "M2"}
+	tests := []struct {
+		name string
+		st   status
+		spec command.Spec
+		want string // a substring of the error; empty for none
+	}{
+		{name: "an untagged row whose command runs", st: status{runs: true}, spec: runs},
+		{name: "an untagged row whose command is Planned", st: status{runs: true}, spec: plannedM2, want: "does not run, but its row carries no Planned tag of its own"},
+		{name: "a Planned row whose command is Planned at its milestone", st: status{milestone: "M2"}, spec: plannedM2},
+		{name: "a Planned row whose command runs", st: status{milestone: "M2"}, spec: runs, want: "runs, but its row is Planned (M2)"},
+		{name: "a Planned (M1) row whose command runs", st: status{milestone: "M1"}, spec: runs, want: "runs, but its row is Planned (M1)"},
+		{name: "a Planned row whose command is Planned at another milestone", st: status{milestone: "M3"}, spec: plannedM2, want: "is Planned (M2), but its row is Planned (M3)"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			err := checkStatus(tc.st, tc.spec)
+			if tc.want == "" {
+				if err != nil {
+					t.Errorf("checkStatus() = %v, want nil", err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("checkStatus() = %v, want an error containing %q", err, tc.want)
+			}
+		})
+	}
 }
 
 // specPath returns the table path of a reference command: its noun and
@@ -181,9 +331,9 @@ func specPath(command string) string {
 
 // TestRegistryMatchesReference checks every row of the reference's command
 // table against the table: the command is registered, runnable exactly
-// when the row is Planned (M1), else Planned with the row's milestone, and
-// a command that one row describes alone has the row's purpose as its
-// summary.
+// when the row's Planned cell carries no tag of the command's own, else
+// Planned at the milestone of that Planned (Mn) tag, and a command that
+// one row describes alone has the row's purpose as its summary.
 func TestRegistryMatchesReference(t *testing.T) {
 	specs := specIndex(Registry(testOptions()))
 	rows := referenceRows(t)
@@ -198,11 +348,8 @@ func TestRegistryMatchesReference(t *testing.T) {
 			t.Errorf("%s is not registered", r.command)
 			continue
 		}
-		switch {
-		case r.milestone == "M1" && s.New == nil:
-			t.Errorf("%s is Planned (M1) but not runnable", r.command)
-		case r.milestone != "M1" && s.Planned != r.milestone:
-			t.Errorf("%s: Planned %q, want %q", r.command, s.Planned, r.milestone)
+		if err := checkStatus(r.status, s); err != nil {
+			t.Errorf("%s %v", r.command, err)
 		}
 		if perPath[p] == 1 && s.Summary != r.purpose {
 			t.Errorf("%s: summary %q, want the reference's purpose %q", r.command, s.Summary, r.purpose)
@@ -212,39 +359,28 @@ func TestRegistryMatchesReference(t *testing.T) {
 		if s.IsNoun() {
 			continue
 		}
-		if !slices.ContainsFunc(rows, func(r referenceRow) bool { return specPath(r.command) == name }) {
+		if !slices.ContainsFunc(rows, func(r commandRow) bool { return specPath(r.command) == name }) {
 			t.Errorf("ruralz %s is registered but the reference's command table lacks it", name)
 		}
 	}
 }
 
 // TestRegistryCoversThePack checks that the table holds every command of
-// the CLI command registry (foundation pack section 9) and only its nouns.
+// the CLI command registry (foundation pack section 9), runnable exactly
+// when the row's Planned cell carries no tag of the command's own, else
+// Planned at the milestone of that Planned (Mn) tag, and only the
+// registry's nouns.
 func TestRegistryCoversThePack(t *testing.T) {
-	data, err := os.ReadFile(packDoc)
-	if err != nil {
-		t.Fatal(err)
-	}
-	_, section, ok := strings.Cut(string(data), "## 9. CLI command registry\n")
-	if !ok {
-		t.Fatal("the foundation pack has no CLI command registry")
-	}
-	section, _, _ = strings.Cut(section, "\n## ")
 	specs := specIndex(Registry(testOptions()))
-	n := 0
-	for _, line := range strings.Split(section, "\n") {
-		cells := strings.Split(strings.Trim(line, "|"), "|")
-		cmd := strings.Trim(strings.TrimSpace(cells[0]), "`")
-		if len(cells) != 3 || !strings.HasPrefix(cmd, Program+" ") {
+	for _, r := range packRows(t) {
+		s, ok := specs[specPath(r.command)]
+		if !ok {
+			t.Errorf("%s of the CLI command registry is not registered", r.command)
 			continue
 		}
-		n++
-		if _, ok := specs[specPath(cmd)]; !ok {
-			t.Errorf("%s of the CLI command registry is not registered", cmd)
+		if err := checkStatus(r.status, s); err != nil {
+			t.Errorf("%s of the CLI command registry %v", r.command, err)
 		}
-	}
-	if n < 30 {
-		t.Fatalf("parsed %d commands of the CLI command registry", n)
 	}
 	nouns := []string{"bundle", "rollout", "plugin", "ai", "dev", "node", "control", "test"}
 	for name := range specs {
@@ -271,7 +407,7 @@ func TestGoldenHelp(t *testing.T) {
 	for _, noun := range []string{"bundle", "dev", "node"} {
 		cases = append(cases, form{noun, [][]string{{noun, "--help"}, {"help", noun}}})
 	}
-	for _, p := range m1Paths() {
+	for _, p := range runnablePaths() {
 		cases = append(cases, form{strings.Join(p, "-"), [][]string{
 			append(slices.Clone(p), "--help"),
 			append([]string{"help"}, p...),

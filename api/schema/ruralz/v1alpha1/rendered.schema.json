@@ -1731,7 +1731,7 @@
           ]
         },
         "trustedProxies": {
-          "description": "TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty. Planned (M1).",
+          "description": "TrustedProxies are CIDRs whose forwarding headers set source.ip; default empty.",
           "items": {
             "type": "string"
           },
@@ -2192,7 +2192,7 @@
         },
         "proxyProtocol": {
           "default": false,
-          "description": "ProxyProtocol, when true, requires PROXY protocol v2 on this listener. Planned (M1).",
+          "description": "ProxyProtocol, when true, requires PROXY protocol v2 on this listener.",
           "type": "boolean",
           "x-ruralz-impact": [
             "security"
@@ -3833,7 +3833,7 @@
         },
         "provider": {
           "$ref": "#/$defs/SecretProvider",
-          "description": "Provider resolves the secret: env and file are Planned (M1), kubernetes and vault Planned (M2)."
+          "description": "Provider resolves the secret: env or file; kubernetes and vault are Planned (M2)."
         }
       },
       "required": [
@@ -3928,7 +3928,7 @@
         "topology": {
           "$ref": "#/$defs/StateStoreTopology",
           "default": "standalone",
-          "description": "Topology applies to redis only. Planned (M1)."
+          "description": "Topology applies to redis only."
         },
         "url": {
           "$ref": "#/$defs/SecretValue",

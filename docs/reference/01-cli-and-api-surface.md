@@ -84,10 +84,10 @@ Every command from pack 9 and other documents, plus `ruralz rollout reject`; Fig
 
 | Command | Purpose | Arguments and command flags | Planned |
 |---|---|---|---|
-| `ruralz bundle validate` | Offline validation, source-mapped diagnostics | `[DIR]`, Bundle flags, `--online` (Plugin artifact check) | Planned (M1) |
-| `ruralz bundle render` | Render one Environment's one-file Bundle | `[DIR]`, Bundle flags, `--effective` (resolved Filter Chains of every Route, or with `--route NAME` of one), `--api-version VERSION --output-dir DIR` (conversion), `--output-file` | Planned (M1) |
-| `ruralz bundle diff` | Compare FROM with TO | `FROM TO` (forms below), Bundle flags, `--from-env`, `--to-env`, per-side admin credentials `--from-admin-token-file PATH`, `--to-admin-token-file PATH`, `--from-client-cert PATH`, `--from-client-key PATH`, `--to-client-cert PATH`, `--to-client-key PATH`, `--timeout DURATION` (default 5m (target)) | Planned (M1); Revision sources Planned (M2) |
-| `ruralz bundle build` | Build a Revision, print its digest | `[DIR]`, Bundle flags, `--offline` (no Plugin check), `--output-file` (`ruralz.canonical.v1`) | Planned (M1) |
+| `ruralz bundle validate` | Offline validation, source-mapped diagnostics | `[DIR]`, Bundle flags, `--online` (Plugin artifact check) | |
+| `ruralz bundle render` | Render one Environment's one-file Bundle | `[DIR]`, Bundle flags, `--effective` (resolved Filter Chains of every Route, or with `--route NAME` of one), `--api-version VERSION --output-dir DIR` (conversion), `--output-file` | |
+| `ruralz bundle diff` | Compare FROM with TO | `FROM TO` (forms below), Bundle flags, `--from-env`, `--to-env`, per-side admin credentials `--from-admin-token-file PATH`, `--to-admin-token-file PATH`, `--from-client-cert PATH`, `--from-client-key PATH`, `--to-client-cert PATH`, `--to-client-key PATH`, `--timeout DURATION` (default 5m (target)) | Revision sources Planned (M2) |
+| `ruralz bundle build` | Build a Revision, print its digest | `[DIR]`, Bundle flags, `--offline` (no Plugin check), `--output-file` (`ruralz.canonical.v1`) | |
 | `ruralz bundle push` | Send source to Ruralz Control, or a signed Revision to OCI | `[DIR]`, `--env` (required), `--oci REFERENCE`, `--key PATH` (else Sigstore keyless) | Planned (M2) |
 | `ruralz bundle import openapi` | Routes and Upstreams from OpenAPI 3.x | `FILE`, `--output-dir DIR` | Planned (M2) |
 | `ruralz bundle export openapi` | OpenAPI 3.x for HTTP Routes | `[DIR]`, Bundle flags, `--output-file` | Planned (M2) |
@@ -109,19 +109,19 @@ Every command from pack 9 and other documents, plus `ruralz rollout reject`; Fig
 | `ruralz plugin inspect` | ABI, Phases, Capabilities, digest, signatures | `REFERENCE` | Planned (M2) |
 | `ruralz ai cost` | Cost attribution from provider-reported usage | `FILE...` or standard input, `--group-by` | Planned (M3) |
 | `ruralz ai models` | List `AIModel` candidates | `[DIR]` with Bundle flags, or `--revision sha256:DIGEST` | Planned (M3) |
-| `ruralz dev run` | Local `ruralzd` with Hot Reload | `[DIR]`, Bundle flags, `--secret-overrides FILE`, `--ephemeral-ports`, `--memory-state-store`, `--ready-timeout DURATION` (default 30s (target)), `--ruralzd PATH` | Planned (M1) |
-| `ruralz dev tap` | Stream redacted `/tap` metadata | `--route NAME` (client-side filter), `--sample RATE` (in (0, 1], default 1) | Planned (M1) |
+| `ruralz dev run` | Local `ruralzd` with Hot Reload | `[DIR]`, Bundle flags, `--secret-overrides FILE`, `--ephemeral-ports`, `--memory-state-store`, `--ready-timeout DURATION` (default 30s (target)), `--ruralzd PATH` | |
+| `ruralz dev tap` | Stream redacted `/tap` metadata | `--route NAME` (client-side filter), `--sample RATE` (in (0, 1], default 1) | |
 | `ruralz node list` | Nodes with active and Last-Known-Good digests | `--cluster NAME` | Planned (M2) |
-| `ruralz node drain` | Drain the local `ruralzd` | `--data-dir PATH` (default `RURALZ_DATA_DIR`, else `/var/lib/ruralz`), `--timeout DURATION` (default 5m (target)) | Planned (M1) |
-| `ruralz node dump` | Save `/config/dump`, secrets omitted | `--output-file`, `--timeout DURATION` (default 5m (target)) | Planned (M1) |
+| `ruralz node drain` | Drain the local `ruralzd` | `--data-dir PATH` (default `RURALZ_DATA_DIR`, else `/var/lib/ruralz`), `--timeout DURATION` (default 5m (target)) | |
+| `ruralz node dump` | Save `/config/dump`, secrets omitted | `--output-file`, `--timeout DURATION` (default 5m (target)) | |
 | `ruralz node token` | One-time Enrollment token | `--cluster NAME`, `--output-file` (owner-only permissions) | Planned (M2) |
 | `ruralz node revoke` | Revoke an enrollment identity | `NODE_ID` | Planned (M2) |
 | `ruralz control serve` | Launch a `ruralz-control` replica | `--data-dir PATH`; arguments after `--` pass through | Planned (M2) |
 | `ruralz control join` | Get a new replica's peer certificate | `--data-dir PATH`, `--peer HOST:8092`, `--advertise HOST:8092` (required), `--join-token-file PATH` | Planned (M2) |
 | `ruralz control backup` | Snapshot the Control Store and Node revocation list | `--output-file` (required), `--revocation-list-file PATH` | Planned (M2) |
 | `ruralz control restore` | Restore into an empty deployment | `--data-dir PATH` with `--prepare`, or with `FILE`, `--advertise HOST:8092`, `--anchor-set PATH`, `--backup-key-file PATH`, `--revocation-list PATH` | Planned (M2) |
-| `ruralz version` | Version, commit, flavor, levels | None | Planned (M1) |
-| `ruralz completion` | Shell completion script | `bash`, `zsh`, `fish` or `powershell` | Planned (M1) |
+| `ruralz version` | Version, commit, flavor, levels | None | |
+| `ruralz completion` | Shell completion script | `bash`, `zsh`, `fish` or `powershell` | |
 
 ### Platform support
 
@@ -131,7 +131,7 @@ Launched or signaled binaries follow [Static builds](../engineering/01-tech-stac
 |---|---|---|---|
 | All others | As tagged | As tagged | As tagged |
 | `ruralz dev run`, `ruralz test run --bundle` | As tagged | Development only, like `ruralzd` | Not planned: no `ruralzd` build; use `--target URL` or WSL |
-| `ruralz node drain` | Planned (M1) | Not planned: needs `/proc/locks` | Not planned: no `ruralzd`, no SIGTERM |
+| `ruralz node drain` | As tagged | Not planned: needs `/proc/locks` | Not planned: no `ruralzd`, no SIGTERM |
 | `ruralz control serve`, `ruralz control join`, `ruralz control restore` | Planned (M2) | Development only, like `ruralz-control` | Not planned: no `ruralz-control` build |
 
 ### Global flags
@@ -165,9 +165,9 @@ With `--environments` and no `--env`, `ruralz bundle validate` and `ruralz bundl
 
 | Source form | Meaning | JSON member | Planned |
 |---|---|---|---|
-| Directory, such as `./shop-bundle` | A source Bundle rendered with `--env`, or per side with `--from-env` and `--to-env` | `bundle` | Planned (M1) |
-| File | A rendered Bundle, or saved `ruralz node dump` output | `bundle`, or `dump` | Planned (M1) |
-| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, compared by hand | `admin` | Planned (M1) |
+| Directory, such as `./shop-bundle` | A source Bundle rendered with `--env`, or per side with `--from-env` and `--to-env` | `bundle` | |
+| File | A rendered Bundle, or saved `ruralz node dump` output | `bundle`, or `dump` | |
+| Admin URL, such as `https://node-a.shop.example:9901` | A live Node's `/config/dump`, compared by hand | `admin` | |
 | `rev-<12 hex>` or `sha256:<64 hex>` | A Revision fetched from `revisions` | None | Planned (M2) |
 | `oci://REPOSITORY@sha256:<64 hex>` | A Revision from `ruralz bundle push --oci`, verified by digest and signature | None | Planned (M2) |
 
@@ -197,7 +197,7 @@ The command then builds both trees for every Environment of the required `--envi
 
 `ruralz rollout approve --env prod` shows the queued record's source, digest and diff impact, then approves it for every Cluster of the Environment, sending the displayed digest on a terminal, else `--digest`, so a record a newer commit replaced is never approved. `ruralz rollout reject` follows the same rules; the server enforces separation of duties (`RZ-CP-007`).
 
-For Planned (M1), `ruralz node drain` sends a local SIGTERM that starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The process holding the `flock` on `${RURALZ_DATA_DIR}/lock` writes `holder.json` beside it atomically on taking it; readers ignore unknown members:
+`ruralz node drain` sends a local SIGTERM that starts a Drain, like a process manager ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). The process holding the `flock` on `${RURALZ_DATA_DIR}/lock` writes `holder.json` beside it atomically on taking it; readers ignore unknown members:
 
 | Member | Contents |
 |---|---|
@@ -309,7 +309,7 @@ cases:
 ### Worked example: pull request and promotion
 
 ```bash
-# Pull request CI, per Environment (Planned (M1); diff against a Revision and ruralz test run Planned (M2)).
+# Pull request CI, per Environment (diff against a Revision and ruralz test run Planned (M2)).
 CONTROL="--control https://control.shop.example:8090 --token-file /run/secrets/ruralz-ci-token"
 ruralz bundle validate --environments control/environments.yaml --output json ./bundle   # every Environment
 ruralz bundle build --env prod --environments control/environments.yaml ./bundle
@@ -332,14 +332,14 @@ ruralz rollout status --control https://control.shop.example:8090 --token-file ~
 
 | Path on 9901 | Method | Returns | Authentication | Used by | Planned |
 |---|---|---|---|---|---|
-| `/healthz` | GET | 200 while the process responds | MAY be open | Liveness probes | Planned (M1) |
-| `/readyz` | GET | 200 when ready, else 503 with reasons; never fails for a lost Control Stream | MAY be open | Probes, local `ruralzd` launcher | Planned (M1) |
-| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
-| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles; mutex and block only during a `?seconds=` request | Operator token or client certificate | Profiling | Planned (M1) |
-| `/debug/snapshots` | GET | Snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
-| `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |
-| `/config/dump` | GET | Active Revision in `ruralz.canonical.v1` form with its full digest and Last-Known-Good digest; secrets omitted; 503 `RZ-RT-024` before the first activation | Same | `ruralz node dump`, `ruralz bundle diff` | Planned (M1) |
-| `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted | Same | `ruralz dev tap` | Planned (M1) |
+| `/healthz` | GET | 200 while the process responds | MAY be open | Liveness probes | |
+| `/readyz` | GET | 200 when ready, else 503 with reasons; never fails for a lost Control Stream | MAY be open | Probes, local `ruralzd` launcher | |
+| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | |
+| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles; mutex and block only during a `?seconds=` request | Operator token or client certificate | Profiling | |
+| `/debug/snapshots` | GET | Snapshots with digests and pin counts | Same | Hot Reload debugging | |
+| `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | |
+| `/config/dump` | GET | Active Revision in `ruralz.canonical.v1` form with its full digest and Last-Known-Good digest; secrets omitted; 503 `RZ-RT-024` before the first activation | Same | `ruralz node dump`, `ruralz bundle diff` | |
+| `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted | Same | `ruralz dev tap` | |
 
 Admin paths never change configuration or Node state: a leaked admin token cannot alter routing or drain a Node, but can load a Node via profiles and `/tap`, and heap profiles can hold resolved secrets: guard it like a TLS key.
 
@@ -457,9 +457,9 @@ Every surface denies by default; only `/healthz` and `/readyz` MAY be open (pack
 
 | Surface | Port | Credential | Authorization | On failure | Planned |
 |---|---|---|---|---|---|
-| Admin `/healthz`, `/readyz` | 9901, 9902 | None | None | Not applicable | Planned (M1); 9902 Planned (M2) |
-| Admin `/metrics` | 9901, 9902 | Metrics or operator token, or client certificate, on every interface including loopback | Read-only | 401 RZ-AUTH-001 or RZ-AUTH-002 | Planned (M1); 9902 Planned (M2) |
-| Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | Same | Planned (M1); 9902 Planned (M2) |
+| Admin `/healthz`, `/readyz` | 9901, 9902 | None | None | Not applicable | 9902 Planned (M2) |
+| Admin `/metrics` | 9901, 9902 | Metrics or operator token, or client certificate, on every interface including loopback | Read-only | 401 RZ-AUTH-001 or RZ-AUTH-002 | 9902 Planned (M2) |
+| Admin `/debug/*`, `/config/dump`, `/tap` | 9901 (`/debug/*` also 9902) | Operator token or client certificate; off without an operator token | Read-only | Same | 9902 Planned (M2) |
 | REST API | 8090 | Session cookie (Ruralz Console) or API token, TLS 1.3 by default | Roles bound globally, per Environment or per Cluster; step-up TOTP for approvals, reverts, trust uploads and Access changes | 401 for failed authentication (code: OQ-cli-and-api-surface-12); `RZ-CP-007` for RBAC or separation-of-duties denials; audited | Planned (M2) |
 | Forge webhook | 8090 `/api/v1/hooks/git` | Per-source HMAC | Triggers an authenticated fetch only | `RZ-CP-018` | Planned (M2) |
 | Control Stream `Enroll` | 8091 | One-time token, or in Kubernetes a projected service account token (OQ-deployment-topologies-24), over TLS with a pinned server CA (TB-5) | One Cluster; token consumed | `RZ-CP-001` (token rejected), `RZ-CP-002` (`node.id` already enrolled); lockout per source address and the token's Cluster ([Enrollment and mTLS](../architecture/04-control-plane-and-gitops.md#enrollment-and-mtls)) | Planned (M2) |
