@@ -136,14 +136,17 @@ func PartitionSlot(k statestore.CacheKey) uint16 {
 }
 
 // SlotOf returns the slot of a consumptive call's keys (GCRA and Quota:
-// the config.key digest's tag), or -1 for a call without one slot (a
-// Response Cache lookup reads the generation and the partition, two tags).
+// the config.key digest's tag; a Plugin increment: its rzplg: key), or -1
+// for a call without one slot (a Response Cache lookup reads the
+// generation and the partition, two tags).
 func SlotOf(c *statestore.Call) int {
 	switch c.Kind {
 	case statestore.OpGCRA:
 		return int(DigestSlot(c.GCRA.Digest))
 	case statestore.OpQuota:
 		return int(DigestSlot(c.Quota.Digest))
+	case statestore.OpPluginIncr:
+		return int(SlotString(c.Plugin.Key))
 	default:
 		return -1
 	}
@@ -151,7 +154,7 @@ func SlotOf(c *statestore.Call) int {
 
 // WriteSlot returns the slot of a post-commit write's keys, or -1 for an
 // unknown kind: a refund's counter, a store's or lease's partition, an
-// invalidation's generation key.
+// invalidation's generation key, a Plugin increment's rzplg: key.
 func WriteSlot(w *statestore.Write) int {
 	switch w.Kind {
 	case statestore.OpRefund:
@@ -163,6 +166,8 @@ func WriteSlot(w *statestore.Write) int {
 		return int(PartitionSlot(w.Cache.Key))
 	case statestore.OpCacheInvalidate:
 		return int(DigestSlot(w.Invalidate))
+	case statestore.OpPluginIncr:
+		return int(SlotString(w.Plugin.Key))
 	default:
 		return -1
 	}

@@ -225,8 +225,9 @@ const (
 )
 
 // State Store op labels, in catalog.Ops() order: gcra, quota, cache_get,
-// script_multi, pipeline, cache_set, cache_invalidate, refund. They index
-// StateMetrics; statestore.OpKind.Label and RoundTrip.Label map onto them.
+// script_multi, pipeline, cache_set, cache_invalidate, refund, plugin_get,
+// plugin_incr. They index StateMetrics; statestore.OpKind.Label and
+// RoundTrip.Label map onto them.
 const (
 	StateOpGCRA = iota
 	StateOpQuota
@@ -236,6 +237,8 @@ const (
 	StateOpCacheSet
 	StateOpCacheInvalidate
 	StateOpRefund
+	StateOpPluginGet
+	StateOpPluginIncr
 	NumStateOps
 )
 
@@ -259,11 +262,12 @@ const (
 )
 
 // Post-commit write kinds, in catalog.WriteKinds() order: refund,
-// cache_set, cache_invalidate.
+// cache_set, cache_invalidate, plugin_incr.
 const (
 	WriteRefund = iota
 	WriteCacheSet
 	WriteCacheInvalidate
+	WritePluginIncr
 	NumWriteKinds
 )
 

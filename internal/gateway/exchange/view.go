@@ -135,6 +135,10 @@ func (v *view) Final() filter.Final {
 // PolicyState implements filter.Exchange: the calling Policy's slot.
 func (v *view) PolicyState() *any { return v.slots.at(v.cur) }
 
+// SharedState implements filter.Exchange: the calling Policy's
+// request-wide slot.
+func (v *view) SharedState() *filter.SharedSlot { return (*Request)(v).sharedAt(v.cur) }
+
 // Stripe implements filter.Exchange.
 func (v *view) Stripe() emit.Stripe { return v.stripe }
 

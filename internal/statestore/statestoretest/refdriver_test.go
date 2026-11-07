@@ -126,6 +126,11 @@ func (r *refDriver) Consume(ctx context.Context, rb *statestore.RequestBudget, c
 	for _, c := range group {
 		var allowed bool
 		switch c.Kind {
+		case statestore.OpPluginIncr:
+			if !r.pluginIncr(&c.Plugin) {
+				return fail(statestore.ErrFailed)
+			}
+			allowed = true
 		case statestore.OpGCRA:
 			g := &c.GCRA
 			if !r.model.GCRA(now, g) {
@@ -181,6 +186,15 @@ func (r *refDriver) Read(ctx context.Context, rb *statestore.RequestBudget, call
 			c.Err = statestore.ErrNotAttempted
 			continue
 		}
+		if c.Kind == statestore.OpPluginGet {
+			v, held := r.get(c.Plugin.Key)
+			c.Plugin.Found, c.Plugin.Value = held, nil
+			if held {
+				c.Plugin.Value = []byte(v)
+			}
+			c.Done = true
+			continue
+		}
 		l := &c.Lookup
 		if !l.SkipToken {
 			gen, held := r.get(string(keys.AppendCacheGeneration(nil, l.Key.URI)))
@@ -225,6 +239,12 @@ func (r *refDriver) Write(ctx context.Context, batch []*statestore.Write) {
 				r.model.Refund(w.Refund)
 				w.Applied = true
 			}
+		case w.Kind == statestore.OpPluginIncr:
+			if !r.pluginIncr(&w.Plugin) {
+				w.Err = statestore.ErrFailed
+				continue
+			}
+			w.Applied = true
 		case w.Kind == statestore.OpCacheInvalidate:
 			r.str[string(keys.AppendCacheGeneration(nil, w.Invalidate))] = refValue{string(keys.AppendToken(nil, w.Bump)), r.nowMs() + genTTLMs}
 			w.Applied = true
@@ -418,4 +438,28 @@ func TestConformanceReferenceDriver(t *testing.T) {
 			h.f[field] = edit(h.f[field])
 		},
 	})
+}
+
+// pluginIncr applies a Plugin increment as the library's p kind does;
+// false for an overflow or a TTL below 1 ms.
+func (r *refDriver) pluginIncr(ps *statestore.PluginState) bool {
+	if ps.TTL < time.Millisecond {
+		return false
+	}
+	var n int64
+	exp := int64(math.MaxInt64)
+	if v, held := r.get(ps.Key); held {
+		n, _ = strconv.ParseInt(v, 10, 64)
+		exp = r.str[ps.Key].exp
+	}
+	if (ps.Delta > 0 && n > math.MaxInt64-ps.Delta) || (ps.Delta < 0 && n < math.MinInt64-ps.Delta) {
+		return false
+	}
+	n += ps.Delta
+	if exp == math.MaxInt64 {
+		exp = r.nowMs() + ps.TTL.Milliseconds()
+	}
+	r.str[ps.Key] = refValue{strconv.FormatInt(n, 10), exp}
+	ps.N = n
+	return true
 }

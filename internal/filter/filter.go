@@ -558,12 +558,36 @@ type Exchange interface {
 	// pointer to state it pools itself (no allocation) and releases it in
 	// Finish. On a leg view the slot is private to that leg.
 	PolicyState() *any
+	// SharedState returns the request-wide slot of the Policy being run,
+	// which the client view and every leg view of the request share: an
+	// Upstream-scope Plugin's per-request state, so later attempts and
+	// composition steps replay its State Store result. Legs of an aggregate
+	// composition run concurrently, so a Filter holds its lock while it
+	// uses the value. It holds nil at the request's first use and is
+	// dropped when the request ends; never nil.
+	SharedState() *SharedSlot
 	// Stripe returns the request's metric stripe for emit handles.
 	Stripe() emit.Stripe
 	// RouteMetrics returns the matched Route's handles (the Response Cache
 	// records ruralz_cache_requests_total there); never nil.
 	RouteMetrics() *emit.RouteMetrics
 }
+
+// SharedSlot is one Policy's request-wide state (Exchange.SharedState).
+// Lock guards the value Value points to.
+type SharedSlot struct {
+	mu sync.Mutex
+	v  any
+}
+
+// Lock locks the slot.
+func (s *SharedSlot) Lock() { s.mu.Lock() }
+
+// Unlock unlocks the slot.
+func (s *SharedSlot) Unlock() { s.mu.Unlock() }
+
+// Value returns the slot's value, valid under the lock.
+func (s *SharedSlot) Value() *any { return &s.v }
 
 // Filter is a compiled Policy at one attachment environment. Handle is
 // called for each Phase the Policy subscribes to, on the request

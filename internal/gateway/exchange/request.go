@@ -103,6 +103,10 @@ type Request struct {
 	span  emit.Span
 	whens decisions
 	slots slots
+	// shared are the request-wide slots of filter.Exchange.SharedState by
+	// Policy name, which legs reach under legMu: leg Policies are indexed
+	// within their leg, and one Policy may run on several Upstreams.
+	shared map[string]*filter.SharedSlot
 
 	ident *filter.Identity
 	// acct charges decoded values and Filter reservations.
@@ -473,6 +477,9 @@ func (x *Request) reset() {
 	x.genIdx = 0
 	x.whens.reset()
 	x.slots.reset()
+	x.legMu.Lock()
+	clear(x.shared)
+	x.legMu.Unlock()
 	x.rec.reset()
 	x.charges.reset()
 	x.bodyDec.v = decoded{}

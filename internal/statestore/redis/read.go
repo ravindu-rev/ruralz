@@ -19,12 +19,12 @@ import (
 // lookupFields are the partition fields one lookup reads: n, t:<V>, e:<V>.
 const lookupFields = 3
 
-// Read runs Response Cache lookups as one pipelined batch of read-only
-// commands: per lookup a GET of the URI's generation key (unless
-// SkipToken), an HMGET of the partition's names, the variant's store time
-// and its MAC-verified entry, and TIME on the partition's shard, from
-// which the variant's resident time follows. Every other kind is an error
-// reply. A lookup whose shard's breaker is open is skipped (RZ-STS-003);
+// Read runs Response Cache lookups and Plugin key reads as one pipelined
+// batch of read-only commands: per lookup a GET of the URI's generation
+// key (unless SkipToken), an HMGET of the partition's names, the
+// variant's store time and its MAC-verified entry, and TIME on the
+// partition's shard, from which the variant's resident time follows; per
+// Plugin read a GET of its rzplg: key. Every other kind is an error reply. A lookup whose shard's breaker is open is skipped (RZ-STS-003);
 // the round trip's timeout is the smallest of the batch, clamped by the
 // per-request deadline.
 func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
@@ -62,6 +62,16 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	var sbuf [8]*shard
 	shs := sbuf[:0]
 	for _, c := range calls {
+		if c.Kind == statestore.OpPluginGet {
+			sh := d.shardOfSlot(keys.SlotString(c.Plugin.Key))
+			if sh.brk.State() == breaker.Open {
+				c.Err = statestore.ErrBreakerOpen
+				d.count(stripe, c.Kind.Label(), statestore.ResultSkipped)
+				continue
+			}
+			shs = addShard(shs, sh)
+			continue
+		}
 		if c.Kind != statestore.OpCacheGet {
 			c.Err, invalid = statestore.ErrFailed, true
 			continue
@@ -96,7 +106,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 		noTrip()
 		return
 	}
-	sent, reads := d.encodeLookups(tr, calls, stripe)
+	sent, reads, plugins := d.encodeLookups(tr, calls, stripe)
 	tr.cancelUnused()
 	if sent == 0 {
 		d.gate.Release()
@@ -122,7 +132,7 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 				c.Err, c.Elapsed = statestore.ErrTimeout, elapsed
 			}
 		}
-		d.finishRead(stripe, zone, statestore.ResultTimeout, elapsed, reads)
+		d.finishRead(stripe, zone, statestore.ResultTimeout, elapsed, reads, plugins)
 		return
 	}
 	if !d.parseLookups(ctx, tr, calls, elapsed) {
@@ -130,16 +140,22 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	}
 	tr.settle(true)
 	d.putTrip(tr)
-	d.finishRead(stripe, zone, res, elapsed, reads)
+	d.finishRead(stripe, zone, res, elapsed, reads, plugins)
 }
 
-// finishRead records one attempted lookup round trip of reads key reads
-// (ruralz_state_ops_total{kind="cache_get"}: each HMGET and each GET of a
-// generation key).
-func (d *Driver) finishRead(stripe emit.Stripe, zone int, res statestore.Result, elapsed time.Duration, reads int) {
+// finishRead records one attempted read round trip of reads lookup key
+// reads (ruralz_state_ops_total{kind="cache_get"}: each HMGET and each GET
+// of a generation key) and plugins Plugin key reads
+// (ruralz_state_ops_total{kind="plugin_get"}).
+func (d *Driver) finishRead(stripe emit.Stripe, zone int, res statestore.Result, elapsed time.Duration, reads, plugins int) {
 	d.count(stripe, emit.StateOpPipeline, res)
 	d.observe(stripe, emit.StateOpPipeline, zone, elapsed)
-	d.countOps(stripe, emit.StateOpCacheGet, uint64(reads)) //nolint:gosec // G115: a small non-negative count
+	if reads > 0 {
+		d.countOps(stripe, emit.StateOpCacheGet, uint64(reads))
+	}
+	if plugins > 0 {
+		d.countOps(stripe, emit.StateOpPluginGet, uint64(plugins))
+	}
 }
 
 // lookupShards returns the shards of a lookup's generation key and
@@ -172,11 +188,24 @@ func (tr *trip) ticketOf(sh *shard) int {
 // the trip (lookupCommands of them: the GET unless SkipToken, the HMGET
 // and the TIME routed to the partition's shard), skips the others with
 // RZ-STS-003, and returns how many lookups it wrote and their key reads.
-func (d *Driver) encodeLookups(tr *trip, calls []*statestore.Call, stripe emit.Stripe) (sent, reads int) {
+func (d *Driver) encodeLookups(tr *trip, calls []*statestore.Call, stripe emit.Stripe) (sent, reads, plugins int) {
 	var kb [keys.CachePartitionLen]byte
 	var fb [keys.FieldLen]byte
 	for _, c := range calls {
 		if c.Err != nil {
+			continue
+		}
+		if c.Kind == statestore.OpPluginGet {
+			si := tr.ticketOf(d.shardOfSlot(keys.SlotString(c.Plugin.Key)))
+			if tr.tickets[si].refused {
+				c.Err = statestore.ErrBreakerOpen
+				d.count(stripe, c.Kind.Label(), statestore.ResultSkipped)
+				continue
+			}
+			tr.cmd(si, "GET")
+			tr.key(c.Plugin.Key)
+			plugins++
+			sent++
 			continue
 		}
 		l := &c.Lookup
@@ -206,7 +235,16 @@ func (d *Driver) encodeLookups(tr *trip, calls []*statestore.Call, stripe emit.S
 		reads++
 		sent++
 	}
-	return sent, reads
+	return sent, reads, plugins
+}
+
+// readCommands returns how many commands a read call sends: one GET for a
+// Plugin read, a lookup's lookupCommands.
+func readCommands(c *statestore.Call) int {
+	if c.Kind == statestore.OpPluginGet {
+		return 1
+	}
+	return lookupCommands(&c.Lookup)
 }
 
 // lookupCommands returns how many commands a lookup sends.
@@ -227,12 +265,18 @@ func (d *Driver) parseLookups(ctx context.Context, tr *trip, calls []*statestore
 			continue
 		}
 		c.Elapsed = elapsed
-		if err := d.parseLookup(ctx, tr, i, &c.Lookup); err != nil {
+		var err *statestore.Error
+		if c.Kind == statestore.OpPluginGet {
+			err = d.parsePluginGet(ctx, tr, i, &c.Plugin)
+		} else {
+			err = d.parseLookup(ctx, tr, i, &c.Lookup)
+		}
+		if err != nil {
 			c.Err, ok = err, false
 		} else {
 			c.Done = true
 		}
-		i += lookupCommands(&c.Lookup)
+		i += readCommands(c)
 	}
 	return ok
 }
@@ -352,4 +396,24 @@ func optString(m *rueidis.RedisMessage) (string, bool) {
 	}
 	s, err := m.ToString()
 	return s, err == nil
+}
+
+// parsePluginGet reads the GET reply of a Plugin read at command i: null
+// for a missing key, else its value.
+func (d *Driver) parsePluginGet(ctx context.Context, tr *trip, i int, ps *statestore.PluginState) *statestore.Error {
+	m, null, err := tr.result(i)
+	if err != nil {
+		return tr.failure(ctx, i, err)
+	}
+	ps.Found, ps.Value = false, nil
+	if null {
+		return nil
+	}
+	s, err := m.ToString()
+	if err != nil {
+		tr.fail(i)
+		return statestore.ErrFailed
+	}
+	ps.Found, ps.Value = true, []byte(s)
+	return nil
 }

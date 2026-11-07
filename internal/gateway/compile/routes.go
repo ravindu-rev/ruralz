@@ -181,7 +181,7 @@ func (b *build) compileRoutes(ctx context.Context) (map[string]expr.Program, err
 			out.Forward, compGate = fwd, gate
 		}
 		out.Body = b.bodyNeeds(ch, compGate)
-		out.StateStoreMax = stateStoreMax(out.Chain.Policies)
+		out.StateStoreMax = b.stateStoreMax(&out.Chain)
 		b.routes[i] = out
 		index++
 	}
@@ -296,18 +296,54 @@ func (b *build) bodyNeeds(ch *hub.Chain, compGate bool) snapshot.BodyNeeds {
 }
 
 // stateStoreMax returns the largest effective stateStoreTimeout of the
-// State Store Policies among ps: ratelimit, quota and cache in M1
-// (statestore.RouteMax).
-func stateStoreMax(ps []*snapshot.Policy) time.Duration {
+// State Store Policies of a Route's chain, the per-request deadline of
+// pack 8.7 rule 2 (statestore.RouteMax): ratelimit, quota and cache, and
+// the plugin Policies whose Plugin holds state.read or state.write, on
+// the client leg and on every Upstream leg, whose State Store calls take
+// the request's budget too.
+func (b *build) stateStoreMax(c *snapshot.Chain) time.Duration {
 	var ts []time.Duration
-	for _, p := range ps {
-		switch p.Type {
-		case v1alpha1.PolicyTypeRateLimit, v1alpha1.PolicyTypeQuota, v1alpha1.PolicyTypeCache:
+	add := func(p *snapshot.Policy) {
+		if p != nil && b.usesStateStore(p) {
 			ts = append(ts, p.StateStoreTimeout)
-		default:
+		}
+	}
+	for _, p := range c.Policies {
+		add(p)
+	}
+	for _, lc := range c.Legs {
+		if lc == nil {
+			continue
+		}
+		for ph := range phase.Count {
+			for _, p := range lc.Phases[ph] {
+				add(p)
+			}
 		}
 	}
 	return statestore.RouteMax(ts)
+}
+
+// usesStateStore reports a State Store Policy: ratelimit, quota, cache,
+// or a plugin Policy whose Plugin holds state.read or state.write.
+func (b *build) usesStateStore(p *snapshot.Policy) bool {
+	switch p.Type {
+	case v1alpha1.PolicyTypeRateLimit, v1alpha1.PolicyTypeQuota, v1alpha1.PolicyTypeCache:
+		return true
+	case v1alpha1.PolicyTypePlugin:
+		pol, ok := b.b.Policy(p.Name)
+		if !ok {
+			return false
+		}
+		pl, ok := b.b.Plugin(pol.Spec.Plugin)
+		if !ok {
+			return false
+		}
+		return slices.Contains(pl.Spec.Capabilities, v1alpha1.CapabilityStateRead) ||
+			slices.Contains(pl.Spec.Capabilities, v1alpha1.CapabilityStateWrite)
+	default:
+		return false
+	}
 }
 
 // compileRouters compiles one Router per listener from the Routes bound

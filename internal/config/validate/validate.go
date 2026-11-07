@@ -228,6 +228,7 @@ func (v *Validator) Run(ctx context.Context, b *hub.Bundle, files *tree.FileTabl
 		func(out *sink) { v.checkCredentials(b, l, main, out) },
 		func(out *sink) { v.checkMatches(ix, l, main, out) },
 		func(out *sink) { checkSecrets(all, main, out) },
+		func(out *sink) { checkPluginPools(ix, l, out) },
 	} {
 		if err := ctx.Err(); err != nil {
 			return Result{}, nil, err

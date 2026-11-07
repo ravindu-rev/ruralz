@@ -44,7 +44,7 @@ func offlineStages() map[string]string {
 		"RZ-CFG-009": "CDH",
 		"RZ-CFG-010": "E",
 		"RZ-CFG-011": "E",
-		"RZ-CFG-012": "EF",
+		"RZ-CFG-012": "EFH",
 		"RZ-CFG-013": "E",
 		"RZ-CFG-014": "J",
 		"RZ-CFG-015": "J",
@@ -69,6 +69,7 @@ func offlineStages() map[string]string {
 		"RZ-CFG-041": "H",
 		"RZ-CFG-043": "J",
 		"RZ-CFG-046": "J",
+		"RZ-CFG-052": "H",
 	}
 }
 
@@ -81,6 +82,7 @@ func postDigestCodes() []string {
 	return []string{
 		"RZ-CFG-024", "RZ-CFG-026", "RZ-CFG-027", "RZ-CFG-028", "RZ-CFG-033",
 		"RZ-CFG-039", "RZ-CFG-040", "RZ-CFG-042", "RZ-CFG-044", "RZ-CFG-045",
+		"RZ-CFG-047", "RZ-CFG-048", "RZ-CFG-049", "RZ-CFG-050", "RZ-CFG-051",
 	}
 }
 

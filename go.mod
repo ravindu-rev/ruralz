@@ -26,6 +26,7 @@ require (
 	github.com/testcontainers/testcontainers-go/modules/redis v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/registry v0.44.0
 	github.com/testcontainers/testcontainers-go/modules/valkey v0.44.0
+	github.com/tetratelabs/wazero v1.12.0
 	go.etcd.io/bbolt v1.4.3
 	go.opentelemetry.io/contrib/bridges/otelslog v0.21.0
 	go.opentelemetry.io/otel v1.47.0

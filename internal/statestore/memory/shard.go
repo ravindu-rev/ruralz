@@ -129,6 +129,9 @@ type shard struct {
 	gen   map[statestore.Digest]genEntry
 	part  map[statestore.CacheKey]*partition
 	lease map[statestore.CacheKey]leaseEntry
+	// plugin holds Plugin guest keys (rzplg:): integers with an expiry,
+	// noExpiry for none.
+	plugin map[string]countEntry
 	// next is a lower bound of every held key's expiry (Unix ms),
 	// math.MaxInt64 when none is held: writes lower it (track) and
 	// reclaim recomputes it, so no key can have expired while the server
@@ -143,6 +146,7 @@ func (s *shard) init() {
 	s.gen = map[statestore.Digest]genEntry{}
 	s.part = map[statestore.CacheKey]*partition{}
 	s.lease = map[statestore.CacheKey]leaseEntry{}
+	s.plugin = map[string]countEntry{}
 	s.next = math.MaxInt64
 }
 
@@ -151,7 +155,9 @@ func (s *shard) init() {
 func (s *shard) track(exp int64) { s.next = min(s.next, exp) }
 
 // keys returns the number of keys held, expired ones included.
-func (s *shard) keys() int { return len(s.rl) + len(s.qt) + len(s.gen) + len(s.part) + len(s.lease) }
+func (s *shard) keys() int {
+	return len(s.rl) + len(s.qt) + len(s.gen) + len(s.part) + len(s.lease) + len(s.plugin)
+}
 
 // reclaim deletes every expired key, recomputes s.next from the keys
 // left, and returns the cache entry bytes freed; the caller holds s.mu
@@ -182,6 +188,13 @@ func (s *shard) reclaim(nowMs int64) int64 {
 	for k, e := range s.lease {
 		if expired(e.exp, nowMs) {
 			delete(s.lease, k)
+		} else {
+			next = min(next, e.exp)
+		}
+	}
+	for k, e := range s.plugin {
+		if expired(e.exp, nowMs) {
+			delete(s.plugin, k)
 		} else {
 			next = min(next, e.exp)
 		}

@@ -1,0 +1,82 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: huge
+spec:
+  image: ghcr.io/acme/huge:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  limits: {memoryBytes: 600Mi}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: huge-default
+spec:
+  type: plugin
+  plugin: huge
+  config: {}
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: big
+spec:
+  image: ghcr.io/acme/big:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  limits: {memoryBytes: 500Mi}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-a
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 1}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-a-shared
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 1}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-b
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 2}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-c
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 3}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-d
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 4}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: big-e
+spec:
+  type: plugin
+  plugin: big
+  config: {n: 5}

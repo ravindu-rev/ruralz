@@ -1,0 +1,73 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: one
+spec:
+  image: ghcr.io/acme/shared:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  limits: {memoryBytes: 400Mi}
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: two
+spec:
+  image: registry.example.com/mirror/shared:2.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  limits: {memoryBytes: 400Mi}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: one-a
+spec:
+  type: plugin
+  plugin: one
+  config: {n: 1}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: two-a
+spec:
+  type: plugin
+  plugin: two
+  config: {n: 1}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: one-b
+spec:
+  type: plugin
+  plugin: one
+  config: {n: 2}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: one-c
+spec:
+  type: plugin
+  plugin: one
+  config: {n: 3}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: one-d
+spec:
+  type: plugin
+  plugin: one
+  config: {n: 4}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: one-e
+spec:
+  type: plugin
+  plugin: one
+  config: {n: 5}

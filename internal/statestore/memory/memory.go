@@ -302,6 +302,9 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 		case statestore.OpGCRA:
 			ok = d.gcra(sh, &c.GCRA, now)
 			allowed = c.GCRA.Allowed
+		case statestore.OpPluginIncr:
+			ok = d.pluginIncr(sh, &c.Plugin, now)
+			allowed = true
 		default: // statestore.OpQuota: SlotOf is -1 for every other kind
 			var skew bool
 			ok, skew = d.reserve(sh, &c.Quota, now, nodeMs)
@@ -343,9 +346,10 @@ func (d *Driver) Consume(ctx context.Context, rb *statestore.RequestBudget, call
 	return n
 }
 
-// Read runs Response Cache lookups as one pipelined batch: per lookup the
-// generation token (unless SkipToken), the partition's names, and the
-// variant's MAC-verified entry with its resident time on the server clock.
+// Read runs Response Cache lookups and Plugin key reads as one pipelined
+// batch: per lookup the generation token (unless SkipToken), the
+// partition's names, and the variant's MAC-verified entry with its
+// resident time on the server clock; per Plugin read the key's value.
 // Every other kind is an error reply.
 func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls []*statestore.Call) {
 	if len(calls) == 0 {
@@ -371,13 +375,18 @@ func (d *Driver) Read(ctx context.Context, rb *statestore.RequestBudget, calls [
 	now := instantOf(d.server.Now())
 	res := statestore.ResultOK
 	for _, c := range calls {
-		if c.Kind != statestore.OpCacheGet {
+		switch c.Kind {
+		case statestore.OpCacheGet:
+			d.lookup(ctx, &c.Lookup, now)
+			c.Done = true
+			d.countOps(stripe, emit.StateOpCacheGet, lookupReads(&c.Lookup))
+		case statestore.OpPluginGet:
+			d.pluginGet(&c.Plugin, now)
+			c.Done = true
+			d.countOps(stripe, emit.StateOpPluginGet, 1)
+		default:
 			c.Err, res = statestore.ErrFailed, statestore.ResultError
-			continue
 		}
-		d.lookup(ctx, &c.Lookup, now)
-		c.Done = true
-		d.countOps(stripe, emit.StateOpCacheGet, lookupReads(&c.Lookup))
 	}
 	d.count(stripe, emit.StateOpPipeline, res)
 }
@@ -393,7 +402,7 @@ func lookupReads(l *statestore.CacheLookup) uint64 {
 }
 
 // Write applies one post-commit batch: refunds, cache stores, leases
-// (take, refresh, end-stale) and invalidations. A write whose timeout is
+// (take, refresh, end-stale), invalidations and Plugin onLog increments. A write whose timeout is
 // 0 or whose context ended is not attempted (RZ-STS-004); the per-request
 // deadline does not apply. The attempted writes are one round trip,
 // labeled pipeline when there are several.
@@ -422,6 +431,12 @@ func (d *Driver) Write(ctx context.Context, batch []*statestore.Write) {
 			}
 		case statestore.OpCacheInvalidate:
 			w.Applied, ok = d.invalidate(w.Invalidate, w.Bump, now)
+		case statestore.OpPluginIncr:
+			sh := d.shardOf(int(keys.SlotString(w.Plugin.Key)))
+			sh.mu.Lock()
+			ok = d.pluginIncr(sh, &w.Plugin, now)
+			sh.mu.Unlock()
+			w.Applied = ok
 		default:
 			ok = false
 		}

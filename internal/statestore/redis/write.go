@@ -250,6 +250,9 @@ func (d *Driver) writeShard(w *statestore.Write) (sh *shard, script, ok bool) {
 	if _, valid := statestore.Cost(w.Refund.Units); w.Kind == statestore.OpRefund && !valid {
 		return nil, false, false
 	}
+	if w.Kind == statestore.OpPluginIncr && w.Plugin.TTL < time.Millisecond {
+		return nil, false, false
+	}
 	script = true
 	if w.Kind == statestore.OpCacheSet {
 		switch w.Lease.Mode {
@@ -343,6 +346,15 @@ func (d *Driver) encodeWrite(tr *trip, k int, w *statestore.Write) {
 		tr.key(string(keys.AppendCacheGeneration(kb[:0], w.Invalidate)))
 		tr.arg(opInvalidate)
 		tr.arg(string(keys.AppendToken(tb[:0], w.Bump)))
+	case statestore.OpPluginIncr:
+		// One Plugin increment through the consumptive operation.
+		tr.cmd(k, "EVALSHA", d.sha, "1")
+		tr.key(w.Plugin.Key)
+		tr.arg(opConsume)
+		tr.arg("1")
+		tr.arg(kindPlugin)
+		tr.arg(strconv.FormatInt(w.Plugin.Delta, 10))
+		tr.arg(strconv.FormatInt(w.Plugin.TTL.Milliseconds(), 10))
 	default: // statestore.OpCacheSet: writeShard accepts no other kind
 		l := &w.Lease
 		if l.Mode == 0 {
@@ -407,6 +419,20 @@ func (d *Driver) parseWrite(ctx context.Context, tr *trip, i int, w *statestore.
 	m, null, err := tr.result(i)
 	if err != nil {
 		return false, tr.failure(ctx, i, err)
+	}
+	if w.Kind == statestore.OpPluginIncr {
+		// The consumptive script's reply: TIME, then one applied increment.
+		arr, aerr := m.ToArray()
+		if null || aerr != nil || len(arr) != 3 {
+			tr.fail(i)
+			return false, statestore.ErrFailed
+		}
+		sub, serr := arr[2].ToArray()
+		if serr != nil || len(sub) < 1 || !pluginOutcome(&w.Plugin, sub[1:], true) {
+			tr.fail(i)
+			return false, statestore.ErrFailed
+		}
+		return true, nil
 	}
 	if st != stepGeneration && w.Kind == statestore.OpCacheSet && w.Lease.Mode == statestore.LeaseTake {
 		if null {
