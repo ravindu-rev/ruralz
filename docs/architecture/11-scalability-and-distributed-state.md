@@ -29,7 +29,7 @@ Non-guarantees: limits are exact only inside one Cell; long-lived connections ne
 
 ## Stateless data plane
 
-A Node persists only its enrollment identity, Last-Known-Good, disposable caches and, in Control mode, Planned (M2), the last published Node count, used flagged stale after a restart, under `${RURALZ_DATA_DIR}` (pack 8.11). This table inventories all in-memory per-Node state.
+A Node persists only its enrollment identity, Last-Known-Good, disposable caches and, in Control mode, Planned (M2), its signed revocation list and the last published Node count, used flagged stale after a restart, under `${RURALZ_DATA_DIR}` (pack 8.11). This table inventories all in-memory per-Node state.
 
 | Per-Node state | Bound | Rebuilt from | Why losing it is safe |
 |---|---|---|---|
@@ -52,13 +52,13 @@ A Node persists only its enrollment identity, Last-Known-Good, disposable caches
 | Streaming output-token counts | One per stream | Nothing | A crash skips settlement, leaving R charged |
 | Client connections and streams | 20,000 per Node (target) | Client reconnects | Drain sends GOAWAY and close 1001 first |
 | Control Stream session | One stream | `Hello` with the active digest | Ruralz Control answers with nothing, a delta or a snapshot |
-| Signed revocation list | One list, at most 100,000 entries per Cluster (target) | Control Stream; watched entry file in file mode | Not safe while detached: a restarted detached Node forgets revocations until Ruralz Control returns (OQ-security-and-identity-5); Planned (M2) |
+| Signed revocation list | One list, at most 100,000 entries per Cluster (target) | In Control mode the copy persisted under `${RURALZ_DATA_DIR}`, then the Control Stream; in file mode the watched entry file | A restart reloads the list, so a detached Node keeps its revocations; Planned (M2) |
 | `auth.basic` success cache and username buckets | 10,000 and 100,000 entries (target) | Re-verification at the hash rate | No credential skips the hash; a 25 to 50 s ramp (hypothesis) refuses some callers with RZ-AUTH-007 |
 | Trace-sampling token buckets | Two per Node (target) | Refilled at start | At worst one burst of extra sampled traces |
 | Automatic persisted query cache | 32 MiB (target) | Clients re-register | Clients retry with the full document |
 | Event-ingress fetch buffers, uncommitted offsets, unacked messages | Share of `maxBufferedBytes` | Broker redelivery | At-least-once: an Upstream may see a message twice |
 
-So a Node can be killed at any instant: the worst outcomes are an over-charged Quota or Token Budget, a few extra admissions per key, a re-verification ramp for `auth.basic`, redelivered ingress messages and, while detached, forgotten revocations (OQ-security-and-identity-5).
+So a Node can be killed at any instant: the worst outcomes are an over-charged Quota or Token Budget, a few extra admissions per key, a re-verification ramp for `auth.basic` and redelivered ingress messages.
 
 ## Horizontal scaling
 
@@ -159,7 +159,7 @@ A Cluster SHOULD run at least three Nodes in at least two zones (target), sized 
 
 During a Ruralz Control outage or quorum loss ([Control plane and GitOps](04-control-plane-and-gitops.md#behavior-during-a-ruralz-control-outage)), running Nodes keep their active Revision and stay ready (reason `detached`); restarted Nodes wait up to 5 s for the Control Stream (target), then boot Last-Known-Good; Rollouts and Enrollment are held; the published Node count freezes.
 
-A Ruralz Control restart, failover or lost replica must not collapse the count: after a reconnect storm every stream is under 10 minutes old (target), and a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state, missing three heartbeats (target) may lower it, and only once the replica holding their aggregates has been up and fresh for a 5-minute reconnect grace (target), the time every Node takes to reconnect after all replicas restart (target); a replica loss or leader failover restarts the grace (proposed, OQ-scalability-and-distributed-state-14).
+A Ruralz Control restart, failover or lost replica must not collapse the count: after a reconnect storm every stream is under 10 minutes old (target), and a near-zero count sends derived ceilings to the full limit, multiplying hot-key GCRA calls. Only qualified Nodes, keyed by `node.id` in committed state, missing three heartbeats (target) may lower it, and only once the replica holding their aggregates has been up and fresh for a 5-minute reconnect grace (target), the time every Node takes to reconnect after all replicas restart (target); a replica loss or leader failover restarts the grace.
 
 New Nodes without Last-Known-Good stay not ready until they enroll (pack 8.11), so autoscaling adds nothing during a long outage; Clusters SHOULD keep 30% headroom above peak (target) (OQ-scalability-and-distributed-state-7).
 
@@ -222,7 +222,7 @@ A failover loses the newest TATs and reservations to replication lag, and the Ce
 | Response Cache (`cache`), `rz:rc:` | `stateStore.cache` when set, else the State Store; [layout](#response-cache-layout) | Eventual; an entry is valid only while its URI's generation key holds the token it was written under | RFC 9111, fill lease, generation token bump on unsafe methods | `open` (default): bypass; dropped bump: stale up to 25 h (target) |
 | Semantic Cache (`ai.semantic-cache`) | State Store deployment, dedicated connections (pack 7) | Eventual; approximate nearest neighbor per partition | Embedding plus similarity threshold ([AI/LLM gateway](06-ai-llm-gateway.md#semantic-cache)) | `open` (default): bypass; no vector commands: `RZ-STS-005` under `closed` |
 | Plugin state, `rzplg:<Environment name>:` | State Store via Host Functions, Planned (M2) | Atomic per key; Plugin-defined | One blocking call per Plugin Policy; one `onLog` write | The Plugin Policy's `failureMode` |
-| Published Node count | Control Store, via `HeartbeatReply` | Lagging: 10-minute qualification, rises at most 10% per minute (target); never lowered by Ruralz Control restarts, failovers or lost streams, nor within a 5-minute reconnect grace (proposed) | Qualified Nodes, keyed by `node.id` | Frozen during a Ruralz Control outage; persisted by each Node and used flagged stale after its restart (pack 8.11) |
+| Published Node count | Control Store, via `HeartbeatReply` | Lagging: 10-minute qualification, rises at most 10% per minute (target); never lowered by Ruralz Control restarts, failovers or lost streams, nor within a 5-minute reconnect grace (target) | Qualified Nodes, keyed by `node.id` | Frozen during a Ruralz Control outage; persisted by each Node and used flagged stale after its restart (pack 8.11) |
 | Assignments, Rollout plans, promoted digests | Control Store (Raft) | Linearizable writes; followers fenced by `storeEpoch` and sequences | Raft log ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)) | Quorum loss stops writes; Nodes keep serving |
 | Revision content, audit segments | Control Store content store | Digest-addressed; on a quorum first | Content addressing | Fetched from a peer; mismatch is `RZ-CFG-027` |
 | Last-Known-Good | Node disk | Per Node; promoted at the promoted digest | Level-triggered promotion (pack 8.2) | Missing in Control mode: not ready |
@@ -654,5 +654,4 @@ At 5,000 State Store calls per second per Node (hypothesis), the 800,000-call ce
 | OQ-scalability-and-distributed-state-9 | Can Nodes detect a Cluster resolving different State Stores? | (a) Operator discipline (current); (b) a State Store identity in heartbeats, flagged as Drift | control-plane-and-gitops | No |
 | OQ-scalability-and-distributed-state-12 | How are State Store failover and lost Cells reported (OQ-observability-18)? | (a) State Store monitoring (current); (b) Nodes report replication-offset jumps; (c) Ruralz Control aggregates Cell health | observability | No |
 | OQ-scalability-and-distributed-state-13 | Must the State Store holding Quota and Token Budget counters persist? | (a) SHOULD for windows over one day (current); (b) MUST, checked at startup; (c) operator choice | scalability-and-distributed-state | No |
-| OQ-scalability-and-distributed-state-14 | Must the published Node count ignore Ruralz Control restarts, failovers and lost streams? | (a) Only qualified Nodes missing three heartbeats lower it, counted after a 5-minute reconnect grace (target), qualification kept per `node.id` in committed state (recommended); (b) as written | control-plane-and-gitops | Yes, derived ceilings (M2) |
 | OQ-scalability-and-distributed-state-16 | Should counters follow clients evacuated to another Cell? | (a) No: one extra limit per open window (current); (b) an export and import tool; (c) Region-pinned tenants only for spend-bearing Quotas | scalability-and-distributed-state | No |

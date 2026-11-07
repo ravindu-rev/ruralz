@@ -41,7 +41,7 @@ Chosen option: "OpenTelemetry-first with an external producer and the OpenTeleme
 | Exemplars | Sampled requests alone write one slot per histogram label set per collection, exported through the producer and as OpenMetrics on `/metrics` | Planned (M1) |
 | Logs | Only `log/slog` through `internal/telemetry`, except the audit export; no request goroutine runs a writing handler; bounded queues drop with `ruralz_telemetry_logs_dropped_total`, per sink; one worker owns stdout, and the `otelslog` v0.20.x bridge ([source](https://github.com/open-telemetry/opentelemetry-go-contrib/blob/main/bridges/otelslog/go.mod)) takes each record when it is queued, so a blocked stdout never stops OTLP log export | Planned (M1); Ruralz Control Planned (M2) |
 | Export | OTLP only when `Gateway.spec.telemetry.otlp.endpoint` is set, over TLS (TB-12); spans and logs pass bounded queues; `ruralzd` and `ruralz-control` remove every `OTEL_*` variable before any SDK constructor | Planned (M1) |
-| Audit export | The Ruralz Control leader exports committed entries through a dedicated OTLP log exporter, bypassing `slog`, retrying until acknowledged and never dropping (OQ-observability-19) | Planned (M2) |
+| Audit export | The Ruralz Control leader exports committed entries through a dedicated OTLP log exporter, bypassing `slog`, to the audit sink across trust boundary TB-14 ([System overview](../architecture/01-system-overview.md#trust-boundaries)): durable and at least once, retried from the Control Store until acknowledged, lagging on failure and never dropping | Planned (M2) |
 | Conventions and resource | HTTP semantic conventions without `url.full` and `url.query`; `gen_ai.*` pinned to one commit per release; `service.name`, `service.version`, `service.instance.id` | Planned (M1); `gen_ai` Planned (M3) |
 | Vendor SDKs | None; vendors read the operator's OpenTelemetry Collector or a Prometheus-compatible scraper | Not planned: one export path (P1) |
 
@@ -88,7 +88,7 @@ flowchart LR
 - Bad, because the producer bypasses SDK aggregation and exemplar reservoirs, so Ruralz code owns buckets, exemplar slots and their tests.
 - Bad, because the `otelslog` bridge stays pre-1.0 beside the stable Logs SDK, and v1.47.0 deprecates `otel/log/global` ([source](https://github.com/open-telemetry/opentelemetry-go/releases/tag/v1.47.0-rc.1)).
 - Bad, because library instruments rename between releases (grpc-go v1.84.0 ([source](https://github.com/grpc/grpc-go/releases/tag/v1.84.0))), so Grafana dashboards and alerts use only `ruralz_*` names.
-- Bad, because the lossless audit export waits on OQ-observability-19 (blocking for Planned (M2)), and OTLP authentication headers come after `telemetry.otlp.tls`, Planned (M1) ([Configuration model](../architecture/02-configuration-model.md#gateway)).
+- Bad, because the lossless audit export needs an exporter and a trust boundary of its own, TB-14, beside the dropping pipeline of TB-12, and OTLP authentication headers come after `telemetry.otlp.tls`, Planned (M1) ([Configuration model](../architecture/02-configuration-model.md#gateway)).
 
 ### Confirmation
 

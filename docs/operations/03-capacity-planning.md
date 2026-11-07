@@ -41,8 +41,8 @@ Collect one row per Route class: Routes sharing protocol, Filter Chain (`ruralz 
 | Nodes planned, at maxReplicas, serving; largest Rollout batch | N; N_max; N_serving; n_batch | This model; autoscaler; `ruralz_control_cluster_nodes`; [Rollout plan](../architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates): N under `all-at-once`, half the non-canary Nodes under `canary` (target) |
 | Nodes of one Ruralz Control deployment | N_all | Σ `ruralz_control_connected_nodes` over replicas and Clusters |
 | Environments; Revision, diff and source sizes | E; s_rev, s_diff, s_src | Ruralz Control; s_diff ≈ 0.1 × s_rev, s_src ≈ s_rev (hypothesis) |
-| Revisions kept per Environment; older referenced ones | n_keep; n_ref | 50 (target), a [Control plane](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) policy; older referenced ones (active, Last-Known-Good, promoted), 3 until measured (hypothesis), OQ-capacity-planning-9 |
-| Audit per day and days kept; Raft log; backups kept | d_audit; L_raft; n_bk | 10 MiB for 365 days, 1 GiB, 14 until measured (hypothesis); audit has no retention period (OQ-capacity-planning-9) |
+| Revisions kept per Environment; older referenced ones | n_keep; n_ref | 50 (target), a [Control plane](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) policy; older referenced ones (active, Last-Known-Good, promoted), measured per deployment, 3 until measured (hypothesis) |
+| Audit per day and days kept; Raft log; backups kept | d_audit; L_raft; n_bk | 10 MiB, 1 GiB, 14 until measured (hypothesis); days kept is the configurable [audit retention](../architecture/04-control-plane-and-gitops.md#audit-and-security), 365 by default (target), a segment past it pruned only once a backup holds it |
 | Growth and outage headroom | h | 30% (target), [Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability) |
 
 ## Capacity model
@@ -196,8 +196,9 @@ Ruralz Control deployment
   T_batch  ≈ n_batch / (replicas × K-15 Snapshots per second), when a Delta does not fit
   D_store  = E × (n_keep + n_ref) × (s_rev + s_diff + s_src) + d_audit × days kept
              + L_raft + two Raft snapshots
-  audit growth = d_audit per day while audit has no retention period (OQ-capacity-planning-9);
-             days to 70% = (0.7 × volume − (D_store − d_audit × days kept)) / d_audit
+  days kept = the audit retention, 365 by default (target); a segment past it is pruned
+             only once a backup holds it, so while backups fail the audit grows d_audit per day:
+             days to 70% = (0.7 × volume − D_store) / d_audit
   volume   ≥ D_store / 0.7                                                              (target)
 ```
 
@@ -447,7 +448,7 @@ Ruralz Control, Planned (M2), is off the request path, so its size follows Node 
 | Control Store content, n_keep = 50 (target), n_ref = 3 | 159 Revisions × 17.6 MiB ≈ 2.7 GiB (target) [H] |
 | Audit, Raft log, two Raft snapshots | 3.6 + 1 + 0.2 GiB (target) [H] |
 | Volume per replica | D_store 7.5 GiB / 0.7, so 20 GiB (target) [H] |
-| Audit growth, no retention period | 10 MiB per day: 70% of the volume after about 1,030 days (target) [H] |
+| Audit at the 365-day default retention (target) | Bounded at the 3.6 GiB above; while backups fail, pruning stops and 10 MiB per day fills 70% of the volume after about 665 days (target) [H] |
 | Replica container | 2 vCPU, 4 GiB (target) [H] |
 | Enrollment of a 90-Node step | 4.5 s (target) [H] |
 | `${RURALZ_DATA_DIR}` per Node | 2 × (s_rev + s_src) = 34 MiB, within 1 GiB (target) [H] |
@@ -490,7 +491,7 @@ Each trigger is measured or a checkable event, and reruns the model for its Cell
 | Skipped or dropped work | `ruralz_state_calls_total` skipped; `ruralz_state_writes_dropped_total` | Above 0.1% of calls, or drops for 10 minutes (target) | Check shard latency |
 | Snapshot retirement | `ruralz_config_activations_total`; `ruralz_snapshot_retirement_ended_total` | Activations under 1.5 × L apart with long streams, or any ended stream (target) | Recheck W_rc,min; use `strategy: canary` |
 | Ruralz Control streams | Σ `ruralz_control_connected_nodes` / (replicas − ceil(replicas / Z)); shed reconnects | Above 4,000 (hypothesis), or any shed outside a restart | Move to five voters |
-| Control Store volume | Volume use per replica | Above 70% (target) | Check audit retention (OQ-capacity-planning-9) or resize |
+| Control Store volume | Volume use per replica | Above 70% (target) | Check the audit retention and that backups succeed, since a segment is pruned only once a backup holds it, or resize |
 | Rollout time | `ruralz_control_rollout_duration_seconds` p95 | Above 30 s at 100 Nodes (target) | Check Revision size and egress |
 | Configuration size | Routes; `ruralz_config_activation_duration_seconds{stage="total"}` p99 | R crosses 1,000, 5,000 or 10,000, or reload above 1 s (target) | Recompute memory and reload |
 | Cell ceilings | Nodes; shards | Above 800 Nodes or 12 shards per Cell (target) | Plan a split with Consumer pinning |
@@ -507,4 +508,4 @@ Operators SHOULD also rerun the model at each minor upgrade ([Release cadence](.
 | OQ-capacity-planning-6 | Should a Cluster that must hold 1 ms p99 (target) through a zone loss plan at 60% of saturation? | (a) Operator choice (current); (b) mandatory | scalability-and-distributed-state | No |
 | OQ-capacity-planning-7 | Should closing snapshots jitter stream closes across the grace period, as Drain does, and long-lived streams jitter their `timeout` end (OQ-scalability-and-distributed-state-6)? | (a) No, relying on client jitter W_rc (current); (b) jitter both over 30 s (target) | data-plane | No |
 | OQ-capacity-planning-8 | Should Observability add a per-Node in-flight-unit gauge, a stream-share gauge and per-Route active-stream and body-size series? | (a) Yes, proposing `ruralz_node_inflight_units` and `ruralz_node_stream_share_bytes`; (b) access logs (current) | observability | No |
-| OQ-capacity-planning-9 | Which retention period applies to audit segments, and how many Revisions older than the latest 50 per Environment stay referenced (n_ref)? | (a) A fixed audit period and a measured n_ref (proposed); (b) pruning audit after `ruralz control backup`; (c) none | control-plane-and-gitops | Yes, for Control Store sizing (M2) |
+| OQ-capacity-planning-10 | Which Ruralz Control process configuration setting holds the audit retention, and in which unit? | (a) `audit.retentionDays`, an integer, 365 by default, applied on reload (proposed); (b) `audit.retention`, a duration such as `8760h` | control-plane-and-gitops | Yes, for Planned (M2) audit retention |

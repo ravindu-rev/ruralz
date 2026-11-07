@@ -36,9 +36,10 @@ Chosen option: "own `ruralz.control.v1.ControlStream` on connect in gRPC mode at
 
 | Element | Rule |
 |---|---|
-| Service | `ruralz.control.v1.ControlStream` with exactly two RPCs: unary `Enroll` (one-time token, server CA pinned; OQ-security-and-identity-31) and bidirectional `Stream` (Node certificate over mTLS, the only source of `node.id`); Ruralz Control never dials a Node |
+| Service | `ruralz.control.v1.ControlStream` with exactly two RPCs: unary `Enroll` (one-time token, server CA pinned; TB-5) and bidirectional `Stream` (Node certificate over mTLS, the only source of `node.id`); Ruralz Control never dials a Node |
 | Transport | `connectrpc.com/connect` v1.21.x, gRPC mode, HTTP/2 over TLS on 8091; no `ReadTimeout` or `WriteTimeout` on the stream; `HTTP2Config` pings detect dead peers |
-| Delivery | Each carries `promotion` and a signed assignment naming one Revision by full digest. `Snapshot` sends canonical content in chunks of at most 1 MiB (target); `Delta` (`baseDigest`, `ops`) serves changes encoding within 1 MiB (target), and a mismatching result is `Nack` RZ-CFG-027, after which, as after a `Hello` whose Last-Known-Good or active content fails re-hash, the next delivery is a `Snapshot` |
+| Code | Messages on the `google.golang.org/protobuf` runtime and connect service code, generated hermetically by a pinned buf CLI with version-pinned local protoc-gen-go and protoc-gen-connect-go ([source](https://connectrpc.com/docs/go/getting-started/)) into committed code that CI checks |
+| Delivery | Each carries `promotion` and a signed assignment naming one Revision by full digest. `Snapshot` sends canonical content in chunks of at most 1 MiB (target); `Delta` (`baseDigest`, `ops`) serves changes encoding within 1 MiB (target), each op replacing one resource by kind and name, adding it when absent, or deleting one, and a mismatching result is `Nack` RZ-CFG-027, after which, as after a `Hello` whose Last-Known-Good or active content fails re-hash, the next delivery is a `Snapshot` |
 | ACK/NACK | Each configuration message carries a 128-bit random `nonce`; stale nonces are ignored. `Ack` means active, not durable, and counts per (`node.id`, `storeEpoch`, `assignmentSeq`), not per stream: a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack`, and a Node re-ACKs a re-sent assignment it runs, so a lost `Ack` never makes a Node lag. `Nack` keeps the active Revision and carries `code` and `class`; one Ruralz Control reproduces from the Revision is deterministic (pack 8.3) and fails the gate, else transient |
 | Flow control | One unacknowledged configuration message per Node, a chunked Snapshot counting as one; a newer assignment replaces an unsent one; messages cap at 2 MiB (target) |
 | Reconnect | `Hello` presents active and Last-Known-Good digests, `lastNonce`, `storeEpoch` and `assignmentSeq`; the answer is nothing, a `Delta` or a `Snapshot`; full-jitter redials, base 1 s, cap 60 s (target); excess streams get `Reconnect` or `RZ-CP-010` |
@@ -125,11 +126,12 @@ flowchart TD
 - Bad, because pacing is Ruralz code: with 32 concurrent Snapshots and 256 MiB in flight per replica (target) at 20 Snapshots/s (hypothesis), a 10,000-Node Cluster's largest batch takes up to 5 minutes (target).
 - Bad, because liveness relies on HTTP/2 pings and heartbeats, and at about 5,000 streams per replica (hypothesis) 10,000 Nodes need N+1 replicas.
 - Bad, because a proxy in front of 8091 MUST pass HTTP/2 and TLS through, since the Node certificate authenticates the stream.
-- Bad, because the protobuf runtime is unselected (OQ-tech-stack-and-libraries-14, blocking Planned (M2)), and the `Delta` `ops` encoding is unspecified.
+- Bad, because a `Delta` op replaces a whole resource, so a one-field change resends that resource's canonical form.
 
 ### Confirmation
 
 - **`buf lint` and `buf breaking`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the newest release tag of N-1 and of N, the minors of the skew window ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
+- **Generated code**, Planned (M2): CI regenerates the committed code with the pinned buf CLI and the version-pinned local generators, offline, and fails when the output differs.
 - **Dependency admission**: go-control-plane has no catalog row ([Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen)), so [banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) rejects it.
 - **Container-free integration tests**, Planned (M2): snapshot and delta delivery, ACK and NACK classification, promoted digests ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)), a stale-nonce `Ack` changing nothing, a mismatching `Delta` NACKed with RZ-CFG-027 then a `Snapshot` ACKed, a Node that missed an empty-`ops` re-sign `Delta` receiving it after reconnecting, and a Node still ACKed after the replica holding its forwarded `Ack` dies before the bitmap commit.
 - **Fuzzing**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
@@ -164,4 +166,4 @@ flowchart TD
 
 - Owning document: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#control-stream), with [Heartbeat and backpressure](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure); Node side in [Compile before swap](../architecture/01-system-overview.md#compile-before-swap).
 - Related decisions: [ADR-0003](0003-configuration-format.md) (canonical digest), [ADR-0006](0006-control-store-raft-boltdb.md) (committed assignments) and [ADR-0017](0017-artifact-signing.md) (signing).
-- Open questions: OQ-tech-stack-and-libraries-14, OQ-release-versioning-and-compatibility-4 (`binaryVersion` in `Hello`), OQ-security-and-identity-31 (`Enroll` credential), OQ-control-plane-and-gitops-25 (Snapshot limit) and OQ-zero-downtime-upgrades-and-hot-reload-11 (stream supersession).
+- Open questions: OQ-zero-downtime-upgrades-and-hot-reload-11 (stream supersession).
