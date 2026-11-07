@@ -66,7 +66,7 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
 | `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
 | `RURALZ_ZONE` | The Node's failure-zone name, an operator-set token of 1 to 63 characters from `[a-z0-9-]`, default empty; any other value refuses start. The State client compares it with the zones of `stateStore.zones` and `stateStore.cache.zones` to label each call `same`, `cross` or `unknown` |
-| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; every stored entry records whether it is tagged, so a Node without the key reads a tagged entry as a miss; rotating the key needs a restart and turns existing entries into misses |
+| `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (such as Response Cache entries) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; every stored entry records whether it is tagged, so a Node without the key reads a tagged entry as a miss; rotating the key needs a restart and turns existing entries into misses |
 | `RURALZ_ENROLLMENT_TOKEN_FILE` | File holding the one-time Enrollment token from `ruralz node token` that a Control-mode Node redeems in `Enroll`; outside `RURALZ_SECRET_ROOT`, and ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity. Planned (M2) |
 | `RURALZ_TRUST_POLICY_FILE` | File holding a file-mode Node's OCI Revision and Plugin trust policies (section 8.14); unset means an empty policy, so `enforce` rejects every signed pull, and a Control-mode Node with it set refuses to start, since its Plugin trust arrives in anchor sets. Planned (M2) |
 | `RURALZ_REGISTRY_AUTH_FILE` | File holding the registry credentials of the Node's OCI pulls, in the container credential file format; each credential is sent only to its registry host. Planned (M2) |
@@ -222,7 +222,7 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 
 | Area | Meaning | Registry owner |
 |---|---|---|
-| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045 in M1, and from M2 the `authz.opa` and `authz.cedar` engine limits (RZ-CFG-046) | configuration-model |
+| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045, and from M2 the `authz.opa` and `authz.cedar` engine limits (RZ-CFG-046) | configuration-model |
 | `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation rejections, Response Cache rejections (`only-if-cached` misses, unsatisfiable ranges), request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |
@@ -253,7 +253,7 @@ N_serving is the number of serving Nodes of a Cell, and N_published the Node cou
 - Each Node runs a local token bucket per key at a **per-Node ceiling**: declared on the Policy (`limits[].perNodeCeiling`, authored by Traffic management and resilience), or derived as min(limit, max(10, ceil(2 × limit / N_published))) (target), with 2× headroom for uneven spread and a floor for pinned clients; never learned from peers. With neither (file mode without a declared ceiling, or a Control-mode Node without a count), the ceiling equals the full limit.
 - Requests the local bucket denies never reach the State Store; each locally admitted request runs GCRA in one Lua `EVAL` in the State Store, which enforces the global limit. Two cases admit on local buckets alone: a Policy with `config.localOnly: true`, for keys too hot for one shard, and a first-seen key past the per-Node first-seen budget, which gets a 10 s local-only entry (target) at the per-Node ceiling in its own segment of the key table. Both admit at most N_serving × per-Node ceiling per window, even while the State Store is healthy (target). Leased allowances instead of per-request GCRA are OQ-system-overview-15.
 - Fail-open over-admission bound: while the State Store is failing, admission per key is at most N_serving × per-Node ceiling per window (target; Scalability and distributed state owns the bound). A derived ceiling then allows max(1, 2 × limit / N_published) per epoch-aligned window, without carry-over and refilled in 60 steps past one minute (target), so its floor never multiplies admission; a Control-mode Node without a count allows max(1, limit / 100) (target).
-- Node count: in Control mode, Planned (M2), a Node persists the last published count under `${RURALZ_DATA_DIR}` (section 8.11) and hands it to its successor in a Zero-Downtime Upgrade; a count read back after a restart is used, flagged stale, until the next one arrives. File mode, Planned (M1), has no count: ceilings equal the full limit, the first-seen budget is 200 keys per second per Node (target), and the Node is not degraded.
+- Node count: in Control mode, Planned (M2), a Node persists the last published count under `${RURALZ_DATA_DIR}` (section 8.11) and hands it to its successor in a Zero-Downtime Upgrade; a count read back after a restart is used, flagged stale, until the next one arrives. File mode has no count: ceilings equal the full limit, the first-seen budget is 200 keys per second per Node (target), and the Node is not degraded.
 - `failureMode` defaults to `open` and is configurable per Policy. With the `memory` driver every limit multiplies by the Node count, and a Node warns when its Cluster reports more than one Node.
 
 ### 8.9 Token Budgets (ADR-0014)
@@ -291,7 +291,7 @@ A Node persists only the following under `${RURALZ_DATA_DIR}`; all other shared 
 | Enrollment identity | `${RURALZ_DATA_DIR}/identity/` | `node.id` (ULID, generated at first boot) and, in Control mode, the per-Node mTLS certificate and key issued at Enrollment; revoked with `ruralz node revoke` |
 | Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only, with the high-water mark of the signed sequences of OCI Revisions in file mode (section 8.14), Planned (M2); encrypted secret persistence is OQ-configuration-model-15 |
 | Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts, whose compiled code stays in memory and is never persisted ([ADR-0004](../adr/0004-wasm-runtime-wazero.md)); deleting them costs only warm-up |
-| Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015), Planned (M1) |
+| Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015) |
 | Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (section 8.8); Control mode, Planned (M2) |
 | Revocation list | Under `${RURALZ_DATA_DIR}`, layout owned by Security and identity | The signed revocation entries and high-water mark last received (section 8.4), verified again when read back at boot, so a restart while detached keeps enforcing them; Control mode, Planned (M2) |
 
@@ -335,10 +335,10 @@ Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, 
 
 | Command | Purpose | Planned |
 |---|---|---|
-| `ruralz bundle validate` | Offline validation with source-mapped diagnostics (`--output json`); `--online` adds the Plugin artifact check | Planned (M1) |
-| `ruralz bundle render` | Render for one Environment (`--env`, `--environments`); `--effective --route` prints resolved Filter Chains; `--api-version` converts | Planned (M1) |
-| `ruralz bundle diff` | Compare two rendered states (Bundle, Revision or a Node's `/config/dump`); exit 0, 1 or 2 | Planned (M1); Revision sources Planned (M2) |
-| `ruralz bundle build` | Produce a Revision; runs the online Plugin check unless `--offline` | Planned (M1) |
+| `ruralz bundle validate` | Offline validation with source-mapped diagnostics (`--output json`); `--online` adds the Plugin artifact check | |
+| `ruralz bundle render` | Render for one Environment (`--env`, `--environments`); `--effective --route` prints resolved Filter Chains; `--api-version` converts | |
+| `ruralz bundle diff` | Compare two rendered states (Bundle, Revision or a Node's `/config/dump`); exit 0, 1 or 2 | Revision sources Planned (M2) |
+| `ruralz bundle build` | Produce a Revision; runs the online Plugin check unless `--offline` | |
 | `ruralz bundle push` | Send a source Bundle and expected digest to Ruralz Control, or publish and sign a rendered Revision in an OCI registry | Planned (M2) |
 | `ruralz bundle import openapi` | Generate Routes and Upstreams from an OpenAPI 3.x document | Planned (M2) |
 | `ruralz bundle export openapi` | Emit an OpenAPI 3.x document for a rendered Bundle's HTTP Routes | Planned (M2) |
@@ -359,11 +359,11 @@ Nouns are fixed: `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control`, 
 | `ruralz plugin inspect` | Show ABI, Phases, Capabilities, digest and signatures | Planned (M2) |
 | `ruralz ai cost` | Cost attribution from provider-reported usage and pricing tables | Planned (M3) |
 | `ruralz ai models` | List `AIModel` resources and their candidates | Planned (M3) |
-| `ruralz dev run` | Launch a local `ruralzd` on a Bundle directory with Hot Reload | Planned (M1) |
-| `ruralz dev tap` | Stream redacted traffic from a Node's `/tap` on 9901 | Planned (M1) |
+| `ruralz dev run` | Launch a local `ruralzd` on a Bundle directory with Hot Reload | |
+| `ruralz dev tap` | Stream redacted traffic from a Node's `/tap` on 9901 | |
 | `ruralz node list` | List Nodes with active and Last-Known-Good digests | Planned (M2) |
-| `ruralz node drain` | Drain a Node | Planned (M1) |
-| `ruralz node dump` | Save a Node's active configuration from `/config/dump`, secrets omitted | Planned (M1) |
+| `ruralz node drain` | Drain a Node | |
+| `ruralz node dump` | Save a Node's active configuration from `/config/dump`, secrets omitted | |
 | `ruralz node token` | Issue a one-time Enrollment token for a Cluster | Planned (M2) |
 | `ruralz node revoke` | Revoke a Node's enrollment identity | Planned (M2) |
 | `ruralz control serve` | Run a Ruralz Control replica (launches `ruralz-control`) | Planned (M2) |
@@ -379,20 +379,20 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 
 | `type` | Filter class | Phases | Scopes | Slot | `failureMode`: default; allowed | Planned |
 |---|---|---|---|---|---|---|
-| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | Planned (M1) |
-| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M1) |
+| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | |
+| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | |
 | `authz.opa`, `authz.cedar` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M2) |
-| `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M1) |
+| `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | |
 | `authz.geoip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M2) |
-| `ratelimit` | admission | onRequestHeaders | G, R | `name` | open; either | Planned (M1) |
-| `quota` | admission | onRequestHeaders, onLog | G, R | `name` | open; either | Planned (M1) |
-| `validation.json-schema` | validation | onRequestBody | R | `validation` | closed; either | Planned (M1) |
-| `cors` | cors | onRequestHeaders, onResponse | G, R | `cors` | closed; either | Planned (M1) |
-| `cache` (Response Cache) | cache | onRequestHeaders, onResponse | R | `cache` | open; either | Planned (M1) |
-| `headers` | transform | onRequestHeaders, onResponse; at U: onUpstreamRequest, onUpstreamResponseHeaders | G, R, U | `name` | closed; either | Planned (M1) |
-| `transform.request` | transform | onRequestBody; at U: onUpstreamRequest | G, R, U | `name` | closed; either | Planned (M1) |
-| `transform.response` | transform | onResponse; at U: onUpstreamResponseBody | G, R, U | `name` | closed; either | Planned (M1) |
-| `auth.upstream-oauth2` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | Planned (M1) |
+| `ratelimit` | admission | onRequestHeaders | G, R | `name` | open; either | |
+| `quota` | admission | onRequestHeaders, onLog | G, R | `name` | open; either | |
+| `validation.json-schema` | validation | onRequestBody | R | `validation` | closed; either | |
+| `cors` | cors | onRequestHeaders, onResponse | G, R | `cors` | closed; either | |
+| `cache` (Response Cache) | cache | onRequestHeaders, onResponse | R | `cache` | open; either | |
+| `headers` | transform | onRequestHeaders, onResponse; at U: onUpstreamRequest, onUpstreamResponseHeaders | G, R, U | `name` | closed; either | |
+| `transform.request` | transform | onRequestBody; at U: onUpstreamRequest | G, R, U | `name` | closed; either | |
+| `transform.response` | transform | onResponse; at U: onUpstreamResponseBody | G, R, U | `name` | closed; either | |
+| `auth.upstream-oauth2` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | |
 | `auth.upstream-sigv4` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | Planned (M2) |
 | `ai.token-budget` | admission | onRequestBody, onChunk, onLog | G, R | `name` | closed; either | Planned (M3) |
 | `ai.semantic-cache` (Semantic Cache) | cache | onRequestBody, onResponse | R | `semantic-cache` | open; either | Planned (M3) |

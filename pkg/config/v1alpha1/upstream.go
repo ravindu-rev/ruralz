@@ -8,7 +8,7 @@ type UpstreamProtocol string
 
 // Upstream protocols.
 const (
-	// UpstreamProtocolHTTP is Planned (M1).
+	// UpstreamProtocolHTTP uses HTTP/1.1 in cleartext and HTTP/2 by ALPN over TLS.
 	UpstreamProtocolHTTP UpstreamProtocol = "http"
 	// UpstreamProtocolGRPC is Planned (M3).
 	// +ruralz:planned=M3
@@ -96,7 +96,7 @@ type DiscoveryType string
 
 // Discovery types.
 const (
-	// DiscoveryTypeDNS resolves DNS names. Planned (M1).
+	// DiscoveryTypeDNS resolves DNS names.
 	DiscoveryTypeDNS DiscoveryType = "dns"
 	// DiscoveryTypeKubernetes watches EndpointSlices. Planned (M2).
 	// +ruralz:planned=M2

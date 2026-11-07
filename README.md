@@ -1,6 +1,6 @@
 # Ruralz
 
-Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Milestone M1 is in progress, and its release, `0.1.0`, is not out yet ([Status](#status)).
+Ruralz is an open-source API gateway written in Go where every feature, including the control plane and console, is free (Apache-2.0, no feature gating). Release `0.1.0` carries milestones M0 and M1, and milestone M2 is in progress ([Status](#status)).
 
 ## What is Ruralz
 
@@ -62,7 +62,7 @@ The four differentiators are (1) **WASM plugin system**, (2) **AI/LLM gateway**,
 
 ## Status
 
-Release `0.1.0`, on the [releases page](https://github.com/ravindu-rev/ruralz/releases), ships milestones M0 Foundations and M1 Core gateway: the file-mode Ruralz Gateway with core Policies and Hot Reload, and the `ruralz` CLI. Ruralz is building milestone M2 WASM + Control/GitOps, and every merge to `main` releases what its Conventional Commits titles call for ([Release pipeline](docs/engineering/04-release-versioning-and-compatibility.md#release-pipeline)). Every capability in these documents is tagged `Planned (Mx)`, where `Mx` is a milestone from M0 to M5, even when its design is complete; the capabilities of M0 and M1 are released. Milestones have an order but no dates.
+Release `0.1.0`, on the [releases page](https://github.com/ravindu-rev/ruralz/releases), ships milestones M0 Foundations and M1 Core gateway: the file-mode Ruralz Gateway with core Policies and Hot Reload, and the `ruralz` CLI. Ruralz is building milestone M2 WASM + Control/GitOps, and every merge to `main` releases what its Conventional Commits titles call for ([Release pipeline](docs/engineering/04-release-versioning-and-compatibility.md#release-pipeline)). A capability not yet released carries a `Planned (Mx)` tag naming the milestone that delivers it, even when its design is complete; a released capability carries none. Milestones have an order but no dates.
 
 | Milestone | Scope |
 |---|---|
@@ -73,7 +73,7 @@ Release `0.1.0`, on the [releases page](https://github.com/ravindu-rev/ruralz/re
 | M4 Event protocols + multi-region | Kafka, NATS and MQTT, Cells across Regions |
 | M5 Enterprise hardening | SSO/SAML for Ruralz Console, FIPS build, monetization hooks |
 
-The [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) holds each milestone's scope and exit criteria, [Steps](docs/roadmap/02-steps.md) the work left in the current one, and the [Feature Catalog](docs/features/01-feature-catalog.md) maps every capability to its milestone.
+The [Roadmap and milestones](docs/roadmap/01-roadmap-and-milestones.md) holds the scope and exit criteria of each milestone not yet exited, [Steps](docs/roadmap/02-steps.md) the work left in the current one, and the [Feature Catalog](docs/features/01-feature-catalog.md) maps every capability to its release or milestone.
 
 ## Install
 

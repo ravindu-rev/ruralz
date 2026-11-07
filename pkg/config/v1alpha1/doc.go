@@ -19,7 +19,7 @@
 // keywords, and every +ruralz:secret field also carries +ruralz:impact with
 // security; schemagen rejects the types otherwise.
 //
-// Four string fields became pointers in M1 under that presence rule.
+// Four string fields are pointers under that presence rule.
 // AuthAPIKeyConfig.Header and ActiveHealthCheck.Path carry schema defaults
 // (x-api-key and /) that the loader materializes only inside a present
 // parent, so code reading them dereferences the pointer and applies the
