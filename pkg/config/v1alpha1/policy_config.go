@@ -89,14 +89,18 @@ type AuthzCELConfig struct {
 	Rule string `json:"rule"`
 }
 
-// AuthzOPAConfig is the config of an authz.opa Policy; its fields await
-// OQ-security-and-identity-13.
+// AuthzOPAConfig is the config of an authz.opa Policy, Planned (M2): exactly
+// one of an inline Rego module or a signed OCI policy artifact pinned by
+// digest, the query that decides, and inline data beside a module. Its
+// fields ship with the authz.opa Filter.
 // +ruralz:policyType=authz.opa
 // +ruralz:open
 type AuthzOPAConfig struct{}
 
-// AuthzCedarConfig is the config of an authz.cedar Policy; its fields await
-// OQ-security-and-identity-13.
+// AuthzCedarConfig is the config of an authz.cedar Policy, Planned (M2):
+// exactly one of inline Cedar policy text or a signed OCI policy artifact
+// pinned by digest, and inline entities beside the policy text. Its fields
+// ship with the authz.cedar Filter.
 // +ruralz:policyType=authz.cedar
 // +ruralz:open
 type AuthzCedarConfig struct{}

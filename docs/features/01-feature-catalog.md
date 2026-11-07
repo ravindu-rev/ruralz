@@ -163,8 +163,8 @@ The header match fixes the Route before `onRequestHeaders`; body-dependent crite
 | Catch-all fallback Route | Planned (M1) | A lowest-ranked `Route` whose only criterion is `match.when: "true"`; keep it the only such Route or name it to sort last | [Data plane: Precedence](../architecture/03-data-plane.md#precedence) |
 | URL rewrite | Planned (M1) | Composition step `path` or `pathExpression`; on plain `upstreams`, a `transform.request` `set[]` entry with target `path` ([Data plane: Transform Policies](../architecture/03-data-plane.md#transform-policies)) | [Data plane: Composition engine](../architecture/03-data-plane.md#composition-engine) |
 | Weighted splits, blue-green and header canaries | Planned (M1) | `upstreams[].weight` per request; a higher-ranked `Route` with `match.headers` or `match.when` for header, cookie or query canaries | [Traffic management and resilience: Traffic shaping](../architecture/09-traffic-management-and-resilience.md#traffic-shaping) |
-| Traffic mirroring | Planned (M2) | `Route` mirroring to a second `Upstream`, declared per OQ-traffic-management-and-resilience-12; mirrored legs stay within `limits.maxBufferedBytes` and are dropped with a counter when exhausted | [Data plane: Bounded resources](../architecture/03-data-plane.md#bounded-resources) |
-| Client redirects | Planned (M2) | Upstream 3xx responses pass through; Route-issued redirects use a `plugin` Policy until built-in fields land per OQ-traffic-management-and-resilience-13 | [Traffic management and resilience: Traffic shaping](../architecture/09-traffic-management-and-resilience.md#traffic-shaping) |
+| Traffic mirroring | Planned (M2) | `Route.spec.mirror` copies a sampled percentage of a `Route`'s requests to a target `Upstream` and discards the responses; mirrored legs are bounded in flight and stay within `limits.maxBufferedBytes`, dropped with a counter when exhausted, never delay or fail the primary request, and report metrics | [Traffic management and resilience: Traffic shaping](../architecture/09-traffic-management-and-resilience.md#traffic-shaping) |
+| Client redirects | Planned (M2) | Upstream 3xx responses pass through; a `Route` issues its own redirects through `Route.spec.redirect`, which sets the status, scheme and host, rewrites the path or a prefix, and handles the query | [Traffic management and resilience: Traffic shaping](../architecture/09-traffic-management-and-resilience.md#traffic-shaping) |
 
 ## Authentication and authorization
 
@@ -181,11 +181,12 @@ Client authentication types share slot `auth` and fail closed; authorization typ
 | CEL authorization rules | Planned (M1) | `authz.cel` `config.rule` over the `request`, `consumer` and `auth.claims` variables, with the strings and encoders extensions | [Security and identity: Authorization](../architecture/08-security-and-identity.md#authorization) |
 | OAuth2 client credentials toward Upstreams | Planned (M1) | `auth.upstream-oauth2` (`tokenUrl`, `clientId`, `clientSecret`, `scopes`) on an `Upstream` | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
 | Upstream mTLS | Planned (M1) | `Upstream.spec.tls` `clientCertificate` toward the Upstream | [Security and identity: Mutual TLS](../architecture/08-security-and-identity.md#mutual-tls) |
-| OPA and Cedar authorization | Planned (M2) | `authz.opa` and `authz.cedar` Policies with engine configuration and memory limits | [Security and identity: OPA and Cedar schemas](../architecture/08-security-and-identity.md#opa-and-cedar-schemas) |
-| Service-account JWT-bearer grant toward Upstreams | Planned (M2) | `auth.upstream-oauth2` with `grantType: jwt-bearer`, `serviceAccountKey` and `audience`, for example for Google Cloud services, pending registration (OQ-security-and-identity-12) | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
-| AWS SigV4 request signing | Planned (M2) | `auth.upstream-sigv4` on an `Upstream`, signing at the transport on every attempt; signer per OQ-tech-stack-and-libraries-17 | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
-| JWT signing | Planned (M2) | A `Policy` of a built-in signing type, not yet registered, on a `Route`, with keys only through `secretRef`; type per OQ-security-and-identity-11 | [Security and identity: JWT and OIDC](../architecture/08-security-and-identity.md#jwt-and-oidc) |
-| Token revocation | Planned (M2) | A signed revocation list that `auth.*` Policies check on every Node, fed by the Ruralz Control revocation API; capped at 100,000 entries per Cluster (target); API per OQ-security-and-identity-4 | [Security and identity: Revocation](../architecture/08-security-and-identity.md#revocation) |
+| OPA and Cedar authorization | Planned (M2) | `authz.opa` and `authz.cedar` Policies whose policies are inline or come from signed OCI policy artifacts pinned by digest, under engine caps and a Revision-wide ceiling (`RZ-CFG-046`) | [Security and identity: OPA and Cedar schemas](../architecture/08-security-and-identity.md#opa-and-cedar-schemas) |
+| Service-account JWT-bearer grant toward Upstreams | Planned (M2) | `auth.upstream-oauth2` with `grantType: jwt-bearer`, `serviceAccountKey` and `audience`, for example for Google Cloud services, yielding access or ID tokens | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
+| Keyless Google Cloud authentication toward Upstreams | Planned (M2) | `auth.upstream-oauth2` with a token from the Compute Engine and GKE metadata server or from Workload Identity Federation, yielding access or ID tokens; fields per OQ-security-and-identity-34 | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
+| AWS SigV4 request signing | Planned (M2) | `auth.upstream-sigv4` on an `Upstream`, signing every attempt at the transport-time hook after the last `onUpstreamRequest` Filter; signer per OQ-tech-stack-and-libraries-17 | [Security and identity: Upstream authentication](../architecture/08-security-and-identity.md#upstream-authentication) |
+| JWT signing | Planned (M2) | A `Policy` of a built-in type that foundation pack section 10 registers, on a `Route`, with keys only through `secretRef`, never Plugin `config`; name and `config` per OQ-security-and-identity-35 | [Security and identity: JWT signing](../architecture/08-security-and-identity.md#jwt-signing) |
+| Token revocation | Planned (M2) | A signed revocation list that `auth.*` Policies check on every Node, fed by the Ruralz Control revocation API and sent over the Control Stream with signed high-water marks and Node-signed `Ack`s, persisted under `${RURALZ_DATA_DIR}`, or read from a watched file in file mode (setting per OQ-security-and-identity-39); capped at 100,000 entries per Cluster (target) | [Security and identity: Revocation](../architecture/08-security-and-identity.md#revocation) |
 
 ## AI gateway
 
@@ -267,7 +268,7 @@ Ruralz rate limiting is a local token bucket at a per-Node ceiling plus GCRA in 
 | Load shedding | Planned (M1) | A fixed ceiling of 20,000 in-flight units per Node (target); a request past it gets 503 `RZ-RT-005` at once, never queued | [Data plane: Bounded resources](../architecture/03-data-plane.md#bounded-resources) |
 | IP filtering | Planned (M1) | `authz.ip` by CIDR on `source.ip`, which `Gateway` `trustedProxies` and listener `proxyProtocol` (PROXY protocol v2) derive behind load balancers | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | User-agent filtering | Planned (M1) | `authz.cel` `config.rule` matching `request.headers["user-agent"]`; a list beyond the `RZ-CFG-015` cost bound of 10,000 units (target) uses a `plugin` Policy | [Security and identity: Authorization](../architecture/08-security-and-identity.md#authorization) |
-| GeoIP filtering | Planned (M2) | `authz.geoip` by ISO 3166 country from a local MaxMind-format database; reader per OQ-tech-stack-and-libraries-24; a `source.country` CEL variable per OQ-security-and-identity-14 | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
+| GeoIP filtering | Planned (M2) | `authz.geoip` by ISO 3166 country from a local MaxMind-format database, read with `github.com/oschwald/maxminddb-golang`; database setting per OQ-security-and-identity-37; a `source.country` CEL variable per OQ-security-and-identity-14 | [Security and identity: IP filtering and GeoIP](../architecture/08-security-and-identity.md#ip-filtering-and-geoip) |
 | Request hedging | Planned (M4) | A second attempt to another Endpoint after a delay, for idempotent methods with replayable bodies, spending retry budget; `hedgeDelay` per OQ-traffic-management-and-resilience-5 | [Traffic management and resilience: Hedging](../architecture/09-traffic-management-and-resilience.md#hedging) |
 | Multi-region Cells | Planned (M4) | One `Cluster` and State Store per Region, optionally with a regional Ruralz Control; regional or global quotas | [Scalability and distributed state: Multi-region](../architecture/11-scalability-and-distributed-state.md#multi-region) |
 
@@ -334,13 +335,13 @@ Counts of catalog rows per category and milestone; each row sums across to its T
 | Request and response transformation | 0 | 16 | 3 | 0 | 1 | 3 | 23 |
 | Security | 0 | 10 | 3 | 0 | 0 | 1 | 14 |
 | Routing | 0 | 9 | 2 | 0 | 0 | 0 | 11 |
-| Authentication and authorization | 0 | 9 | 5 | 0 | 0 | 0 | 14 |
+| Authentication and authorization | 0 | 9 | 6 | 0 | 0 | 0 | 15 |
 | AI gateway | 0 | 0 | 0 | 22 | 0 | 1 | 23 |
 | Services connectivity | 0 | 2 | 1 | 10 | 7 | 3 | 23 |
 | Traffic management | 0 | 14 | 1 | 0 | 2 | 0 | 17 |
 | Observability | 0 | 10 | 1 | 1 | 0 | 3 | 15 |
 | API governance and monetization | 0 | 3 | 0 | 0 | 0 | 1 | 4 |
-| Total | 1 | 84 | 31 | 33 | 10 | 14 | 173 |
+| Total | 1 | 84 | 32 | 33 | 10 | 14 | 174 |
 
 Not planned: 13 features, listed in [Not planned](#not-planned).
 
@@ -348,9 +349,9 @@ Not planned: 13 features, listed in [Not planned](#not-planned).
 
 ```mermaid
 flowchart LR
-    C["173 planned features, all free"] --> M0["Planned (M0): 1"]
+    C["174 planned features, all free"] --> M0["Planned (M0): 1"]
     C --> M1["Planned (M1): 84"]
-    C --> M2["Planned (M2): 31"]
+    C --> M2["Planned (M2): 32"]
     C --> M3["Planned (M3): 33"]
     C --> M4["Planned (M4): 10"]
     C --> M5["Planned (M5): 14"]
