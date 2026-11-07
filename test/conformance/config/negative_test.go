@@ -68,6 +68,7 @@ func offlineStages() map[string]string {
 		"RZ-CFG-038": "I",
 		"RZ-CFG-041": "H",
 		"RZ-CFG-043": "J",
+		"RZ-CFG-046": "J",
 	}
 }
 
@@ -100,6 +101,7 @@ type exemption struct {
 func exemptions() []exemption {
 	return []exemption{
 		{"RZ-CFG-021", v1alpha1.KindPolicy, "the configSchema half: a plugin Policy config that violates its Plugin's configSchema", "M2"},
+		{"RZ-CFG-046", v1alpha1.KindPolicy, "authz.opa and authz.cedar engine caps and the per-Revision engine ceiling", "M2"},
 	}
 }
 

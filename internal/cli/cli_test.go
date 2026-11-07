@@ -37,6 +37,10 @@ const referenceDoc = "../../docs/reference/01-cli-and-api-surface.md"
 // packDoc is the foundation pack, read in place.
 const packDoc = "../../docs/_meta/foundation-pack.md"
 
+// roadmapDoc holds the milestones not yet exited, the one in progress
+// first.
+const roadmapDoc = "../../docs/roadmap/01-roadmap-and-milestones.md"
+
 // testVersion is the CLI build version of the tests.
 const testVersion = "0.4.0"
 
@@ -166,18 +170,37 @@ func parseStatus(cell string) (status, error) {
 // checkStatus checks the registered command s against the status of its
 // row: a row without a Planned tag of its own runs it, and a Planned (Mn)
 // tag leaves it Planned at Mn.
-func checkStatus(st status, s command.Spec) error {
+//
+// current is the milestone in progress: a command of that milestone may
+// already run, since its row keeps the Planned tag until the milestone
+// exits, while a command of a later milestone never runs.
+func checkStatus(st status, s command.Spec, current string) error {
 	switch {
 	case st.runs:
 		if s.New == nil {
 			return errors.New("does not run, but its row carries no Planned tag of its own")
 		}
+	case s.New != nil && st.milestone == current:
 	case s.New != nil:
-		return fmt.Errorf("runs, but its row is Planned (%s)", st.milestone)
+		return fmt.Errorf("runs, but its row is Planned (%s), after %s, the milestone in progress", st.milestone, current)
 	case s.Planned != st.milestone:
 		return fmt.Errorf("is Planned (%s), but its row is Planned (%s)", s.Planned, st.milestone)
 	}
 	return nil
+}
+
+// milestoneInProgress returns the roadmap's milestone in progress: "Mn" of
+// its first "## Mn " heading, or "" when it holds none.
+func milestoneInProgress(t *testing.T) string {
+	t.Helper()
+	data, err := os.ReadFile(roadmapDoc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m := regexp.MustCompile(`(?m)^## (M[0-9]+) `).FindSubmatch(data); m != nil {
+		return string(m[1])
+	}
+	return ""
 }
 
 // commandRow is one row of a command table: the reference's command table
@@ -299,13 +322,14 @@ func TestCheckStatus(t *testing.T) {
 		{name: "an untagged row whose command runs", st: status{runs: true}, spec: runs},
 		{name: "an untagged row whose command is Planned", st: status{runs: true}, spec: plannedM2, want: "does not run, but its row carries no Planned tag of its own"},
 		{name: "a Planned row whose command is Planned at its milestone", st: status{milestone: "M2"}, spec: plannedM2},
-		{name: "a Planned row whose command runs", st: status{milestone: "M2"}, spec: runs, want: "runs, but its row is Planned (M2)"},
-		{name: "a Planned (M1) row whose command runs", st: status{milestone: "M1"}, spec: runs, want: "runs, but its row is Planned (M1)"},
+		{name: "a row of the milestone in progress whose command already runs", st: status{milestone: "M2"}, spec: runs},
+		{name: "a row of a later milestone whose command runs", st: status{milestone: "M3"}, spec: runs, want: "runs, but its row is Planned (M3), after M2, the milestone in progress"},
+		{name: "a Planned (M1) row whose command runs", st: status{milestone: "M1"}, spec: runs, want: "runs, but its row is Planned (M1), after M2, the milestone in progress"},
 		{name: "a Planned row whose command is Planned at another milestone", st: status{milestone: "M3"}, spec: plannedM2, want: "is Planned (M2), but its row is Planned (M3)"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			err := checkStatus(tc.st, tc.spec)
+			err := checkStatus(tc.st, tc.spec, "M2")
 			if tc.want == "" {
 				if err != nil {
 					t.Errorf("checkStatus() = %v, want nil", err)
@@ -337,6 +361,7 @@ func specPath(command string) string {
 func TestRegistryMatchesReference(t *testing.T) {
 	specs := specIndex(Registry(testOptions()))
 	rows := referenceRows(t)
+	current := milestoneInProgress(t)
 	perPath := map[string]int{}
 	for _, r := range rows {
 		perPath[specPath(r.command)]++
@@ -348,7 +373,7 @@ func TestRegistryMatchesReference(t *testing.T) {
 			t.Errorf("%s is not registered", r.command)
 			continue
 		}
-		if err := checkStatus(r.status, s); err != nil {
+		if err := checkStatus(r.status, s, current); err != nil {
 			t.Errorf("%s %v", r.command, err)
 		}
 		if perPath[p] == 1 && s.Summary != r.purpose {
@@ -372,13 +397,14 @@ func TestRegistryMatchesReference(t *testing.T) {
 // registry's nouns.
 func TestRegistryCoversThePack(t *testing.T) {
 	specs := specIndex(Registry(testOptions()))
+	current := milestoneInProgress(t)
 	for _, r := range packRows(t) {
 		s, ok := specs[specPath(r.command)]
 		if !ok {
 			t.Errorf("%s of the CLI command registry is not registered", r.command)
 			continue
 		}
-		if err := checkStatus(r.status, s); err != nil {
+		if err := checkStatus(r.status, s, current); err != nil {
 			t.Errorf("%s of the CLI command registry %v", r.command, err)
 		}
 	}
