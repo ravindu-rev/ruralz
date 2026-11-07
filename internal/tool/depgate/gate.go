@@ -173,7 +173,7 @@ func analyze(t target, pkgs []goPackage, read dirReader) (analysis, error) {
 			continue
 		}
 		mod := p.Module
-		if msg := checkCrypto(p.ImportPath, mod.Path); msg != "" {
+		if msg := checkCrypto(p.ImportPath, mod.Path, importedBy); msg != "" {
 			add(p.ImportPath, msg)
 		}
 		m, seen := modules[mod.Path]
@@ -323,10 +323,13 @@ func checkLicense(key, modulePath string, texts []legalText) (ids []string, over
 	}
 }
 
-// checkCrypto applies G3 to one package and returns a finding or "".
-func checkCrypto(importPath, modulePath string) string {
-	if importPath == "golang.org/x/crypto" || strings.HasPrefix(importPath, "golang.org/x/crypto/") {
-		if slices.Contains(cryptoDelegation(), importPath) {
+// checkCrypto applies G3 to one package and returns a finding or "". A
+// golang.org/x/crypto package passes on the FIPS delegation allowlist, or
+// when the binary links it only for modules with a G3 exception row
+// (linkedForExceptions), whose rows cover the packages they link.
+func checkCrypto(importPath, modulePath string, importedBy map[string][]goPackage) string {
+	if isXCrypto(importPath) {
+		if slices.Contains(cryptoDelegation(), importPath) || linkedForExceptions(importPath, importedBy, map[string]bool{}) {
 			return ""
 		}
 		return "golang.org/x/crypto package off the FIPS delegation allowlist (G3)"
@@ -338,6 +341,41 @@ func checkCrypto(importPath, modulePath string) string {
 		return "cryptography outside Go crypto/... needs a G3 exception row"
 	}
 	return ""
+}
+
+// isXCrypto reports whether importPath is a golang.org/x/crypto package.
+func isXCrypto(importPath string) bool {
+	return importPath == "golang.org/x/crypto" || strings.HasPrefix(importPath, "golang.org/x/crypto/")
+}
+
+// linkedForExceptions reports whether every linked package that imports
+// the golang.org/x/crypto package path belongs to a module with a G3
+// exception row, or is a golang.org/x/crypto package linked only that way
+// itself, so the binary links path only for those modules, as go-git's
+// SSH and OpenPGP packages are (docs/engineering/01-tech-stack-and-libraries.md
+// "CI tooling"). memo holds the packages decided so far; import graphs
+// have no cycles.
+func linkedForExceptions(path string, importedBy map[string][]goPackage, memo map[string]bool) bool {
+	if v, ok := memo[path]; ok {
+		return v
+	}
+	importers := importedBy[path]
+	ok := len(importers) > 0
+	for _, i := range importers {
+		if !ok {
+			break
+		}
+		switch {
+		case i.Module != nil && !i.Module.Main && isXCrypto(i.ImportPath):
+			ok = slices.Contains(cryptoDelegation(), i.ImportPath) || linkedForExceptions(i.ImportPath, importedBy, memo)
+		case i.Module != nil && !i.Module.Main:
+			_, ok = cryptoExceptions()[i.Module.Path]
+		default:
+			ok = false
+		}
+	}
+	memo[path] = ok
+	return ok
 }
 
 // denied reports whether module path is one of roots, a later major

@@ -10,7 +10,7 @@ status: accepted
 
 Nodes activate Revisions and Plugin artifacts arriving over the Control Stream in Control mode, or by OCI pull or a watched Bundle directory in file mode ([System overview](../architecture/01-system-overview.md#deployment-modes)). Threat T6 of [Security and identity](../architecture/08-security-and-identity.md#threat-model-and-trust-boundaries) covers tampering, replay and retagging across TB-5 (Node to Ruralz Control) and TB-8 (Node to OCI registry).
 
-A digest proves which bytes arrived, not who chose them: a file-mode Node learns its Revision digest from a repository reference (OQ-system-overview-19), and a Bundle author can pin any Plugin digest. Nothing is implemented; signing and verification are Planned (M2).
+A digest proves which bytes arrived, not who chose them: a file-mode Node learns its Revision digest from a repository reference (OQ-system-overview-19), and a Bundle author can pin any Plugin digest. Signing and verification are Planned (M2).
 
 ## Decision drivers
 
@@ -51,7 +51,7 @@ Rules that follow:
 - **Offline verification.** Nodes never fetch trust roots over TUF. The Sigstore trusted root (Fulcio, log and timestamp keys) sits in the anchor-set Plugin trust policy in Control mode, refreshed by `TrustUpdate`, and in process configuration in file mode. A keyless signature MUST be a Sigstore bundle carrying a transparency-log inclusion proof and at least one trusted timestamp; the Node checks the certificate against that time, and the log and timestamp keys against its local trusted root; a missing or unverifiable proof or timestamp is RZ-CFG-033. Key-based signatures verify against the configured key. cosign signs through Rekor v2 since v3.1.1 ([source](https://github.com/sigstore/cosign/releases)), a tile-backed log with yearly shards ([source](https://blog.sigstore.dev/rekor-v2-ga/)).
 - **Bounds.** Verifiers list only Sigstore bundle referrers and try at most 16 of at most 1 MiB each within 10 s (target), inside the 64 MiB and 30 s fetch limits (target) that [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) sets for the online Plugin check, which this ADR extends to Nodes and the CLI. No valid signature within the count and size limits is RZ-CFG-033; a timeout is transient. Results are cached by artifact digest and trust policy version.
 - **What a signature binds.** Control mode signs Revisions (digest, Environment, key ID, time), assignments (Cluster, Environment, digest, `rolloutId`, `storeEpoch`, `assignmentSeq`) and promotions (Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`), stopping cross-Cluster, stale, deposed-leader and Last-Known-Good replay. An OCI Revision's signature binds its Environment and a monotonic sequence, so a file-mode Node refuses another Environment's Revision and any sequence below the high-water mark it keeps (pack 8.11), and a rollback re-pushes the older Revision with a new sequence ([Signed Revisions and Plugin artifacts](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts)); each Environment SHOULD also use its own signing identity, so trust policies reject other Environments' Revisions too.
-- **Algorithms and libraries.** ECDSA P-256 and SHA-256 through Go `crypto/ecdsa` for Ruralz Control; `sigstore/sigstore-go` v1.3.x; `oras.land/oras-go/v2` v2.6.2 or newer, above GO-2026-5879 ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)).
+- **Algorithms and libraries.** ECDSA P-256 and SHA-256 through Go `crypto/ecdsa` for Ruralz Control; `sigstore/sigstore-go` v1.3.x for verification; `oras.land/oras-go/v2` v2.6.4 or newer, above GO-2026-5879 and GHSA-xc97-9f2f-9hrx ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)).
 - **Key compromise.** After emergency key removal, a Node refuses to boot a candidate or Last-Known-Good accepted from that key after `compromisedSince` and stays not ready until the Control Stream delivers, an exception to pack 8.2 step (3) and P9.
 - **Scope.** Release artifact signing (images, SBOM) belongs to [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).
 
@@ -95,7 +95,8 @@ flowchart LR
 - Bad, because a file-mode rollback needs a new `ruralz bundle push` of the older Revision, since a Node refuses a sequence below its high-water mark.
 - Bad, because Sigstore trusted roots need a refresh at least yearly, as Rekor v2 shards yearly, or new keyless signatures fail under `enforce`; in Control mode each refresh, like revoking a Plugin publisher, waits on an offline root signing.
 - Bad, because the key-compromise boot refusal leaves a Node not ready while Ruralz Control is unreachable.
-- Bad, because sigstore-go's G3 FIPS status is unconfirmed (OQ-tech-stack-and-libraries-9); the Control-mode path uses only `crypto/ecdsa`.
+- Bad, because sigstore-go's verification links `golang.org/x/crypto` packages, accepted outside FIPS builds under G3 exception rows, so a FIPS build needs a replacement or an accepted caveat (OQ-tech-stack-and-libraries-9); the Control-mode path uses only `crypto/ecdsa`.
+- Bad, because the BER decoder that sigstore-go's timestamp check links exhausts memory on crafted input at every version on the Go version floor, so a bundle whose RFC 3161 timestamp is not DER fails before it is parsed, and how deep a timestamp may nest is OQ-security-and-identity-44 ([Signed Revisions and Plugin artifacts](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts)).
 
 ### Confirmation
 
@@ -134,6 +135,6 @@ flowchart LR
 ## More information
 
 - Owning document: [Security and identity](../architecture/08-security-and-identity.md#signed-revisions-and-plugin-artifacts); mechanisms in [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md#revision-signing-and-verification) and [WASM plugin system](../architecture/05-wasm-plugin-system.md#signing-and-verification).
-- Licenses: sigstore-go v1.3.0 ([source](https://github.com/sigstore/sigstore-go/releases/tag/v1.3.0)) and oras-go v2.6.2 ([source](https://github.com/oras-project/oras-go/releases/tag/v2.6.2)) are Apache-2.0.
+- Licenses: sigstore-go v1.3.0 ([source](https://github.com/sigstore/sigstore-go/releases/tag/v1.3.0)) and oras-go v2.7.0 ([source](https://github.com/oras-project/oras-go/releases/tag/v2.7.0)) are Apache-2.0.
 - Related decisions: [ADR-0007](0007-control-stream-protocol.md) (NACKs), [ADR-0005](0005-plugin-abi-v1.md), [ADR-0001](0001-implementation-language-go.md) (FIPS build).
-- Open questions refining, not reversing, it: OQ-security-and-identity-36 and -40, and OQ-system-overview-19.
+- Open questions refining, not reversing, it: OQ-security-and-identity-36, -41, -42, -43 and -44, and OQ-system-overview-19.

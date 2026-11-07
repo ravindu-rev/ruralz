@@ -965,7 +965,7 @@ Figure 3 names the stages that raise each code. Only stage I raises RZ-CFG-018, 
 | RZ-CFG-030 | Overlay `apiVersion` differs from its base resource |
 | RZ-CFG-031 | More composition steps than `maxCompositionSteps` |
 | RZ-CFG-032 | Step `maxBodyBytes` values exceed `maxResponseBodyBytes` or leave no default share |
-| RZ-CFG-033 | Signature verification failed for a Revision or Plugin artifact ([ADR-0017](../adr/0017-artifact-signing.md)) |
+| RZ-CFG-033 | Signature verification failed for a Revision or Plugin artifact, an OCI Revision signed for another Environment or at a sequence below the Node's high-water mark included ([ADR-0017](../adr/0017-artifact-signing.md)) |
 | RZ-CFG-034 | `AIModel` reachable from a Route with an `ai.token-budget` Policy sets no `limits.maxOutputTokens` |
 | RZ-CFG-035 | A `credentials.basic` `username`, or a `credentials.certificates` `subject` or `uriSan`, declared by two Consumers |
 | RZ-CFG-036 | `credentials.basic[].iterations` outside 600,000 to 1,000,000 |

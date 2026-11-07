@@ -1,19 +1,6 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package signing holds the digest checks every Revision and Plugin
-// artifact goes through. revision.Digest is the only digest type: an
-// expected digest is always the full sha256:<64 lowercase hex>, never the
-// display form rev-<12 hex>. Content that does not hash to its digest is
-// RZ-CFG-027 for Revisions and RZ-CFG-028 for Plugin artifacts. The checks
-// are always on and not configurable.
-//
-// M1 verifies digests only (DigestOnly). Verifier is the M2 extension
-// point: WithSignature layers a Sigstore or Control-mode signature
-// verifier after the digest check, which it can never skip. VerifyArtifact
-// streams a Plugin artifact through SHA-256 under a size limit; no Plugin
-// artifact reaches a Node or the CLI in M1, and the fetch wiring lands
-// with Plugins in M2.
 package signing
 
 import (
@@ -63,6 +50,9 @@ var (
 	ErrTooLarge = errors.New("signing: artifact exceeds its size limit")
 	// ErrLimit reports a size limit that is not positive.
 	ErrLimit = errors.New("signing: the size limit must be positive")
+	// ErrRead reports content whose read failed before its end: the
+	// artifact is unavailable.
+	ErrRead = errors.New("signing: read artifact")
 )
 
 // ParseDigest parses an expected digest: exactly "sha256:" followed by 64
@@ -138,14 +128,26 @@ func ReadArtifact(ctx context.Context, r io.Reader, want revision.Digest, limit 
 	return buf.Bytes(), nil
 }
 
-// stream reads r up to limit+1 bytes, hashing and copying to sink (when
-// not nil), and verifies the sum.
+// stream is streamPlain with RZ-CFG-028 on every failure of the content:
+// a zero digest, an empty-read loop, a read error, excess bytes and a
+// mismatch. ErrLimit and ctx's errors pass without a code.
 func stream(ctx context.Context, r io.Reader, want revision.Digest, limit int64, sink *bytes.Buffer) error {
+	err := streamPlain(ctx, r, want, limit, sink)
+	if err == nil || errors.Is(err, ErrLimit) || (ctx.Err() != nil && errors.Is(err, ctx.Err())) {
+		return err
+	}
+	return errcode.Wrap(CodeArtifact, err)
+}
+
+// streamPlain reads r up to limit+1 bytes, hashing and copying to sink
+// (when not nil), and verifies the sum, with errors that carry no RZ code:
+// the caller knows whether the content is a Revision or a Plugin artifact.
+func streamPlain(ctx context.Context, r io.Reader, want revision.Digest, limit int64, sink *bytes.Buffer) error {
 	if limit <= 0 {
 		return ErrLimit
 	}
 	if want.IsZero() {
-		return errcode.Wrap(CodeArtifact, ErrNoDigest)
+		return ErrNoDigest
 	}
 	// Read one byte past the limit to tell "exactly limit" from "more".
 	readMax := limit
@@ -164,7 +166,7 @@ func stream(ctx context.Context, r io.Reader, want revision.Digest, limit int64,
 		n, err := r.Read(p)
 		if n == 0 && err == nil {
 			if empty++; empty >= maxEmptyReads {
-				return errcode.Wrap(CodeArtifact, fmt.Errorf("signing: read artifact: %w", io.ErrNoProgress))
+				return fmt.Errorf("%w: %w", ErrRead, io.ErrNoProgress)
 			}
 			continue
 		}
@@ -172,7 +174,7 @@ func stream(ctx context.Context, r io.Reader, want revision.Digest, limit int64,
 		if n > 0 {
 			total += int64(n)
 			if total > limit {
-				return errcode.Wrap(CodeArtifact, fmt.Errorf("%w: more than %d bytes", ErrTooLarge, limit))
+				return fmt.Errorf("%w: more than %d bytes", ErrTooLarge, limit)
 			}
 			_, _ = h.Write(p[:n])
 			if sink != nil {
@@ -183,15 +185,12 @@ func stream(ctx context.Context, r io.Reader, want revision.Digest, limit int64,
 			break
 		}
 		if err != nil {
-			return errcode.Wrap(CodeArtifact, fmt.Errorf("signing: read artifact: %w", err))
+			return fmt.Errorf("%w: %w", ErrRead, err)
 		}
 	}
 	var sum [sha256.Size]byte
 	h.Sum(sum[:0])
-	if err := compare(digestOf(sum), want); err != nil {
-		return errcode.Wrap(CodeArtifact, err)
-	}
-	return nil
+	return compare(digestOf(sum), want)
 }
 
 // digestOf converts a raw sum to a revision.Digest, whose bytes are
@@ -202,18 +201,20 @@ func digestOf(sum [sha256.Size]byte) revision.Digest {
 	return d
 }
 
-// Verifier checks that content is what want names. The M1 implementation
-// is DigestOnly; M2 adds Sigstore (OCI Revisions and Plugins) and
-// Control-mode signatures through WithSignature. Implementations are safe
-// for concurrent use and never include content in errors.
+// Verifier checks that content is what want names: the digest check,
+// DigestOnly, and through WithSignature a check of a signature over the
+// content after it. Sigstore signatures of OCI artifacts sign a manifest
+// digest instead, so SigstoreVerifier checks them on the manifest before
+// any content is fetched. Implementations are safe for concurrent use and
+// never include content in errors.
 type Verifier interface {
 	// Verify returns nil when content is accepted under want, else an
 	// error carrying an RZ code.
 	Verify(ctx context.Context, content []byte, want revision.Digest) error
 }
 
-// DigestOnly is the M1 Verifier: the SHA-256 digest check of Revisions,
-// RZ-CFG-027 on mismatch.
+// DigestOnly is the Verifier of content without a signature of its own:
+// the SHA-256 digest check of Revisions, RZ-CFG-027 on mismatch.
 type DigestOnly struct{}
 
 // Verify implements Verifier with VerifyRevision.
@@ -221,11 +222,11 @@ func (DigestOnly) Verify(_ context.Context, content []byte, want revision.Digest
 	return VerifyRevision(content, want)
 }
 
-// Default returns the Verifier of this release: DigestOnly.
+// Default returns the content Verifier without a signature: DigestOnly.
 func Default() Verifier { return DigestOnly{} }
 
 // WithSignature returns a Verifier that runs the digest check first and,
-// only when it passes, sig (the M2 Sigstore or Control-mode slot). The
+// only when it passes, sig, a check of a signature over the content. The
 // digest check is always on: a nil sig gives DigestOnly.
 func WithSignature(sig Verifier) Verifier {
 	if sig == nil {
