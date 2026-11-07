@@ -26,7 +26,7 @@ Ruralz Gateway keeps no durable local state other than its enrollment identity, 
 | Plugin artifacts, Planned (M2) | `${RURALZ_DATA_DIR}/cache/oci/sha256/` | Disposable; refetched and verified |
 | Snapshots, compiled Plugin code, token buckets, Endpoint health, breakers, pools | Memory | Yes |
 
-Only the lock holder writes `holder.json` and `lkg/`, with directories 0700 and files 0600. `ruralzd` creates `${RURALZ_DATA_DIR}`, `identity/` and `lkg/` with mode 0700 when missing, and refuses to start (exit 2) when any is not a directory, not owned by the effective user, or world-writable (mode bit 0002, sticky or not), since another user could replace the lock, `holder.json` or Last-Known-Good; group write access is accepted as the operator's choice. This document owns the cache layout. Compiled Plugin code stays in memory, in one wazero `NewCompilationCache()`, never a cache directory, because no signature covers persisted native code; a restart recompiles verified artifacts ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [WASM plugin system](05-wasm-plugin-system.md#runtime)). Pack 8.11 still lists compiled modules as disposable caches (OQ-wasm-plugin-system-16).
+Only the lock holder writes `holder.json` and `lkg/`, with directories 0700 and files 0600. `ruralzd` creates `${RURALZ_DATA_DIR}`, `identity/` and `lkg/` with mode 0700 when missing, and refuses to start (exit 2) when any is not a directory, not owned by the effective user, or world-writable (mode bit 0002, sticky or not), since another user could replace the lock, `holder.json` or Last-Known-Good; group write access is accepted as the operator's choice. This document owns the cache layout. Compiled Plugin code stays in memory, in one wazero `NewCompilationCache()`, never a cache directory, because no signature covers persisted native code; a restart recompiles verified artifacts ([ADR-0004](../adr/0004-wasm-runtime-wazero.md), [WASM plugin system](05-wasm-plugin-system.md#runtime)).
 
 ### Goroutines
 
@@ -40,6 +40,7 @@ The request goroutine recovers a fault in request handling outside the Filter Ch
 | Listener accept loop and server shards | One dispatching accept loop per listening socket, and one `Serve` loop for each of its K = 8 server shards (target) | Listeners plus lingering sockets, K + 1 each |
 | TLS handshake observer | One per TLS connection until its handshake ends | Client connections per Node |
 | Composition step | One per parallel `aggregate` step | `limits.maxCompositionSteps`; one in-flight unit each |
+| Mirror leg, Planned (M2) | One per in-flight mirror of a `Route.spec.mirror` | The mirror bound ([Mirroring](09-traffic-management-and-resilience.md#mirroring)) |
 | Stream pump | One per direction of a WebSocket or bidirectional gRPC stream | One in-flight unit each |
 | Post-commit writer | Fixed pool | Queue capacity ([Scalability and distributed state](11-scalability-and-distributed-state.md)) |
 | Background | Config loader, discovery, health, secret, JWKS, telemetry, admin | Fixed set |
@@ -123,6 +124,7 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | Header block | `Server.MaxHeaderBytes` 256 KiB (target), counting the request target: `net/http` counts the HTTP/1.1 request line, and in HTTP/2 every field of the header list, pseudo-header fields included |
 | Upstream response header block | `Transport.MaxResponseHeaderBytes` 256 KiB, the same ceiling (target); a larger block fails the attempt as a protocol error (error kind `reset`) |
 | Bodies and buffered bytes | `limits.maxRequestBodyBytes`, `limits.maxResponseBodyBytes`, step `maxBodyBytes`; `limits.maxBufferedBytes` reserved as bytes arrive |
+| Mirror legs, Planned (M2) | In-flight mirrors are bounded ([Mirroring](09-traffic-management-and-resilience.md#mirroring)); a mirror past the bound, or whose copy of the request body would pass `limits.maxBufferedBytes`, is dropped with a counter, never delaying or failing the primary request |
 | One streamed chunk | 1 MiB (target), reserved from the stream share while held |
 | Plugin memory | Plugin `limits.memoryBytes`, Gateway `limits.maxPluginMemoryBytes` |
 | Upstream connections and queue | `circuitBreaker.maxConnections`, `maxPendingRequests` |

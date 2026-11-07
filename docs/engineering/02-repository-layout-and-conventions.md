@@ -6,7 +6,7 @@ This document fixes how the monorepo `github.com/ravindu-rev/ruralz` is organize
 
 ## Scope and non-goals
 
-In scope: the subjects the Summary lists, plus the Ruralz Console source location and frontend toolchain, which [Tech stack and libraries](01-tech-stack-and-libraries.md) assigns here; the toolchain waits for OQ-repository-layout-and-conventions-3.
+In scope: the subjects the Summary lists, plus the Ruralz Console source location and frontend toolchain, which [Tech stack and libraries](01-tech-stack-and-libraries.md) assigns here.
 
 Non-goals:
 
@@ -126,6 +126,21 @@ github.com/ravindu-rev/ruralz
 ### Ruralz Console assets
 
 `internal/console` embeds `all:dist` with `go:embed`. Only a placeholder `internal/console/dist/index.html` is committed, so `go build ./...` compiles on a fresh clone without Node.js and `ruralz-control` serves it at `/console`, stating that Ruralz Console was not built; the Ruralz Console production build overwrites it before `ruralz-control` is built. The root `.gitignore` MUST anchor `/dist/` and add `internal/console/dist/*` and `!internal/console/dist/index.html`. Planned (M2).
+
+### Ruralz Console toolchain
+
+Ruralz Console builds from `console/` with the toolchain below, Planned (M2). Each tool has a catalog row with its license in [Tech stack and libraries](01-tech-stack-and-libraries.md#library-catalog), and the non-Go license gate covers the npm dependencies the build ships ([License rules](01-tech-stack-and-libraries.md#license-rules)).
+
+| Role | Tool | Rule |
+|---|---|---|
+| Package manager | pnpm | `console/package.json` pins every direct dependency and the committed `console/pnpm-lock.yaml` fixes the tree; installs never change the lockfile. The toolchain is `devDependencies`; only `dependencies` ship |
+| Bundler | Vite | The production build writes `internal/console/dist/`, overwriting the placeholder before `ruralz-control` is built ([Ruralz Console assets](#ruralz-console-assets)) |
+| Type checker | `tsc` | `tsc --noEmit` in `strict` mode, since Vite transpiles TypeScript without checking types ([source](https://vite.dev/guide/features.html#transpile-only)) |
+| Test runner | Vitest with Testing Library | Unit and component tests beside the code they test; DOM environment: OQ-repository-layout-and-conventions-7 |
+| Linter | ESLint with typescript-eslint | Type-aware rules over every TypeScript file of `console/` |
+| Formatter | Prettier | Committed files are Prettier-formatted; CI runs it in check mode, which rewrites nothing |
+
+Every hand-written TypeScript file starts with the license header of [Code conventions](#code-conventions), which repocheck checks. The `make` targets, the PR pipeline job and the Node.js release that run the toolchain are OQ-repository-layout-and-conventions-6.
 
 ### Package layers
 
@@ -294,16 +309,16 @@ Other standard-library programs: `internal/tool/commitcheck` checks the DCO sign
 
 ## API and protobuf definitions
 
-All language-neutral contracts live under `api/`. Protobuf files are the source of truth for the Control Stream and for Plugin ABI v1 metadata; Go code generated from them is committed under `internal/gen/proto/`, so `go build` never needs buf. Proto packages are fixed by foundation pack section 12.
+All language-neutral contracts live under `api/`. Protobuf files are the source of truth for the Control Stream and for the Plugin ABI v1 constants and artifact config message; Go code generated from them is committed under `internal/gen/proto/`, so `go build` never needs buf. Proto packages are fixed by foundation pack section 12.
 
 | Path | Proto package | Contents | Owner | Milestone |
 |---|---|---|---|---|
 | `api/proto/ruralz/control/v1/` | `ruralz.control.v1` | Service `ControlStream` with unary `Enroll` and bidirectional `Stream` ([ADR-0007](../adr/0007-control-stream-protocol.md)) | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
-| `api/proto/ruralz/plugin/v1/` | `ruralz.plugin.v1` | Plugin ABI v1 metadata, from which PDKs could generate constants ([ADR-0005](../adr/0005-plugin-abi-v1.md)); whether it exists and its contents are OQ-repository-layout-and-conventions-2 | [WASM plugin system](../architecture/05-wasm-plugin-system.md) | Planned (M2) |
+| `api/proto/ruralz/plugin/v1/` | `ruralz.plugin.v1` | Plugin ABI v1 Host Function field identifiers, return codes and the artifact config message, from which every PDK generates its constants ([ADR-0005](../adr/0005-plugin-abi-v1.md)) | [WASM plugin system](../architecture/05-wasm-plugin-system.md#contract) | Planned (M2) |
 | `api/openapi/` | None | REST API under `/api/v1/` on 8090; authoring is OQ-repository-layout-and-conventions-5 | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md) | Planned (M2) |
 | `api/schema/ruralz/v1alpha1/` | None | Generated JSON Schema ([Schema generation from Go types](#schema-generation-from-go-types)) | [Configuration model](../architecture/02-configuration-model.md) | Planned (M0) |
 
-The WASM import module `ruralz.plugin.v1` is the ABI contract; the proto package of the same name would only describe its constants and metadata, because the Plugin ABI passes raw buffers and canonical JSON ([WASM plugin system](../architecture/05-wasm-plugin-system.md)).
+The WASM import module `ruralz.plugin.v1` is the ABI contract; the proto package of the same name describes its constants and the artifact config message and never crosses the ABI, which passes raw buffers and canonical JSON ([WASM plugin system](../architecture/05-wasm-plugin-system.md#contract)).
 
 ### buf rules
 
@@ -324,12 +339,28 @@ breaking:
 
 `service_suffix: Stream` keeps the pack's `ControlStream` name lint-clean. This document proposes `<RPC>Request` and `<RPC>Response` envelopes (`EnrollRequest`, `StreamRequest`, `StreamResponse`) to Control plane and GitOps, which owns the messages.
 
+Generation is hermetic. `buf.gen.yaml` names only local plugins, the version-pinned `protoc-gen-go` and `protoc-gen-connect-go` that `make tools` installs into `bin/` ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)), never a Buf Schema Registry remote plugin, and `buf.yaml` declares no `deps`, so `buf generate` reads nothing from the network ([source](https://buf.build/docs/configuration/v2/buf-gen-yaml/#type-of-plugin)). Each plugin is pinned to the `go.mod` version of the module that ships it, `google.golang.org/protobuf` and `connectrpc.com/connect`, so generated code and runtime move together.
+
+```yaml
+# buf.gen.yaml (buf configuration, not a Ruralz Bundle)
+version: v2
+plugins:
+  - local: bin/protoc-gen-go
+    out: internal/gen/proto
+    opt: paths=source_relative
+  - local: bin/protoc-gen-connect-go
+    out: internal/gen/proto
+    opt: paths=source_relative
+```
+
 | Check | Command | Rule |
 |---|---|---|
 | Format | `buf format --diff --exit-code` | Canonical formatting |
 | Lint | `buf lint` | Directory matches package; versioned package suffix; enum zero values end in `_UNSPECIFIED`; every message, field and RPC has a comment (`COMMENTS`) |
 | Breaking | `buf breaking --against` the `main` branch and the newest release tag of N-1 and of N, the minors of the skew window, as the Release document requires | No removed or renumbered field, no changed type, no renamed RPC within a `v1` package; a breaking change needs a new package (`v2`) and a Release document decision |
-| Generate | `buf generate` | Writes committed Go code under `internal/gen/proto/` and, per OQ-repository-layout-and-conventions-2, PDK constants under `sdk/`; generator plugins wait for OQ-tech-stack-and-libraries-14 |
+| Generate | `buf generate` | Writes the committed Go code under `internal/gen/proto/` with `protoc-gen-go` and `protoc-gen-connect-go`, and every PDK's constants under `sdk/` (generator: OQ-repository-layout-and-conventions-8); fails when the output differs from the committed files |
+
+The PR pipeline's `ci` job runs the four checks through `make lint`, Planned (M2), so CI regenerates the protobuf code with the pinned plugins and rejects a stale or hand-edited copy; `make generate` regenerates it with the other generated trees.
 
 Proto style: files are `lower_snake_case.proto`, messages and services `PascalCase`, fields `lower_snake_case` (JSON mapping `lowerCamelCase`), and removed fields become `reserved` numbers and names. Compatibility windows belong to [Release, versioning and compatibility](04-release-versioning-and-compatibility.md).
 
@@ -524,7 +555,7 @@ An admin sets the repository's GitHub settings below in GitHub itself; no code i
 
 | Job | What runs | Make targets |
 |---|---|---|
-| `ci` | golangci-lint with `.golangci.yml` and its formatters; actionlint with the pinned shellcheck on the workflows; the [DCO sign-off](#dco-sign-off) of the pull request's own non-merge commits, Dependabot's aside; `go mod verify`, govulncheck and depgate | `make lint`, `make dco`, `make supply-chain` |
+| `ci` | golangci-lint with `.golangci.yml` and its formatters; actionlint with the pinned shellcheck on the workflows; the [buf rules](#buf-rules) checks, the generated protobuf code included, Planned (M2); the [DCO sign-off](#dco-sign-off) of the pull request's own non-merge commits, Dependabot's aside; `go mod verify`, govulncheck and depgate | `make lint`, `make dco`, `make supply-chain` |
 | `unit` | `go test -race -shuffle=on ./...` with cgo and the `netgo,osusergo` tags, then `CGO_ENABLED=0 go test -shuffle=on ./...`, the shipped configuration: the unit tests, the property tests, every fuzz target's seed corpus, and the repository's own tests (repocheck, depgate, the generated files against their sources, the error codes against the documents) | `make test` |
 | `integration` | `go test -race -shuffle=on -tags integration ./...` on `ubuntu-24.04`, with a local `redis-server` and the runner's Docker for the testcontainers cases, under `RURALZ_TEST_STATESTORE=process,container`, so the State Store suites run every kind of both flavors: the conformance suites and the State Store, CLI and Node integration tests | `make integration` |
 
@@ -549,6 +580,7 @@ Documentation lives in `docs/` and changes in the same pull requests as code: `R
 
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
-| OQ-repository-layout-and-conventions-2 | What does the proto package `ruralz.plugin.v1` contain? | (a) Host Function field identifiers, return codes and the artifact config message (proposed); (b) Artifact config only; (c) No proto file, which needs a foundation pack section 12 amendment (OQ-wasm-plugin-system-12) | wasm-plugin-system | Yes, for Planned (M2) |
-| OQ-repository-layout-and-conventions-3 | Which toolchain builds Ruralz Console (package manager, bundler, type checker, test runner, linter)? | (a) Choose here and add the tech stack license and catalog rows (proposed); (b) The Control plane and GitOps owner chooses | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
 | OQ-repository-layout-and-conventions-5 | Is the OpenAPI document hand-authored or generated from Go handlers? | (a) Hand-authored with a drift test (proposed); (b) Generated after a catalog row | control-plane-and-gitops | No |
+| OQ-repository-layout-and-conventions-6 | Which `make` targets and PR pipeline job run the [Ruralz Console toolchain](#ruralz-console-toolchain), and on which Node.js release? | (a) A `make console` target (frozen pnpm install, `tsc --noEmit`, ESLint, Prettier check, Vitest, then the Vite build into `internal/console/dist/`), run by a fourth PR pipeline job, `console`, that `pr` needs, on Node.js 26, the LTS line since 2026-10-28 ([source](https://github.com/nodejs/Release/blob/main/schedule.json)), pinned and checksum-verified like the other CI tools (proposed); (b) The Console steps inside `make lint` and `make test`, so the `ci` and `unit` jobs and every contributor need Node.js | repository-layout-and-conventions | Yes, for Ruralz Console, Planned (M2) |
+| OQ-repository-layout-and-conventions-7 | Which DOM environment runs the Vitest and Testing Library tests of Ruralz Console? | (a) jsdom, MIT ([source](https://registry.npmjs.org/jsdom/31.0.0)), with a tech stack catalog row (proposed); (b) happy-dom, MIT ([source](https://registry.npmjs.org/happy-dom/21.0.4)); (c) Vitest browser mode on Playwright, Apache-2.0 ([source](https://registry.npmjs.org/playwright/1.65.0)) | repository-layout-and-conventions | Yes, for Ruralz Console tests, Planned (M2) |
+| OQ-repository-layout-and-conventions-8 | Which generator writes each PDK's constants from the `ruralz.plugin.v1` proto package? | (a) A Ruralz protoc plugin in `internal/tool/pdkgen`, written on `google.golang.org/protobuf/compiler/protogen` and run by `buf generate` as a local plugin beside the Go generators, writing committed constants for every PDK under `sdk/` that the Generate check covers (proposed); (b) Each PDK's own protobuf generator as a buf local plugin, such as `protoc-gen-prost` for Rust, Apache-2.0 ([source](https://github.com/neoeinstein/protoc-gen-prost)), and `protoc-gen-go` in the Go PDK module | repository-layout-and-conventions | Yes, for the Rust and Go PDKs, Planned (M2) |
