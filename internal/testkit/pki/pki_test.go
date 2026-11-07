@@ -6,7 +6,7 @@ package pki
 import (
 	"context"
 	"crypto/ecdsa"
-	"crypto/rsa"
+	"crypto/elliptic"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -21,9 +21,9 @@ import (
 	"time"
 )
 
-// Tests for pki (test CA, server and client certificates, ECDSA P-256 and
-// RSA 2,048, PEM files, SSL_CERT_FILE bundle) as used by TLS listeners,
-// auth.mtls and TLS State Stores.
+// Tests for pki (test CA, server and client certificates, PEM files, the
+// CA file as an SSL_CERT_FILE bundle) as used by TLS listeners, auth.mtls
+// and TLS State Stores.
 
 // handshake runs a TLS handshake over a loopback TCP connection.
 func handshake(t *testing.T, server, client *tls.Config) (serverErr, clientErr error) {
@@ -70,50 +70,39 @@ func handshake(t *testing.T, server, client *tls.Config) (serverErr, clientErr e
 }
 
 func TestServerCertificates(t *testing.T) {
-	for _, kt := range []KeyType{ECDSAP256, RSA2048} {
-		t.Run(kt.String(), func(t *testing.T) {
-			ca, err := NewCA(CAOptions{KeyType: kt})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !ca.Cert.IsCA || ca.Cert.Subject.CommonName != "Ruralz Test CA" || ca.Root() != ca {
-				t.Fatalf("CA = %+v", ca.Cert.Subject)
-			}
-			leaf, err := ca.Issue(LeafOptions{CommonName: "node", DNSNames: []string{"localhost"}, KeyType: kt, Server: true})
-			if err != nil {
-				t.Fatal(err)
-			}
-			switch kt {
-			case ECDSAP256:
-				if _, ok := leaf.Key.(*ecdsa.PrivateKey); !ok {
-					t.Fatalf("key = %T", leaf.Key)
-				}
-			case RSA2048:
-				k, ok := leaf.Key.(*rsa.PrivateKey)
-				if !ok || k.N.BitLen() != 2048 {
-					t.Fatalf("key = %T", leaf.Key)
-				}
-				if leaf.Cert.KeyUsage&x509.KeyUsageKeyEncipherment == 0 {
-					t.Fatal("RSA leaf lacks key encipherment")
-				}
-			}
-			srv, err := leaf.ServerTLS(nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			cli, err := ClientTLS(ca, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			cli.ServerName = "localhost"
-			if se, ce := handshake(t, srv, cli); se != nil || ce != nil {
-				t.Fatalf("handshake: server %v, client %v", se, ce)
-			}
-			cli.ServerName = "other.example"
-			if _, ce := handshake(t, srv, cli); ce == nil {
-				t.Fatal("wrong server name: want a verification error")
-			}
-		})
+	ca, err := NewCA(CAOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ca.Cert.IsCA || ca.Cert.Subject.CommonName != "Ruralz Test CA" || ca.Root() != ca {
+		t.Fatalf("CA = %+v", ca.Cert.Subject)
+	}
+	leaf, err := ca.Issue(LeafOptions{CommonName: "node", DNSNames: []string{"localhost"}, Server: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair, err := tls.X509KeyPair(leaf.ChainPEM, leaf.KeyPEM)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if k, ok := pair.PrivateKey.(*ecdsa.PrivateKey); !ok || k.Curve != elliptic.P256() {
+		t.Fatalf("key = %T, want an ECDSA P-256 key", pair.PrivateKey)
+	}
+	srv, err := leaf.ServerTLS(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli, err := ClientTLS(ca, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cli.ServerName = "localhost"
+	if se, ce := handshake(t, srv, cli); se != nil || ce != nil {
+		t.Fatalf("handshake: server %v, client %v", se, ce)
+	}
+	cli.ServerName = "other.example"
+	if _, ce := handshake(t, srv, cli); ce == nil {
+		t.Fatal("wrong server name: want a verification error")
 	}
 }
 
@@ -214,7 +203,7 @@ func TestMutualTLS(t *testing.T) { // auth.mtls: client certificates and URI SAN
 }
 
 func TestIntermediateChain(t *testing.T) {
-	root, err := NewCA(CAOptions{KeyType: RSA2048})
+	root, err := NewCA(CAOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,10 +309,6 @@ func TestFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other, err := NewCA(CAOptions{KeyType: RSA2048})
-	if err != nil {
-		t.Fatal(err)
-	}
 	leaf, err := ca.Server()
 	if err != nil {
 		t.Fatal(err)
@@ -346,33 +331,12 @@ func TestFiles(t *testing.T) {
 	if err := ca.WriteFile(caPath); err != nil {
 		t.Fatal(err)
 	}
-	bundle := filepath.Join(dir, "bundle.pem")
-	if err := WriteBundle(bundle, ca, other); err != nil {
-		t.Fatal(err)
-	}
-	data, err := os.ReadFile(bundle) //nolint:gosec // G304: a file the test wrote
-	if err != nil {
-		t.Fatal(err)
-	}
-	pool := x509.NewCertPool()
-	if !pool.AppendCertsFromPEM(data) || strings.Count(string(data), "BEGIN CERTIFICATE") != 2 {
-		t.Fatalf("bundle = %q", data)
-	}
-	if err := WriteBundle(bundle); err == nil {
-		t.Fatal("WriteBundle without CAs: want error")
-	}
 	missing := filepath.Join(dir, "no", "such")
 	if _, _, err := leaf.WriteFiles(missing, "x"); err == nil {
 		t.Fatal("WriteFiles into a missing directory: want error")
 	}
 	if err := ca.WriteFile(filepath.Join(missing, "ca.crt")); err == nil {
 		t.Fatal("WriteFile into a missing directory: want error")
-	}
-	if err := WriteBundle(filepath.Join(missing, "b.pem"), ca); err == nil {
-		t.Fatal("WriteBundle into a missing directory: want error")
-	}
-	if Env(bundle) != "SSL_CERT_FILE="+bundle {
-		t.Fatal("Env")
 	}
 }
 
@@ -397,14 +361,14 @@ func TestSSLCertFileBundle(t *testing.T) {
 		t.Fatal(err)
 	}
 	bundle := filepath.Join(dir, "bundle.pem")
-	if err := WriteBundle(bundle, ca); err != nil {
+	if err := ca.WriteFile(bundle); err != nil {
 		t.Fatal(err)
 	}
 	emptyDir := t.TempDir()
 	for _, tc := range []struct {
 		env  string
 		pass bool
-	}{{Env(bundle), true}, {"SSL_CERT_FILE=" + filepath.Join(dir, "missing.pem"), false}} {
+	}{{"SSL_CERT_FILE=" + bundle, true}, {"SSL_CERT_FILE=" + filepath.Join(dir, "missing.pem"), false}} {
 		cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestHelperSystemRoots$", "-test.count=1") //nolint:gosec // G204: re-executing this test binary
 		cmd.Env = append(os.Environ(), "PKI_HELPER_LEAF="+certPath, tc.env, "SSL_CERT_DIR="+emptyDir)
 		out, err := cmd.CombinedOutput()
@@ -435,18 +399,9 @@ func TestHelperSystemRoots(t *testing.T) {
 }
 
 func TestErrors(t *testing.T) {
-	if _, err := NewCA(CAOptions{KeyType: KeyType(7)}); err == nil {
-		t.Fatal("unknown key type: want error")
-	}
-	if KeyType(7).String() != "KeyType(7)" {
-		t.Fatal("KeyType.String")
-	}
 	ca, err := NewCA(CAOptions{})
 	if err != nil {
 		t.Fatal(err)
-	}
-	if _, err := ca.Issue(LeafOptions{KeyType: KeyType(9)}); err == nil {
-		t.Fatal("unknown leaf key type: want error")
 	}
 	if _, err := ca.Issue(LeafOptions{URIs: []string{"%zz"}}); err == nil {
 		t.Fatal("bad URI SAN: want error")
@@ -470,17 +425,5 @@ func TestErrors(t *testing.T) {
 	}
 	if _, err := l.Cert.Verify(x509.VerifyOptions{Roots: ca.Pool(), DNSName: "localhost"}); err == nil {
 		t.Fatal("not-yet-valid certificate verified")
-	}
-}
-
-func BenchmarkIssueECDSA(b *testing.B) {
-	ca, err := NewCA(CAOptions{})
-	if err != nil {
-		b.Fatal(err)
-	}
-	for b.Loop() {
-		if _, err := ca.Server(); err != nil {
-			b.Fatal(err)
-		}
 	}
 }

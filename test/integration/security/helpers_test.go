@@ -85,7 +85,7 @@ func fileRef(name string) string {
 // log sized for the case.
 func startMock(t *testing.T, top *topology.Topology, c mockup.Config) *mockup.Server {
 	t.Helper()
-	if c.Behavior.Body == nil && c.Behavior.BodySize == 0 && !c.Behavior.Echo {
+	if c.Behavior.Body == nil && !c.Behavior.Echo {
 		c.Behavior.Body = []byte("upstream says hello")
 		c.Behavior.ContentType = "text/plain"
 	}

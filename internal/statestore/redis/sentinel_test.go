@@ -5,6 +5,10 @@ package redis
 
 import (
 	"fmt"
+	"io"
+	"net"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -23,8 +27,8 @@ func (f *fixture) primaryAt(addr string) bool {
 }
 
 // quietLimits parks the memory readings, so only calls and the client
-// dial, and the sentinel client's periodic refresh, so only its events
-// and closed connections make it ask the sentinels again.
+// dial, and the driver's periodic sentinel check, so only the sentinels'
+// events and closed connections make the client ask them again.
 func quietLimits() statestore.Limits {
 	lim := statestore.DefaultLimits()
 	lim.MemoryPollSlow, lim.MemoryPollFast = time.Hour, time.Hour
@@ -141,4 +145,154 @@ func TestSentinelDialFailuresBeforeTheClient(t *testing.T) {
 	if f.d.sentinels.brk.State() != breaker.Closed {
 		t.Error("the sentinels' pacing shard's breaker recorded the dials")
 	}
+}
+
+// checkLimits are quietLimits with the driver's sentinel check due every
+// second.
+func checkLimits() statestore.Limits {
+	lim := quietLimits()
+	lim.ShardsRefresh = time.Second
+	return lim
+}
+
+// checkSentinelsNow moves the driver's clock a check period on, so the
+// next maintenance pass starts a sentinel check, and waits until the
+// sentinel answered more SENTINEL GET-MASTER-ADDR-BY-NAME requests than
+// asked and holds only the connections of the State client again: the
+// check, which dials its own connection, ended.
+func (f *fixture) checkSentinelsNow(asked, clientConns int) {
+	f.t.Helper()
+	f.awaitIdle()
+	f.clk.Jump(time.Second)
+	waitFor(f.t, "a sentinel check", func() bool {
+		return f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME") > asked && f.sent.connections() == clientConns
+	})
+}
+
+// TestSentinelFrozenPrimaryDoesNotHoldTheSwitch: with the primary frozen,
+// its connections open and unanswered as a SIGSTOPped or black-holed
+// primary's are, a refresh falling due changes nothing and leaves the
+// failover the sentinel then announces to take effect at once: the driver
+// asks the sentinel itself, which names the frozen primary the client
+// holds, so it keeps the client as it is, and the client never checks its
+// primary with ROLE on a schedule, which would hold the lock its
+// +switch-master handling needs until the connection's write timeout, an
+// hour here (docs/architecture/11-scalability-and-distributed-state.md
+// "State client and RZ-STS error codes").
+func TestSentinelFrozenPrimaryDoesNotHoldTheSwitch(t *testing.T) {
+	f := newFixture(t, fixtureOptions{
+		sentinel: 2, limits: checkLimits(),
+		sentinelURL: func(addr string) string { return "redis://" + addr + "?master_set=main&write_timeout=1h" },
+	})
+	f.ready()
+	if c := gcraCall(statestore.DigestOf("k"), oneLimit()); f.consume(c) == 0 || c.Err != nil {
+		t.Fatalf("first call: Err %v", c.Err)
+	}
+	waitFor(t, "the event subscription", func() bool { return f.sent.subscribers() > 0 })
+	subscribed := f.sent.count("SUBSCRIBE")
+	f.nodes[0].inject(&fault{hold: make(chan struct{})})
+	t.Cleanup(f.nodes[0].clearFaults)
+	f.checkSentinelsNow(f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME"), 1)
+	f.sent.switchMaster("main", f.nodes[1].addr)
+	waitFor(t, "the switch to the primary the sentinel announced", func() bool { return f.primaryAt(f.nodes[1].addr) })
+	c := gcraCall(statestore.DigestOf("k"), oneLimit())
+	if f.consume(c); c.Err != nil || f.nodes[1].count("EVALSHA") != 1 {
+		t.Fatalf("call after the switch: Err %v, EVALSHA on the new primary %d; want an answer there", c.Err, f.nodes[1].count("EVALSHA"))
+	}
+	if n := f.sent.count("SUBSCRIBE"); n != subscribed {
+		t.Errorf("the client subscribed %d more times; the check naming the primary it holds must not make it ask again", n-subscribed)
+	}
+	if n := f.logs.count("state store sentinels name another primary; the client asks them again"); n != 0 {
+		t.Errorf("%d prompts for the primary the client holds", n)
+	}
+}
+
+// TestSentinelCheckFollowsAMissedSwitch: when the client misses
+// +switch-master, the driver's check every ShardsRefresh finds the
+// sentinel naming another primary, closes the client's sentinel
+// connections, which makes the client ask the sentinels again, and logs
+// it once by shard; the client then sends to the new primary.
+func TestSentinelCheckFollowsAMissedSwitch(t *testing.T) {
+	f := newFixture(t, fixtureOptions{sentinel: 2, limits: checkLimits()})
+	f.ready()
+	if c := gcraCall(statestore.DigestOf("k"), oneLimit()); f.consume(c) == 0 || c.Err != nil {
+		t.Fatalf("first call: Err %v", c.Err)
+	}
+	waitFor(t, "the event subscription", func() bool { return f.sent.subscribers() > 0 })
+	f.sent.setMaster("main", f.nodes[1].addr)
+	asked := f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME")
+	f.awaitIdle()
+	f.clk.Jump(time.Second)
+	waitFor(t, "the client to follow the sentinel to the new primary", func() bool { return f.primaryAt(f.nodes[1].addr) })
+	if n := f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME"); n < asked+2 {
+		t.Errorf("the sentinel was asked %d more times, want the check's and the client's", n-asked)
+	}
+	c := gcraCall(statestore.DigestOf("k"), oneLimit())
+	if f.consume(c); c.Err != nil || f.nodes[1].count("EVALSHA") != 1 {
+		t.Fatalf("call after the switch: Err %v, EVALSHA on the new primary %d", c.Err, f.nodes[1].count("EVALSHA"))
+	}
+	if n := f.logs.count("state store sentinels name another primary; the client asks them again"); n != 1 {
+		t.Errorf("%d prompt logs, want 1", n)
+	}
+	if text := f.logs.text(); !strings.Contains(text, "shard="+f.d.single.id) || strings.Contains(text, f.nodes[1].addr) {
+		t.Errorf("the prompt log names no shard or carries an address:\n%s", text)
+	}
+}
+
+// TestSentinelCheckGivesUpOnASilentSentinel: a sentinel seed that accepts
+// connections and never answers costs the driver's check the admin
+// timeout, after which it asks the next seed, whose answer counts.
+func TestSentinelCheckGivesUpOnASilentSentinel(t *testing.T) {
+	silent := silentServer(t)
+	f := newFixture(t, fixtureOptions{
+		sentinel: 2, limits: checkLimits(), opts: Options{AdminTimeout: 50 * time.Millisecond},
+		sentinelURL: func(addr string) string {
+			return "redis://" + silent + "?master_set=main&dial_timeout=100ms&addr=" + addr
+		},
+	})
+	f.ready()
+	waitFor(t, "the event subscription", func() bool { return f.sent.subscribers() > 0 })
+	f.sent.setMaster("main", f.nodes[1].addr)
+	asked := f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME")
+	f.awaitIdle()
+	f.clk.Jump(time.Second)
+	waitFor(t, "the client to follow the answer of the second seed", func() bool { return f.primaryAt(f.nodes[1].addr) })
+	if n := f.sent.count("SENTINEL GET-MASTER-ADDR-BY-NAME"); n < asked+2 {
+		t.Errorf("the answering sentinel was asked %d more times, want the check's and the client's", n-asked)
+	}
+}
+
+// silentServer listens on loopback, accepts every connection and never
+// writes; it closes when t ends.
+func silentServer(t *testing.T) string {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var conns []net.Conn
+	wg.Go(func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			wg.Go(func() { _, _ = io.Copy(io.Discard, c) })
+		}
+	})
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		mu.Unlock()
+		wg.Wait()
+	})
+	return ln.Addr().String()
 }

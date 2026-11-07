@@ -1,35 +1,16 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-//go:build integration || t5
+//go:build integration
 
-// Package t5 verifies T5, Ruralz Gateway on a VM under systemd, against
-// the files deploy/systemd/ ships in every linux ruralzd archive
-// (docs/operations/01-deployment-topologies.md "T5 and T6";
-// docs/operations/02-zero-downtime-upgrades-and-hot-reload.md "Handover
-// under systemd"). It holds three suites:
-//
-//   - The unit check, under the integration tag, which CI stage 8 runs:
-//     systemd-analyze verify on a copy of ruralzd.service whose
-//     /usr/local/bin/ paths name the ExecReload helper and a stand-in
-//     ruralzd, and systemd-sysusers with the sysusers.d entry against a
-//     temporary root.
-//   - The helper checks, under the test-only tag t5: ruralzd-handover
-//     against stand-ins, the test binary re-executed, and against ruralzd
-//     itself, in temporary directories, so they change nothing on the
-//     host and need neither root nor systemd.
-//   - The live suite, also under t5, which t5-systemd.yml runs as root on
-//     runners with systemd as PID 1: it installs the linux ruralzd
-//     archive of a `make release-dry-run` by the T5 install steps and
-//     drives the unit with systemctl. Because it installs files under
-//     /usr/local and /etc, creates a system user and runs systemctl, it
-//     runs only when RURALZ_TEST_T5=1 is set, and otherwise skips with a
-//     reason.
-//
-// They test shipped artifacts, so they run in real time and wait on
-// conditions under deadlines, never on fixed sleeps
-// (docs/engineering/03-testing-and-quality-strategy.md "Hermetic rule
-// scope").
+// Package t5 checks the systemd files of T5, Ruralz Gateway on a VM under
+// systemd, as deploy/systemd/ ships them in every linux ruralzd archive
+// (docs/operations/01-deployment-topologies.md "T5 and T6"): an
+// integration test runs systemd-analyze verify on a copy of
+// ruralzd.service whose /usr/local/bin/ paths name the ExecReload helper
+// and a stand-in ruralzd, and systemd-sysusers with the sysusers.d entry
+// against a temporary root, so it changes nothing on the host and needs
+// neither root nor a running systemd.
 package t5
 
 import (
@@ -46,8 +27,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/binaries"
 )
 
-// The shipped T5 files, as deploy/systemd/ holds them and every linux
-// ruralzd archive carries them at the same path
+// The shipped T5 files the checks read, as deploy/systemd/ holds them and
+// every linux ruralzd archive carries them at the same path
 // (docs/engineering/04-release-versioning-and-compatibility.md
 // "Packaging and audit").
 const (
@@ -55,8 +36,6 @@ const (
 	unitFile     = "ruralzd.service"
 	helperFile   = "ruralzd-handover"
 	sysusersFile = "ruralzd.sysusers"
-	envFile      = "ruralzd.env"
-	sysctlFile   = "99-ruralzd.conf"
 )
 
 // What the sysusers.d entry creates and the unit runs as
@@ -72,13 +51,10 @@ const (
 	installBin = "/usr/local/bin/"
 )
 
-// System ID bounds: login.defs(5) SYS_UID_MAX and SYS_GID_MAX default to
-// 999, systemd's SYSTEM_UID_MAX and SYSTEM_GID_MAX as Debian and Ubuntu
-// build it.
-const (
-	defaultSysIDMax = 999
-	loginDefs       = "/etc/login.defs"
-)
+// defaultSysIDMax bounds system IDs: login.defs(5) SYS_UID_MAX and
+// SYS_GID_MAX default to 999, systemd's SYSTEM_UID_MAX and SYSTEM_GID_MAX
+// as Debian and Ubuntu build it.
+const defaultSysIDMax = 999
 
 // repoRoot returns the repository root.
 func repoRoot(t testing.TB) string {
@@ -137,15 +113,6 @@ func loginDefsValue(data []byte, key string) int {
 // content, each defaulting to defaultSysIDMax.
 func sysIDMax(defs []byte) (uidMax, gidMax int) {
 	return loginDefsValue(defs, "SYS_UID_MAX"), loginDefsValue(defs, "SYS_GID_MAX")
-}
-
-// hostLoginDefs returns the host's login.defs(5), or nil without one.
-func hostLoginDefs() []byte {
-	b, err := os.ReadFile(loginDefs)
-	if err != nil {
-		return nil
-	}
-	return b
 }
 
 // checkSystemUser returns what is wrong with the ruralz user and group in

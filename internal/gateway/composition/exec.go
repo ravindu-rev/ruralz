@@ -106,7 +106,7 @@ func (r *run) evalPath(ctx context.Context, st *step) (s string, err error) {
 			s, err = "", errPanic
 		}
 	}()
-	return st.pathExpr.EvalString(ctx, &r.vars)
+	return st.pathExpr.EvalString(&r.vars)
 }
 
 // legFailed records a leg that ended without a response: its code, or

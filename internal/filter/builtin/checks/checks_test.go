@@ -161,10 +161,10 @@ func TestTableWiresEachType(t *testing.T) {
 func deniedModules() []string {
 	return []string{
 		"github.com/lestrrat-go/", // jwx and the modules it links
-		"github.com/valyala/fastjson",
 		"github.com/redis/rueidis",
 		"go.opentelemetry.io/",
 		"github.com/prometheus/",
+		"github.com/pandatix/go-abnf", // through prometheus/common's expfmt
 		"google.golang.org/grpc",
 		"github.com/quic-go/quic-go",
 		"connectrpc.com/connect",

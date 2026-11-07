@@ -47,7 +47,7 @@ type Value struct {
 // Err returns the error of an error reply ('-' or '!'), else nil.
 func (v Value) Err() error {
 	if v.Kind == '-' || v.Kind == '!' {
-		return &ReplyError{Msg: v.Str}
+		return errors.New("redisserver: error reply: " + v.Str)
 	}
 	return nil
 }
@@ -67,20 +67,6 @@ func (v Value) String() string {
 		return "[" + strings.Join(parts, " ") + "]"
 	}
 	return strconv.Quote(v.Str)
-}
-
-// ReplyError is an error reply.
-type ReplyError struct {
-	// Msg is the message, such as "NOSCRIPT No matching script".
-	Msg string
-}
-
-func (e *ReplyError) Error() string { return "redisserver: error reply: " + e.Msg }
-
-// Code returns the first word of the message, such as "NOSCRIPT".
-func (e *ReplyError) Code() string {
-	code, _, _ := strings.Cut(e.Msg, " ")
-	return code
 }
 
 // writeCommand writes args as an array of bulk strings.

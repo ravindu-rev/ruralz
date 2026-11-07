@@ -35,9 +35,8 @@
 //
 // Picks draw from the injected randomness, which must be safe for
 // concurrent use; a Forwarder is immutable, safe for concurrent use and
-// allocates nothing of its own per request (the onRoute row of
-// docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget"), refusals included up to 64 entries. It records no
+// allocates nothing of its own per request, refusals included up to 64
+// entries. It records no
 // metric and logs nothing: the leg counts its attempts, and the handler
 // writes the response or the refusal's problem document.
 //

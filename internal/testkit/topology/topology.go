@@ -11,9 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"sync"
 	"syscall"
@@ -26,7 +24,6 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/mockup"
 	"github.com/ravindu-rev/ruralz/internal/testkit/otlpsink"
 	"github.com/ravindu-rev/ruralz/internal/testkit/pki"
-	"github.com/ravindu-rev/ruralz/internal/testkit/proc"
 )
 
 // Runtime defaults (docs/engineering/03-testing-and-quality-strategy.md
@@ -62,6 +59,9 @@ var (
 	// ErrNotRunning is returned by operations on a Node without a running
 	// process.
 	ErrNotRunning = errors.New("topology: the Node has no running process")
+	// errTorn is returned when a dependency starts after the teardown
+	// began.
+	errTorn = errors.New("topology: torn down")
 )
 
 // Config configures a Topology.
@@ -70,8 +70,6 @@ type Config struct {
 	// internal/testkit/binaries, the controllable-clock build for the
 	// correctness suites, or a stand-in. Required.
 	Binary string
-	// Args are the Node's arguments; ruralzd takes none.
-	Args []string
 	// TestClock reports that Binary follows the clock commands on file
 	// descriptor 3 (binaries.Set.TestClock): the harness passes each Node
 	// process its command socket and keeps one clock for them all.
@@ -93,68 +91,6 @@ type Config struct {
 	// Transport turns off the TLS and credentials the harness otherwise
 	// chooses on its own hops.
 	Transport Transport
-	// ArtifactDir receives a failed test's evidence; default
-	// $RURALZ_TEST_ARTIFACT_DIR as the teardown finds it, and none when
-	// both are empty.
-	ArtifactDir string
-	// CPUs, when set, is the cgroup v2 cpuset every Node process shares,
-	// such as "2-5", as the target chaos profile runs its Nodes on RH-1's
-	// gateway cpuset (docs/engineering/03-testing-and-quality-strategy.md
-	// "Scale profiles"): each Node process, handover successors included,
-	// starts in a systemd-run scope of the user manager with AllowedCPUs
-	// set to it, as the benchmark harness starts ruralzd, and the
-	// GOMAXPROCS rule divides the cpuset's CPUs among the Nodes. The scope
-	// reaches the user manager through the harness's XDG_RUNTIME_DIR and
-	// DBUS_SESSION_BUS_ADDRESS, which the Node process then holds too.
-	CPUs string
-}
-
-// ScopeArgs returns the systemd-run arguments that start argv in place in
-// a scope of the user manager on cpus, as Config.CPUs starts each Node
-// process: systemd-run creates the scope and then executes argv itself,
-// so the process it started is argv's, the PID the harness signals.
-func ScopeArgs(cpus string, argv ...string) []string {
-	return append([]string{"--user", "--scope", "--quiet", "--collect", "-p", "AllowedCPUs=" + cpus, "--"}, argv...)
-}
-
-// scope is how a topology with Config.CPUs starts its Node processes.
-type scope struct {
-	// run is the systemd-run executable.
-	run string
-	// env holds the harness's user manager variables.
-	env []string
-	// cpus is the number of CPUs in the cpuset.
-	cpus int
-}
-
-// newScope checks Config.CPUs and finds systemd-run and the user
-// manager's variables; nil without CPUs.
-func newScope(cpus string, getenv func(string) string, lookPath func(string) (string, error)) (*scope, error) {
-	if cpus == "" {
-		return nil, nil
-	}
-	list, ok := proc.ParseCPUList(cpus)
-	if !ok {
-		return nil, fmt.Errorf("Config.CPUs %q is not a cpuset list", cpus)
-	}
-	run, err := lookPath("systemd-run")
-	if err != nil {
-		return nil, fmt.Errorf("Config.CPUs %q: the Nodes' scopes need systemd-run: %w", cpus, err)
-	}
-	s := &scope{run: run, cpus: len(list), env: proc.UserManagerEnv(getenv)}
-	if len(s.env) == 0 {
-		return nil, fmt.Errorf("Config.CPUs %q: systemd-run --user reaches the user manager through XDG_RUNTIME_DIR or DBUS_SESSION_BUS_ADDRESS, and neither is set", cpus)
-	}
-	return s, nil
-}
-
-// cpuCount returns the CPUs the Nodes run on: the cpuset's with
-// Config.CPUs, else the harness's.
-func (t *Topology) cpuCount() int {
-	if t.scope != nil {
-		return t.scope.cpus
-	}
-	return runtime.NumCPU()
 }
 
 // Transport turns off what the harness otherwise chooses on the hops it
@@ -163,9 +99,6 @@ type Transport struct {
 	// CleartextAdmin serves the admin port without TLS: no
 	// RURALZ_ADMIN_TLS_DIR. The tokens still apply, from loopback.
 	CleartextAdmin bool
-	// CleartextStateStore runs process State Stores without TLS
-	// (redis://).
-	CleartextStateStore bool
 	// NoStateStoreUser runs process State Stores without an ACL user.
 	NoStateStoreUser bool
 	// CleartextOTLP serves OTLP sinks over h2c, an http endpoint.
@@ -177,16 +110,14 @@ type Transport struct {
 type Topology struct {
 	t   testing.TB
 	cfg Config
-	// ctx lives until the end of teardown: processes, proxies, mocks and
-	// balancers end with it.
+	// ctx lives until the end of teardown: processes, proxies and mocks
+	// end with it.
 	ctx    context.Context
 	cancel context.CancelFunc
 	root   string
 	ca     *pki.CA
 	bundle string // SSL_CERT_FILE: the CAs Nodes trust
 	clock  *Clock
-	// scope starts the Node processes on Config.CPUs; nil without it.
-	scope *scope
 	// canaries are the values the leak scan looks for.
 	canaries *canarySet
 	captures *captureStore
@@ -198,7 +129,6 @@ type Topology struct {
 	// (freePort).
 	held       []*reuseport.Socket
 	stores     map[string]*StateStore
-	balancers  []*Balancer
 	mocks      []*mockup.Server
 	idps       []*mockidp.Server
 	sinks      []*otlpsink.Sink
@@ -240,10 +170,6 @@ func newTopology(t testing.TB, c Config) (*Topology, error) {
 	if _, err := os.Stat(c.Binary); err != nil {
 		return nil, fmt.Errorf("Config.Binary: %w", err)
 	}
-	sc, err := newScope(c.CPUs, os.Getenv, exec.LookPath)
-	if err != nil {
-		return nil, err
-	}
 	if c.ReadyTimeout == 0 {
 		c.ReadyTimeout = DefaultReadyTimeout
 	}
@@ -271,7 +197,6 @@ func newTopology(t testing.TB, c Config) (*Topology, error) {
 		ca:       ca,
 		bundle:   filepath.Join(root, "ca-bundle.pem"),
 		clock:    newClock(c.TestClock, c.ReadyTimeout),
-		scope:    sc,
 		canaries: &canarySet{},
 		captures: &captureStore{dir: filepath.Join(root, "captures")},
 		ports:    map[int]bool{},
@@ -298,9 +223,6 @@ func (t *Topology) armTeardown() { t.t.Cleanup(t.teardown) }
 
 // Dir returns the topology's private directory.
 func (t *Topology) Dir() string { return t.root }
-
-// Clock returns the topology's one controllable clock.
-func (t *Topology) Clock() *Clock { return t.clock }
 
 // TestClock reports whether the Nodes follow the controllable clock.
 func (t *Topology) TestClock() bool { return t.cfg.TestClock }
@@ -378,8 +300,7 @@ func (t *Topology) writeBundle() error {
 // (reservePort): the kernel gives a bound port to no connection's
 // ephemeral port and no bind of port 0, while a Node, whose sockets set
 // SO_REUSEADDR, binds it and listens all the same. So no other socket
-// takes the port between the render that names it and the Node's bind, or
-// between a Node's exit and its restart.
+// takes the port between the render that names it and the Node's bind.
 func (t *Topology) freePort(ctx context.Context) (int, error) {
 	const attempts = 100
 	for range attempts {
@@ -459,25 +380,6 @@ func probePort(ctx context.Context) (int, error) {
 	return port, nil
 }
 
-// Nodes returns the Nodes in creation order.
-func (t *Topology) Nodes() []*Node {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return append([]*Node(nil), t.nodes...)
-}
-
-// Node returns the Node named name.
-func (t *Topology) Node(name string) (*Node, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for _, n := range t.nodes {
-		if n.name == name {
-			return n, true
-		}
-	}
-	return nil, false
-}
-
 // track records a started dependency for the teardown; it reports false
 // once the teardown started, when the caller closes it itself.
 func (t *Topology) track(add func()) bool {
@@ -488,13 +390,6 @@ func (t *Topology) track(add func()) bool {
 	}
 	add()
 	return true
-}
-
-// balancersCopy returns the balancers.
-func (t *Topology) balancersCopy() []*Balancer {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return append([]*Balancer(nil), t.balancers...)
 }
 
 // closeAll closes a dependency list, ignoring errors of already closed

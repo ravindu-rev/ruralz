@@ -1047,8 +1047,7 @@ func (c *endingContext) Err() error {
 }
 
 // TestScanAllocatesNothing checks that the walk before validation
-// allocates nothing, member names under propertyNames included (the
-// allocation target).
+// allocates nothing, member names under propertyNames included.
 func TestScanAllocatesNothing(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are not compared under -race")

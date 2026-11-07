@@ -204,9 +204,8 @@ func TestBuildStopsOnEndedContext(t *testing.T) {
 	}
 }
 
-// TestAdmitAllocatesNothing checks the per-stage budget of authz.ip in
-// onRequestHeaders: 0 Ruralz-owned allocations for an admitted request
-// (docs/architecture/12-performance-budgets-and-benchmarking.md).
+// TestAdmitAllocatesNothing checks that authz.ip allocates nothing for an
+// admitted request in onRequestHeaders.
 func TestAdmitAllocatesNothing(t *testing.T) {
 	rec := &decisions{}
 	f := build(t, &v1alpha1.AuthzIPConfig{Allow: []string{"10.0.0.0/8", "2001:db8::/32"}, Deny: []string{"10.9.0.0/16"}}, rec)
@@ -216,24 +215,5 @@ func TestAdmitAllocatesNothing(t *testing.T) {
 		if n := testing.AllocsPerRun(100, func() { f.Handle(ctx, phase.OnRequestHeaders, x) }); n != 0 {
 			t.Errorf("Handle(%s) allocates %v times per run, want 0", addr, n)
 		}
-	}
-}
-
-// BenchmarkAdmit measures an admitted request against a 64-entry allow
-// list (budget: 2 µs at p50, 0 allocations).
-func BenchmarkAdmit(b *testing.B) {
-	allow := make([]string, 0, 64)
-	for i := range 64 {
-		allow = append(allow, netip.AddrFrom4([4]byte{10, byte(i), 0, 0}).String()+"/16")
-	}
-	f, err := Factory{}.Build(b.Context(), filter.BuildEnv{Config: &v1alpha1.AuthzIPConfig{Allow: allow}})
-	if err != nil {
-		b.Fatal(err)
-	}
-	x := from("10.63.1.1")
-	ctx := b.Context()
-	b.ReportAllocs()
-	for b.Loop() {
-		f.Handle(ctx, phase.OnRequestHeaders, x)
 	}
 }

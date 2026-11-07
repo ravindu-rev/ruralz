@@ -99,7 +99,6 @@ flowchart LR
 ### Confirmation
 
 - **Integration tests**, Planned (M2): the OCI registry container asserts RZ-CFG-027 (Revision digest), RZ-CFG-028 (Plugin digest), RZ-CFG-033 (signature) and the referrer bounds at each place pack 8.14 names ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
-- **Chaos test**, Planned (M2): a bad Revision digest or signature is rejected before any swap ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
 - **Interoperability job**, Planned (M2), with the OCI registry integration tests: cosign 3.1.3 or newer referrers, keyless bundles included, verify with sigstore-go with egress denied (hypothesis until it passes).
 - **FIPS CI job**, Planned (M5): the G3 check confirms `crypto/ecdsa` signing and decides sigstore-go under OQ-tech-stack-and-libraries-9.
 - **Amendment trigger**: a pull request that skips the verifier, reads a trust policy from a Bundle, or makes the Control-mode check configurable MUST amend this ADR.

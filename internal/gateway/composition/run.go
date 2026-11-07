@@ -34,9 +34,8 @@ type run struct {
 	c *Composition
 	o *snapshot.Outbound
 	// vars is the steps' activation: the client's Base variables after the
-	// request Phases, with steps in a sequential composition, under the
-	// Route deadline. Evaluation only reads it, so aggregate steps share
-	// it.
+	// request Phases, with steps in a sequential composition. Evaluation
+	// only reads it, so aggregate steps share it.
 	vars  expr.Vars
 	steps expr.Steps
 	res   []result
@@ -145,10 +144,6 @@ func (e *Engine) getRun(c *Composition, o *snapshot.Outbound) *run {
 	if v := x.Vars(); v != nil {
 		r.vars = *v
 	}
-	// Every step expression stops a tracked comprehension at the Route
-	// deadline the Outbound carries
-	// (docs/architecture/02-configuration-model.md "Limits").
-	r.vars.Deadline = o.Deadline
 	r.vars.Steps = nil
 	if c.mode == v1alpha1.CompositionModeSequential {
 		r.vars.Steps = &r.steps
@@ -360,7 +355,7 @@ func (r *run) when(ctx context.Context, st *step) (ok bool, err error) {
 			ok, err = false, errPanic
 		}
 	}()
-	return st.when.EvalBool(ctx, &r.vars)
+	return st.when.EvalBool(&r.vars)
 }
 
 // fail records step i's failure at the clock's reading now. A failIO

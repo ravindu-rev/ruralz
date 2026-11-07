@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"cel.dev/cel-go/checker"
 	"cel.dev/cel-go/common/ast"
+	"cel.dev/cel-go/common/cost"
 	"cel.dev/cel-go/common/types"
 
 	"github.com/ravindu-rev/ruralz/internal/expr"
@@ -44,7 +44,7 @@ func TestURLEscapes(t *testing.T) {
 			if prg == nil {
 				t.Fatalf("Compile: %+v", iss)
 			}
-			got, err := prg.EvalString(t.Context(), testVars())
+			got, err := prg.EvalString(testVars())
 			if err != nil || got != tt.want {
 				t.Errorf("EvalString = %q, %v; want %q", got, err, tt.want)
 			}
@@ -75,19 +75,19 @@ func TestURLFunctionsInEveryPlace(t *testing.T) {
 	}
 }
 
-// sizedNode is a checker.AstNode with a computed size.
-type sizedNode struct{ size *checker.SizeEstimate }
+// sizedNode is a cost.AstNode with a computed size.
+type sizedNode struct{ size *cost.SizeEstimate }
 
-func (n sizedNode) Path() []string                      { return nil }
-func (sizedNode) Type() *types.Type                     { return types.StringType }
-func (sizedNode) Expr() ast.Expr                        { return nil }
-func (n sizedNode) ComputedSize() *checker.SizeEstimate { return n.size }
+func (n sizedNode) Path() []string                   { return nil }
+func (sizedNode) Type() *types.Type                  { return types.StringType }
+func (sizedNode) Expr() ast.Expr                     { return nil }
+func (n sizedNode) ComputedSize() *cost.SizeEstimate { return n.size }
 
 // TestEscapeEstimate checks the static cost model of a url function: 1
 // plus 0.1 unit per input byte, rounded up, with the result sized at three
 // times the input.
 func TestEscapeEstimate(t *testing.T) {
-	est := estimateEscape(nominalEstimator{}, nil, []checker.AstNode{sizedNode{&checker.SizeEstimate{Min: 2, Max: 256}}})
+	est := estimateEscape(nominalEstimator{}, nil, []cost.AstNode{sizedNode{&cost.SizeEstimate{Min: 2, Max: 256}}})
 	if est == nil {
 		t.Fatal("no estimate")
 	}
@@ -129,22 +129,22 @@ func TestEscapeRuntimeCost(t *testing.T) {
 	}
 }
 
-// TestEscapeSizesSplit checks that the comprehension sizer bounds a url
-// function's result at three times its input, so a split of it counts at
-// most one entry more.
+// TestEscapeSizesSplit checks that the estimate sizes a url function's
+// result at three times its input, so a split of it counts as many entries
+// as a split of a string that long, one more than its size: the split of
+// url.pathEscape("ab") is estimated as that of a 6-byte literal, plus the
+// escape's own 2 units.
 func TestEscapeSizesSplit(t *testing.T) {
 	c := newCompiler(t)
-	cc, iss := c.compile(at(expr.PlaceAuthzCELRule), `url.pathEscape("ab").split("%").exists(s, s == "x")`)
-	if cc == nil {
+	escaped, iss := c.compile(at(expr.PlaceAuthzCELRule), `url.pathEscape("ab").split("%").exists(s, s == "x")`)
+	if escaped == nil {
 		t.Fatal(iss)
 	}
-	a := cc.ast.NativeRep()
-	s := &sizer{a: a, facts: cc.facts, est: nominalEstimator{}, iters: map[int64]sized{}}
-	comp := a.Expr()
-	if comp.Kind() != ast.ComprehensionKind {
-		t.Fatalf("root is %v, want the exists comprehension", comp.Kind())
+	literal, iss := c.compile(at(expr.PlaceAuthzCELRule), `"abcdef".split("%").exists(s, s == "x")`)
+	if literal == nil {
+		t.Fatal(iss)
 	}
-	if n, ok := s.iterations(comp.ID()); !ok || n != 3*2+1 {
-		t.Errorf("iterations = %d, %v; want 7", n, ok)
+	if escaped.cost.Max != literal.cost.Max+2 {
+		t.Errorf("estimate over the escape %d, over a 6-byte literal %d; want 2 more", escaped.cost.Max, literal.cost.Max)
 	}
 }

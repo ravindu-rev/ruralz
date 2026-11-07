@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 )
 
-// Fuzz targets. Seeds are the JSON conformance corpus and the benchmark
+// Fuzz targets. Seeds are the JSON conformance corpus and the 1 KiB orders
 // document; the oracle is: no panic, agreement with encoding/json on
 // inputs without duplicate names, typed errors for the rest, exact cost
 // accounting and round trips.

@@ -350,19 +350,3 @@ func TestTeeStoppedWakesWaiters(t *testing.T) {
 	}
 	tee.Release()
 }
-
-// BenchmarkTee64KiB copies a 64 KiB response for the Response Cache.
-func BenchmarkTee64KiB(b *testing.B) {
-	bud := NewBudget(DefaultMaxBufferedBytes, &sumGauge{})
-	data := pattern(64 * kib)
-	b.ReportAllocs()
-	b.SetBytes(int64(len(data)))
-	for b.Loop() {
-		tee := bud.NewTee(1<<20, nil, 0)
-		for off := 0; off < len(data); off += 16 * kib {
-			_, _ = tee.Write(data[off : off+16*kib])
-		}
-		tee.Complete()
-		tee.Release()
-	}
-}

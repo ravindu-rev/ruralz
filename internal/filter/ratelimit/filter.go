@@ -359,10 +359,10 @@ func (flt *Filter) Handle(ctx context.Context, p phase.Phase, x filter.Exchange)
 // RZ-RL-002), a bucket lacking the cost (429 RZ-RL-001), and an admission
 // on local buckets alone (a local-only entry or a localOnly Policy);
 // otherwise it fills call with one GCRA call for every applied limit.
-func (flt *Filter) Prepare(ctx context.Context, x filter.Exchange, call *statestore.Call) (filter.Result, bool) {
+func (flt *Filter) Prepare(_ context.Context, x filter.Exchange, call *statestore.Call) (filter.Result, bool) {
 	st := flt.state(x)
 	st.n, st.took = 0, false
-	if err := flt.evaluate(ctx, x, st); err != nil {
+	if err := flt.evaluate(x, st); err != nil {
 		flt.record(x, st, nil)
 		flt.count(x, flt.failure())
 		return filter.Undecided(CodeUndecided, err), true
@@ -485,12 +485,12 @@ func (flt *Filter) Close() error {
 // first runtime error, or an invalid-value error for a cost below 1; the
 // limits whose when evaluated true, or that have none, are applied even
 // then, for the fields.
-func (flt *Filter) evaluate(ctx context.Context, x filter.Exchange, st *reqState) error {
+func (flt *Filter) evaluate(x filter.Exchange, st *reqState) error {
 	v := x.Vars()
 	var first error
 	st.digest, st.cost = flt.emptyKey, flt.constCost
 	if flt.key != nil {
-		s, err := flt.key.EvalString(ctx, v)
+		s, err := flt.key.EvalString(v)
 		switch {
 		case err != nil:
 			first = classify(err)
@@ -499,7 +499,7 @@ func (flt *Filter) evaluate(ctx context.Context, x filter.Exchange, st *reqState
 		}
 	}
 	if flt.cost != nil {
-		c, err := flt.cost.EvalInt(ctx, v)
+		c, err := flt.cost.EvalInt(v)
 		if err != nil && first == nil {
 			first = classify(err)
 		}
@@ -508,7 +508,7 @@ func (flt *Filter) evaluate(ctx context.Context, x filter.Exchange, st *reqState
 	for i := range flt.limits {
 		w := flt.limits[i].when
 		if w != nil {
-			ok, err := w.EvalBool(ctx, v)
+			ok, err := w.EvalBool(v)
 			if err != nil {
 				if first == nil {
 					first = classify(err)

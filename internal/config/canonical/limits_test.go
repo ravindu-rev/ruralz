@@ -638,8 +638,8 @@ func TestDecodeAllocationPerByte(t *testing.T) {
 // TestDecodeAllocsPerResource: a clean decode allocates at most about one
 // object per resource, whatever their number, since the identity of a
 // resource is built only when a finding needs it. The slope between N and
-// 2N resources, for small Routes and for the ladder's Routes, Upstreams and
-// Policies, is counted with testing.AllocsPerRun on one worker.
+// 2N resources, for small Routes and for largeBundle's Routes, Upstreams
+// and Policies, is counted with testing.AllocsPerRun on one worker.
 func TestDecodeAllocsPerResource(t *testing.T) {
 	dec := NewDecoder(hubIndex(t), DecoderOptions{Workers: 1})
 	allocs := func(content []byte) float64 {
@@ -655,7 +655,7 @@ func TestDecodeAllocsPerResource(t *testing.T) {
 		na, nb int
 	}{
 		{"Routes", routes(1000), routes(2000), 1000, 2000},
-		{"ladder", mustEncodeBundle(t, largeBundle(t, 150)), mustEncodeBundle(t, largeBundle(t, 300)), 451, 901},
+		{"mixed", mustEncodeBundle(t, largeBundle(t, 150)), mustEncodeBundle(t, largeBundle(t, 300)), 451, 901},
 	} {
 		slope := (allocs(tc.b) - allocs(tc.a)) / float64(tc.nb-tc.na)
 		t.Logf("%s: %.2f allocations per resource", tc.name, slope)

@@ -17,8 +17,7 @@ import (
 
 // Denial cache targets (docs/architecture/09-traffic-management-and-resilience.md
 // "Quotas", docs/architecture/11-scalability-and-distributed-state.md
-// "Stateless data plane", docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Quota denial cache").
+// "Stateless data plane" and "Per-Node limits").
 const (
 	// DefaultCacheEntries is the Node-wide entry count, about 4 MiB
 	// (target).

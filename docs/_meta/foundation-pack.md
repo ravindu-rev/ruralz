@@ -40,14 +40,14 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | Isolated blast-radius unit | **Cell** | one Cluster and its State Store in one Region, optionally with a regional Ruralz Control (section 8.13) | "shard", "partition" |
 | Persisted boot configuration | **Last-Known-Good** | `${RURALZ_DATA_DIR}/lkg/` (section 8.2) | "fallback config", "cached config" |
 | Default ports | `ruralzd`: **8080** HTTP, **8443** TLS (+ UDP 8443 for HTTP/3, Planned (M3)), **9901** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`, `/config/dump`, `/tap`). `ruralz-control`: **8090** REST API + Console, **8091** Control Stream (mTLS, Nodes dial), **8092** Raft peer transport (mTLS), **9902** admin (`/healthz`, `/readyz`, `/metrics`, `/debug/*`). Details in section 8.4 | None | None |
-| Env vars | `RURALZ_*` process settings, listed under Process settings below; none changes a Revision. `RURALZ_*` also names script, test and tool inputs, such as `RURALZ_QUICKSTART_*` and `RURALZ_TEST_*`, which never reach a Node and are not process settings | None | None |
+| Env vars | `RURALZ_*` process settings, listed under Process settings below; none changes a Revision. `RURALZ_*` also names script, test and tool inputs, such as `RURALZ_TEST_*`, which never reach a Node and are not process settings | None | None |
 | Metrics | `ruralz_<component>_<name>_<unit>` (e.g., `ruralz_http_request_duration_seconds`; counters end in `_total`); OTel semantic conventions for HTTP and `gen_ai.*` | None | None |
 | Trace spans | `ruralz.filter.<name>`, `ruralz.upstream.<name>`, `ruralz.route.match` | None | None |
 | Error codes | `RZ-<AREA>-<NNN>`; areas `CFG`, `RT`, `UP`, `AUTH`, `RL`, `PLG`, `AI`, `CP`, `STS`, with meanings and registry owners in section 8.6 | None | None |
 | Principles | `P1`..`P10` (defined once in `docs/vision/01-vision-and-positioning.md`) | None | None |
 | ADRs | `ADR-NNNN`, files `docs/adr/NNNN-<slug>.md` | None | None |
 | Open questions | `OQ-<docslug>-<n>` (e.g., `OQ-data-plane-3`) | None | "TBD", "TODO" |
-| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) · **M6** Reference hardware benchmarks (RH-1, RH-2 and RH-3, the budget gates and bench suite on them) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
+| Milestones | **M0** Foundations · **M1** Core gateway · **M2** WASM + Control/GitOps · **M3** AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 · **M4** Event protocols + multi-region · **M5** Enterprise hardening (SSO/SAML for Console, FIPS build, monetization hooks) | tag features `Planned (Mx)`, design-complete ones included, until the milestone exits and its release ships; one pass then removes that milestone's tags: a shipped capability carries no tag, its design text states it, and the Feature Catalog records the release that shipped it | "v1", "v2", "phase 2", "GA" as a milestone |
 
 **Process settings.** A Node reads them once at start, so a change needs a restart or a Zero-Downtime Upgrade.
 
@@ -61,7 +61,7 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | `RURALZ_ADMIN_METRICS_TOKEN_FILE` | File holding a token accepted on `/metrics` only |
 | `RURALZ_ADMIN_TLS_DIR` | Certificate and key the admin port serves TLS with; its client CA also admits client certificates |
 | `RURALZ_ADMIN_URL` | Read by the `ruralz` CLI only, never by a Node: the default `--admin`, a Node's admin base URL, of the commands that call a Node's admin port |
-| `RURALZ_BIND_LOOPBACK` | `true` or `false`, default `false`: binds every client listener and the admin port to loopback, 127.0.0.1 and ::1, instead of every interface; `ruralz dev run` and the quickstart set it, and any other value refuses start |
+| `RURALZ_BIND_LOOPBACK` | `true` or `false`, default `false`: binds every client listener and the admin port to loopback, 127.0.0.1 and ::1, instead of every interface; `ruralz dev run` sets it, and any other value refuses start |
 | `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the Enrollment token file or Vault credential |
 | `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
 | `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
@@ -119,7 +119,7 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 
 | Concern | Decision | ADR |
 |---|---|---|
-| Language / build | Go 1.26 floor (`go 1.26.0`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. | ADR-0001 |
+| Language / build | Go 1.26 floor (`go 1.26.10`), `CGO_ENABLED=0`, static binaries. Release and FIPS builds pin the newest Go release through the `toolchain` directive and set no `GOEXPERIMENT`; floor builds on Go 1.26 need `GOEXPERIMENT=jsonv2` for jwx. FIPS variant via `GOFIPS140`. | ADR-0001 |
 | License | Apache-2.0 everything; DCO; Revington trademark policy | ADR-0002 |
 | Config | YAML 1.2 + JSON Schema, restricted YAML profile, Kubernetes-style resources, strategic-merge overlays | ADR-0003 |
 | WASM runtime | wazero: repository `github.com/wazero/wazero`, Go module path `github.com/tetratelabs/wazero` (pure Go). | ADR-0004 |
@@ -129,7 +129,7 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 | Rate limiting | Local token bucket per Node at a per-Node ceiling + GCRA in the State Store (single Lua EVAL); fail-open by default with over-admission bounded by N × per-Node ceiling, configurable per Policy (section 8.8) | ADR-0008 |
 | HTTP stack | `net/http` (HTTP/1.1, HTTP/2, h2c via `Server.Protocols`) + `quic-go` for HTTP/3 (Planned (M3)); `golang.org/x/net/http2` only for non-deprecated low-level APIs, because its `Server` and `Transport` are deprecated in x/net v0.59.0; no fasthttp. | ADR-0009 |
 | Telemetry | OpenTelemetry-first (traces, metrics); `slog` bridge (`otelslog`) for logs, over a pre-stable Logs SDK until OTel Go v1.47.0; `/metrics` through the OpenTelemetry Prometheus exporter on a private `client_golang` registry, fed by an external producer of Ruralz-owned aggregates; only `internal/telemetry` (and the `internal/testkit/otlpsink` test collector) imports OpenTelemetry | ADR-0018 |
-| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline, with a 50 ms (target) stop for comprehensions that can reach the runtime cost limit; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. | ADR-0019 |
+| Expressions / authz | CEL via cel-go, import path `cel.dev/cel-go` (`google/cel-go` is a read-only alias), inline, bounded by its static cost estimate and its runtime cost limit alone; OPA (`opa/v1/rego`) and Cedar (`cedar-go`) as pluggable authz engines; no Lua. | ADR-0019 |
 | GraphQL | `github.com/wundergraph/graphql-go-tools/v2` engine (federation versions 1 and 2, subscriptions) | ADR-0012 |
 | Messaging | `twmb/franz-go` (Kafka), `nats.go/jetstream`, `eclipse-paho/paho.golang` (MQTT 5 client) + `mochi-mqtt` embedded broker mode `Planned (M4)` | ADR-0013 |
 | AI surface | OpenAI-compatible façade **and** native passthrough (Anthropic Messages, Bedrock, Gemini); provider-reported usage is authoritative for billing; tokenizer counts only for pre-admission estimates and the per-request streaming guard; Token Budget reservation and settlement per section 8.9 | ADR-0014 |
@@ -421,7 +421,6 @@ IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR o
 | Hot Reload | One Node activating a new Revision without a restart: compile off the request path, then one atomic snapshot swap; in-flight requests keep their snapshot. | zero-downtime-upgrades-and-hot-reload |
 | Last-Known-Good | The persisted Revision under `${RURALZ_DATA_DIR}/lkg/` that a Node boots when it cannot obtain configuration; promoted on activation in file mode, at the promoted digest in Control mode. | system-overview |
 | Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good, lock and handover files, the last published Node count and disposable caches. | system-overview |
-| Performance Budget | A latency, allocation or resource ceiling tagged (target) or (hypothesis) that the benchmark suite verifies; the performance document owns the values. | performance-budgets-and-benchmarking |
 | Phase | One fixed hook of the Filter Chain, from `onRequestHeaders` to `onLog`, plus the streaming hook `onChunk`. | data-plane |
 | Plugin | A Bundle kind and the sandboxed WASM artifact it pins by digest, running under Plugin ABI v1 with deny-by-default Capabilities and declared limits. | wasm-plugin-system |
 | Plugin ABI | The guest-host contract `ruralz.plugin.v1` (Plugin ABI v1): Extism-style memory and Host Function conventions with Capability checks. | wasm-plugin-system |

@@ -392,31 +392,3 @@ func cloneAll(rs []*tree.Resource) []*tree.Resource {
 	}
 	return out
 }
-
-// BenchmarkApply merges an overlay patching 100 of 1,000 Routes and adding
-// 100 more (stage D share of the validation budget).
-func BenchmarkApply(b *testing.B) {
-	files := &tree.FileTable{}
-	var baseSrc, overSrc []string
-	for i := range 1000 {
-		n := strconv.Itoa(i)
-		baseSrc = append(baseSrc, `{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r`+n+`"},"spec":{"timeout":"5s","match":{"path":{"prefix":"/`+n+`"},"methods":["GET"]},"upstreams":[{"name":"u","weight":1}],"policies":[{"name":"a"},{"name":"b"}]}}`)
-		if i%10 == 0 {
-			overSrc = append(overSrc,
-				`{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"r`+n+`"},"spec":{"timeout":"9s","policies":[{"name":"c"},{"name":"a","$patch":"delete"}]}}`,
-				`{"apiVersion":"ruralz/v1alpha1","kind":"Route","metadata":{"name":"n`+n+`"},"spec":{"match":{"path":{"prefix":"/n"}}}}`)
-		}
-	}
-	base := docs(b, files, tree.RoleBase, "ruralz.yaml", strings.Join(baseSrc, "\n---\n"))
-	over := docs(b, files, tree.RoleOverlay, "overlays/prod/o.yaml", strings.Join(overSrc, "\n---\n"))
-	opts := Options{Schemas: schemas(b), Files: files}
-	b.ReportAllocs()
-	for range b.N {
-		b.StopTimer()
-		bs, ov := cloneAll(base), cloneAll(over)
-		b.StartTimer()
-		if _, ds, err := Apply(b.Context(), bs, ov, opts); err != nil || len(ds) != 0 {
-			b.Fatal(err, texts(ds))
-		}
-	}
-}

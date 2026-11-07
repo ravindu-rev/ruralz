@@ -320,9 +320,7 @@ func (n *node) buildParts(ctx context.Context) *refusal {
 	if err != nil {
 		return refuse("%s: %w", setting.EnvFetchAllow, err)
 	}
-	// The comprehension stop is a Node deadline: it runs on the process
-	// clock with every other one.
-	celc, err := cel.NewWithClock(clk)
+	celc, err := cel.New()
 	if err != nil {
 		return fail("cel: %w", err)
 	}

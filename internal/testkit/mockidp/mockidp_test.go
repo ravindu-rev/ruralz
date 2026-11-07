@@ -25,8 +25,8 @@ import (
 	"time"
 )
 
-// Server tests: JWKS endpoint with rotating keys and Cache-Control
-// (FC-16), the client-credentials token endpoint, overrides and recording.
+// Server tests: JWKS endpoint with rotating keys and Cache-Control, the
+// client-credentials token endpoint, overrides and recording.
 
 func serverTLS(t testing.TB) (*tls.Config, *x509.CertPool) {
 	t.Helper()
@@ -61,9 +61,6 @@ func serverTLS(t testing.TB) (*tls.Config, *x509.CertPool) {
 
 func start(t testing.TB, c Config) *Server {
 	t.Helper()
-	if c.Keys == nil {
-		c.Keys = []*Key{key(t, RS256), key(t, ES256)}
-	}
 	s, err := Start(context.Background(), c)
 	if err != nil {
 		t.Fatal(err)
@@ -127,11 +124,8 @@ func mustSend(t testing.TB, c *http.Client, method, u string, body string, heade
 func TestJWKSEndpoint(t *testing.T) { // fetch shape and Cache-Control
 	tlsConf, pool := serverTLS(t)
 	s := start(t, Config{TLS: tlsConf})
-	if !strings.HasPrefix(s.JWKSURL(), "https://127.0.0.1:") || s.JWKSURL() != s.URL()+JWKSPath || s.TokenURL() != s.URL()+TokenPath {
+	if !strings.HasPrefix(s.JWKSURL(), "https://127.0.0.1:") || s.JWKSURL() != s.Issuer()+JWKSPath || s.TokenURL() != s.Issuer()+TokenPath {
 		t.Fatalf("URLs %s %s", s.JWKSURL(), s.TokenURL())
-	}
-	if s.Issuer() != s.URL() || s.Addr() == "" {
-		t.Fatalf("issuer %q addr %q", s.Issuer(), s.Addr())
 	}
 	c := httpClient(t, pool)
 	a := mustSend(t, c, http.MethodGet, s.JWKSURL(), "", http.Header{"Accept": {"application/jwk-set+json, application/json"}})
@@ -152,52 +146,45 @@ func TestJWKSEndpoint(t *testing.T) { // fetch shape and Cache-Control
 	if a := mustSend(t, c, http.MethodPost, s.JWKSURL(), "x", nil); a.status != http.StatusMethodNotAllowed || a.header.Get("Allow") != "GET, HEAD" {
 		t.Fatalf("POST %d %v", a.status, a.header)
 	}
-	if a := mustSend(t, c, http.MethodGet, s.URL()+"/other", "", nil); a.status != http.StatusNotFound {
+	if a := mustSend(t, c, http.MethodGet, s.Issuer()+"/other", "", nil); a.status != http.StatusNotFound {
 		t.Fatalf("other path %d", a.status)
 	}
-	// Cache-Control is programmable (the FC-16 clamp tests use max-age).
-	for _, cc := range []string{"max-age=60", "no-cache", "no-store", "max-age=86400"} {
-		s.SetCacheControl(cc)
-		if got := mustSend(t, c, http.MethodGet, s.JWKSURL(), "", nil).header.Get("Cache-Control"); got != cc {
-			t.Fatalf("Cache-Control %q, want %q", got, cc)
-		}
-	}
-	s.SetCacheControl("")
-	if got := mustSend(t, c, http.MethodGet, s.JWKSURL(), "", nil).header.Values("Cache-Control"); len(got) != 0 {
-		t.Fatalf("Cache-Control %v, want absent", got)
-	}
 	fetches := s.JWKSFetches()
-	if len(fetches) != 8 || fetches[0].Header.Get("Accept") != "application/jwk-set+json, application/json" || fetches[0].Status != 200 ||
-		fetches[0].Method != http.MethodGet || fetches[0].RemoteAddr == "" || fetches[0].Time.IsZero() {
+	if len(fetches) != 3 || fetches[0].Status != 200 || fetches[1].Status != 200 || fetches[2].Status != http.StatusMethodNotAllowed {
 		t.Fatalf("fetches = %+v", fetches)
 	}
-	if st := s.Stats(); st.JWKSFetches != 8 {
+	if st := s.Stats(); st.JWKSFetches != 3 {
 		t.Fatalf("Stats = %+v", st)
 	}
-	s2 := start(t, Config{NoCacheControl: true})
-	if got := mustSend(t, httpClient(t, nil), http.MethodGet, s2.JWKSURL(), "", nil).header.Values("Cache-Control"); len(got) != 0 {
-		t.Fatalf("NoCacheControl: Cache-Control %v", got)
+	// Cache-Control is configurable (the JWKS cache tests use max-age).
+	s2 := start(t, Config{CacheControl: "max-age=60"})
+	if got := mustSend(t, httpClient(t, nil), http.MethodGet, s2.JWKSURL(), "", nil).header.Get("Cache-Control"); got != "max-age=60" {
+		t.Fatalf("Cache-Control %q, want max-age=60", got)
 	}
-	if !strings.HasPrefix(s2.URL(), "http://") {
-		t.Fatalf("cleartext URL %q", s2.URL())
+	if !strings.HasPrefix(s2.Issuer(), "http://") {
+		t.Fatalf("cleartext URL %q", s2.Issuer())
 	}
 }
 
+// TestDefaultKeys checks the keys a Server publishes: a generated RS256
+// key, then a generated ES256 key, each signing for its algorithm.
 func TestDefaultKeys(t *testing.T) {
-	s, err := Start(context.Background(), Config{})
+	s := start(t, Config{})
+	keys, err := ParseJWKS(s.JWKS())
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = s.Close() }()
-	keys := s.Keys()
-	if len(keys) != 2 || keys[0].Alg != RS256 || keys[1].Alg != ES256 {
-		t.Fatalf("default keys = %v", keys)
+	rs, rsOK := s.Key(RS256)
+	es, esOK := s.Key(ES256)
+	if len(keys) != 2 || !rsOK || !esOK || keys[0].ID != rs.ID || keys[0].Alg != RS256 || keys[1].ID != es.ID || keys[1].Alg != ES256 {
+		t.Fatalf("default keys = %+v", keys)
 	}
 }
 
 func TestRotation(t *testing.T) { // key rotation at the IdP (new kid)
-	es := key(t, ES256)
-	s := start(t, Config{Keys: []*Key{es}})
+	s := start(t, Config{})
+	es, _ := s.Key(ES256)
+	rs, _ := s.Key(RS256)
 	c := httpClient(t, nil)
 	fetch := func() []PublicKey {
 		t.Helper()
@@ -223,8 +210,8 @@ func TestRotation(t *testing.T) { // key rotation at the IdP (new kid)
 		t.Fatal(err)
 	}
 	keys := fetch()
-	if len(keys) != 2 {
-		t.Fatalf("published %d keys after a keeping rotation", len(keys))
+	if len(keys) != 3 {
+		t.Fatalf("published %d keys after a keeping rotation, want the RS256 key and both ES256 keys", len(keys))
 	}
 	for _, tok := range []string{before, after} {
 		if _, _, err := Verify(tok, keys); err != nil {
@@ -236,70 +223,33 @@ func TestRotation(t *testing.T) { // key rotation at the IdP (new kid)
 		t.Fatalf("new token kid %v", h["kid"])
 	}
 	// Without keeping, the old kid disappears: old tokens fail (auth.jwt
-	// answers RZ-AUTH-005 and refreshes).
+	// answers RZ-AUTH-005 and refreshes); other algorithms keep theirs.
 	k3, err := s.Rotate(ES256, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 	keys = fetch()
-	if len(keys) != 1 || keys[0].ID != k3.ID {
+	if len(keys) != 2 || keys[0].ID != rs.ID || keys[1].ID != k3.ID {
 		t.Fatalf("keys after replacing rotation = %+v", keys)
 	}
 	if _, _, err := Verify(before, keys); err == nil {
 		t.Fatal("token of a removed key verified")
 	}
-	// AddKey and RemoveKey; duplicate kids are kept.
-	dup, err := NewKey(ES256, k3.ID, key(t, ES256).Signer())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.AddKey(dup); err != nil {
-		t.Fatal(err)
-	}
-	if n := len(fetch()); n != 2 {
-		t.Fatalf("published %d keys with a duplicate kid", n)
-	}
-	if n := s.RemoveKey(k3.ID); n != 2 {
+	if n := s.RemoveKey(k3.ID); n != 1 {
 		t.Fatalf("RemoveKey removed %d", n)
 	}
-	if n := len(fetch()); n != 0 {
-		t.Fatalf("published %d keys after removal", n)
+	if keys := fetch(); len(keys) != 1 || keys[0].ID != rs.ID {
+		t.Fatalf("published %+v after removal, want the RS256 key alone", keys)
 	}
 	if _, err := s.Mint(ES256, nil); err == nil {
 		t.Fatal("Mint without a key succeeded")
 	}
-	if err := s.AddKey(nil); err == nil {
-		t.Fatal("AddKey(nil) succeeded")
-	}
 	if _, err := s.Rotate("HS256", true); err == nil {
 		t.Fatal("Rotate(HS256) succeeded")
 	}
-	if st := s.Stats(); st.Rotations != 2 {
-		t.Fatalf("Stats = %+v", st)
-	}
 }
 
-func TestPeriodicRotation(t *testing.T) { // rotating keys (Config.RotateEvery)
-	es := key(t, ES256)
-	s := start(t, Config{Keys: []*Key{es}, RotateEvery: 20 * time.Millisecond})
-	waitFor(t, func() bool { return s.Stats().Rotations >= 3 })
-	keys := s.Keys()
-	if len(keys) != 2 || keys[0].ID == es.ID || keys[1].ID == es.ID || keys[0].ID == keys[1].ID {
-		t.Fatalf("keys after periodic rotation = %v", keys)
-	}
-	cur, _ := s.Key(ES256)
-	if cur != keys[1] {
-		t.Fatal("the newest key does not sign")
-	}
-	_ = s.Close()
-	n := s.Stats().Rotations
-	time.Sleep(60 * time.Millisecond)
-	if s.Stats().Rotations != n {
-		t.Fatal("rotation continued after Close")
-	}
-}
-
-func TestJWKSOverride(t *testing.T) { // FC-16: 429 Retry-After, failed fetches, slow IdP
+func TestJWKSOverride(t *testing.T) { // 429 Retry-After, failed fetches, slow IdP
 	s := start(t, Config{})
 	c := httpClient(t, nil)
 	s.SetJWKSOverride(Override{Status: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"120"}}})
@@ -346,7 +296,7 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 		id     = "orders:svc%1"
 		secret = "rzcanary-0123:secret%" //nolint:gosec // G101: a test client secret for the mock IdP
 	)
-	s := start(t, Config{Clients: map[string]string{id: secret}, TokenTTL: 10 * time.Minute, TokenAudience: "orders-api"})
+	s := start(t, Config{Clients: map[string]string{id: secret}, TokenTTL: 10 * time.Minute})
 	c := httpClient(t, nil)
 	form := "application/x-www-form-urlencoded"
 	for _, tc := range []struct {
@@ -398,9 +348,8 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 				if tc.name == "too large" {
 					reqs := s.TokenRequests()
 					r := reqs[len(reqs)-1]
-					if r.Status != http.StatusRequestEntityTooLarge || r.AuthMethod != "client_secret_basic" || r.ClientID != id || r.ClientSecret != secret ||
-						r.RawClientSecret == "" || r.RawClientSecret != url.QueryEscape(secret) {
-						t.Fatalf("413 record: status %d, method %q, id %q, secret %q, raw secret %q", r.Status, r.AuthMethod, r.ClientID, r.ClientSecret, r.RawClientSecret)
+					if r.Status != http.StatusRequestEntityTooLarge || r.AuthMethod != "client_secret_basic" || r.ClientID != id || r.ClientSecret != secret {
+						t.Fatalf("413 record: status %d, method %q, id %q, secret %q", r.Status, r.AuthMethod, r.ClientID, r.ClientSecret)
 					}
 				}
 				return
@@ -424,7 +373,7 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 			if h["alg"] != "RS256" || h["kid"] != rs.ID {
 				t.Fatalf("access token header %v", h)
 			}
-			if claims["sub"] != id || claims["client_id"] != id || claims["aud"] != "orders-api" || claims["iss"] != s.Issuer() || claims["jti"] == nil {
+			if claims["sub"] != id || claims["client_id"] != id || claims["aud"] != nil || claims["iss"] != s.Issuer() || claims["jti"] == nil {
 				t.Fatalf("claims %v", claims)
 			}
 			iat, _ := claims["iat"].(json.Number).Int64()
@@ -443,9 +392,8 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 		first.GrantType != "client_credentials" || first.Scope != "read write" || first.Status != 200 || first.AccessToken == "" {
 		t.Fatalf("first request %+v", first)
 	}
-	// The raw Basic parts show how the client encoded ':' and '%'.
-	if first.RawClientID != "orders%3Asvc%251" || first.RawClientSecret != url.QueryEscape(secret) || first.MalformedCredentials {
-		t.Fatalf("first request raw credentials %q %q malformed %v", first.RawClientID, first.RawClientSecret, first.MalformedCredentials)
+	if first.MalformedCredentials {
+		t.Fatalf("first request marked malformed: %+v", first)
 	}
 	if r := reqs[12]; r.AuthMethod != "client_secret_basic" || r.ClientID != id || r.Status != 200 {
 		t.Fatalf("Basic with client_id in body: %+v", r)
@@ -453,26 +401,23 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 	// The token endpoint is a designated canary destination, so the record
 	// keeps a credential it could not decode.
 	if r := reqs[13]; r.AuthMethod != "client_secret_basic" || !r.MalformedCredentials || r.ClientID != id ||
-		r.ClientSecret != secret || r.RawClientSecret != secret || r.Status != 401 || r.AccessToken != "" {
+		r.ClientSecret != secret || r.Status != 401 || r.AccessToken != "" {
 		t.Fatalf("unencoded secret: %+v", r)
 	}
-	if r := reqs[14]; r.AuthMethod != "client_secret_post" || r.ClientID != "" || r.ClientSecret != secret || r.RawClientSecret != secret || r.Status != 401 {
+	if r := reqs[14]; r.AuthMethod != "client_secret_post" || r.ClientID != "" || r.ClientSecret != secret || r.Status != 401 {
 		t.Fatalf("post secret without id: %+v", r)
 	}
-	if first.Header.Get("Authorization") == "" || first.Form.Get("scope") != "read write" || first.Method != http.MethodPost {
-		t.Fatalf("first request header %v form %v", first.Header, first.Form)
-	}
-	if reqs[1].AuthMethod != "client_secret_post" || reqs[1].ClientSecret != secret || reqs[1].RawClientSecret != secret || reqs[2].AuthMethod != "" {
+	if reqs[1].AuthMethod != "client_secret_post" || reqs[1].ClientSecret != secret || reqs[2].AuthMethod != "" {
 		t.Fatalf("auth methods %q %q", reqs[1].AuthMethod, reqs[2].AuthMethod)
 	}
 	claims := verifyClaims(t, s, first.AccessToken)
 	if claims["scope"] != "read write" {
 		t.Fatalf("scope claim %v", claims["scope"])
 	}
-	if st := s.Stats(); st.TokenRequests != 15 || st.TokensIssued != 3 {
+	if st := s.Stats(); st.TokenRequests != 15 {
 		t.Fatalf("Stats = %+v", st)
 	}
-	// Any client when none is configured; SetClient adds one.
+	// Any client when none is configured.
 	open := start(t, Config{})
 	a := mustSend(t, c, http.MethodPost, open.TokenURL(), "grant_type=client_credentials", http.Header{"Authorization": {basic("any", "thing")}, "Content-Type": {form}})
 	if a.status != 200 {
@@ -483,13 +428,8 @@ func TestTokenEndpoint(t *testing.T) { // Client credentials grant
 	if a.status != 401 {
 		t.Fatalf("open IdP answered %d to an unencoded secret", a.status)
 	}
-	if r := open.TokenRequests()[1]; r.ClientSecret != "raw%zz" || r.RawClientSecret != "raw%zz" || !r.MalformedCredentials {
+	if r := open.TokenRequests()[1]; r.ClientSecret != "raw%zz" || !r.MalformedCredentials {
 		t.Fatalf("unencoded secret record %+v", r)
-	}
-	open.SetClient("only", "s3")
-	a = mustSend(t, c, http.MethodPost, open.TokenURL(), "grant_type=client_credentials", http.Header{"Authorization": {basic("any", "thing")}, "Content-Type": {form}})
-	if a.status != 401 {
-		t.Fatalf("after SetClient an unknown client got %d", a.status)
 	}
 }
 
@@ -548,13 +488,13 @@ func TestTokenOverride(t *testing.T) { // 500 → 020, 302 not followed, missing
 
 func TestMintDefaults(t *testing.T) { // auth.jwt claim tests mint against a fixed clock
 	now := time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)
-	s := start(t, Config{Issuer: "https://idp.test", TokenTTL: 5 * time.Minute, Now: func() time.Time { return now }})
+	s := start(t, Config{TokenTTL: 5 * time.Minute, Now: func() time.Time { return now }})
 	tok, err := s.Mint(RS256, map[string]any{"aud": []string{"orders"}, "sub": "alice"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	claims := verifyClaims(t, s, tok)
-	if claims["iss"] != "https://idp.test" || claims["iat"] != json.Number("1790424000") || claims["exp"] != json.Number("1790424300") {
+	if claims["iss"] != s.Issuer() || claims["iat"] != json.Number("1790424000") || claims["exp"] != json.Number("1790424300") {
 		t.Fatalf("claims %v", claims)
 	}
 	tok, err = s.Mint(ES256, map[string]any{"exp": nil, "iat": nil, "nbf": now.Add(time.Hour).Unix()})
@@ -583,7 +523,10 @@ func TestAccessTokenFallbacks(t *testing.T) {
 	c := httpClient(t, nil)
 	hdr := http.Header{"Authorization": {basic("a", "b")}, "Content-Type": {"application/x-www-form-urlencoded"}}
 	// Without an RS256 key the last published key signs.
-	s := start(t, Config{Keys: []*Key{key(t, ES256)}})
+	s := start(t, Config{})
+	rs, _ := s.Key(RS256)
+	es, _ := s.Key(ES256)
+	s.RemoveKey(rs.ID)
 	var tr tokenResponse
 	if err := json.Unmarshal(mustSend(t, c, http.MethodPost, s.TokenURL(), "grant_type=client_credentials", hdr).body, &tr); err != nil {
 		t.Fatal(err)
@@ -593,7 +536,7 @@ func TestAccessTokenFallbacks(t *testing.T) {
 		t.Fatalf("ES256 access token: %v %v", h, err)
 	}
 	// Without any key the token is opaque.
-	s.RemoveKey(key(t, ES256).ID)
+	s.RemoveKey(es.ID)
 	if err := json.Unmarshal(mustSend(t, c, http.MethodPost, s.TokenURL(), "grant_type=client_credentials", hdr).body, &tr); err != nil {
 		t.Fatal(err)
 	}
@@ -605,13 +548,13 @@ func TestAccessTokenFallbacks(t *testing.T) {
 func TestRecordingBounded(t *testing.T) {
 	s := start(t, Config{})
 	c := httpClient(t, nil)
-	for range MaxRecorded + 5 {
+	for range maxRecorded + 5 {
 		mustSend(t, c, http.MethodGet, s.JWKSURL(), "", nil)
 	}
-	if n := len(s.JWKSFetches()); n != MaxRecorded {
-		t.Fatalf("recorded %d fetches, want %d", n, MaxRecorded)
+	if n := len(s.JWKSFetches()); n != maxRecorded {
+		t.Fatalf("recorded %d fetches, want %d", n, maxRecorded)
 	}
-	if st := s.Stats(); st.JWKSFetches != MaxRecorded+5 {
+	if st := s.Stats(); st.JWKSFetches != maxRecorded+5 {
 		t.Fatalf("Stats = %+v", st)
 	}
 	got := appendBounded([]int{1, 2}, 3)
@@ -623,7 +566,7 @@ func TestRecordingBounded(t *testing.T) {
 func TestCloseAndContext(t *testing.T) {
 	base := runtime.NumGoroutine()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := Start(ctx, Config{Keys: []*Key{key(t, ES256)}, RotateEvery: time.Hour})
+	s, err := Start(ctx, Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -667,19 +610,13 @@ func TestStartErrors(t *testing.T) {
 		c    Config
 		want string
 	}{
-		{"rotate", Config{Keys: []*Key{{}}, RotateEvery: -1}, "negative RotateEvery"},
 		// expires_in is a positive integer of seconds.
 		{"sub-second ttl", Config{TokenTTL: 500 * time.Millisecond}, "TokenTTL 500ms"},
 		{"fractional ttl", Config{TokenTTL: 1500 * time.Millisecond}, "whole number of seconds"},
 		{"negative ttl", Config{TokenTTL: -time.Second}, "TokenTTL -1s"},
-		{"nil key", Config{Keys: []*Key{nil}}, "Config.Keys"},
-		{"bare key", Config{Keys: []*Key{{ID: "x", Alg: RS256}}}, "Config.Keys"},
-		{"listen", Config{Keys: []*Key{{}}, Listen: "256.0.0.1:0"}, "listen"},
+		{"listen", Config{Listen: "256.0.0.1:0"}, "listen"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if tc.name == "listen" {
-				tc.c.Keys = []*Key{key(t, ES256)}
-			}
 			s, err := Start(context.Background(), tc.c)
 			if err == nil {
 				_ = s.Close()

@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"net"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -252,12 +251,7 @@ type resp2 struct {
 
 // roundTrip writes one command and reads its reply.
 func roundTrip(w io.Writer, r *bufio.Reader, args []string) (resp2, error) {
-	var b strings.Builder
-	b.WriteString("*" + strconv.Itoa(len(args)) + "\r\n")
-	for _, a := range args {
-		b.WriteString("$" + strconv.Itoa(len(a)) + "\r\n" + a + "\r\n")
-	}
-	if _, err := io.WriteString(w, b.String()); err != nil {
+	if _, err := io.WriteString(w, command(args)); err != nil {
 		return resp2{}, err
 	}
 	return readReply(r)
@@ -282,21 +276,11 @@ func readReply(r *bufio.Reader) (resp2, error) {
 	case '-':
 		return resp2{err: line[1:]}, nil
 	case '$':
-		n, err := strconv.Atoi(line[1:])
-		if err != nil || n < -1 || n > maxPreloadReply {
-			return resp2{}, errProtocol
-		}
-		if n == -1 {
-			return resp2{}, nil
-		}
-		buf := make([]byte, n+2)
-		if _, err := io.ReadFull(r, buf); err != nil {
+		s, err := readBlob(r, line)
+		if err != nil {
 			return resp2{}, err
 		}
-		if buf[n] != '\r' || buf[n+1] != '\n' {
-			return resp2{}, errProtocol
-		}
-		return resp2{s: string(buf[:n])}, nil
+		return resp2{s: s}, nil
 	default:
 		return resp2{}, errProtocol
 	}
@@ -392,8 +376,8 @@ func (s *connSet) countOf(sh *shard) int {
 	return n
 }
 
-// closeWhere closes the connections match selects and returns how many.
-func (s *connSet) closeWhere(match func(*trackedConn) bool) int {
+// closeWhere closes the connections match selects.
+func (s *connSet) closeWhere(match func(*trackedConn) bool) {
 	s.mu.Lock()
 	var sel []*trackedConn
 	for c := range s.conns {
@@ -405,7 +389,6 @@ func (s *connSet) closeWhere(match func(*trackedConn) bool) int {
 	for _, c := range sel {
 		_ = c.Close()
 	}
-	return len(sel)
 }
 
 // reconnect closes sh's connections after a READONLY reply, at most once
@@ -452,6 +435,7 @@ func (d *Driver) requestRefresh() {
 // address: an error reply's first word, or the failure kind.
 func errType(err error) string {
 	var re *rueidis.RedisError
+	var reply *replyError
 	var ne net.Error
 	var recErr tls.RecordHeaderError
 	var certErr *tls.CertificateVerificationError
@@ -462,6 +446,10 @@ func errType(err error) string {
 	case errors.As(err, &re):
 		w, _, _ := strings.Cut(re.Error(), " ")
 		return w
+	case errors.As(err, &reply):
+		return reply.word()
+	case errors.Is(err, errNoPrimary):
+		return "no_primary"
 	case errors.Is(err, errPaced):
 		return "paced"
 	case errors.Is(err, errClosed), errors.Is(err, rueidis.ErrClosing):

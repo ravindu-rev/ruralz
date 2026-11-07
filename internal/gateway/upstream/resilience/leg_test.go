@@ -15,7 +15,6 @@ import (
 
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
 	"github.com/ravindu-rev/ruralz/internal/errcode"
-	"github.com/ravindu-rev/ruralz/internal/expr"
 )
 
 // legFixture is one Upstream runtime on a fake clock.
@@ -808,8 +807,8 @@ func TestLegLoopRealSockets(t *testing.T) {
 				d.Cancel()
 				v := legVars(tt.method, kind, 0)
 				v.Attempt = a.Number
-				failed, _ = EvalFailureWhen(ctx, nil, v)
-				retry, _ := EvalRetryOn(ctx, nil, v)
+				failed, _ = EvalFailureWhen(nil, v)
+				retry, _ := EvalRetryOn(nil, v)
 				dec := l.Decide(RetryInput{RetryOn: retry, Replayable: true})
 				if !dec.Retry {
 					break
@@ -824,25 +823,6 @@ func TestLegLoopRealSockets(t *testing.T) {
 			}
 			l.End(BreakerResult(failed, o, 0, 1))
 		})
-	}
-}
-
-// BenchmarkLegDecide measures one leg's bookkeeping: begin, an attempt, a
-// retry decision and the end.
-func BenchmarkLegDecide(b *testing.B) {
-	clk := newClock()
-	rt := NewRuntime(clk, fixedSource{1 << 60}, nil)
-	cfg := DefaultConfig()
-	route := RouteDeadline(clk.Now(), 0)
-	v := &expr.Vars{Request: &expr.Request{Method: http.MethodGet}, Error: &expr.AttemptError{Kind: "reset"}}
-	b.ReportAllocs()
-	for b.Loop() {
-		var l Leg
-		l.Begin(rt, &cfg, route, 3)
-		l.StartAttempt()
-		retry, _ := EvalRetryOn(context.Background(), nil, v)
-		l.Decide(RetryInput{RetryOn: retry, Replayable: true})
-		l.End(LegSuccess)
 	}
 }
 

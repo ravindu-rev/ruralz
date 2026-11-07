@@ -1,11 +1,11 @@
-# golangci-lint configuration (not a Ruralz Bundle). Stage 2 of pr-fast runs
-# every linter below; a finding blocks merge
+# golangci-lint configuration (not a Ruralz Bundle). make lint, in the PR
+# pipeline's ci job, runs every linter below; a finding blocks merge
 # (docs/engineering/02-repository-layout-and-conventions.md).
 version: "2"
 
 run:
   go: "1.26"
-  build-tags: [integration, e2e, t5, compose]
+  build-tags: [integration]
 
 linters:
   default: standard

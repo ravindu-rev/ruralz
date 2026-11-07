@@ -67,11 +67,6 @@ func TestNodeDirectives(t *testing.T) {
 		want []string
 	}{
 		{"standalone", nodeConfig{port: 7000, dir: "/d"}, []string{"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000"}},
-		{"on a host", nodeConfig{bind: "10.0.0.5", port: 7000, dir: "/d"}, []string{"bind 10.0.0.5", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 7000"}},
-		{"sentinel on a host", nodeConfig{bind: "10.0.0.5", port: 26379, dir: "/d", sentinel: &sentinelConfig{masterSet: "ruralz", primary: "10.0.0.5:7000"}}, []string{
-			"bind 10.0.0.5", "dir /d", "port 26379", "sentinel monitor ruralz 10.0.0.5 7000 1",
-			"sentinel down-after-milliseconds ruralz 5000", "sentinel failover-timeout ruralz 10000",
-		}},
 		{"TLS", nodeConfig{port: 7000, dir: "/d", tls: files}, []string{
 			"bind 127.0.0.1", "dir /d", "save ", "appendonly no", "repl-diskless-sync-delay 0", "port 0", "tls-port 7000", "tls-cert-file /d/server.crt",
 			"tls-key-file /d/server.key", "tls-ca-cert-file /d/ca.crt", "tls-auth-clients no", "tls-replication yes",
@@ -148,15 +143,19 @@ func TestContainerSentinelConfig(t *testing.T) {
 	}
 }
 
-// TestUserDirectives checks that the default user is off unless listed,
-// and that custom rules replace the full-access default.
+// TestUserDirectives checks that every user gets full access and that the
+// default user is off unless listed.
 func TestUserDirectives(t *testing.T) {
 	if got := userDirectives(nil); got != nil {
 		t.Errorf("no users = %q, want no directive", got)
 	}
-	got := joined(userDirectives([]User{{Name: "default", Password: "d"}, {Name: "ro", Password: "r", Rules: []string{"~*", "+@read"}}}))
-	if want := []string{"user default reset on >d ~* &* +@all", "user ro reset on >r ~* +@read"}; !slices.Equal(got, want) {
+	got := joined(userDirectives([]User{{Name: "default", Password: "d"}, {Name: "ro", Password: "r"}}))
+	if want := []string{"user default reset on >d ~* &* +@all", "user ro reset on >r ~* &* +@all"}; !slices.Equal(got, want) {
 		t.Errorf("userDirectives = %q, want %q", got, want)
+	}
+	got = joined(userDirectives([]User{{Name: "ro", Password: "r"}}))
+	if want := []string{"user ro reset on >r ~* &* +@all", "user default off"}; !slices.Equal(got, want) {
+		t.Errorf("userDirectives without default = %q, want %q", got, want)
 	}
 }
 

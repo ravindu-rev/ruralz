@@ -18,7 +18,7 @@ Which language and build mode yield three simple artifacts that operators can co
 - **Static artifacts** that allow images without a libc, cross-builds for linux/amd64 and linux/arm64, and no shared-library dependency, so a Zero-Downtime Upgrade needs only the new file.
 - **Library coverage** for the fixed stack: an in-process WASM runtime, HTTP/1.1 to HTTP/3, gRPC, GraphQL federation, Kafka, NATS, MQTT, Raft and policy engines.
 - **A FIPS path** that needs no second cryptographic stack.
-- **Tail latency** that the benchmark suite can measure and publish (P10).
+- **Low tail latency** on the request path, stated as tagged targets (P10).
 
 ## Considered options
 
@@ -34,22 +34,22 @@ Chosen option: "Go 1.26 or newer with `CGO_ENABLED=0` static binaries", plus a `
 
 | Rule | Value | Planned |
 |---|---|---|
-| Floor | Root `go.mod` declares `go 1.26.0`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force it | Planned (M0) |
+| Floor | Root `go.mod` declares `go 1.26.10`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force Go 1.26, and `lestrrat-go/jwx/v4` v4.6.0 the patch | Planned (M0) |
 | Release toolchain | Latest patch of the newest Go release, pinned by the `toolchain` directive (now `go1.27.1` ([source](https://go.dev/doc/devel/release))); release and FIPS builds set no `GOEXPERIMENT` | Planned (M0) |
-| Floor CI job | Latest 1.26 patch with `GOTOOLCHAIN=local` and `GOEXPERIMENT=jsonv2`, which jwx v4 needs on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) | Planned (M0) |
+| Floor check | vet's `stdversion` check, which `make lint` runs in the PR pipeline's `ci` job, reports any standard library API newer than the `go` line; a Go 1.26 build needs `GOEXPERIMENT=jsonv2`, which jwx v4 needs on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) | Planned (M0) |
 | Build flags | `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` version metadata | Planned (M0) |
 | Production platforms | linux/amd64 and linux/arm64 for all three binaries; the CLI also targets darwin and windows/amd64 | Planned (M0) |
 | FIPS variant | Same source; HTTP/3 off (OQ-tech-stack-and-libraries-9) and hybrid post-quantum key exchange off ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)); `GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves "Pending Review", `GODEBUG=fips140=on`, separate artifacts ([source](https://go.dev/doc/security/fips140)) | Planned (M5) |
 
 A FIPS build constraint keeps the quic-go listener package out of the FIPS `ruralzd`, which the quic-go G3 exception does not cover ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)). How a FIPS Node treats a Revision with `http3: true` is open (OQ-tech-stack-and-libraries-9): ignoring the field would break equal behavior for equal digests (foundation pack section 8.1), a render-time error would need a field that marks FIPS targets, which the Configuration model lacks, and a deterministic NACK rolls back or pauses the Rollout in a Cluster that mixes FIPS and default Nodes (section 8.3).
 
-*Figure 1: one source tree feeds the release build, the FIPS build and the CI-only floor job.*
+*Figure 1: one source tree feeds the release build, the FIPS build and Go 1.26 builds.*
 
 ```mermaid
 flowchart LR
   src["Monorepo: cmd/ruralzd, cmd/ruralz-control, cmd/ruralz"]
   rel["Release build: newest Go patch, CGO_ENABLED=0"]
-  floor["Floor CI job: Go 1.26, GOEXPERIMENT=jsonv2"]
+  floor["Go 1.26 build: GOEXPERIMENT=jsonv2, Go 1.26 APIs only"]
   fips["FIPS build: GOFIPS140, no quic-go, no hybrid PQ"]
   bins["Static binaries for linux/amd64 and linux/arm64"]
   fbins["Separate FIPS artifacts"]
@@ -68,17 +68,16 @@ flowchart LR
 - Good, because each `ghcr.io/ravindu-rev/ruralzd` image can carry one static binary and no libc, which simplifies image handling for disposable Nodes (P4) and frees the Zero-Downtime Upgrade ([ADR-0015](0015-zero-downtime-upgrades-so-reuseport.md)) from library compatibility checks.
 - Good, because research confirms pure Go for wazero, quic-go, franz-go, connect-go and grpc-go ([source](https://github.com/wazero/wazero/blob/main/README.md)) ([source](https://github.com/quic-go/quic-go)) ([source](https://github.com/twmb/franz-go)) ([source](https://github.com/connectrpc/connect-go)) ([source](https://github.com/grpc/grpc-go)), so the Plugin sandbox runs in-process without CGO ([ADR-0004](0004-wasm-runtime-wazero.md)).
 - Good, because `net/http` serves HTTP/1.1, HTTP/2 and h2c ([ADR-0009](0009-http-stack-net-http-quic-go.md)), and the Go Cryptographic Module gives the FIPS build without a second TLS stack.
-- Bad, because GC pauses may hurt tail latency more than in a C++ proxy (hypothesis); `GOMEMLIMIT` and `GOGC` are the levers, and P10 requires published Planned (M4) benchmarks.
+- Bad, because GC pauses may hurt tail latency more than in a C++ proxy (hypothesis); `GOMEMLIMIT` and `GOGC` are the levers.
 - Bad, because wazero lacks fuel metering and wasmtime-go needs CGO: deadlines interrupt guest code only through `WithCloseOnContextDone`, reported 10 to 20x slower on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), so the P6 `timeout` costs runtime or needs host-side budgets (OQ-tech-stack-and-libraries-8).
 - Bad, because a `CGO_ENABLED=0` binary in an image without a libc base still needs CA roots, so each image ships a CA bundle and an archive install reads the host CA store ([Static builds](../engineering/01-tech-stack-and-libraries.md#static-builds)).
-- Bad, because always-linked libraries grow `ruralzd` toward a 160 MiB stripped binary budget (target).
+- Bad, because always-linked libraries grow the stripped `ruralzd` binary.
 
 ### Confirmation
 
-- **CI cross-build gate (G1)**, Planned (M0): `pr-fast` builds all three binaries with `CGO_ENABLED=0` for every production platform; a library that fails loses its catalog row.
-- **Floor job and guard file**, Planned (M0): a guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation, and JSON golden tests MUST produce identical bytes in both jobs.
+- **Cross-build gate (G1)**, Planned (M0): `make build` and every release cross-build all three binaries with `CGO_ENABLED=0` for every production platform; a library that fails loses its catalog row.
+- **Floor check and guard file**, Planned (M0): vet's `stdversion` check in `make lint`, which the `ci` job runs, fails on any standard library API newer than Go 1.26; a guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation, and JSON golden tests MUST produce identical bytes on the floor and release toolchains.
 - **Crypto denylist (G3)**, Planned (M0): `go list -deps` fails on non-allowlisted crypto packages; the FIPS CI job, Planned (M5), builds with `GOFIPS140` and fails if quic-go appears in the FIPS `ruralzd` dependencies.
-- **Binary size check**, Planned (M1), reports `ruralzd` against its budget.
 - **Amendment trigger**: a pull request that changes the `go` directive MUST amend this ADR; `toolchain` bumps follow the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
 
 ## Pros and cons of the options

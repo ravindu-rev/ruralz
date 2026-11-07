@@ -61,7 +61,7 @@ func dialConn(ctx context.Context, addr string, o dialOptions) (*Conn, error) {
 func aLongTimeAgo() time.Time { return time.Unix(1, 0) }
 
 // Do sends one command and reads its reply. An error reply is returned
-// as a *ReplyError along with the Value; ctx bounds the round trip.
+// as an error along with the Value; ctx bounds the round trip.
 func (c *Conn) Do(ctx context.Context, args ...string) (Value, error) {
 	if len(args) == 0 {
 		return Value{}, errors.New("redisserver: Do needs a command")

@@ -20,7 +20,7 @@ Two questions need one answer: which wire format clients speak, and which token 
 - **P3, no control-plane or peer dependency on the request path**: one blocking State Store call per Policy before commit, none in `onChunk`; any other remote call is declared on its Policy.
 - **Client portability**: SDKs written for OpenAI Chat Completions reach every dialect.
 - **P1 and P2, everything is free and the gateway stands alone**: prices ship in `AIProvider.spec.pricing`; no Revington service or entitlement supplies prices or counts.
-- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time (target; PB-12 in [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md)).
+- **Bounded work**: gateway-added time to first token of 1 ms or less at p99 for bodies up to 16 KiB, excluding State Store, embedding, provider and estimator time (target).
 
 ## Considered options
 
@@ -85,8 +85,8 @@ flowchart LR
 ### Confirmation
 
 - **Protocol conformance suite**, Planned (M3): AI dialect fixtures verify Prompt Cache marker preservation in 100% of cases (target; SM-11) and show that C, `include_usage` and only allowlisted headers reach the provider ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
-- **Token Budget property test**, Planned (M3): reservation, per-attempt settlement and the overshoot bound hold ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
-- **SM-10 scale job**, Planned (M3): the [AI provider mock](../engineering/03-testing-and-quality-strategy.md#ai-provider-mock) drops usage on some streams, and settlement MUST charge all of R.
+- **Token Budget property test**, Planned (M3): reservation, per-attempt settlement and the overshoot bound hold, on SM-10's scenario among others ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
+- **AI provider mock cases**, Planned (M3): when a stream from the [AI provider mock](../engineering/03-testing-and-quality-strategy.md#ai-provider-mock) ends before its usage chunk, settlement MUST charge all of R and emit the degraded-state metric.
 - **Fuzzing**, Planned (M3): per-dialect stream parsers extract the fixture's final usage or report it missing ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **Validation**, Planned (M1): `ruralz bundle validate` rejects a Token-Budgeted `AIModel` without `limits.maxOutputTokens` (RZ-CFG-034, stage K, [Error codes](../architecture/02-configuration-model.md#error-codes)), before the AI gateway ships, so Bundles written for M3 validate the same way in every release; the configuration conformance suite holds its negative fixture.
 - **Amendment trigger**: a pull request that bills, budgets or exports token counts from anything but provider usage, or re-serializes a native body, MUST amend this ADR.

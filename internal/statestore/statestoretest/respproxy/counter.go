@@ -15,8 +15,8 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
 )
 
-// DefaultLogSize is the command log capacity.
-const DefaultLogSize = 1024
+// logSize is the command log capacity.
+const logSize = 1024
 
 // maxPending bounds the commands of one connection awaiting replies; past
 // it the Counter stops matching that connection's replies to commands.
@@ -25,20 +25,11 @@ const maxPending = 1 << 16
 // ErrClosed is returned by SetReplyDelays on a closed Counter.
 var ErrClosed = errors.New("respproxy: closed")
 
-// CounterConfig configures a Counter.
-type CounterConfig struct {
-	// LogSize bounds the command log; default DefaultLogSize. A negative
-	// size keeps no log.
-	LogSize int
-	// Clock times reply delays and stamps each command's At; default
-	// clock.Real().
-	Clock clock.Clock
-}
-
 // Command is one command a client sent.
 type Command struct {
-	// Seq numbers the commands of the Counter from 1, in the order read.
-	Seq uint64
+	// seq numbers the commands of the Counter from 1, in the order read:
+	// a Snapshot's Seq counts them.
+	seq uint64
 	// Conn is the faultproxy connection ID.
 	Conn uint64
 	// RoundTrip numbers the Counter's round trips from 1: a command sent
@@ -48,15 +39,6 @@ type Command struct {
 	// Name is the upper-cased command name; a container command carries
 	// its subcommand too, as in "SCRIPT LOAD".
 	Name string
-	// Args are the first 64 arguments as sent, the name included, each
-	// cut to 256 bytes. Argc counts every argument, and Cut reports that
-	// an argument was dropped or cut.
-	Args []string
-	Argc int64
-	Cut  bool
-	// At is when the Counter read the command, on its clock: a chaos run
-	// counts a key's calls per window by it.
-	At time.Time
 	// Reply is the reply, once read.
 	Reply Reply
 }
@@ -99,8 +81,6 @@ type Snapshot struct {
 	Pushes int64
 	// Desyncs counts connection directions whose bytes stopped parsing.
 	Desyncs int64
-	// Held counts the chunks of replies a reply delay holds right now.
-	Held int64
 	// LogEvicted counts the commands the log dropped to stay in bounds.
 	LogEvicted int64
 }
@@ -110,7 +90,7 @@ type Snapshot struct {
 func (s Snapshot) Count(name string) int64 { return s.ByName[normalizeName(name)] }
 
 // Sub returns the counts accumulated since earlier, a Snapshot of the
-// same Counter; Seq and Held stay s's.
+// same Counter; Seq stays s's.
 func (s Snapshot) Sub(earlier Snapshot) Snapshot {
 	d := s
 	d.Commands -= earlier.Commands
@@ -156,28 +136,20 @@ type Counter struct {
 	errors     map[string]int64
 	pushes     int64
 	desyncs    int64
-	held       int64
-	log        []Command // a ring; Seq s sits at (s-1) % len(log)
+	log        []Command // a ring; seq s sits at (s-1) % len(log)
 	logLen     uint64
 	evicted    int64
 }
 
-// NewCounter returns a Counter.
-func NewCounter(c CounterConfig) *Counter {
-	size := c.LogSize
-	if size == 0 {
-		size = DefaultLogSize
-	}
-	clk := c.Clock
-	if clk == nil {
-		clk = clock.Real()
-	}
+// newCounter returns a Counter whose reply delays run on clk and whose
+// log keeps the last size commands (size > 0).
+func newCounter(clk clock.Clock, size int) *Counter {
 	return &Counter{
 		clk:    clk,
 		holds:  map[*heldChunk]struct{}{},
 		byName: map[string]int64{},
 		errors: map[string]int64{},
-		log:    make([]Command, max(size, 0)),
+		log:    make([]Command, size),
 	}
 }
 
@@ -201,15 +173,12 @@ func (c *Counter) Snapshot() Snapshot {
 	return Snapshot{
 		Seq: c.seq, Commands: c.commands, ByName: maps.Clone(c.byName), RoundTrips: c.roundTrips,
 		Replies: c.replies, Errors: maps.Clone(c.errors), Pushes: c.pushes, Desyncs: c.desyncs,
-		Held: c.held, LogEvicted: c.evicted,
+		LogEvicted: c.evicted,
 	}
 }
 
-// Log returns the logged commands, oldest first.
-func (c *Counter) Log() []Command { return c.LogSince(0) }
-
-// LogSince returns the logged commands with a Seq above seq (a
-// Snapshot's Seq), oldest first.
+// LogSince returns the logged commands read after the Snapshot whose Seq
+// is seq, oldest first; 0 returns the whole log.
 func (c *Counter) LogSince(seq uint64) []Command {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -283,8 +252,8 @@ func (c *Counter) rulesNow() ([]ReplyDelay, uint64) {
 // release runs once d passes, the delays change or the Counter closes,
 // whichever comes first. False, holding nothing, means the delays of gen,
 // which decided the hold, changed since or the Counter closed. The timer
-// is armed before Held counts the chunk, so a test that sees Held may
-// advance a fake clock past it.
+// is armed as the hold is recorded, both under c.mu, so a test that sees
+// the hold may advance a fake clock past it.
 func (c *Counter) arm(d time.Duration, gen uint64, release func()) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -294,7 +263,6 @@ func (c *Counter) arm(d time.Duration, gen uint64, release func()) bool {
 	h := &heldChunk{release: release}
 	h.timer = c.clk.AfterFunc(d, func() { c.unhold(h) })
 	c.holds[h] = struct{}{}
-	c.held++
 	return true
 }
 
@@ -305,7 +273,6 @@ func (c *Counter) unhold(h *heldChunk) {
 	_, ok := c.holds[h]
 	if ok {
 		delete(c.holds, h)
-		c.held--
 	}
 	c.mu.Unlock()
 	if ok {
@@ -323,7 +290,6 @@ func (c *Counter) endHolds() []*heldChunk {
 		held = append(held, h)
 	}
 	clear(c.holds)
-	c.held = 0
 	return held
 }
 
@@ -335,25 +301,24 @@ func releaseAll(held []*heldChunk) {
 	}
 }
 
-// record logs one command and returns its Seq; c.mu is held.
+// record logs one command and returns its seq; c.mu is held.
 func (c *Counter) record(cmd Command) uint64 {
 	c.seq++
-	cmd.Seq = c.seq
+	cmd.seq = c.seq
 	c.commands++
 	c.byName[cmd.Name]++
-	if n := uint64(len(c.log)); n > 0 {
-		if c.logLen == n {
-			c.evicted++
-		} else {
-			c.logLen++
-		}
-		c.log[(cmd.Seq-1)%n] = cmd
+	n := uint64(len(c.log))
+	if c.logLen == n {
+		c.evicted++
+	} else {
+		c.logLen++
 	}
-	return cmd.Seq
+	c.log[(cmd.seq-1)%n] = cmd
+	return cmd.seq
 }
 
 // reply counts one reply and records it on the logged command seq (0:
-// none).
+// none), unless the log dropped it since.
 func (c *Counter) reply(seq uint64, kind byte, msg string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -362,8 +327,8 @@ func (c *Counter) reply(seq uint64, kind byte, msg string) {
 		code, _, _ := strings.Cut(msg, " ")
 		c.errors[code]++
 	}
-	if n := uint64(len(c.log)); seq != 0 && n > 0 {
-		if e := &c.log[(seq-1)%n]; e.Seq == seq {
+	if seq != 0 {
+		if e := &c.log[(seq-1)%uint64(len(c.log))]; e.seq == seq {
 			e.Reply = Reply{Kind: kind, Err: msg}
 		}
 	}
@@ -446,20 +411,17 @@ func (cs *connState) readCommands(b []byte) {
 	}
 }
 
-// onCommand records one command; cs.mu is held.
-func (cs *connState) onCommand(args [][]byte, argc int64, cut bool) {
+// onCommand records one command, its name and subcommand in args; cs.mu
+// is held.
+func (cs *connState) onCommand(args [][]byte) {
 	name := commandName(args)
-	strs := make([]string, len(args))
-	for i, a := range args {
-		strs[i] = string(a)
-	}
 	c := cs.c
 	c.mu.Lock()
 	if cs.due == 0 {
 		c.roundTrips++
 		cs.roundTrip = c.roundTrips
 	}
-	seq := c.record(Command{Conn: cs.id, RoundTrip: cs.roundTrip, Name: name, Args: strs, Argc: argc, Cut: cut, At: c.clk.Now()})
+	seq := c.record(Command{Conn: cs.id, RoundTrip: cs.roundTrip, Name: name})
 	c.mu.Unlock()
 	cs.due++
 	switch {
@@ -558,16 +520,16 @@ func (cs *connState) popPending() uint64 {
 // cmdSink receives a connection's commands.
 type cmdSink struct{ cs *connState }
 
-func (s cmdSink) command(args [][]byte, argc int64, cut bool) { s.cs.onCommand(args, argc, cut) }
-func (cmdSink) replyStart()                                   {}
-func (cmdSink) replyEnd(byte, []byte)                         {}
-func (cmdSink) push()                                         {}
+func (s cmdSink) command(args [][]byte) { s.cs.onCommand(args) }
+func (cmdSink) replyStart()             {}
+func (cmdSink) replyEnd(byte, []byte)   {}
+func (cmdSink) push()                   {}
 
 // replySink collects the events of a chunk of replies being counted.
 type replySink struct{ cs *connState }
 
-func (replySink) command([][]byte, int64, bool) {}
-func (replySink) replyStart()                   {}
+func (replySink) command([][]byte) {}
+func (replySink) replyStart()      {}
 
 func (s replySink) replyEnd(kind byte, msg []byte) {
 	s.cs.events = append(s.cs.events, event{kind: evEnd, reply: kind, err: string(msg)})
@@ -578,10 +540,10 @@ func (s replySink) push() { s.cs.events = append(s.cs.events, event{kind: evPush
 // scanSink matches the replies of a chunk being scanned for its hold.
 type scanSink struct{ cs *connState }
 
-func (scanSink) command([][]byte, int64, bool) {}
-func (s scanSink) replyStart()                 { s.cs.scanned() }
-func (scanSink) replyEnd(byte, []byte)         {}
-func (scanSink) push()                         {}
+func (scanSink) command([][]byte)      {}
+func (s scanSink) replyStart()         { s.cs.scanned() }
+func (scanSink) replyEnd(byte, []byte) {}
+func (scanSink) push()                 {}
 
 // commandName returns the Name of the command args.
 func commandName(args [][]byte) string {

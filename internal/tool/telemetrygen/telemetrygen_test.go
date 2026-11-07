@@ -20,7 +20,8 @@ import (
 // committedDir is deploy/grafana relative to this package.
 func committedDir() string { return filepath.Join("..", "..", "..", "deploy", "grafana") }
 
-// TestGeneratedUpToDate is the stage 3 drift check: a fresh in-memory run
+// TestGeneratedUpToDate is the drift check of the generated alert rules and
+// dashboards: a fresh in-memory run
 // equals the committed files byte for byte, and no committed file carries
 // the generated-file marker without being generated (a renamed or dropped
 // dashboard left behind).
@@ -711,12 +712,4 @@ func FuzzCheckExpr(f *testing.F) {
 			t.Fatalf("checkExpr(%q) is not deterministic", expr)
 		}
 	})
-}
-
-func BenchmarkGenerate(b *testing.B) {
-	for b.Loop() {
-		if _, err := generate(); err != nil {
-			b.Fatal(err)
-		}
-	}
 }

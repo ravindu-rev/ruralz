@@ -20,7 +20,7 @@ Go plugin linkage breaks whenever the toolchain changes, and the proxy-wasm ABI 
 - **Fault isolation (WG-2, TB-2)**: traps and misuse become `RZ-PLG` codes under `failureMode`, never a Node crash.
 - **Several PDK languages (WG-7)**: one guest convention for Rust, Go/TinyGo, TypeScript and C#.
 - **Stable binaries, maintained pure-Go host**: Plugins outlive Go toolchains; G1 and S1 of the [selection criteria](../engineering/01-tech-stack-and-libraries.md#selection-criteria).
-- **Measured cost (P10)**: the SM-6 pooled Phase call budget (target).
+- **Call cost**: a pooled Phase call of 50 µs or less at p99 (target).
 
 ## Considered options
 
@@ -101,18 +101,17 @@ sequenceDiagram
 - Bad, because engine-based PDKs (TypeScript, C#) need an import shim and more memory: a 64 MiB `state.*` Plugin (hypothesis) gets a parked bound of 12 under the 2 GiB default cap, below the audit threshold of 16 (target), so it needs a 4 GiB cap ([Sizing](../architecture/05-wasm-plugin-system.md#sizing)).
 - Bad, because Plugins cannot call out (OQ-wasm-plugin-system-5) or hold plaintext keys (OQ-wasm-plugin-system-4).
 - Bad, because an Upstream-scoped Plugin gets one State Store result per request: retries and steps replay it, another key returns `ERR_BUDGET`, and parallel `aggregate` steps wait on the first call.
-- Bad, because once v1 ships, an ABI mistake costs `ruralz.plugin.v2`, served beside v1 for 4 minor releases, about 12 months (target).
+- Bad, because once v1 ships, an ABI mistake costs `ruralz.plugin.v2`, served beside v1 for 4 minor releases (target).
 - Bad, because the adapter pins each request to the instance holding its stream state: up to 1,000 contexts (target) share its serialized calls and traps, with recycling and fault radius open (OQ-wasm-plugin-system-17).
 
 ### Confirmation
 
 Planned (M2) unless tagged:
 
-- **Plugin ABI conformance suite** in `pr-full` on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
+- **Plugin ABI conformance suite** in the PR pipeline's `integration` job, on `ruralzd`, `ruralz plugin test` and every Ruralz PDK ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)): Host Function, encoding and WASI tables; denied Capabilities; `request.headers.read` alone cannot read `authorization`; sticky errors yield `RZ-PLG-006`; a body above `limits.memoryBytes` is read in fixed-size chunks without `RZ-PLG-003`; an Upstream-scoped `state.read` Plugin gets no `RZ-PLG-006` with one retry or two `aggregate` steps.
 - **Adapter conformance**, Planned (M4): the suite plus a proxy-wasm filter corpus; a trapping context leaves other instances' contexts unaffected, and pinned waits respect the 1 ms bound (target).
 - **Online Plugin check**: `ruralz bundle build`, `ruralz bundle validate --online`, ingest and activation reject artifacts disagreeing with `Plugin.spec` (RZ-CFG-028).
 - **Host Function fuzzing**: out-of-bounds pointers and lengths trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **SM-6 microbenchmark gate**: 50 µs or less per pooled Phase call at p99 (target).
 - **Amendment trigger**: a pull request that adds an ambient import or a Host Function without exactly one Capability, changes a result code, Phase result, memory convention or required export, or accepts another `abi` value MUST amend this ADR or open `ruralz.plugin.v2`.
 
 ## Pros and cons of the options

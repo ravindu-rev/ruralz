@@ -75,9 +75,7 @@ func celIssues(se siteEnv, src string, iss *celgo.Issues) []expr.Issue {
 	out := make([]expr.Issue, 0, len(errs))
 	for _, e := range errs {
 		msg, _, _ := strings.Cut(e.Message, "\n")
-		// Ruralz declares no container, so cel-go's container note says
-		// nothing.
-		msg = strings.TrimSuffix(msg, " (in container '')")
+		msg = withoutEnableHint(msg)
 		hint := ""
 		if name, ok := undeclaredVar(msg); ok && se.vars&name == 0 {
 			hint = string(se.place.ID) + " has " + strings.Join(se.vars.Names(), ", ")
@@ -89,6 +87,20 @@ func celIssues(se siteEnv, src string, iss *celgo.Issues) []expr.Issue {
 		out = append(out, issueAt(codeInvalid, se, src, line, col, msg, hint))
 	}
 	return out
+}
+
+// withoutEnableHint drops the suggestion cel-go ends a message with when
+// it names the option that would enable a library, as in "undeclared
+// reference to 'optional.of' (enable with `cel.OptionalTypes()`)": the
+// language of every place is fixed (docs/architecture/02-configuration-model.md
+// "Limits"), so no such option applies. A suggestion of an available
+// symbol, as in "(did you mean 'request'?)", stays.
+func withoutEnableHint(msg string) string {
+	i := strings.LastIndex(msg, " (")
+	if i < 0 || !strings.HasSuffix(msg, ")") || !strings.Contains(msg[i:], "enable with `") {
+		return msg
+	}
+	return msg[:i]
 }
 
 // undeclaredVar returns the Ruralz variable an "undeclared reference"

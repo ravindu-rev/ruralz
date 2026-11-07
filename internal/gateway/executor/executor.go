@@ -334,7 +334,7 @@ func (e *Executor) evalWhen(ctx context.Context, p *snapshot.Policy, ph phase.Ph
 			ok, err = false, ErrPanic
 		}
 	}()
-	return p.When.EvalBool(ctx, v)
+	return p.When.EvalBool(v)
 }
 
 // logPanic records a recovered panic: the Policy, the Phase, the panic

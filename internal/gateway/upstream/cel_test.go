@@ -43,13 +43,13 @@ func TestNativeDefaultsEqualCEL(t *testing.T) {
 					resp = &http.Response{StatusCode: s, Header: http.Header{}}
 				}
 				v := ls.legVars(2, resp, k, "10.0.0.1:8080")
-				gotR, errR := resilience.EvalRetryOn(t.Context(), nil, v)
-				wantR, wantErrR := retryOn.EvalBool(t.Context(), v)
+				gotR, errR := resilience.EvalRetryOn(nil, v)
+				wantR, wantErrR := retryOn.EvalBool(v)
 				if gotR != wantR || (errR != nil) != (wantErrR != nil) {
 					t.Errorf("retryOn(%s, %v, %d): native %v, %v; CEL %v, %v", m, k, s, gotR, errR, wantR, wantErrR)
 				}
-				gotF, errF := resilience.EvalFailureWhen(t.Context(), nil, v)
-				wantF, wantErrF := failureWhen.EvalBool(t.Context(), v)
+				gotF, errF := resilience.EvalFailureWhen(nil, v)
+				wantF, wantErrF := failureWhen.EvalBool(v)
 				if gotF != wantF || (errF != nil) != (wantErrF != nil) {
 					t.Errorf("failureWhen(%s, %v, %d): native %v, %v; CEL %v, %v", m, k, s, gotF, errF, wantF, wantErrF)
 				}

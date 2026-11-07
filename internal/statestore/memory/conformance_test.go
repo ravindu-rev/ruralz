@@ -19,9 +19,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/statestore/statestoretest"
 )
 
-// The driver conformance suite, run twice: on clocktest.Fake, where the
-// literal numbers are checked, and on the real clock, which exercises the
-// tolerant path the redis driver's live runs take.
+// The driver conformance suite, run three times: on clocktest.Fake, where
+// the literal numbers are checked; on the real clock, which exercises the
+// tolerant path the redis driver's live runs take; and on that path with a
+// store clock that a correction slews.
 
 // start is the fake clock's start: mid-window for every window the suite
 // uses, and after the 2026 GCRA epoch.
@@ -63,7 +64,23 @@ type harnessClocks struct {
 	node *skewClock
 }
 
-func memoryHarness(exact bool) statestoretest.Harness {
+// harnessMode is the time a memoryHarness runs the suite on.
+type harnessMode int
+
+const (
+	// fakeClock moves only through Advance, by exactly its duration, and
+	// the suite checks the literal numbers.
+	fakeClock harnessMode = iota
+	// realClock is the real clock: the suite's tolerant path.
+	realClock
+	// slewedClock is the tolerant path on a fake clock that every Advance
+	// moves by nine tenths of its duration only, as a correction slewing
+	// the store host's wall clock leaves it behind a sleep on the
+	// monotonic clock.
+	slewedClock
+)
+
+func memoryHarness(mode harnessMode) statestoretest.Harness {
 	var mu sync.Mutex
 	reg := map[statestore.Driver]*harnessClocks{}
 	get := func(d statestore.Driver) *harnessClocks {
@@ -72,12 +89,12 @@ func memoryHarness(exact bool) statestoretest.Harness {
 		return reg[d]
 	}
 	return statestoretest.Harness{
-		Exact:    exact,
+		Exact:    mode == fakeClock,
 		Parallel: true,
 		Open: func(t *testing.T, o statestoretest.OpenOptions) statestore.Driver {
 			hc := &harnessClocks{}
 			base := clock.Real()
-			if exact {
+			if mode != realClock {
 				hc.fake = clocktest.New(start())
 				base = hc.fake
 			}
@@ -95,12 +112,16 @@ func memoryHarness(exact bool) statestoretest.Harness {
 			return d
 		},
 		Advance: func(t *testing.T, d statestore.Driver, by time.Duration) {
-			if hc := get(d); hc.fake != nil {
+			hc := get(d)
+			switch mode {
+			case fakeClock:
 				hc.fake.Advance(by)
-				return
-			}
-			if err := clock.Real().Sleep(context.Background(), by); err != nil {
-				t.Fatal(err)
+			case slewedClock:
+				hc.fake.Advance(by * 9 / 10)
+			default:
+				if err := clock.Real().Sleep(context.Background(), by); err != nil {
+					t.Fatal(err)
+				}
 			}
 		},
 		Now:        func(d statestore.Driver) time.Time { return get(d).fake.Now() },
@@ -262,12 +283,21 @@ func minExpiry(s *shard) int64 {
 }
 
 func TestConformanceFakeClock(t *testing.T) {
-	statestoretest.RunConformance(t, memoryHarness(true))
+	statestoretest.RunConformance(t, memoryHarness(fakeClock))
 }
 
 func TestConformanceRealClock(t *testing.T) {
 	if testing.Short() {
 		t.Skip("sleeps about 20 s of real time")
 	}
-	statestoretest.RunConformance(t, memoryHarness(false))
+	statestoretest.RunConformance(t, memoryHarness(realClock))
+}
+
+// TestConformanceSlewedClock runs the suite's real-time path on a store
+// whose clock gains nine tenths of every sleep only, as a slewed wall clock
+// does: a case that waits out a fill lease, an emission interval or a
+// window holds only because the suite's waits last until the store's own
+// clock has moved their whole length.
+func TestConformanceSlewedClock(t *testing.T) {
+	statestoretest.RunConformance(t, memoryHarness(slewedClock))
 }

@@ -45,8 +45,8 @@ type admitLoop struct {
 func newAdmitLoop(tb testing.TB) *admitLoop {
 	tb.Helper()
 	fx := newFixture(tb)
-	f, _ := fx.build(tb, "quota-bench", config("daily"))
-	x := &recordExchange{Exchange: exchange("quota-bench", vars(consumer("acme", windowQuota("daily", 1<<40, time.Hour)), "GET", ""))}
+	f, _ := fx.build(tb, "quota-daily", config("daily"))
+	x := &recordExchange{Exchange: exchange("quota-daily", vars(consumer("acme", windowQuota("daily", 1<<40, time.Hour)), "GET", ""))}
 	x.FinalV = served()
 	l := &admitLoop{fx: fx, f: f, x: x}
 	l.calls[0] = &l.call
@@ -85,15 +85,5 @@ func TestAdmitAllocatesNothing(t *testing.T) {
 	}
 	if n := testing.AllocsPerRun(500, func() { l.run(ctx, t) }); n != 0 {
 		t.Errorf("an admitted request allocates %v per run", n)
-	}
-}
-
-// BenchmarkAdmit measures one admitted request on the memory driver.
-func BenchmarkAdmit(b *testing.B) {
-	l := newAdmitLoop(b)
-	ctx := b.Context()
-	b.ReportAllocs()
-	for b.Loop() {
-		l.run(ctx, b)
 	}
 }

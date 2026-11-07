@@ -299,7 +299,7 @@ func (*constProgram) Cost() expr.CostRange {
 	return expr.CostRange{}
 }
 
-func (p *constProgram) EvalBool(context.Context, *expr.Vars) (bool, error) {
+func (p *constProgram) EvalBool(*expr.Vars) (bool, error) {
 	p.n.Add(1)
 	if p.panic {
 		panic("when exploded")
@@ -307,11 +307,11 @@ func (p *constProgram) EvalBool(context.Context, *expr.Vars) (bool, error) {
 	return p.ok, p.err
 }
 
-func (*constProgram) EvalString(context.Context, *expr.Vars) (string, error) { return "", nil }
+func (*constProgram) EvalString(*expr.Vars) (string, error) { return "", nil }
 
-func (*constProgram) EvalInt(context.Context, *expr.Vars) (int64, error) { return 0, nil }
+func (*constProgram) EvalInt(*expr.Vars) (int64, error) { return 0, nil }
 
-func (*constProgram) EvalValue(context.Context, *expr.Vars) (expr.Value, error) {
+func (*constProgram) EvalValue(*expr.Vars) (expr.Value, error) {
 	return nil, nil //nolint:nilnil // unused by the executor
 }
 

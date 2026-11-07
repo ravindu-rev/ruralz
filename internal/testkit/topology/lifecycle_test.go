@@ -7,8 +7,6 @@ import (
 	"bytes"
 	"errors"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -20,8 +18,8 @@ import (
 )
 
 // Tests for the Runtime part of the process harness: Stop through the
-// Drain on the clock, SIGKILL after KillAfter, Kill and Start, Hot Reload
-// by file swap or SIGHUP, and the handover to a successor.
+// Drain on the clock, SIGKILL after KillAfter, Hot Reload by file swap or
+// SIGHUP, and the handover to a successor.
 
 // Stop sends SIGTERM and advances the clock through the Drain in whole
 // DrainSteps until the Node exits: the stand-in stops accepting after its
@@ -29,7 +27,7 @@ import (
 func TestStopDrainsThroughTheClock(t *testing.T) {
 	topo := standinTopology(t)
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	if _, err := n.Holder(); err != nil {
+	if _, err := nodedir.ReadHolderAt(n.dataDir); err != nil {
 		t.Fatalf("holder.json before the Drain: %v", err)
 	}
 	before := topo.Now()
@@ -45,7 +43,7 @@ func TestStopDrainsThroughTheClock(t *testing.T) {
 	if !bytes.Contains(out, []byte("standin: draining\n")) || !bytes.Contains(out, []byte("standin: stop accepting\n")) {
 		t.Errorf("the Node's output lacks its Drain:\n%s", out)
 	}
-	if _, err := n.Holder(); !errors.Is(err, nodedir.ErrNoHolder) {
+	if _, err := nodedir.ReadHolderAt(n.dataDir); !errors.Is(err, nodedir.ErrNoHolder) {
 		t.Errorf("holder.json after the Drain: %v, want none", err)
 	}
 	if code, err := n.Stop(t.Context()); err != nil || code != 0 {
@@ -79,47 +77,6 @@ func TestStopKillsAfterKillAfter(t *testing.T) {
 	}
 }
 
-// Kill ends the Node at once; Start runs it again on the same directory,
-// ports and render, appending to its logs.
-func TestKillAndStartAgain(t *testing.T) {
-	topo := standinTopology(t)
-	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	first := n.Process()
-	port, _ := n.Port("http")
-	if err := n.Kill(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if first.State() == nil || first.State().ExitCode() != -1 {
-		t.Fatalf("after Kill the process state is %v", first.State())
-	}
-	if err := n.Start(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if n.Process() == first || len(n.Processes()) != 2 {
-		t.Fatal("Start did not start a new process")
-	}
-	if p, _ := n.Port("http"); p != port {
-		t.Errorf("the restarted Node listens on %d, want its port %d", p, port)
-	}
-	resp := get(t, topo.HTTPClient(), n.URL("http")+"/")
-	if pid := resp.Header.Get("X-Standin-Pid"); pid != strconv.Itoa(n.Process().PID()) {
-		t.Errorf("served by pid %s, want the new process %d", pid, n.Process().PID())
-	}
-	log, err := os.ReadFile(filepath.Join(n.LogDir(), n.Name()+".out"))
-	if err != nil || bytes.Count(log, []byte("standin: ready ready")) != 2 {
-		t.Errorf("the log holds %d boots (%v), want both", bytes.Count(log, []byte("standin: ready ready")), err)
-	}
-	if err := n.Start(t.Context()); err == nil {
-		t.Error("Start of a running Node succeeded")
-	}
-	if err := n.Restart(t.Context()); err != nil {
-		t.Fatalf("Restart = %v", err)
-	}
-	if len(n.Processes()) != 3 {
-		t.Errorf("Restart left %d processes, want 3", len(n.Processes()))
-	}
-}
-
 // Reload swaps the test render atomically, keeping each listener's port
 // and giving a new listener a new one; the Node activates it at its next
 // watcher poll, one clock second away, or at once on SIGHUP.
@@ -127,7 +84,7 @@ func TestReloadKeepsPortsAndActivates(t *testing.T) {
 	topo := standinTopology(t)
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	old := n.Render()
-	urlBefore, _ := n.SecretValue(refStoreURL)
+	urlBefore, _ := secretValue(n, refStoreURL)
 	added := strings.Replace(testBundle, "  admin:\n", "    - name: extra\n      protocol: http\n      port: 9090\n  admin:\n", 1)
 	r, err := n.Reload(t.Context(), []byte(added))
 	if err != nil {
@@ -137,7 +94,7 @@ func TestReloadKeepsPortsAndActivates(t *testing.T) {
 		r.AdminPort != old.AdminPort || r.Listeners[2].Name != "extra" || r.Listeners[2].Port == old.Listeners[0].Port {
 		t.Fatalf("reload render %+v, want the old ports kept and a new one for extra", r)
 	}
-	if v, _ := n.SecretValue(refStoreURL); !bytes.Equal(v, urlBefore) {
+	if v, _ := secretValue(n, refStoreURL); !bytes.Equal(v, urlBefore) {
 		t.Error("a re-render changed a generated secret")
 	}
 	if err := topo.Advance(t.Context(), standinWatch); err != nil {
@@ -176,7 +133,7 @@ func TestHandoverMovesTheNodeToItsSuccessor(t *testing.T) {
 	topo := standinTopology(t)
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	old := n.Process()
-	succ, err := n.Handover(t.Context(), HandoverOptions{})
+	succ, err := n.Handover(t.Context())
 	if err != nil {
 		t.Fatal(err)
 	}

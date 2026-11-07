@@ -67,8 +67,6 @@
 // nothing writes into them in place, which no http.Header method does.
 // When every key of the message is canonical, a side of literal values
 // allocates nothing, the computed values of one call share one allocation,
-// and add to a field that has lines allocates its longer line slice
-// (docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget": headers setting two values in onUpstreamRequest, 2
-// allocations). A Filter is immutable and safe for concurrent use.
+// and add to a field that has lines allocates its longer line slice. A
+// Filter is immutable and safe for concurrent use.
 package header

@@ -3,11 +3,7 @@
 
 package resilience
 
-import (
-	"context"
-
-	"github.com/ravindu-rev/ruralz/internal/expr"
-)
+import "github.com/ravindu-rev/ruralz/internal/expr"
 
 // retryableMethod reports the methods the default retryOn retries on reset
 // errors and status 503: GET, HEAD, OPTIONS, PUT and DELETE. Methods
@@ -45,11 +41,11 @@ func DefaultFailureWhen(kind Kind, status int) bool {
 // (DefaultRetryOn's rule over v). A runtime error means no retry
 // (expr.RuleNoRetry): it returns false and the error, which the caller
 // counts in ruralz_upstream_cel_errors_total{field="retryOn"}.
-func EvalRetryOn(ctx context.Context, p expr.Program, v *expr.Vars) (bool, error) {
+func EvalRetryOn(p expr.Program, v *expr.Vars) (bool, error) {
 	if p == nil {
 		return defaultRetryOnVars(v)
 	}
-	ok, err := p.EvalBool(ctx, v)
+	ok, err := p.EvalBool(v)
 	if err != nil {
 		return false, err
 	}
@@ -61,11 +57,11 @@ func EvalRetryOn(ctx context.Context, p expr.Program, v *expr.Vars) (bool, error
 // (DefaultFailureWhen's rule over v). A runtime error counts as a failure
 // (expr.RuleCountFailure): it returns true and the error, which the caller
 // counts in ruralz_upstream_cel_errors_total{field="failureWhen"}.
-func EvalFailureWhen(ctx context.Context, p expr.Program, v *expr.Vars) (bool, error) {
+func EvalFailureWhen(p expr.Program, v *expr.Vars) (bool, error) {
 	if p == nil {
 		return defaultFailureWhenVars(v)
 	}
-	ok, err := p.EvalBool(ctx, v)
+	ok, err := p.EvalBool(v)
 	if err != nil {
 		return true, err
 	}

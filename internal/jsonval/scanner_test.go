@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"testing"
 )
@@ -397,7 +398,10 @@ func TestKindString(t *testing.T) {
 	}
 }
 
-// readOrders returns the 1 KiB orders document used by benchmarks.
+// readOrdersFile reads the 1 KiB orders document.
+func readOrdersFile() ([]byte, error) { return os.ReadFile("testdata/orders.json") }
+
+// readOrders returns the 1 KiB orders document.
 func readOrders(tb testing.TB) []byte {
 	tb.Helper()
 	b, err := readOrdersFile()

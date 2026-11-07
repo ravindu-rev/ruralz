@@ -462,35 +462,3 @@ func dnsAnswer(q []byte, addr netip.Addr) []byte {
 	}
 	return resp
 }
-
-func BenchmarkCheck(b *testing.B) {
-	g, err := ParseAllow("127.0.0.1/32,::1,10.0.0.0/8")
-	if err != nil {
-		b.Fatal(err)
-	}
-	addrs := []netip.Addr{
-		netip.MustParseAddr("93.184.216.34"),
-		netip.MustParseAddr("2001:db8::1"),
-		netip.MustParseAddr("64:ff9b::7f00:1"),
-		netip.MustParseAddr("127.0.0.1"),
-	}
-	b.ReportAllocs()
-	i := 0
-	for b.Loop() {
-		_ = g.Allowed(addrs[i%len(addrs)])
-		i++
-	}
-}
-
-func BenchmarkControl(b *testing.B) {
-	g, err := ParseAllow("127.0.0.1/32")
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		if err := g.Control("tcp4", "93.184.216.34:443", nil); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

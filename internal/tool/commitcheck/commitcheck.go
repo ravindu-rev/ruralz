@@ -7,27 +7,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os/exec"
-	"path"
-	"regexp"
 	"slices"
 	"strings"
-	"unicode"
 )
 
-// commit is what the checks read from one commit.
+// commit is what the check reads from one commit.
 type commit struct {
 	hash, authorName, authorEmail, subject string
 	signoffs                               []string
-	// body is the message after the subject line, where footers live.
-	body string
 }
 
 // gitCommits lists the non-merge commits of rng, oldest first.
 func gitCommits(ctx context.Context, dir, rng string) ([]commit, error) {
 	const sep, end = "\x1f", "\x1e"
-	format := strings.Join([]string{"%H", "%an", "%ae", "%s", "%(trailers:key=Signed-off-by,valueonly,separator=%x1d)", "%b"}, sep) + end
+	format := strings.Join([]string{"%H", "%an", "%ae", "%s", "%(trailers:key=Signed-off-by,valueonly,separator=%x1d)"}, sep) + end
 	//nolint:gosec // The range comes from CI and is passed as one argument, never through a shell.
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "log", "--no-merges", "--reverse", "--format="+format, rng)
 	out, err := cmd.Output()
@@ -44,11 +38,11 @@ func gitCommits(ctx context.Context, dir, rng string) ([]commit, error) {
 		if rec == "" {
 			continue
 		}
-		f := strings.SplitN(rec, sep, 6)
-		if len(f) != 6 {
+		f := strings.SplitN(rec, sep, 5)
+		if len(f) != 5 {
 			return nil, fmt.Errorf("unexpected git log record %q", rec)
 		}
-		c := commit{hash: f[0], authorName: f[1], authorEmail: f[2], subject: f[3], body: f[5]}
+		c := commit{hash: f[0], authorName: f[1], authorEmail: f[2], subject: f[3]}
 		for _, s := range strings.Split(strings.TrimSpace(f[4]), "\x1d") {
 			if s = strings.TrimSpace(s); s != "" {
 				c.signoffs = append(c.signoffs, s)
@@ -88,99 +82,4 @@ func checkDCO(commits []commit) []string {
 		}
 	}
 	return problems
-}
-
-// componentScopes are the scopes of feat, fix, perf and refactor.
-func componentScopes() []string {
-	return []string{
-		"gateway", "control", "cli", "config", "filter", "plugin", "ai", "statestore",
-		"controlstream", "console", "sdk", "api", "deploy",
-	}
-}
-
-// scopesFor returns the allowed scopes of a type; nil means any scope.
-func scopesFor(typ string, docSlugs []string) (scopes []string, known bool) {
-	switch typ {
-	case "feat", "fix", "perf", "refactor":
-		return componentScopes(), true
-	case "test":
-		return append(componentScopes(), "e2e", "conformance"), true
-	case "build", "ci":
-		return []string{"deps", "tools", "workflows"}, true
-	case "docs":
-		return docSlugs, true
-	case "chore", "revert":
-		return nil, true
-	default:
-		return nil, false
-	}
-}
-
-// docSlugs lists the slug of every Markdown document under docs: its file
-// name without the extension and the numeric prefix, so
-// docs/architecture/03-data-plane.md is data-plane.
-func docSlugs(docs fs.FS) ([]string, error) {
-	prefix := regexp.MustCompile(`^[0-9]+-`)
-	var slugs []string
-	err := fs.WalkDir(docs, ".", func(p string, d fs.DirEntry, err error) error {
-		if err != nil || d.IsDir() || path.Ext(p) != ".md" {
-			return err
-		}
-		slug := strings.ToLower(prefix.ReplaceAllString(strings.TrimSuffix(path.Base(p), ".md"), ""))
-		if !slices.Contains(slugs, slug) {
-			slugs = append(slugs, slug)
-		}
-		return nil
-	})
-	slices.Sort(slugs)
-	if err == nil && len(slugs) == 0 {
-		err = errors.New("no Markdown documents found")
-	}
-	return slugs, err
-}
-
-// checkTitles checks the title of every commit as checkTitle does: main
-// takes develop's commits through merge commits, so each subject becomes
-// a release-notes entry. Dependabot's commits are skipped: their titles
-// take the commit-message prefix .github/dependabot.yml configures, and
-// Dependabot words, and capitalizes, the rest itself.
-func checkTitles(commits []commit, docSlugs []string) []string {
-	var problems []string
-	for _, c := range commits {
-		if signoffExempt(c.authorName, c.authorEmail) {
-			continue
-		}
-		if err := checkTitle(c.subject, docSlugs); err != nil {
-			problems = append(problems, fmt.Sprintf("%.12s %q: %v", c.hash, c.subject, err))
-		}
-	}
-	return problems
-}
-
-// checkTitle validates "<type>(<scope>)!: <subject>". The scope is optional;
-// docs takes a document slug and chore and revert any scope.
-func checkTitle(title string, docSlugs []string) error {
-	m := regexp.MustCompile(`^([a-z]+)(?:\(([a-z0-9][a-z0-9-]*)\))?(!)?: (.+)$`).FindStringSubmatch(title)
-	if m == nil {
-		return errors.New("want <type>(<scope>): <subject>, such as \"fix(statestore): skip calls after the deadline\"")
-	}
-	typ, scope, subject := m[1], m[2], m[4]
-	scopes, known := scopesFor(typ, docSlugs)
-	if !known {
-		return fmt.Errorf("unknown type %q; use feat, fix, perf, refactor, test, docs, build, ci, chore or revert", typ)
-	}
-	if scope != "" && typ == "docs" && !slices.Contains(scopes, scope) {
-		return fmt.Errorf("scope %q is not a document slug; use a file name under docs/ without its numeric prefix, such as data-plane", scope)
-	}
-	if scope != "" && typ != "docs" && scopes != nil && !slices.Contains(scopes, scope) {
-		return fmt.Errorf("scope %q is not allowed for %s; use one of %s", scope, typ, strings.Join(scopes, ", "))
-	}
-	first := []rune(subject)[0]
-	if unicode.IsUpper(first) || unicode.IsSpace(first) {
-		return errors.New("the subject starts with a lower-case word")
-	}
-	if strings.HasSuffix(subject, ".") {
-		return errors.New("the subject has no trailing period")
-	}
-	return nil
 }

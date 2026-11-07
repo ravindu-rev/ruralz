@@ -50,9 +50,9 @@ Scope: a DCO cannot stop Revington, like any redistributor, from shipping later 
 ```mermaid
 flowchart LR
   commit["Contributor commit with Signed-off-by"]
-  dco{"Stage 1: DCO check"}
-  scan{"Stage 1: No-license-check scan"}
-  g2{"Stage 6: License gates"}
+  dco{"ci job: DCO check"}
+  g2{"ci job: License gates"}
+  scan{"unit job: No-license-check scan"}
   blocked["Pull request blocked"]
   src["Monorepo github.com/ravindu-rev/ruralz, Apache-2.0"]
   def["Default build"]
@@ -64,10 +64,9 @@ flowchart LR
   tm["Revington trademark policy"]
   third["Third-party builds and hosted offers"]
   commit --> dco
-  commit --> scan
   dco -- pass --> g2
-  scan -- pass --> g2
-  g2 -- pass --> src
+  g2 -- pass --> scan
+  scan -- pass --> src
   dco -- fail --> blocked
   g2 -- fail --> blocked
   scan -- fail --> blocked
@@ -91,11 +90,10 @@ flowchart LR
 
 ### Confirmation
 
-- **License gate (G2)**, Planned (M0): `pr-fast` fails on any linked package, per `go list -deps -test=false`, outside the allowlist or named MPL-2.0 exceptions ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#security-scanning)).
+- **License gate (G2)**, Planned (M0): the PR pipeline's `ci` job fails on any linked package, per `go list -deps -test=false`, outside the allowlist or named MPL-2.0 exceptions ([Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#security-scanning)).
 - **Non-Go license gate**, Planned (M2): the Console build and each PDK's CI fail on any dependency shipped in the artifact (not build-only tooling such as proc-macros) whose SPDX expression does not resolve to the G2 allowlist or its named per-ecosystem addendum (for example Unicode-3.0); copyleft and source-available licenses never qualify.
-- **No-license-check scan**, Planned (M0): `pr-fast` fails on any denylisted identifier, string or hostname (such as `licenseKey`, `entitlement`, `revington.co`) in `cmd/`, `internal/`, `pkg/`, `sdk/` or `console/` absent from an allowlist file.
-- **Air-gapped start**, Planned (M1): the [Testing and quality strategy](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests) end-to-end suite starts each `ruralzd` and `ruralz-control` release image with egress denied except to in-network fixtures (Upstream, State Store, mock `AIProvider`) and no license file, and asserts that every feature path in that release serves; FIPS images join at Planned (M5), less their recorded exclusions.
-- **DCO check**, Planned (M0): CI stage 1 blocks a pull request while any commit lacks a `Signed-off-by:` matching its author, bots included.
+- **No-license-check scan**, Planned (M0): repocheck's repository test, which the PR pipeline's `unit` job runs, fails on any denylisted identifier, string or hostname (such as `licenseKey`, `entitlement`, `revington.co`) in `cmd/`, `internal/`, `pkg/`, `sdk/` or `console/` absent from an allowlist file.
+- **DCO check**, Planned (M0): the PR pipeline's `ci` job blocks a pull request while any of its own non-merge commits lacks a `Signed-off-by:` matching its author; Dependabot's commits are exempt.
 - **Release audit**, Planned (M1): per tag, code search confirms SM-1; every archive, image and published PDK package (FIPS artifacts from M5) carries `LICENSE`, `NOTICE` (upstream attributions, the EDL-1.0 election) and a third-party license file generated from that artifact's own dependencies, stating where MPL-2.0 source is available.
 - **Amendment trigger**: a pull request that changes the terms in `LICENSE`, or adds an edition, a build flavor with any difference beyond a FIPS cryptography exclusion recorded in [FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build), an entitlement check, a Node-count limit, a Revington-operated service dependency or a cloud-only hook, MUST amend this ADR.
 

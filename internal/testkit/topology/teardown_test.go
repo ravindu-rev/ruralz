@@ -19,8 +19,8 @@ import (
 
 // Tests for the teardown: the secret leak scan over every byte the
 // harness captured, and the evidence of a failed test
-// (docs/engineering/03-testing-and-quality-strategy.md "End-to-end tests"
-// and "Process harness").
+// (docs/engineering/03-testing-and-quality-strategy.md "Process
+// harness").
 
 // At teardown a canary in a Node's log, a capture, a client response, a
 // mock Upstream's request log or a data directory fails the test, and the
@@ -54,12 +54,12 @@ func TestTeardownScansForLeaks(t *testing.T) {
 	})
 	cfg := standinCfg(t)
 	cfg.Env = append(cfg.Env, standinLeakEnv+"=1")
-	cfg.ArtifactDir = artifacts
+	t.Setenv(ArtifactDirEnv, artifacts)
 	topo = New(rtb, cfg)
 	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	waitLine(t, node, `standin: operator token `)
 	topo.Capture("cli", []byte("ruralz printed "+node.MetricsToken()))
-	if err := os.WriteFile(filepath.Join(node.DataDir(), "leaked"), []byte(topo.Canary()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(node.dataDir, "leaked"), []byte(topo.Canary()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	up, err := topo.StartMockUpstream(mockup.Config{Name: "orders", Behavior: mockup.Behavior{Echo: true}})
@@ -86,12 +86,14 @@ func TestTeardownScansForLeaks(t *testing.T) {
 }
 
 // A failed test's evidence holds each process's logs, a listing of each
-// RURALZ_DATA_DIR, each Node's /debug/snapshots, the OTLP records and the
-// balancer's transition log; a passing test keeps none.
+// RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP records, in
+// a directory named after the test under RURALZ_TEST_ARTIFACT_DIR.
 func TestFailureEvidence(t *testing.T) {
 	artifacts := t.TempDir()
+	t.Setenv(ArtifactDirEnv, artifacts)
 	rtb := &recordingTB{TB: t}
 	var node *Node
+	// Registered before New, so it runs after the teardown.
 	t.Cleanup(func() {
 		if node == nil {
 			return // the test failed before
@@ -115,59 +117,28 @@ func TestFailureEvidence(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(base, "otlp-1", "summary.txt")); err != nil {
 			t.Errorf("OTLP evidence: %v", err)
 		}
-		if log, err := os.ReadFile(filepath.Join(base, "balancer-http.txt")); err != nil || !bytes.Contains(log, []byte("initial -> healthy")) { //nolint:gosec // G304: evidence the teardown wrote under t.TempDir
-			t.Errorf("balancer evidence %q, %v", log, err)
-		}
 		if got := rtb.recorded(); !strings.Contains(got, "forced failure") || strings.Contains(got, "secret leak") {
 			t.Errorf("recorded %q, want the forced failure alone", got)
 		}
 	})
-	cfg := standinCfg(t)
-	cfg.ArtifactDir = artifacts
-	topo := New(rtb, cfg)
+	topo := New(rtb, standinCfg(t))
 	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	if _, err := topo.StartOTLPSink(otlpsink.Config{}); err != nil {
 		t.Fatal(err)
 	}
-	lb, err := topo.StartBalancer(t.Context(), "http", BalancerOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lb.WaitHealthy(t.Context()); err != nil {
-		t.Fatal(err)
-	}
 	rtb.Errorf("forced failure")
+}
 
-	passing := t.TempDir()
-	quiet := &recordingTB{TB: t}
+// A passing test keeps no evidence under RURALZ_TEST_ARTIFACT_DIR.
+func TestPassingTestKeepsNoEvidence(t *testing.T) {
+	artifacts := t.TempDir()
+	t.Setenv(ArtifactDirEnv, artifacts)
+	// Registered before New, so it runs after the teardown.
 	t.Cleanup(func() {
-		if entries, err := os.ReadDir(passing); err != nil || len(entries) != 0 {
+		if entries, err := os.ReadDir(artifacts); err != nil || len(entries) != 0 {
 			t.Errorf("a passing test kept evidence: %v %v", entries, err)
 		}
 	})
-	qcfg := standinCfg(t)
-	qcfg.ArtifactDir = passing
-	q := New(quiet, qcfg)
-	addNodes(t, q, 1, nodeOptions(t, q))
-}
-
-// Without Config.ArtifactDir a failed test's evidence goes under
-// RURALZ_TEST_ARTIFACT_DIR as the teardown finds it.
-func TestFailureEvidenceUnderTheEnvironmentDirectory(t *testing.T) {
-	artifacts := t.TempDir()
-	t.Setenv(ArtifactDirEnv, artifacts)
-	rtb := &recordingTB{TB: t}
-	var node *Node
-	// Registered before New, so it runs after the teardown.
-	t.Cleanup(func() {
-		if node == nil {
-			return // the test failed before
-		}
-		if _, err := os.Stat(filepath.Join(artifacts, fileName(t.Name()), node.Name(), "logs", node.Name()+".out")); err != nil {
-			t.Errorf("no evidence under %s: %v", ArtifactDirEnv, err)
-		}
-	})
-	topo := New(rtb, standinCfg(t))
-	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	rtb.Errorf("forced failure")
+	topo := New(&recordingTB{TB: t}, standinCfg(t))
+	addNodes(t, topo, 1, nodeOptions(t, topo))
 }

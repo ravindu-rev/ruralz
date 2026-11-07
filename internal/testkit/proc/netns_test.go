@@ -41,29 +41,6 @@ func regexpParts(p string) []string {
 	return append(out, p[start:])
 }
 
-func TestSysctlEncoding(t *testing.T) {
-	enc, err := encodeSysctls(map[string]string{"net.ipv4.ip_local_port_range": "1024 65535"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m, err := decodeSysctls(enc)
-	if err != nil || m["net.ipv4.ip_local_port_range"] != "1024 65535" {
-		t.Fatalf("round trip = %v, %v", m, err)
-	}
-	if enc, err := encodeSysctls(nil); err != nil || enc != "{}" {
-		t.Fatalf("nil = %q, %v", enc, err)
-	}
-	if m, err := decodeSysctls(""); err != nil || len(m) != 0 {
-		t.Fatalf("empty = %v, %v", m, err)
-	}
-	if _, err := decodeSysctls("{"); err == nil {
-		t.Fatal("bad JSON: want error")
-	}
-	if _, err := encodeSysctls(map[string]string{"a/b": "1"}); err == nil {
-		t.Fatal("bad name: want error")
-	}
-}
-
 func TestNetNSChildOutsideChild(t *testing.T) {
 	t.Setenv(EnvInNetNS, "")
 	if NetNSChild(t) {
@@ -71,7 +48,7 @@ func TestNetNSChildOutsideChild(t *testing.T) {
 	}
 }
 
-func TestTestResult(t *testing.T) { // A skipped InNetNS child is not a pass
+func TestTestResult(t *testing.T) { // A skipped RunInNetNS child is not a pass
 	skipOut := "=== RUN   TestA\n    a_test.go:9: redis-server not found\n--- SKIP: TestA (0.00s)\nPASS\n"
 	subOut := "=== RUN   TestA\n=== RUN   TestA/sub\n    a_test.go:9: why\n" +
 		"    --- SKIP: TestA/sub (0.00s)\n--- PASS: TestA (0.00s)\nPASS\n"

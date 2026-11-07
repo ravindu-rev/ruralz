@@ -8,7 +8,7 @@ This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: co
 
 In scope: one Node, from socket accept to the last `onLog` call, plus configuration activation on it. "Pack N" cites the [foundation pack](../_meta/foundation-pack.md); boundaries come from the [System overview](01-system-overview.md), and kinds and fields from the [Configuration model](02-configuration-model.md), which wins on conflict.
 
-Non-goals, with owners: Policy `config` semantics and retry tuning ([Traffic management and resilience](09-traffic-management-and-resilience.md) and feature documents); Plugin ABI v1 ([WASM plugin system](05-wasm-plugin-system.md)); protocol Phase mappings ([Multi-protocol](07-multi-protocol.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md)); the Control Stream ([Control plane and GitOps](04-control-plane-and-gitops.md)); upgrade procedures ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)); performance values ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)).
+Non-goals, with owners: Policy `config` semantics and retry tuning ([Traffic management and resilience](09-traffic-management-and-resilience.md) and feature documents); Plugin ABI v1 ([WASM plugin system](05-wasm-plugin-system.md)); protocol Phase mappings ([Multi-protocol](07-multi-protocol.md)); AI dialects and Token Budgets ([AI/LLM gateway](06-ai-llm-gateway.md)); the Control Stream ([Control plane and GitOps](04-control-plane-and-gitops.md)); upgrade procedures ([Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md)).
 
 ## Process and concurrency model
 
@@ -131,6 +131,8 @@ Every queue, buffer, pool, connection and stream has a ceiling, so overload yiel
 | File descriptors | Go raises the soft `RLIMIT_NOFILE` to the hard limit at start ([source](https://go.dev/doc/go1.19)); at start and at each activation `ruralzd` logs a warning when it is below the client and admin connection ceilings, 20,256 (target), plus the active Revision's summed `circuitBreaker.maxConnections` and a 1,024 reserve (target). The T5 unit sets `LimitNOFILE=65536` ([T5](../operations/01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites)) |
 
 Worst-case Node memory sums connections at 592 KiB (about 11.3 GiB), in-flight units at 320 KiB under the header maximum of OQ-data-plane-1 (about 6.1 GiB), 2,000 pre-routing rejections at 256 KiB (about 0.5 GiB), `maxBufferedBytes`, `maxPluginMemoryBytes` and (K + 2) snapshots: about 19 GiB plus snapshots, fitting a 32 GiB Node (hypothesis) per [Capacity planning](../operations/03-capacity-planning.md), else the connection ceiling is lowered first. A QUIC connection costs at most its 16 slots of 592 KiB (hypothesis), so `http3: true` leaves this sum unchanged.
+
+Whether overload keeps the fixed in-flight ceiling or moves to an adaptive limiter is OQ-data-plane-18; whether listeners bound concurrent TLS handshakes, so a burst of new connections cannot slow established traffic, is OQ-data-plane-19.
 
 ## Listeners and protocols
 
@@ -365,7 +367,7 @@ A side evaluates every `valueExpression` first, over the message as it reached t
 
 **Validators.** A response whose body a transform rewrote turns a strong `ETag` weak, prefixing `W/`, and loses `Accept-Ranges`, as its bytes no longer equal the Upstream's.
 
-**Limits.** Each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The header and query caps above bound the bytes such entries add to a message. The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store. [Performance budgets](12-performance-budgets-and-benchmarking.md#per-stage-latency-budget) measure every transform Phase on the `orders-shape` example below.
+**Limits.** Each CEL field has the Configuration model's [cost bounds](02-configuration-model.md#limits), 10,000 units at validation (RZ-CFG-015) and 1,000,000 at runtime (target). A `pattern` over 1 KiB (target) or invalid is RZ-CFG-005, and a Policy holds at most 32 entries across its four lists (target). The header and query caps above bound the bytes such entries add to a message. The rewritten body is reserved from `limits.maxBufferedBytes` like a decoded value; the Node recomputes `Content-Length` and drops `Content-Encoding`, since limits count decoded bytes, and the body digests (`Content-Digest`, `Repr-Digest`, `Digest`, `Content-MD5`). An Upstream-scope rewrite changes only its attempt's body. Transform Policies never call the State Store.
 
 **Failures.** A CEL runtime error, a JSON operation on a body that is null but not empty, a path error, an invalid result or an output over its cap is cannot decide: under `closed`, 503 `RZ-RT-011` in a request Phase or 502 `RZ-RT-012` in a response Phase; under `open`, the Policy is skipped and the message passes unchanged. A spent buffer budget stays 503 `RZ-RT-004`.
 
@@ -638,10 +640,6 @@ gRPC requests get the matching `grpc-status` and upgraded WebSockets a close cod
 | RZ-RT-025 | 500 before commit; stream ended after | An internal fault in request handling outside the Filter Chain |
 | RZ-RT-026 | 416 | A Range request that the stored Response Cache entry cannot satisfy |
 
-## Performance budgets
-
-Latency, allocation, throughput and memory budgets live in [Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md), which wins on conflict; this section restates none. Its suite also verifies this document's constants: Bounded resources ceilings, K and the grace period.
-
 ## Open questions
 
 | ID | Question | Options | Owner | Blocking? |
@@ -655,3 +653,5 @@ Latency, allocation, throughput and memory budgets live in [Performance budgets 
 | OQ-data-plane-15 | How do clients discover HTTP/3? | (a) `Alt-Svc` on `https` responses with the listener port (current); (b) an advertised port or `ma` field on the listener; (c) HTTPS DNS records only, published by operators | data-plane | Yes, for HTTP/3 (M3) |
 | OQ-data-plane-16 | Should a Hot Reload that replaces an `http3` listener keep its QUIC connections? | (a) No; they are lost and clients reconnect (current); (b) keep the UDP socket and QUIC transport when only non-socket settings change; (c) connection-ID steering to the new server | data-plane | No |
 | OQ-data-plane-17 | How does `transform.response` read an XML response body for SOAP integration? | (a) A `plugin` Policy for XML responses (current); (b) an XML decoder exposing XML bodies to CEL as `dyn`, a Configuration model change | data-plane | Yes, for the SOAP integration row (M5) |
+| OQ-data-plane-18 | Should overload keep the fixed in-flight ceiling, or move to an adaptive limiter? | (a) Fixed in-flight ceiling (current); (b) an adaptive limiter | data-plane | No |
+| OQ-data-plane-19 | Should listeners bound concurrent TLS handshakes, so a burst of new connections cannot slow established traffic? | (a) `GOMAXPROCS` at once (proposed); (b) none; (c) a listener field | data-plane | No |

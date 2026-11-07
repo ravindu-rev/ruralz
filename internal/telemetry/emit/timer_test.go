@@ -314,18 +314,3 @@ func FuzzGatewayTimer(f *testing.F) {
 		runIntervals(t, iv, time.Duration(end%1100))
 	})
 }
-
-// BenchmarkGatewayTimer measures one request's excluded sections.
-func BenchmarkGatewayTimer(b *testing.B) {
-	var g GatewayTimer
-	start := time.Now()
-	b.ReportAllocs()
-	for b.Loop() {
-		g.Reset(start)
-		g.Enter(start.Add(time.Microsecond))
-		g.Leave(start.Add(2 * time.Microsecond))
-		g.Enter(start.Add(3 * time.Microsecond))
-		g.Leave(start.Add(4 * time.Microsecond))
-		g.Result(start.Add(5 * time.Microsecond))
-	}
-}

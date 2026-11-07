@@ -31,8 +31,8 @@ const scaleBelow = 20_000
 // dispatch and a list element's path element are computed once, and a
 // mapping that rescans a large object per error reads thousands per node.
 // The budget is counted, not timed, so the tests do not depend on the
-// machine; BenchmarkValidateLarge reports the time. It does not count
-// path rendering or allocation: allocBudget bounds those.
+// machine. It does not count path rendering or allocation: allocBudget
+// bounds those.
 const readBudget = 16
 
 // allocBudget bounds the bytes the mapping allocates per byte of the
@@ -757,23 +757,5 @@ func TestStepIndex(t *testing.T) {
 	x.read, x.work.total = 0, 0
 	if c := x.step(parent, "t3"); c.tok != "t3" || x.read != 4 || x.work.total != 4+4*len("t3") {
 		t.Errorf("step(t3) read %d and charged %d, want 4 and %d", x.read, x.work.total, 4+4*len("t3"))
-	}
-}
-
-// BenchmarkValidateLarge measures stage F on the large-object regression
-// cases.
-func BenchmarkValidateLarge(b *testing.B) {
-	v := testView(b)
-	for _, bc := range scaleCases() {
-		b.Run(bc.name, func(b *testing.B) {
-			files := &tree.FileTable{}
-			res := mustResource(b, files, "r.json", bc.src)
-			b.ReportAllocs()
-			for b.Loop() {
-				if got := v.Validate(res, files); len(got) != MaxDiagnostics+1 {
-					b.Fatalf("Validate() returned %d diagnostics", len(got))
-				}
-			}
-		})
 	}
 }

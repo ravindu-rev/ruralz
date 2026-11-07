@@ -14,7 +14,8 @@ import (
 // Tests for the Editor (docs/architecture/03-data-plane.md "Transform
 // Policies": "Paths", "Operations", "JSON writing"): each operation on
 // named documents, checked against the tree oracle too, its path errors,
-// the output cap, normalization and the allocation budget.
+// the output cap, normalization and the allocations of the literal
+// operations.
 
 // literal replaces every occurrence of old, which is not empty, with new,
 // allocating nothing beyond the growth of dst.
@@ -316,12 +317,10 @@ func ordersDoc() []byte {
 	return []byte(b.String())
 }
 
-// TestEditorAllocations checks the allocation budget of the literal
-// operations (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": 0 for remove, replace and arrayOps over
-// pooled buffers): with buffers grown once, normalizing a 1 KiB order and
-// moving, appending, deleting and literally replacing in it allocate
-// nothing.
+// TestEditorAllocations checks that remove, replace and arrayOps over
+// pooled buffers add no allocations: with buffers grown once, normalizing
+// a 1 KiB order and moving, appending, deleting and literally replacing in
+// it allocate nothing.
 func TestEditorAllocations(t *testing.T) {
 	var e Editor
 	doc := ordersDoc()

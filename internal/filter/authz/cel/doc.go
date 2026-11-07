@@ -23,12 +23,11 @@
 //
 // true admits the request; false denies it with 403 RZ-AUTH-010; a
 // runtime error cannot decide, which failureMode closed answers with 403
-// RZ-AUTH-015. Runtime errors include both stops of internal/cel: the cost
-// limit, and for a tracked comprehension the smaller of the request
-// deadline and 50 ms, since the rule is evaluated under the request's
-// context. Each decision is counted in ruralz_auth_decisions_total with its
-// code by the embedded auth.Decider; the body failures above are no
-// decision and are not counted there. Rejections never echo request data.
+// RZ-AUTH-015. Runtime errors include the runtime cost limit of
+// internal/cel, which ends a tracked rule that reaches it. Each decision
+// is counted in ruralz_auth_decisions_total with its code by the embedded
+// auth.Decider; the body failures above are no decision and are not
+// counted there. Rejections never echo request data.
 //
 // # Configuration
 //
@@ -46,8 +45,6 @@
 //
 // # Cost
 //
-// Handle allocates nothing beyond the program's own evaluation
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget": authz.cel, 0 allocations). A Filter is
-// immutable and safe for concurrent use.
+// Handle allocates nothing beyond the program's own evaluation. A Filter
+// is immutable and safe for concurrent use.
 package cel

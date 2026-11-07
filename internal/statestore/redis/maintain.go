@@ -29,10 +29,14 @@ var errNotCluster = errors.New("redis: the cluster seed is not a cluster")
 // and master set, with every connection dialed by the driver,
 // auto-pipelining always on, client-side caching and retries off, and the
 // per-shard connection bounds. A sentinel client asks the sentinels for
-// the primary at start, on their +switch-master event, when its sentinel
-// connection closes and every ShardsRefresh, authenticating to them with
-// the URL's credentials, which a sentinel without a password accepts for
-// its default user.
+// the primary at start, on their +switch-master event and when its
+// sentinel connection closes, authenticating to them with the URL's
+// credentials, which a sentinel without a password accepts for its
+// default user; it has no periodic ask of its own, which would check the
+// primary it holds with ROLE under the lock its +switch-master handling
+// needs, so the driver asks the sentinels every ShardsRefresh instead and
+// closes the client's sentinel connections when they name another primary
+// (checkSentinels).
 func (d *Driver) options() rueidis.ClientOption {
 	opt := d.ep.opt
 	opt.InitAddress = append([]string(nil), d.ep.opt.InitAddress...)
@@ -78,12 +82,11 @@ func (d *Driver) options() rueidis.ClientOption {
 	case statestore.TopologySentinel:
 		opt.ForceSingleClient = false
 		opt.Sentinel = rueidis.SentinelOption{
-			Dialer:                  opt.Dialer,
-			TLSConfig:               d.sentinelMark,
-			Username:                d.ep.opt.Username,
-			Password:                d.ep.opt.Password,
-			MasterSet:               d.ep.opt.Sentinel.MasterSet,
-			TopologyRefreshInterval: d.lim.ShardsRefresh,
+			Dialer:    opt.Dialer,
+			TLSConfig: d.sentinelMark,
+			Username:  d.ep.opt.Username,
+			Password:  d.ep.opt.Password,
+			MasterSet: d.ep.opt.Sentinel.MasterSet,
 		}
 	default:
 		opt.Sentinel = rueidis.SentinelOption{}
@@ -143,9 +146,10 @@ func (d *Driver) maintain(ctx context.Context) {
 
 // tick runs one maintenance pass: it creates the State client when there
 // is none, follows the sentinel client's primary for the zone label,
-// keeps a cluster's slot map, probes half-open breakers, opens the
-// pipelined connections of each shard that serves for the first time
-// (warm), reads INFO memory and retries pending script loads.
+// starts the periodic sentinel check (checkSentinels), keeps a cluster's
+// slot map, probes half-open breakers, opens the pipelined connections of
+// each shard that serves for the first time (warm), reads INFO memory and
+// retries pending script loads.
 func (d *Driver) tick(ctx context.Context) {
 	c := d.loadClient()
 	if c == nil {
@@ -159,6 +163,7 @@ func (d *Driver) tick(ctx context.Context) {
 		}
 	}
 	d.followPrimary(c)
+	d.checkSentinels(ctx, c)
 	if d.unmapped != nil {
 		now := d.clk.Now()
 		m := d.slots.Load()

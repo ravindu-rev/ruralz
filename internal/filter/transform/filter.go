@@ -289,7 +289,7 @@ func (r *run) evaluate(bodyOK bool) error {
 	f := r.f
 	v := r.x.Vars()
 	if bodyOK && f.body != nil {
-		val, err := f.body.EvalValue(r.ctx, v)
+		val, err := f.body.EvalValue(v)
 		if err != nil {
 			return r.evalError("config.body", err)
 		}
@@ -304,14 +304,14 @@ func (r *run) evaluate(bodyOK bool) error {
 			if !bodyOK {
 				continue
 			}
-			val, err := o.prog.EvalValue(r.ctx, v)
+			val, err := o.prog.EvalValue(v)
 			if err != nil {
 				return r.evalError(o.at, err)
 			}
 			r.s.vals[o.slot] = val
 			continue
 		}
-		raw, err := o.prog.EvalString(r.ctx, v)
+		raw, err := o.prog.EvalString(v)
 		if err != nil {
 			return r.evalError(o.at, err)
 		}

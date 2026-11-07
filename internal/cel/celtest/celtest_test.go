@@ -19,7 +19,7 @@ func TestProgramEvaluatesViews(t *testing.T) {
 		Route:    Route("orders", map[string]string{"team": "core"}),
 		Consumer: Consumer(expr.Consumer{Name: "acme", Tier: "gold", Labels: map[string]string{"org": "acme"}}),
 	}
-	got, err := prg.EvalBool(t.Context(), v)
+	got, err := prg.EvalBool(v)
 	if err != nil || !got {
 		t.Errorf("EvalBool = %v, %v; want true", got, err)
 	}

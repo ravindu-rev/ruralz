@@ -79,10 +79,10 @@ func AppendDump(dst []byte, active revision.Revision, lkg revision.Digest) ([]by
 // the canonical header and ending with the trailer, so the dump is one
 // JSON object whose content member holds a document of the canonical
 // shape. The scan is linear in the content, and costs about fifteen times
-// the copy (BenchmarkAppendDump: some 3 ms per MB of content); that is
-// the price of never serving a malformed body. Neither the digest nor the
-// canonical form is re-checked: a Revision from the encoder is consistent
-// by construction, and ReadDump verifies both.
+// the copy (some 3 ms per MB of content); that is the price of never
+// serving a malformed body. Neither the digest nor the canonical form is
+// re-checked: a Revision from the encoder is consistent by construction,
+// and ReadDump verifies both.
 func dumpable(r revision.Revision) bool {
 	c := r.Content
 	if r.Digest.IsZero() || len(c) < len(header)+len(trailer) ||

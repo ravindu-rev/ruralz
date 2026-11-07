@@ -47,11 +47,10 @@ func load(t *testing.T, n *topology.Node, rate float64, d time.Duration) {
 		t.Fatal(err)
 	}
 	defer func() { _ = target.Close() }()
-	res, err := loadgen.Run(t.Context(), target, loadgen.Config{Rate: rate, Duration: d})
+	m, err := loadgen.Run(t.Context(), target, loadgen.Config{Rate: rate, Duration: d})
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := res.Measured
 	if m.Outcomes[loadgen.Success] != m.Offered {
 		t.Fatalf("%d of %d requests succeeded; outcomes %v, statuses %v, codes %v",
 			m.Outcomes[loadgen.Success], m.Offered, m.Outcomes, m.Statuses, m.Codes)

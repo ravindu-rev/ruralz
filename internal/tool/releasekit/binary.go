@@ -84,10 +84,10 @@ func formatFor(goos string) string {
 
 // buildProblems checks a binary against the release build rules
 // (docs/engineering/01-tech-stack-and-libraries.md, "Version floor" and
-// "Static builds"; stage 4 of docs/engineering/02-repository-layout-and-conventions.md):
+// "Static builds", the flags of `make build`):
 // the binary's main package and platform, the pinned toolchain without a
 // GOEXPERIMENT, CGO_ENABLED=0, -trimpath, no build tags, -s -w, and, for a
-// release or candidate, a clean checkout of the tagged commit. With
+// release, a clean checkout of the tagged commit. With
 // -trimpath the go command does not record -ldflags, so the -X metadata is
 // checked through the commit and module version that Go stamps from Git.
 func buildProblems(f buildFacts, a artifact, version, commit, toolchain string) []string {
@@ -127,7 +127,7 @@ func buildProblems(f buildFacts, a artifact, version, commit, toolchain string) 
 	if hasRev && rev != commit {
 		out = append(out, fmt.Sprintf("built from commit %s, want %s", rev, commit))
 	}
-	if versionKind(version) != kindDev {
+	if versionKind(version) == kindRelease {
 		switch {
 		case !hasRev:
 			out = append(out, "no Git commit recorded; build releases from a Git checkout")

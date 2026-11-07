@@ -7,8 +7,8 @@ import (
 	"context"
 	"errors"
 	"maps"
-	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/testkit/pki"
@@ -34,9 +34,9 @@ func echoHandler(s *session, args []string) string {
 	return "-ERR unknown command\r\n"
 }
 
-// TestConnDo checks the admin round trip: replies, error replies as a
-// *ReplyError beside the Value, AUTH first when a password is set, and
-// connection reuse.
+// TestConnDo checks the admin round trip: replies, error replies as an
+// error naming the reply beside the Value, AUTH first when a password is
+// set, and connection reuse.
 func TestConnDo(t *testing.T) {
 	f := startFake(t, nil, echoHandler)
 	ctx := t.Context()
@@ -52,8 +52,7 @@ func TestConnDo(t *testing.T) {
 		t.Fatalf("WHOAMI = %v, %v; want the AUTH user", v, err)
 	}
 	v, err := c.Do(ctx, "BOOM")
-	var re *ReplyError
-	if !errors.As(err, &re) || re.Code() != "ERR" || v.Kind != '-' {
+	if err == nil || !strings.Contains(err.Error(), "error reply: ERR") || v.Kind != '-' {
 		t.Fatalf("BOOM = %v, %v; want the error reply", v, err)
 	}
 	if _, err := c.Do(ctx); err == nil {
@@ -67,7 +66,7 @@ func TestConnDo(t *testing.T) {
 		t.Errorf("commands = %q, want AUTH with the credentials first", got)
 	}
 
-	if _, err := dialConn(ctx, f.addr(), dialOptions{user: "u", password: "wrong"}); !errors.As(err, &re) || re.Code() != "WRONGPASS" {
+	if _, err := dialConn(ctx, f.addr(), dialOptions{user: "u", password: "wrong"}); err == nil || !strings.Contains(err.Error(), "error reply: WRONGPASS") {
 		t.Errorf("dial with a wrong password = %v, want WRONGPASS", err)
 	}
 	if _, err := dialConn(ctx, "127.0.0.1:1", dialOptions{}); err == nil {
@@ -182,17 +181,11 @@ func TestServerHelpers(t *testing.T) {
 	if want := map[string]string{"redis_version": "8.2.1", "os": "Linux", "connected_clients": "1"}; !maps.Equal(info, want) {
 		t.Errorf("Info = %v, want %v", info, want)
 	}
-	if s.Output() != "" || s.Name() != "fake" {
-		t.Errorf("container-like server: Output %q, Name %q", s.Output(), s.Name())
+	if s.Name() != "fake" {
+		t.Errorf("container-like server: Name %q", s.Name())
 	}
 	if err := s.Kill(t.Context()); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Kill of a server without a process = %v, want ErrUnsupported", err)
-	}
-	if err := s.Restart(t.Context()); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("Restart of a server without a process = %v, want ErrUnsupported", err)
-	}
-	if err := s.Signal(os.Interrupt); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("Signal to a server without a process = %v, want ErrUnsupported", err)
 	}
 	f.close()
 	if _, err := s.Do(t.Context(), "PING"); err == nil {

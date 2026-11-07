@@ -35,9 +35,6 @@ type packageOptions struct {
 	// manifest records; empty when the build made no image, which only a
 	// development build may lack.
 	image string
-	// bench holds the ruralz.bench.v1 records of the release's Latency
-	// and soak jobs; empty or missing gives an empty records archive.
-	bench string
 }
 
 // packageDeps are what package reads besides files; tests replace them.
@@ -166,10 +163,10 @@ func schemaSources(root string) ([][2]string, error) {
 }
 
 // runPackage builds the release directory: one deterministic archive per
-// artifact, the JSON Schema assets, the benchmark records archive and
-// release-manifest.json with the image digests. A binary that breaks the
-// release build rules is a finding; nothing is packaged for it. A release
-// or candidate without an image is refused.
+// artifact, the JSON Schema assets and release-manifest.json with the
+// image digests. A binary that breaks the release build rules is a
+// finding; nothing is packaged for it. A release without an image is
+// refused.
 func runPackage(ctx context.Context, o packageOptions, d packageDeps) (*manifest, error) {
 	if err := checkVersion(o.version); err != nil {
 		return nil, err
@@ -179,8 +176,8 @@ func runPackage(ctx context.Context, o packageOptions, d packageDeps) (*manifest
 	}
 	plans := images(o.version)
 	if o.image == "" {
-		if k := versionKind(o.version); k != kindDev {
-			return nil, &findingsError{[]string{fmt.Sprintf("the %s %s has no image: build it with Docker (make release-dry-run builds it when Docker is present)", k, o.version)}}
+		if versionKind(o.version) == kindRelease {
+			return nil, &findingsError{[]string{fmt.Sprintf("the release %s has no image: build it with Docker (make release-dry-run builds it when Docker is present)", o.version)}}
 		}
 	} else {
 		img, ordered, err := layoutImage(o.image)
@@ -247,19 +244,6 @@ func runPackage(ctx context.Context, o packageOptions, d packageDeps) (*manifest
 			return nil, err
 		}
 		m.Schemas = append(m.Schemas, schemaInfo{Name: s[0], Source: s[1], Size: int64(len(data)), SHA256: sha256Hex(data)})
-	}
-
-	bench, records, err := benchMembers(o.bench)
-	if err != nil {
-		return nil, err
-	}
-	var buf bytes.Buffer
-	if err := writeTarGz(&buf, bench, mtime); err != nil {
-		return nil, err
-	}
-	m.Bench = benchInfo{Name: benchArchiveName(o.version), Size: int64(buf.Len()), SHA256: sha256Hex(buf.Bytes()), Records: records}
-	if err := os.WriteFile(filepath.Join(o.out, m.Bench.Name), buf.Bytes(), 0o600); err != nil {
-		return nil, err
 	}
 
 	data, err := encodeManifest(m)

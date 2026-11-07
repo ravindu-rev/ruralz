@@ -75,12 +75,12 @@ func bodySeeds() []string {
 // TestPatternParsesBounded) and of the library's meta-schema checks
 // (TestReferenceLadder, TestMetaChecksBound, and for the lists of names it
 // compares TestNameListsRefusedByWalk), and the states' work per schema
-// (TestStatesReach, TestStatesLengthLoops); its time is measured by
-// BenchmarkCompileAnalysisWorstCase. A schema the meta-schema refuses is
-// refused wherever the library compiles it (TestAdditionalItemsChecked), and a
-// compiled schema at a position the walk did not walk live, which none of the
-// walk's rules covered, is refused (TestUnwalkedBackstop), so validating a
-// compiled one never panics. Whatever the outcome, the compile's regexp engine
+// (TestStatesReach, TestStatesLengthLoops). A schema the meta-schema
+// refuses is refused wherever the library compiles it
+// (TestAdditionalItemsChecked), and a compiled schema at a position the
+// walk did not walk live, which none of the walk's rules covered, is
+// refused (TestUnwalkedBackstop), so validating a compiled one never
+// panics. Whatever the outcome, the compile's regexp engine
 // is frozen when it returns, and validating against a compiled schema never
 // calls it: only an asserted format 'regex' would, and the compile refuses the
 // $schema that would assert one wherever the library reads it, and an asserted

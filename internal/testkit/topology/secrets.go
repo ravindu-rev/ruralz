@@ -141,9 +141,6 @@ func (n *Node) writeSecrets(refs []SecretRef) error {
 	for _, path := range paths {
 		group := byPath[path]
 		whole := refString(group[0].Provider, group[0].Name, "")
-		if n.missing(whole) {
-			continue
-		}
 		content, err := n.fileContent(whole, group)
 		if err != nil {
 			return err
@@ -171,7 +168,7 @@ func (n *Node) fileContent(whole string, group []SecretRef) ([]byte, error) {
 	}
 	keyed := map[string]string{}
 	for _, r := range group {
-		if r.Key == "" || n.missing(r.Ref) {
+		if r.Key == "" {
 			continue
 		}
 		v, err := n.value(r.Ref)
@@ -231,9 +228,6 @@ func (n *Node) supplied(ref string) ([]byte, bool, error) {
 	}
 	return nil, false, nil
 }
-
-// missing reports whether ref is listed in NodeOptions.MissingSecrets.
-func (n *Node) missing(ref string) bool { return slices.Contains(n.opts.MissingSecrets, ref) }
 
 // checkSecretEnv refuses a secret process variable (RURALZ_STATE_STORE_URL
 // or RURALZ_SECRET_*) whose value carries no canary.

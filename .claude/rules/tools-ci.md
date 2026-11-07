@@ -12,27 +12,25 @@ Authority: `docs/engineering/02-repository-layout-and-conventions.md` sections "
 
 ## `internal/tool/*`
 
-- Each tool is a `package main`, never linked into a binary; only `internal/tool` imports `internal/tool`. repocheck, commitcheck and depgate run as `go run ./internal/tool/<name>` from the root; schemagen runs through the `//go:generate` line in `pkg/config/v1alpha1/doc.go`.
+- Each tool is a `package main`, never linked into a binary; only `internal/tool` imports `internal/tool`. repocheck, commitcheck and depgate run as `go run ./internal/tool/<name>` from the root; schemagen and telemetrygen run through `//go:generate` lines (`pkg/config/v1alpha1/doc.go`, `internal/tool/telemetrygen/main.go`).
 - Tools use only the standard library. Registries and denylists are functions returning literals.
 - Checkers exit 1 for findings and 2 for usage or I/O errors, printing `<tool>: <error>` to stderr; schemagen exits 1 on any error.
 - Commit scope is `build(tools)`.
-- Self-tests read the real repository (repocheck `TestRepositoryIsClean`, depgate `TestRepositoryPasses`, commitcheck `TestDocSlugs` and `TestRunUsage`, which read `docs/` file names for slugs), so a new check must pass on the current tree and renaming a doc can break them.
+- Self-tests read the real repository (repocheck `TestRepositoryIsClean`, depgate `TestRepositoryPasses`), so a new check must pass on the current tree.
 - repocheck walks from the root and skips `.git`, `node_modules`, `testdata`, `bin`, `dist` and dot-directories; untracked files count. A new check needs a fixture in `testdata/bad` and its finding in the `TestBadRepo` want list, and a line in the check list of `internal/tool/repocheck/main.go`.
 - `nolicensecheck.allow` lines are `<path or dir/> <term> # <reason>`.
 
 ## Makefile and scripts
 
 - Every Makefile, script and workflow starts with `# Copyright <creation year> Revington` and `# SPDX-License-Identifier: Apache-2.0` (after the `#!/usr/bin/env bash` line in scripts). Scripts use `set -euo pipefail`; the Makefile uses `SHELL := bash` with `-eu -o pipefail`.
-- One CI stage calls one make target: `hygiene` (1), `lint` (2), `generate` (3), `build` and `floor` (4), `test` (5), `supply-chain` (6), `integration` (8), `gates` (9), `e2e` and `quickstart` (10), `nightly` with `NIGHTLY_JOB=fuzz|chaos|functional|latency` (11), `release-dry-run`, `release` and `release-gates` (12). Keep new work inside those targets.
+- Each PR pipeline job runs make targets: `ci` runs `lint`, `dco` and `supply-chain`, `unit` runs `test`, `integration` runs `integration`. The release runs `release`, and `release-dry-run` its steps without signing; `generate`, `build`, `fmt` and `tools` are for contributors. Keep new work inside those targets.
+- A recipe reads a value that can come from a workflow, such as `DCO_RANGE`, from the environment (`"$$DCO_RANGE"`), never spliced into the shell command line.
 - Build tools never enter `go.mod`. They are pinned, checksum-verified binaries installed into `bin/` by `scripts/install-tools.sh`, which pins only linux and darwin, so `make tools` fails on Windows: say so instead of working around it.
-- `scripts/ci-changes.sh` sets the path filters; a docs-only change runs only hygiene and supply-chain, so no Go test runs on it in CI.
-- `scripts/ci-approvals.sh perf-override` accepts the stage 9 gate failures when a maintainer applies the `perf-override` label.
 
 ## Workflows (`.github/workflows/`)
 
-- Required checks: `pr-fast` (stages 1 to 6, plus a final `pr-fast` job that passes when every job in its `needs:` list passed or was path-skipped) and `pr-full` (stages 8 and 9, with its final `pr-full` job). Never rename these jobs.
-- A new pr-fast job goes into the final job's `needs:` list. A new path filter is written in each `printf` line that appends to `$out` in `scripts/ci-changes.sh` and declared under `jobs.changes.outputs`; a missing output makes its job skip.
+- `pr.yml` is the PR pipeline: jobs `ci`, `unit` and `integration` in order, then `pr`, which passes only when the three passed and is the one required check. `release.yml` calls `pr.yml` through `workflow_call` on the commit it releases. Never rename these jobs, and put a new job into the `pr` job's `needs:` list. There are no path filters.
 - Reference every action by its full commit SHA with a `# vX.Y.Z` comment; a new action needs a row in the CI tooling table of the tech stack document. Keep `persist-credentials: false` on checkout and read-only `permissions`.
 - `setup-go` installs the `go.mod` toolchain line and exports `GOTOOLCHAIN=local`; do not set `GOTOOLCHAIN` at workflow level.
-- The Windows and macOS job runs `go test -shuffle=on ./internal/cli/... ./internal/buildinfo/... ./pkg/...`; keep those packages portable.
+- The CLI ships for darwin and windows, which only `make build` and the release build compile: keep `internal/cli` and what it imports building there.
 - Commit scope is `ci(workflows)`.

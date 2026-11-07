@@ -4,7 +4,6 @@
 package jsonschema
 
 import (
-	"fmt"
 	"math/bits"
 	"math/rand/v2"
 	"regexp/syntax"
@@ -259,35 +258,6 @@ func TestClassRepsBudget(t *testing.T) {
 	}
 }
 
-// BenchmarkPatternModel measures the pattern model against Go's regexp as
-// the library's engine compiles it (compilePattern): for each pattern's
-// adversarial input of 8 bytes to 16 KiB it reports the nanoseconds a
-// match takes per work unit of fixed plus perByte per byte (ns/unit),
-// which must stay below 1 on the reference machine. A benchmark, not a
-// test, for the reason BenchmarkWorkModel gives; TestQueueBound,
-// TestQueueBoundCoversInputs and TestClassSteps pin the model.
-func BenchmarkPatternModel(b *testing.B) {
-	for _, tc := range costPatterns() {
-		c := newPatternCosts().of(tc.pattern)
-		re, err := compilePattern(tc.pattern)
-		if err != nil {
-			b.Fatal(err)
-		}
-		rs := []rune(tc.input)
-		last := string(rs[len(rs)-1])
-		for _, size := range []int{8, 64, 1024, 16384} {
-			s := tc.input + strings.Repeat(last, max(0, size-len(tc.input))/len(last))
-			b.Run(fmt.Sprintf("%.20s/%d", tc.pattern, size), func(b *testing.B) {
-				for b.Loop() {
-					re.MatchString(s)
-				}
-				units := float64(c.fixed + c.perByte*len(s))
-				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/units, "ns/unit")
-			})
-		}
-	}
-}
-
 // altPattern returns an alternation of n two-rune literals of distinct
 // CJK runes, which the parser cannot merge into one class: every queue of
 // the unanchored program holds the start's thousands of alternatives, and
@@ -348,23 +318,6 @@ func TestQueueBoundBudget(t *testing.T) {
 	}
 	if pc.budget > 0 {
 		t.Errorf("document budget left %d after 20 exploded patterns, want it spent", pc.budget)
-	}
-}
-
-// BenchmarkPatternCost times the exploration of the costliest patterns
-// within one pattern's budget: a long repetition of a class, and an
-// alternation of 4,000 literals, unanchored and anchored.
-func BenchmarkPatternCost(b *testing.B) {
-	for _, tc := range []struct{ name, expr string }{
-		{"repetition", `[a-z]{1000}x`},
-		{"alternation", altPattern(4000)},
-		{"anchored alternation", `^(?:` + altPattern(4000) + `)$`},
-	} {
-		b.Run(tc.name, func(b *testing.B) {
-			for b.Loop() {
-				newPatternCosts().of(tc.expr)
-			}
-		})
 	}
 }
 
@@ -518,25 +471,6 @@ func TestHeldAlternations(t *testing.T) {
 	pc = newPatternCosts()
 	if c := pc.of(largestPattern('x', 0)); c.held != 0 || pc.held != heldBudget {
 		t.Errorf("large program: %+v, budget left %d", c, pc.held)
-	}
-}
-
-// BenchmarkHeldAlternations times the search for held alternations of one
-// document at its budget: programs whose runs of empty-width steps reach
-// hundreds of alternations from every rune, until heldBudget is spent.
-func BenchmarkHeldAlternations(b *testing.B) {
-	var progs []*syntax.Prog
-	for i := range 64 {
-		progs = append(progs, program(b, noOnePass+fmt.Sprintf(`(?:(?:a??){240}%c)*b`, 'c'+i)))
-	}
-	for b.Loop() {
-		budget := heldBudget
-		for _, p := range progs {
-			heldAlternations(p, &budget)
-		}
-		if budget >= 0 {
-			b.Fatal("the programs did not spend the budget")
-		}
 	}
 }
 

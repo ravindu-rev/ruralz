@@ -63,13 +63,12 @@ func primaryOf(t *testing.T, s *Server) string {
 // synced replica, and a sentinel started with --sentinel, monitoring the
 // primary as MasterSet and reaching it as the first user; the URL names
 // the sentinel and the master set; Failover makes the sentinel promote
-// the replica, after which Primary and Replica swap, across a restart of
-// the sentinel too; Promote is refused.
+// the replica, after which Primary and Replica swap; Promote is refused.
 func TestProcessSentinel(t *testing.T) {
 	d := startHelper(t, ProcessSentinel, Options{Users: []User{{Name: "ruralz", Password: "pw"}}})
-	primary, replica, sentinels := d.Primary(), d.Replica(), d.Sentinels()
-	if d.Topology() != statestore.TopologySentinel || replica == nil || len(sentinels) != 1 || len(d.Nodes()) != 1 || d.MasterSet() != MasterSet {
-		t.Fatalf("deployment %v: replica %v, %d sentinels, %d nodes, master set %q", d.Topology(), replica, len(sentinels), len(d.Nodes()), d.MasterSet())
+	primary, replica, sentinels := d.Primary(), d.Replica(), d.sentinels
+	if d.Topology() != statestore.TopologySentinel || replica == nil || len(sentinels) != 1 || len(d.Nodes()) != 1 || d.masterSet != MasterSet {
+		t.Fatalf("deployment %v: replica %v, %d sentinels, %d nodes, master set %q", d.Topology(), replica, len(sentinels), len(d.Nodes()), d.masterSet)
 	}
 	s := sentinels[0]
 	if want := "redis://ruralz:pw@" + s.ClientAddr() + "?master_set=" + MasterSet; d.URL() != want {
@@ -117,12 +116,6 @@ func TestProcessSentinel(t *testing.T) {
 	if err := d.Promote(t.Context()); !errors.Is(err, errSentinelPromote) {
 		t.Errorf("Promote = %v, want errSentinelPromote", err)
 	}
-	if err := s.Restart(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if got := primaryOf(t, s); got != replica.Addr() {
-		t.Errorf("a restarted sentinel names %s, want the promoted %s", got, replica.Addr())
-	}
 }
 
 // TestProcessSentinelTLS checks a TLS sentinel deployment: a rediss://
@@ -130,7 +123,7 @@ func TestProcessSentinel(t *testing.T) {
 // over which Failover runs.
 func TestProcessSentinelTLS(t *testing.T) {
 	d := startHelper(t, ProcessSentinel, Options{TLS: true, Config: []string{"maxmemory 1mb"}})
-	s := d.Sentinels()[0]
+	s := d.sentinels[0]
 	u, err := url.Parse(d.URL())
 	if err != nil {
 		t.Fatal(err)
@@ -164,8 +157,8 @@ func TestFailoverNeedsSentinel(t *testing.T) {
 	if err := d.Failover(t.Context()); !errors.Is(err, errNotSentinel) {
 		t.Fatalf("Failover = %v, want errNotSentinel", err)
 	}
-	if d.Sentinels() != nil || d.MasterSet() != "" {
-		t.Errorf("standalone: sentinels %v, master set %q", d.Sentinels(), d.MasterSet())
+	if d.sentinels != nil || d.masterSet != "" {
+		t.Errorf("standalone: sentinels %v, master set %q", d.sentinels, d.masterSet)
 	}
 	if _, port, _ := net.SplitHostPort(d.Primary().Addr()); !strings.Contains(d.URL(), port) || strings.Contains(d.URL(), "master_set") {
 		t.Errorf("standalone URL %q", d.URL())

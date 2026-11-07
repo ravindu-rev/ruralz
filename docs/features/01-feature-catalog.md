@@ -6,13 +6,13 @@ This catalog lists every feature Ruralz plans, grouped in ten categories, with t
 
 ## Scope and non-goals
 
-In scope: every Ruralz feature planned for M0 to M6, one row each; its milestone, carrying mechanism and owning design section; the features Ruralz deliberately does not plan, with a reason; and counts per category and milestone. The [Roadmap](../roadmap/01-roadmap-and-milestones.md) defers to this catalog on the milestone of a single feature, and M1 exit criterion 6 is measured against it. Terms follow the binding [foundation pack](../_meta/foundation-pack.md), whose section 13 makes this document the owner of the feature list.
+In scope: every Ruralz feature planned for M0 to M5, one row each; its milestone, carrying mechanism and owning design section; the features Ruralz deliberately does not plan, with a reason; and counts per category and milestone. The [Roadmap](../roadmap/01-roadmap-and-milestones.md) defers to this catalog on the milestone of a single feature, and M1 exit criterion 3 is measured against it. Terms follow the binding [foundation pack](../_meta/foundation-pack.md), whose section 13 makes this document the owner of the feature list.
 
 Non-goals:
 
 - Field and Policy type design, owned by the [Configuration model](../architecture/02-configuration-model.md); a missing field becomes an Open question here, never an invented field.
 - Behavior, failure semantics and performance of each feature, owned by the architecture document linked in its Design cell.
-- Performance figures, owned by [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), whose M6 bench suite measures Ruralz against its own Performance Budgets and previous releases.
+- Limit values, owned by the architecture documents, such as [Bounded resources](../architecture/03-data-plane.md#bounded-resources) in Data plane and [Per-Node limits](../architecture/11-scalability-and-distributed-state.md#per-node-limits) in Scalability and distributed state.
 - Calendar dates, which no milestone carries (OQ-roadmap-and-milestones-2).
 - Commercial support and Ruralz Cloud terms, which sell help and operations, never a feature ([Vision and positioning](../vision/01-vision-and-positioning.md)).
 
@@ -35,7 +35,6 @@ Each category section holds one table with four columns.
 | M3 | AI gateway + gRPC/GraphQL/WS/SSE + HTTP/3 |
 | M4 | Event protocols + multi-region |
 | M5 | Enterprise hardening (SSO/SAML for Ruralz Console, FIPS build, monetization hooks) |
-| M6 | Reference hardware benchmarks (RH-1, RH-2 and RH-3, the budget gates and bench suite on them) |
 
 A **Policy** is configuration; a **Filter** (built-in Go) or a **Plugin** (WASM) implements it. Every row names only kinds, fields, Policy types and Filters of the [Configuration model](../architecture/02-configuration-model.md#kind-catalog) and commands of the [CLI and API surface](../reference/01-cli-and-api-surface.md). Where a feature needs a field or Policy type that is not registered yet, the Mechanism cell names the kind that would carry it and the Open question that decides it.
 
@@ -126,7 +125,7 @@ Ruralz shapes traffic with `Route` composition, CEL ([ADR-0019](../adr/0019-expr
 | proxy-wasm ABI adapter | Planned (M4) | An adapter runs modules written against the proxy-wasm ABI inside the Plugin host | [WASM plugin system: proxy-wasm stance](../architecture/05-wasm-plugin-system.md#proxy-wasm-stance) |
 | JSON Schema response validation | Planned (M5) | `validation.json-schema` extended to response Phases per OQ-feature-catalog-3; a validation-class `plugin` Policy meanwhile | [Configuration model: Policy](../architecture/02-configuration-model.md#policy) |
 | Response compression | Planned (M5) | A `Policy` of a built-in compression type, not yet registered, at `Gateway` or `Route` scope in `onResponse`; type per OQ-feature-catalog-3 | [Data plane: Filter Chain execution](../architecture/03-data-plane.md#filter-chain-execution) |
-| Faster JSON decoding for merges and transforms | Planned (M5) | The JSON decoder behind `composition` merges, `transform.response` and `validation.json-schema`, measured against Performance Budgets (OQ-feature-catalog-11) | [Performance budgets and benchmarking: Per-stage latency budget](../architecture/12-performance-budgets-and-benchmarking.md#per-stage-latency-budget) |
+| Faster JSON decoding for merges and transforms | Planned (M5) | The JSON decoder behind `composition` merges, `transform.response` and `validation.json-schema` (OQ-feature-catalog-11) | [Data plane: Transform Policies](../architecture/03-data-plane.md#transform-policies) |
 
 ## Security
 
@@ -235,7 +234,7 @@ Ruralz carries protocols natively through `Route` matching and `Upstream.spec.pr
 | GraphQL subscriptions | Planned (M3) | Subscriptions over WebSocket and SSE through the `graphql` Upstream | [Multi-protocol: Subscriptions](../architecture/07-multi-protocol.md#subscriptions) |
 | GraphQL depth, complexity and persisted queries | Planned (M3) | Depth and complexity limits after fragment expansion, with persisted queries | [Multi-protocol: Depth, complexity and persisted queries](../architecture/07-multi-protocol.md#depth-complexity-and-persisted-queries) |
 | Server-Sent Events with per-event Policies | Planned (M3) | SSE responses stream through `onChunk`, where Policies such as `ai.guardrail` act per event | [Multi-protocol: Server-Sent Events](../architecture/07-multi-protocol.md#server-sent-events) |
-| Direct WebSockets | Planned (M3) | `Upgrade: websocket` on a `Route` to a `websocket` Upstream; `onChunk` per message; idle session cost tag per OQ-feature-catalog-14 | [Multi-protocol: Backpressure and per-message Policies](../architecture/07-multi-protocol.md#backpressure-and-per-message-policies) |
+| Direct WebSockets | Planned (M3) | `Upgrade: websocket` on a `Route` to a `websocket` Upstream; `onChunk` per message | [Multi-protocol: Backpressure and per-message Policies](../architecture/07-multi-protocol.md#backpressure-and-per-message-policies) |
 | WebSocket multiplexing | Planned (M3) | `Upstream` `protocol: websocket` with one shared connection per Route and Endpoint per Node, envelope `ruralz.mux.v1`; settings per OQ-multi-protocol-6 | [Multi-protocol: Multiplexing](../architecture/07-multi-protocol.md#multiplexing) |
 | HTTP publish to Kafka, NATS and MQTT | Planned (M4) | A REST `Route` to a `kafka`, `nats` or `mqtt` Upstream publishes the body as a message | [Multi-protocol: Publishing from HTTP](../architecture/07-multi-protocol.md#publishing-from-http) |
 | Kafka Upstreams | Planned (M4) | `Upstream` `protocol: kafka` with `messaging.topic` and CEL `messaging.key` | [Multi-protocol: Kafka, NATS JetStream and MQTT](../architecture/07-multi-protocol.md#kafka-nats-jetstream-and-mqtt) |
@@ -357,7 +356,7 @@ flowchart LR
     C --> M5["Planned (M5): 14"]
 ```
 
-M1 exit criterion 4 holds when every Planned (M1) row works in the `0.1.0` release; a Policy type or protocol of a later milestone fails validation with `RZ-CFG-040` until its release serves it.
+M1 exit criterion 3 holds when every Planned (M1) row works in the `0.1.0` release; a Policy type or protocol of a later milestone fails validation with `RZ-CFG-040` until its release serves it.
 
 ## Open questions
 
@@ -372,8 +371,7 @@ M1 exit criterion 4 holds when every Planned (M1) row works in the `0.1.0` relea
 | OQ-feature-catalog-8 | What surface do monetization hooks take without a Revington-operated service (P1)? | (a) Usage records in access logs and OTLP metrics per `Consumer`, `Route` and `AIModel` (proposed); (b) a signed usage export from Ruralz Control; (c) a `plugin` Policy at `onLog` | observability | Yes, for the M5 monetization hooks row |
 | OQ-feature-catalog-9 | OQ-observability-5 asks only about per-Route sampling: does per-Route exporter selection extend it or need a new Observability Open question, and do per-`Upstream` log records need new access log fields? | (a) Resolve OQ-observability-2 and -3, extend -5 to per-Route exporter selection, then add per-leg access log fields (proposed); (b) Collector-side routing only, marking per-Route export selection Not planned; (c) a `plugin` Policy at `onLog` | observability | Yes, for the M5 observability rows |
 | OQ-feature-catalog-10 | Should serverless function invocation (such as AWS Lambda) get a mechanism or stay Not planned? | (a) Not planned (current); (b) an `http` `Upstream` with `auth.upstream-sigv4` after research on the invocation API; (c) a `lambda` protocol value by ADR | multi-protocol | No |
-| OQ-feature-catalog-11 | Is faster JSON decoding a catalog feature or a Performance Budget, and which decoder would it need? | (a) Keep the row, met when the transform and merge budgets pass (proposed); (b) Not planned, with the budget as the commitment; (c) a tech stack catalog row for a faster decoder | performance-budgets-and-benchmarking | No |
-| OQ-feature-catalog-14 | Is the idle WebSocket session cost a hypothesis of about 96 KiB, as Multi-protocol states, or a ceiling of 96 KiB or less (target), as Performance budgets and the Roadmap M3 exit state? | (a) Multi-protocol adopts the Performance budgets ceiling as its target (proposed); (b) Performance budgets and the Roadmap tag it (hypothesis) until the M3 measurement | multi-protocol | No |
+| OQ-feature-catalog-11 | Is faster JSON decoding a catalog feature, and which decoder would it need? | (a) Keep the row, met by a faster decoder with a tech stack catalog row (proposed); (b) Not planned | tech-stack-and-libraries | No |
 | OQ-feature-catalog-15 | Should SSO for Ruralz Console move earlier than M5? | (a) Keep Planned (M5); (b) OIDC at M2 and SAML at M5; (c) all of it at M3 | control-plane-and-gitops | No |
 | OQ-feature-catalog-16 | Should the A2A-aware gateway (agent cards, per-skill authorization, usage attribution) move earlier than M5? A2A over plain HTTP and SSE Routes stays Planned (M3) either way | (a) Keep Planned (M5); (b) move to M4; (c) ship A2A-aware features as Plugins first | ai-llm-gateway | No |
 | OQ-feature-catalog-17 | Should Ruralz add an out-of-process extension point beside WASM Plugins and CEL? | (a) Not planned; (b) a registered Policy type; (c) a Plugin Host Function | wasm-plugin-system | No |

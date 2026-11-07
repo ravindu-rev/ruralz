@@ -211,15 +211,3 @@ func TestPreRoutingZeroLimit(t *testing.T) {
 		}
 	}
 }
-
-// BenchmarkPreRoutingDo measures the limiter around a pre-routing write.
-func BenchmarkPreRoutingDo(b *testing.B) {
-	p := NewPreRouting(DefaultPreRouting, clocktest.New(epoch()))
-	write := func() {}
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			p.Do(nil, write)
-		}
-	})
-}

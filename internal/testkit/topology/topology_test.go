@@ -44,7 +44,7 @@ func TestNodesServeTheirOwnTestRender(t *testing.T) {
 		if want, _ := standinDigest(r.Bytes); r.TestDigest != want || r.TestDigest == r.Revision {
 			t.Errorf("%s TestDigest = %s, want %s, unequal to the Revision", n.Name(), r.TestDigest, want)
 		}
-		onDisk, err := os.ReadFile(n.ConfigPath())
+		onDisk, err := os.ReadFile(n.configPath)
 		if err != nil || !bytes.Equal(onDisk, r.Bytes) {
 			t.Fatalf("%s RURALZ_CONFIG holds %q (%v), want the test render", n.Name(), onDisk, err)
 		}
@@ -217,7 +217,7 @@ func checkRewrittenRefs(t *testing.T, n *Node, r *Render) {
 		if path, _ := n.SecretPath(ref); path != s.Path {
 			t.Errorf("SecretPath(%s) = %s, want %s", ref, path, s.Path)
 		}
-		v, ok := n.SecretValue(ref)
+		v, ok := secretValue(n, ref)
 		if !ok || !n.t.canaries.carries(v) {
 			t.Errorf("%s secret %s = %q, want a value carrying a canary", n.Name(), ref, v)
 		}
@@ -234,7 +234,7 @@ func checkRewrittenRefs(t *testing.T, n *Node, r *Render) {
 	if err := json.Unmarshal(data, &obj); err != nil || len(obj) != 3 {
 		t.Fatalf("%s creds.json = %s (%v), want a JSON object of three keys", n.Name(), data, err)
 	}
-	if v, _ := n.SecretValue(refCredsCA); obj["ca"] != string(v) {
+	if v, _ := secretValue(n, refCredsCA); obj["ca"] != string(v) {
 		t.Errorf("creds.json ca = %q, want %q", obj["ca"], v)
 	}
 	if fi, err := os.Stat(byRef[refKey].Path); err != nil || fi.Mode().Perm() != 0o600 {
@@ -281,22 +281,21 @@ func TestAddNodesRefuses(t *testing.T) {
 	}
 }
 
-// A reference listed in MissingSecrets gets no value, so the Node cannot
-// resolve it and stays unready naming it; the readiness wait gives up
-// after Config.ReadyTimeout with the last answer.
-func TestMissingSecretsKeepTheNodeUnready(t *testing.T) {
+// References the test render keeps as authored, which the test never
+// supplies, leave the Node unable to resolve them, so it stays unready
+// naming them; the readiness wait gives up after Config.ReadyTimeout with
+// the last answer.
+func TestUnresolvedSecretsKeepTheNodeUnready(t *testing.T) {
 	topo := standinTopology(t, func(c *Config) { c.ReadyTimeout = 2 * time.Second })
 	o := nodeOptions(t, topo)
-	o.MissingSecrets = []string{"file:/etc/ruralz/tls/tls.key", refCredsCA}
+	delete(o.Secrets, refKey)
+	o.AuthoredSecrets = []string{refKey, refCredsCA}
 	o.NoWait = true
 	n := addNodes(t, topo, 1, o)[0]
-	keyPath, _ := n.SecretPath(refKey)
-	if _, err := os.Stat(keyPath); !os.IsNotExist(err) {
-		t.Errorf("the missing secret's file exists: %v", err)
-	}
-	if _, ok := n.SecretValue(refCredsCA); ok {
-		t.Error("the missing keyed secret has a value")
-	}
+	// The stand-in reports its first readiness once its admin port is
+	// bound, which a loaded race run can delay past the 2 s wait; the wait
+	// then times the unready Node alone.
+	waitLine(t, n, `standin: ready not_ready`)
 	err := n.WaitReady(t.Context())
 	if err == nil || !strings.Contains(err.Error(), "not ready within 2s") || !strings.Contains(err.Error(), adminapi.ReasonSecretsUnresolved) {
 		t.Fatalf("WaitReady = %v, want a timeout naming the unresolved secrets", err)
@@ -322,10 +321,11 @@ func TestMissingSecretsKeepTheNodeUnready(t *testing.T) {
 func TestWaitReadyReportsTheLastAnswer(t *testing.T) {
 	topo := standinTopology(t, func(c *Config) { c.ReadyTimeout = 2 * time.Second })
 	o := nodeOptions(t, topo)
-	o.MissingSecrets = []string{refCredsCA}
+	o.AuthoredSecrets = []string{refCredsCA}
 	o.Env = []string{standinHangReadyzEnv + "=1"}
 	o.NoWait = true
 	n := addNodes(t, topo, 1, o)[0]
+	waitLine(t, n, `standin: ready not_ready`)
 	err := n.WaitReady(t.Context())
 	if err == nil || !strings.Contains(err.Error(), "last /readyz: 503") || !strings.Contains(err.Error(), adminapi.ReasonSecretsUnresolved) {
 		t.Fatalf("WaitReady = %v, want the last answer, a 503 naming the unresolved secrets", err)
@@ -361,12 +361,6 @@ func TestNodeEnvironment(t *testing.T) {
 	}
 	if m[3] != "true" || m[4] != "127.0.0.0/8,::1" || m[5] != topo.bundle || m[6] != "" {
 		t.Errorf("env = %q, want loopback binding and fetches, the CA bundle and no inherited HOME", m[3:])
-	}
-	o := nodeOptions(t, topo)
-	o.GOMAXPROCS = 1
-	third := addNodes(t, topo, 1, o)[0]
-	if m := waitLine(t, third, `standin: env GOMAXPROCS=(\S*) `); m[1] != "1" {
-		t.Errorf("GOMAXPROCS override = %q, want 1", m[1])
 	}
 
 	single := standinTopology(t)

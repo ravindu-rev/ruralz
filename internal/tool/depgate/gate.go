@@ -34,12 +34,13 @@ type goPackage struct {
 	Standard   bool
 	Dir        string
 	Module     *goModule
+	Imports    []string
 }
 
 // goList lists the packages a binary links on one platform.
 func goList(ctx context.Context, dir string, t target) ([]goPackage, error) {
 	//nolint:gosec // Arguments come from the fixed target table, never from input.
-	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-test=false", "-json=ImportPath,Standard,Dir,Module", "./cmd/"+t.binary)
+	cmd := exec.CommandContext(ctx, "go", "list", "-deps", "-test=false", "-json=ImportPath,Standard,Dir,Module,Imports", "./cmd/"+t.binary)
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(), "GOOS="+t.goos, "GOARCH="+t.goarch, "CGO_ENABLED=0")
 	var stderr bytes.Buffer
@@ -140,10 +141,19 @@ func analyze(t target, pkgs []goPackage, read dirReader) (analysis, error) {
 		return texts, nil
 	}
 
+	// importedBy maps each linked package to the linked packages that
+	// import it.
+	importedBy := map[string][]goPackage{}
+	for _, p := range pkgs {
+		for _, imp := range p.Imports {
+			importedBy[imp] = append(importedBy[imp], p)
+		}
+	}
+
 	modules := map[string]*moduleNotice{}
 	checked := map[string]bool{} // module path, or module path + "/" + governing directory
 	for _, p := range pkgs {
-		if msg := checkTestSupport(p); msg != "" {
+		if msg := checkTestSupport(p, importedBy[p.ImportPath]); msg != "" {
 			add(p.ImportPath, msg)
 		}
 		if p.Standard || p.Module == nil || p.Module.Main {
@@ -313,12 +323,14 @@ func under(p, root string) bool {
 
 // checkTestSupport denies test support in a binary: this module's test
 // support, CI tool and suite packages, the standard library's test
-// packages and the test-only third-party modules. It returns a finding or
-// "".
-func checkTestSupport(p goPackage) string {
+// packages unless only testingLinkers import them, and the test-only
+// third-party modules. importers are the linked packages that import p.
+// It returns a finding or "".
+func checkTestSupport(p goPackage, importers []goPackage) string {
 	switch {
 	case p.Standard:
-		if slices.ContainsFunc(testOnlyStandard(), func(s string) bool { return under(p.ImportPath, s) }) {
+		if slices.ContainsFunc(testOnlyStandard(), func(s string) bool { return under(p.ImportPath, s) }) &&
+			!onlyTestingLinkers(importers) {
 			return "standard library test support is never linked into a binary"
 		}
 	case p.Module == nil:
@@ -332,6 +344,20 @@ func checkTestSupport(p goPackage) string {
 		}
 	}
 	return ""
+}
+
+// onlyTestingLinkers reports whether a standard library test package is
+// imported, and only by packages of the testingLinkers modules, whose
+// non-test packages import it, so a binary that links one of them links
+// it (docs/engineering/01-tech-stack-and-libraries.md "Dependency
+// graph").
+func onlyTestingLinkers(importers []goPackage) bool {
+	if len(importers) == 0 {
+		return false
+	}
+	return !slices.ContainsFunc(importers, func(i goPackage) bool {
+		return i.Module == nil || !slices.ContainsFunc(testingLinkers(), func(m string) bool { return under(i.Module.Path, m) })
+	})
 }
 
 // isTestSupport reports whether a package path relative to this module is

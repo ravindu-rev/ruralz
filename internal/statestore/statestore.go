@@ -831,10 +831,9 @@ type Deps struct {
 // reply or a connection reset, not until its caller's timeout. The slots
 // in use are the ruralz_state_inflight_calls gauge
 // (docs/architecture/10-observability.md "Ruralz Gateway metrics"), which
-// O2 reads for its plateau at the ceiling
-// (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Scenarios"): a taken slot adds one to it and a released slot takes one
-// away, so it never drifts from Len. It is safe for concurrent use.
+// plateaus at the ceiling: a taken slot adds one to it and a released slot
+// takes one away, so it never drifts from Len. It is safe for concurrent
+// use.
 type InFlight struct {
 	n     atomic.Int64
 	limit int64

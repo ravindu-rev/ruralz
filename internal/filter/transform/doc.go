@@ -148,7 +148,5 @@
 // literal replace and arrayOps entries) allocates only the rewritten body
 // the message keeps; a pattern replace allocates as the regexp package
 // does once a string matches, a query edit its new query string, and CEL
-// entries their results
-// (docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget"). A Filter is immutable and safe for concurrent use.
+// entries their results. A Filter is immutable and safe for concurrent use.
 package transform

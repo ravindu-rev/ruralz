@@ -44,7 +44,7 @@ Chosen option: "own `ruralz.control.v1.ControlStream` on connect in gRPC mode at
 | Reconnect | `Hello` presents active and Last-Known-Good digests, `lastNonce`, `storeEpoch` and `assignmentSeq`; the answer is nothing, a `Delta` or a `Snapshot`; full-jitter redials, base 1 s, cap 60 s (target); excess streams get `Reconnect` or `RZ-CP-010` |
 | Heartbeat | Every 15 s (target) up with digests, readiness and per-Rollout counters; `HeartbeatReply` down with the signed promotion and `clusterNodeCount` |
 | Trust | mTLS authenticates the peer; content trust comes from signatures fenced by `storeEpoch` and sequences ([ADR-0017](0017-artifact-signing.md), [Fencing stale replicas](../architecture/04-control-plane-and-gitops.md#fencing-stale-replicas)); relays Planned (M4) |
-| Evolution | Additive changes stay in `ruralz.control.v1`; a breaking change needs `ruralz.control.v2` on distinct gRPC paths, served beside v1 for about 12 months (target) |
+| Evolution | Additive changes stay in `ruralz.control.v1`; a breaking change needs `ruralz.control.v2` on distinct gRPC paths, served beside v1 for 4 minor releases (target) |
 
 *Figure 1: one Node's Control Stream, dial to steady state.*
 
@@ -129,10 +129,10 @@ flowchart TD
 
 ### Confirmation
 
-- **`buf lint` (stage 2) and `buf breaking` (stage 3) of `pr-fast`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the last tag of each supported line ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
+- **`buf lint` and `buf breaking`**, Planned (M2) for `ruralz.control.v1`: `buf breaking` runs against `main` and the newest release tag of N-1 and of N, the minors of the skew window ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
 - **Dependency admission**: go-control-plane has no catalog row ([Alternatives not chosen](../engineering/01-tech-stack-and-libraries.md#alternatives-not-chosen)), so [banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports) rejects it.
 - **Container-free integration tests**, Planned (M2): snapshot and delta delivery, ACK and NACK classification, promoted digests ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)), a stale-nonce `Ack` changing nothing, a mismatching `Delta` NACKed with RZ-CFG-027 then a `Snapshot` ACKed, a Node that missed an empty-`ops` re-sign `Delta` receiving it after reconnecting, and a Node still ACKed after the replica holding its forwarded `Ack` dies before the bitmap commit.
-- **Fuzzing and chaos**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)); after leader failover each reconnecting Node gets only its planned Revision ([Chaos testing](../engineering/03-testing-and-quality-strategy.md#chaos-testing)).
+- **Fuzzing**, Planned (M2): one fuzz target per message type ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
 - **Amendment trigger**: a new message, field or RPC MUST update the owning document's message table; a grpc-go server or second channel to Nodes MUST amend this ADR.
 
 ## Pros and cons of the options

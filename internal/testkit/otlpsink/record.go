@@ -82,13 +82,10 @@ func (r Request) ExtraMetadata() map[string][]string {
 	return out
 }
 
-// Span is one received span with the resource and scope it was sent
-// under. Proto is shared with the sink and must not be modified.
+// Span is one received span with the resource it was sent under. Proto
+// is shared with the sink and must not be modified.
 type Span struct {
-	// Request is the Seq of the export request that carried the span.
-	Request  uint64
 	Resource *resourcepb.Resource
-	Scope    *commonpb.InstrumentationScope
 	Proto    *tracepb.Span
 }
 
@@ -108,12 +105,6 @@ func (s Span) ParentSpanID() string { return hex.EncodeToString(s.Proto.GetParen
 // Kind returns the span kind.
 func (s Span) Kind() tracepb.Span_SpanKind { return s.Proto.GetKind() }
 
-// Start returns the start time.
-func (s Span) Start() time.Time { return unixNano(s.Proto.GetStartTimeUnixNano()) }
-
-// End returns the end time.
-func (s Span) End() time.Time { return unixNano(s.Proto.GetEndTimeUnixNano()) }
-
 // Attr returns the value of the span attribute key.
 func (s Span) Attr(key string) (*commonpb.AnyValue, bool) { return Attr(s.Proto.GetAttributes(), key) }
 
@@ -124,14 +115,10 @@ func (s Span) AttrString(key string) string {
 	return ValueString(v)
 }
 
-// LogRecord is one received log record with the resource and scope it was
-// sent under. Proto is shared with the sink and must not be modified.
+// LogRecord is one received log record. Proto is shared with the sink and
+// must not be modified.
 type LogRecord struct {
-	// Request is the Seq of the export request that carried the record.
-	Request  uint64
-	Resource *resourcepb.Resource
-	Scope    *commonpb.InstrumentationScope
-	Proto    *logspb.LogRecord
+	Proto *logspb.LogRecord
 }
 
 // Body returns the record body in its ValueString form.
@@ -140,12 +127,6 @@ func (l LogRecord) Body() string { return ValueString(l.Proto.GetBody()) }
 // EventName returns the record's event name (ruralz.access for access
 // log records).
 func (l LogRecord) EventName() string { return l.Proto.GetEventName() }
-
-// TraceID returns the trace ID in lower-case hex, "" when unset.
-func (l LogRecord) TraceID() string { return hex.EncodeToString(l.Proto.GetTraceId()) }
-
-// SpanID returns the span ID in lower-case hex, "" when unset.
-func (l LogRecord) SpanID() string { return hex.EncodeToString(l.Proto.GetSpanId()) }
 
 // Time returns the record timestamp.
 func (l LogRecord) Time() time.Time { return unixNano(l.Proto.GetTimeUnixNano()) }
@@ -162,14 +143,10 @@ func (l LogRecord) AttrString(key string) string {
 	return ValueString(v)
 }
 
-// Metric is one received metric with the resource and scope it was sent
-// under. Proto is shared with the sink and must not be modified.
+// Metric is one received metric. Proto is shared with the sink and must
+// not be modified.
 type Metric struct {
-	// Request is the Seq of the export request that carried the metric.
-	Request  uint64
-	Resource *resourcepb.Resource
-	Scope    *commonpb.InstrumentationScope
-	Proto    *metricspb.Metric
+	Proto *metricspb.Metric
 }
 
 // Name returns the metric name.
@@ -242,7 +219,6 @@ type recorder struct {
 	logs     []LogRecord
 	metrics  []Metric
 	answered [3]int64 // per Signal-1: answered OK
-	dropped  int64
 }
 
 func newRecorder(maxRequests int, maxBytes int64) *recorder {
@@ -254,7 +230,6 @@ func (r *recorder) add(req Request) {
 	defer r.mu.Unlock()
 	r.answered[req.Signal-1]++
 	if len(r.requests) >= r.maxRequests || r.bytes+int64(len(req.Raw)) > r.maxBytes {
-		r.dropped++
 		return
 	}
 	r.seq++
@@ -264,32 +239,25 @@ func (r *recorder) add(req Request) {
 	for _, rs := range req.Traces.GetResourceSpans() {
 		for _, ss := range rs.GetScopeSpans() {
 			for _, sp := range ss.GetSpans() {
-				r.spans = append(r.spans, Span{Request: req.Seq, Resource: rs.GetResource(), Scope: ss.GetScope(), Proto: sp})
+				r.spans = append(r.spans, Span{Resource: rs.GetResource(), Proto: sp})
 			}
 		}
 	}
 	for _, rl := range req.Logs.GetResourceLogs() {
 		for _, sl := range rl.GetScopeLogs() {
 			for _, lr := range sl.GetLogRecords() {
-				r.logs = append(r.logs, LogRecord{Request: req.Seq, Resource: rl.GetResource(), Scope: sl.GetScope(), Proto: lr})
+				r.logs = append(r.logs, LogRecord{Proto: lr})
 			}
 		}
 	}
 	for _, rm := range req.Metrics.GetResourceMetrics() {
 		for _, sm := range rm.GetScopeMetrics() {
 			for _, m := range sm.GetMetrics() {
-				r.metrics = append(r.metrics, Metric{Request: req.Seq, Resource: rm.GetResource(), Scope: sm.GetScope(), Proto: m})
+				r.metrics = append(r.metrics, Metric{Proto: m})
 			}
 		}
 	}
 	r.changedLocked()
-}
-
-// count counts an answered request of sig that is not recorded.
-func (r *recorder) count(sig Signal) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	r.answered[sig-1]++
 }
 
 func (r *recorder) changedLocked() {
@@ -319,7 +287,6 @@ func (r *recorder) stats() Stats {
 		TraceRequests:  r.answered[Traces-1],
 		MetricRequests: r.answered[Metrics-1],
 		LogRequests:    r.answered[Logs-1],
-		Dropped:        r.dropped,
 	}
 }
 
@@ -347,20 +314,6 @@ func (s *Sink) Requests() []Request {
 	s.rec.mu.Lock()
 	defer s.rec.mu.Unlock()
 	return slices.Clone(s.rec.requests)
-}
-
-// RequestsOf returns the recorded export requests of one signal in
-// arrival order.
-func (s *Sink) RequestsOf(sig Signal) []Request {
-	s.rec.mu.Lock()
-	defer s.rec.mu.Unlock()
-	var out []Request
-	for _, r := range s.rec.requests {
-		if r.Signal == sig {
-			out = append(out, r)
-		}
-	}
-	return out
 }
 
 // Reset forgets every recorded request, span, log record and metric; the
@@ -396,39 +349,13 @@ func (s *Sink) Trace(traceID string) []Span {
 	return out
 }
 
-// SpanNames returns the names of Trace(traceID) in the same order.
-func (s *Sink) SpanNames(traceID string) []string {
-	spans := s.Trace(traceID)
-	out := make([]string, len(spans))
-	for i, sp := range spans {
-		out[i] = sp.Name()
-	}
-	return out
-}
-
-// Children returns the spans of the trace whose parent is parentSpanID
-// (hex), ordered by start time, ties in arrival order.
-func (s *Sink) Children(traceID, parentSpanID string) []Span {
-	return slices.DeleteFunc(s.Trace(traceID), func(sp Span) bool { return sp.ParentSpanID() != parentSpanID })
-}
-
-// Roots returns the spans of the trace without a parent among the
-// trace's recorded spans (no parent, or a remote parent from an incoming
-// traceparent), ordered by start time.
-func (s *Sink) Roots(traceID string) []Span {
-	spans := s.Trace(traceID)
-	ids := map[string]bool{}
-	for _, sp := range spans {
-		ids[sp.SpanID()] = true
-	}
-	return slices.DeleteFunc(spans, func(sp Span) bool { return ids[sp.ParentSpanID()] })
-}
-
 // FormatTree renders the trace as an indented tree, one span per line as
 // "<name> [<KIND>]", children under their parent in start order (ties in
 // arrival order), two spaces per level: a stable form for span tree
-// goldens. Roots are the spans Roots returns; spans reachable from no root
-// (a parent cycle) are left out.
+// goldens. Roots are the spans without a parent among the trace's
+// recorded spans (no parent, or a remote parent from an incoming
+// traceparent); spans reachable from no root (a parent cycle) are left
+// out.
 func (s *Sink) FormatTree(traceID string) string {
 	spans := s.Trace(traceID)
 	children := map[string][]Span{}
@@ -482,9 +409,6 @@ func (s *Sink) FindLogs(pred func(LogRecord) bool) []LogRecord {
 	return slices.DeleteFunc(s.rec.snapshotLogs(), func(l LogRecord) bool { return !pred(l) })
 }
 
-// Metrics returns every recorded metric in arrival order.
-func (s *Sink) Metrics() []Metric { return s.rec.snapshotMetrics() }
-
 // MetricNames returns the distinct recorded metric names, sorted (the
 // OTLP side of the name identity gate).
 func (s *Sink) MetricNames() []string {
@@ -534,32 +458,6 @@ func (s *Sink) WaitSpans(ctx context.Context, n int, pred func(Span) bool) ([]Sp
 	err := s.Wait(ctx, func() bool {
 		got = s.FindSpans(pred)
 		return len(got) >= n
-	})
-	return got, err
-}
-
-// WaitLogs waits until at least n recorded log records satisfy pred (nil
-// accepts every record) and returns them in arrival order.
-func (s *Sink) WaitLogs(ctx context.Context, n int, pred func(LogRecord) bool) ([]LogRecord, error) {
-	if pred == nil {
-		pred = func(LogRecord) bool { return true }
-	}
-	var got []LogRecord
-	err := s.Wait(ctx, func() bool {
-		got = s.FindLogs(pred)
-		return len(got) >= n
-	})
-	return got, err
-}
-
-// WaitMetric waits until a metric named name is recorded and returns the
-// most recent one.
-func (s *Sink) WaitMetric(ctx context.Context, name string) (Metric, error) {
-	var got Metric
-	err := s.Wait(ctx, func() bool {
-		var ok bool
-		got, ok = s.LastMetric(name)
-		return ok
 	})
 	return got, err
 }

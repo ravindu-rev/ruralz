@@ -13,9 +13,8 @@ import (
 
 // TestChecksums: SHA256SUMS lists every other file of the release
 // directory, so its one signature covers every asset: the archives and
-// their SBOMs, the image SBOM, the schema files, release-manifest.json,
-// NOTES.md and the benchmark records archive, as sorted "<sha256>  <name>"
-// lines that sha256sum -c reads.
+// their SBOMs, the image SBOM, the schema files, release-manifest.json and
+// NOTES.md, as sorted "<sha256>  <name>" lines that sha256sum -c reads.
 func TestChecksums(t *testing.T) {
 	fx := newFixture(t, "0.1.0")
 	m := fx.release(t)
@@ -36,7 +35,7 @@ func TestChecksums(t *testing.T) {
 		}
 		names = append(names, name)
 	}
-	want := []string{manifestName, notesName, m.Bench.Name, m.Images[0].SBOM}
+	want := []string{manifestName, notesName, m.Images[0].SBOM}
 	for _, a := range m.Archives {
 		want = append(want, a.Name, a.SBOM)
 	}
@@ -79,9 +78,9 @@ func TestChecksumsFindings(t *testing.T) {
 		{"changed archive", func(t *testing.T, fx *fixture, m *manifest) {
 			writeFile(t, filepath.Join(fx.out, m.Archives[0].Name), "tampered")
 		}, m0 + " does not match its manifest SHA-256"},
-		{"changed records archive", func(t *testing.T, fx *fixture, m *manifest) {
-			writeFile(t, filepath.Join(fx.out, m.Bench.Name), "tampered")
-		}, "ruralz_0.1.0_bench.tar.gz does not match its manifest SHA-256"},
+		{"changed schema", func(t *testing.T, fx *fixture, m *manifest) {
+			writeFile(t, filepath.Join(fx.out, m.Schemas[1].Name), "tampered")
+		}, "ruralz-v1alpha1-rendered.schema.json does not match its manifest SHA-256"},
 		{"missing schema", func(_ *testing.T, fx *fixture, m *manifest) {
 			_ = os.Remove(filepath.Join(fx.out, m.Schemas[0].Name))
 		}, "ruralz-v1alpha1-authoring.schema.json is missing"},

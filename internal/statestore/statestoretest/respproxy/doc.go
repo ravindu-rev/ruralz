@@ -18,34 +18,32 @@
 // whatever the chunk boundaries. A Snapshot counts commands by name,
 // round trips, replies, error replies by code ("NOSCRIPT"), RESP3 pushes
 // and desynchronized streams; Sub turns two Snapshots into the counts
-// between them. The bounded command log keeps each command's leading
-// arguments, connection, round trip and reply summary. A round trip
-// starts with a command sent while its connection awaits no reply;
-// commands pipelined behind it join it. Replies are matched to commands
-// in order, one reply per command, which holds for every command a
-// State client sends (no Pub/Sub, CLIENT REPLY OFF or MONITOR).
+// between them. The bounded command log keeps each command's name,
+// connection, round trip and reply summary. A round trip starts with a
+// command sent while its connection awaits no reply; commands pipelined
+// behind it join it. Replies are matched to commands in order, one reply
+// per command, which holds for every command a State client sends (no
+// Pub/Sub, CLIENT REPLY OFF or MONITOR).
 //
 // # Faults
 //
-// The embedded faultproxy.Proxy injects the TCP faults of the chaos
-// experiments (docs/architecture/11-scalability-and-distributed-state.md
-// "Chaos experiments"): latency (Delay), drops and partitions (Blackhole,
-// Refuse), resets (Reset) and a scripted failover (SetUpstream). Reply
+// The embedded faultproxy.Proxy injects TCP faults: drops and partitions
+// (Blackhole), resets (Reset) and a scripted failover (SetUpstream). Reply
 // delays add slow replies: the replies to a named command, or to every
 // command, are held before they reach the client, each for its delay
-// from the moment the proxy read it, on a clock the test may fake. The
-// proxy goes on reading while replies are held and forwards them in the
-// order read, so the replies to pipelined commands are held side by side,
-// as a server answering each that much late would, never one hold after
-// another; a reply read behind a held one waits for it. Bytes the fault
-// proxy drops never reach a tap, so they are never counted: the counts
-// are what the server and the client saw.
+// from the moment the proxy read it. The proxy goes on reading while
+// replies are held and forwards them in the order read, so the replies to
+// pipelined commands are held side by side, as a server answering each
+// that much late would, never one hold after another; a reply read behind
+// a held one waits for it. Bytes the fault proxy drops never reach a tap,
+// so they are never counted: the counts are what the server and the
+// client saw.
 //
 // # Goroutines
 //
 // A Counter starts none: its taps and holds run on the fault proxy's
 // per-connection goroutines, which a hold never blocks, and a hold ends on
-// a timer of the Counter's clock, at a change of the delays or when the
-// Counter closes. Proxy closes the Counter before the fault proxy, so no
-// hold outlives the proxy.
+// a timer, at a change of the delays or when the Counter closes. Proxy
+// closes the Counter before the fault proxy, so no hold outlives the
+// proxy.
 package respproxy

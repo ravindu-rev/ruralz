@@ -24,7 +24,7 @@ const vethInfoPeer = 1
 // AddDevice gives the caller's network namespace the IPv4 address of
 // prefix, with its prefix length, on an up device named name: a dummy
 // device, or, where the kernel has no dummy driver, one end of a veth pair
-// whose other end, name+PeerSuffix, is up too. It is meant for an InNetNS
+// whose other end, name+PeerSuffix, is up too. It is meant for a RunInNetNS
 // child, so a test gets a local address that is not loopback, such as a
 // peer the admin port must not trust, without touching the host's
 // interfaces. It needs CAP_NET_ADMIN over the namespace: root, or the user

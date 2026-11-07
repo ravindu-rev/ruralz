@@ -4,7 +4,6 @@
 package proc
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"net"
@@ -16,10 +15,9 @@ import (
 	"time"
 )
 
-// Tests that an InNetNS child sees only lo (skipped without root), and for
-// the namespace setup the air-gapped start and handover tests rely on
-// (loopback brought up with SIOCSIFFLAGS; per-namespace
-// net.ipv4.tcp_migrate_req).
+// Tests that a RunInNetNS child sees only lo (skipped without root), and
+// for the namespace setup the security suite relies on (loopback brought
+// up with SIOCSIFFLAGS).
 
 // requireNetNS skips unless this process can create a network namespace.
 // It probes with a real CLONE_NEWNET child (this test binary running no
@@ -37,7 +35,7 @@ func requireNetNS(t *testing.T) {
 	}
 }
 
-// TestInNetNSChild runs inside the namespace InNetNS creates.
+// TestInNetNSChild runs inside the namespace TestInNetNS creates.
 func TestInNetNSChild(t *testing.T) {
 	if !NetNSChild(t) {
 		t.Skip("run by TestInNetNS")
@@ -63,9 +61,6 @@ func TestInNetNSChild(t *testing.T) {
 	if !loUp {
 		t.Fatalf("interfaces = %+v, want lo up", ifs)
 	}
-	if v, err := ReadSysctl("net.ipv4.tcp_migrate_req"); err != nil || v != "1" {
-		t.Fatalf("tcp_migrate_req = %q, %v", v, err)
-	}
 	// Loopback works; nothing else is reachable.
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -83,11 +78,8 @@ func TestInNetNSChild(t *testing.T) {
 		t.Fatal("an address outside the namespace is reachable")
 	}
 	// A second setup is harmless.
-	if err := SetupNetNS(map[string]string{"net.ipv4.tcp_migrate_req": "0"}); err != nil {
+	if err := SetupNetNS(); err != nil {
 		t.Fatal(err)
-	}
-	if v, _ := ReadSysctl("net.ipv4.tcp_migrate_req"); v != "0" {
-		t.Fatalf("tcp_migrate_req after reset = %q", v)
 	}
 }
 
@@ -116,31 +108,22 @@ func TestInNetNSChildSkipsSub(t *testing.T) {
 	t.Run("sub", func(t *testing.T) { t.Skip("intentional subtest skip") })
 }
 
-func TestInNetNS(t *testing.T) { // InNetNS child sees only lo
+func TestInNetNS(t *testing.T) { // a RunInNetNS child sees only lo
 	requireNetNS(t)
-	host, err := ReadSysctl("net.ipv4.tcp_migrate_req")
-	if err != nil {
-		t.Skipf("tcp_migrate_req unavailable: %v", err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	code, err := InNetNS(ctx, "TestInNetNSChild", map[string]string{"net.ipv4.tcp_migrate_req": "1"})
+	code, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChild"})
 	if err != nil || code != 0 {
-		t.Fatalf("InNetNS = %d, %v", code, err)
+		t.Fatalf("RunInNetNS = %d, %v", code, err)
 	}
-	// The host namespace is untouched.
-	if v, _ := ReadSysctl("net.ipv4.tcp_migrate_req"); v != host {
-		t.Fatalf("host tcp_migrate_req changed from %q to %q", host, v)
-	}
-	var out bytes.Buffer
-	code, err = RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildFails", Output: &out, Args: []string{"-test.v=true"}})
+	code, err = RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildFails", Args: []string{"-test.v=true"}})
 	if !errors.Is(err, ErrChildFailed) || code != 1 || !strings.Contains(err.Error(), "intentional failure") {
 		t.Fatalf("failing child = %d, %v", code, err)
 	}
-	if !strings.Contains(out.String(), "=== RUN   TestInNetNSChildFails") {
-		t.Fatalf("child output not streamed: %q", out.String())
+	if !strings.Contains(err.Error(), "=== RUN   TestInNetNSChildFails") {
+		t.Fatalf("failing child's error %q lacks its output tail", err)
 	}
-	if _, err := InNetNS(ctx, "TestNoSuchTest", nil); !errors.Is(err, ErrChildFailed) {
+	if _, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestNoSuchTest"}); !errors.Is(err, ErrChildFailed) {
 		t.Fatalf("unmatched test = %v, want ErrChildFailed", err)
 	}
 	// A skipping child is not a pass (no false green). -test.v=false
@@ -150,11 +133,11 @@ func TestInNetNS(t *testing.T) { // InNetNS child sees only lo
 		!strings.Contains(err.Error(), "intentional skip: precondition missing") {
 		t.Fatalf("skipping child = %d, %v; want ErrChildSkipped with the reason", code, err)
 	}
-	if _, err := InNetNS(ctx, "TestInNetNSChildSkipsSub/sub", nil); !errors.Is(err, ErrChildSkipped) ||
+	if _, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildSkipsSub/sub"}); !errors.Is(err, ErrChildSkipped) ||
 		!strings.Contains(err.Error(), "intentional subtest skip") {
 		t.Fatalf("skipping subtest = %v, want ErrChildSkipped", err)
 	}
-	if _, err := InNetNS(ctx, "TestInNetNSChildSkipsSub", nil); err != nil {
+	if _, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildSkipsSub"}); err != nil {
 		t.Fatalf("parent of a skipped subtest = %v, want a pass", err)
 	}
 	// Flag parsing stops at "--" or a positional argument in Args; the
@@ -162,15 +145,8 @@ func TestInNetNS(t *testing.T) { // InNetNS child sees only lo
 	if _, err := RunInNetNS(ctx, NetNSOptions{TestName: "TestInNetNSChildSkipsSub", Args: []string{"-test.v=false", "--", "positional"}}); err != nil {
 		t.Fatalf("passing child with \"--\" in Args = %v, want a pass", err)
 	}
-	if _, err := InNetNS(ctx, "TestInNetNSChild", map[string]string{"bad/name": "1"}); err == nil {
-		t.Fatal("bad sysctl name: want error")
-	}
-	if _, err := InNetNS(ctx, "", nil); err == nil {
+	if _, err := RunInNetNS(ctx, NetNSOptions{}); err == nil {
 		t.Fatal("empty test name: want error")
-	}
-	// A child whose setup fails reports it.
-	if _, err := InNetNS(ctx, "TestInNetNSChild", map[string]string{"net.ipv4.no_such_sysctl": "1"}); !errors.Is(err, ErrChildFailed) {
-		t.Fatalf("unknown sysctl in the child = %v", err)
 	}
 }
 
@@ -222,7 +198,7 @@ func TestNetNSChildSkipsWithoutCapability(t *testing.T) {
 		t.Skip("root brings the loopback interface up in any network namespace")
 	}
 	cmd := exec.CommandContext(t.Context(), os.Args[0], "-test.run=^TestNetNSChildSkipsWithoutCapabilityChild$", "-test.count=1", "-test.v=true") //nolint:gosec // G204: this test binary
-	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSSysctls+"=", EnvNetNSResolvConf+"=", EnvNetNSUser+"=1")
+	cmd.Env = append(os.Environ(), EnvInNetNS+"=1", EnvNetNSUser+"=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "--- SKIP: TestNetNSChildSkipsWithoutCapabilityChild") || !strings.Contains(string(out), ErrNamespace.Error()) {
 		t.Fatalf("child without the capability = %v:\n%s\nwant a skip naming %q", err, out, ErrNamespace)
@@ -252,37 +228,7 @@ func TestIsVerboseFlag(t *testing.T) {
 
 func TestInNetNSNested(t *testing.T) {
 	t.Setenv(EnvInNetNS, "1")
-	if _, err := InNetNS(context.Background(), "TestX", nil); err == nil {
-		t.Fatal("InNetNS inside a child: want error")
-	}
-}
-
-func TestSysctlNames(t *testing.T) {
-	tests := map[string]string{
-		"net.ipv4.tcp_migrate_req":      "/proc/sys/net/ipv4/tcp_migrate_req",
-		"net.ipv4.ip_local_port_range":  "/proc/sys/net/ipv4/ip_local_port_range",
-		"net.ipv6.conf.lo.disable_ipv6": "/proc/sys/net/ipv6/conf/lo/disable_ipv6",
-	}
-	for in, want := range tests {
-		if got, err := sysctlPath(in); err != nil || got != want {
-			t.Errorf("sysctlPath(%q) = %q, %v", in, got, err)
-		}
-	}
-	for _, bad := range []string{"", ".x", "x.", "a..b", "a/b", "a b", "../etc"} {
-		if _, err := sysctlPath(bad); err == nil {
-			t.Errorf("sysctlPath(%q): want error", bad)
-		}
-		if err := WriteSysctl(bad, "1"); err == nil {
-			t.Errorf("WriteSysctl(%q): want error", bad)
-		}
-		if _, err := ReadSysctl(bad); err == nil {
-			t.Errorf("ReadSysctl(%q): want error", bad)
-		}
-	}
-	if _, err := ReadSysctl("net.no.such"); err == nil {
-		t.Fatal("ReadSysctl of a missing sysctl: want error")
-	}
-	if err := WriteSysctl("net.no.such", "1"); err == nil {
-		t.Fatal("WriteSysctl of a missing sysctl: want error")
+	if _, err := RunInNetNS(context.Background(), NetNSOptions{TestName: "TestX"}); err == nil {
+		t.Fatal("RunInNetNS inside a child: want error")
 	}
 }

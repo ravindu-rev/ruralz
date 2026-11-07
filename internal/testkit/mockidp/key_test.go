@@ -442,33 +442,3 @@ func FuzzVerify(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkSign(b *testing.B) {
-	for _, alg := range []Alg{RS256, PS256, ES256, EdDSA} {
-		b.Run(string(alg), func(b *testing.B) {
-			k := key(b, alg)
-			claims := map[string]any{"iss": "https://idp.test", "sub": "alice", "exp": 2000000000, "aud": "orders"}
-			b.ReportAllocs()
-			for b.Loop() {
-				if _, err := k.Sign(nil, claims); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}
-
-func BenchmarkVerifyRS256(b *testing.B) {
-	k := key(b, RS256)
-	tok, err := k.Sign(nil, map[string]any{"sub": "alice"})
-	if err != nil {
-		b.Fatal(err)
-	}
-	keys := []PublicKey{{ID: k.ID, Key: k.Public()}}
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, _, err := Verify(tok, keys); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

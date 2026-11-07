@@ -126,7 +126,7 @@ func TestRealTimeTopologyRefusesTheClock(t *testing.T) {
 		c.Env = []string{standinEnv + "=1"}
 	})
 	n := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	if topo.TestClock() || topo.Clock().Enabled() {
+	if topo.TestClock() || topo.clock.enabled {
 		t.Error("TestClock reports the controllable clock")
 	}
 	if err := topo.Advance(t.Context(), time.Second); !errors.Is(err, ErrNoTestClock) {
@@ -136,7 +136,9 @@ func TestRealTimeTopologyRefusesTheClock(t *testing.T) {
 		t.Errorf("Now = %v, want the zero time", topo.Now())
 	}
 	// A real-time Drain takes its 5 s accept window; end it at once.
-	if err := n.Kill(t.Context()); err != nil {
+	p := n.Process()
+	if err := p.Kill(); err != nil {
 		t.Fatal(err)
 	}
+	<-p.Done()
 }

@@ -7,56 +7,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
-	"testing/fstest"
 )
-
-const repoDocs = "../../../docs"
-
-func TestCheckTitle(t *testing.T) {
-	slugs := []string{"data-plane", "glossary"}
-	good := []string{
-		"feat(gateway): add the admin listener",
-		"fix(statestore): skip remaining calls once the request deadline expires",
-		"feat(api)!: rename the config field",
-		"docs(data-plane): clarify body buffering",
-		"docs(glossary): add a term",
-		"docs: fix links across documents",
-		"build(deps): bump example.com/mod from 1.0.0 to 1.0.1",
-		"ci(workflows): add pr-fast",
-		"chore: tidy",
-		"test(e2e): cover hot reload",
-		"refactor: split the loader",
-		"revert(anything): undo a change",
-	}
-	for _, title := range good {
-		if err := checkTitle(title, slugs); err != nil {
-			t.Errorf("checkTitle(%q) = %v", title, err)
-		}
-	}
-	bad := []string{
-		"",
-		"add a feature",
-		"feature(gateway): add",
-		"feat(Gateway): add",
-		"feat(tools): add",
-		"build(gateway): add",
-		"feat(gateway): Add the listener",
-		"feat(gateway): add the listener.",
-		"feat(gateway):add",
-		"test(tools): add",
-		"docs(dataplane): fix a typo",
-		"docs(03-data-plane): fix a typo",
-		"docs: Fix a typo",
-	}
-	for _, title := range bad {
-		if err := checkTitle(title, slugs); err == nil {
-			t.Errorf("checkTitle(%q) = nil, want an error", title)
-		}
-	}
-}
 
 func TestCheckDCO(t *testing.T) {
 	commits := []commit{
@@ -93,37 +46,6 @@ func git(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestTitleRange checks every non-merge commit title of a range, as main
-// takes develop's commits through merge commits: a title off the rules
-// fails, a merge commit is skipped, and so is a Dependabot commit, whose
-// title Dependabot words and capitalizes itself after its configured
-// prefix.
-func TestTitleRange(t *testing.T) {
-	if _, err := exec.LookPath("git"); err != nil {
-		t.Skip("git not installed")
-	}
-	dir := t.TempDir()
-	git(t, dir, "init", "-q", "-b", "main")
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "feat(cli): add version")
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "build(deps): Bump x from 1.0.0 to 1.0.1",
-		"--author", "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
-	git(t, dir, "checkout", "-q", "-b", "side", "HEAD~2")
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: side change")
-	git(t, dir, "checkout", "-q", "main")
-	git(t, dir, "merge", "-q", "--no-ff", "-m", "Merge branch 'side'", "side")
-	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", dir, "-range", "HEAD~3..HEAD"}); code != 0 {
-		t.Errorf("title on conventional, Dependabot and merge commits = %d, want 0", code)
-	}
-	git(t, dir, "commit", "-q", "--allow-empty", "-m", "Add version")
-	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", dir, "-range", "HEAD~1..HEAD"}); code != 1 {
-		t.Errorf("title on a title off the rules = %d, want 1", code)
-	}
-	if code := run(t.Context(), []string{"title", "-docs", repoDocs, "-C", filepath.Join(dir, "missing"), "-range", "HEAD~1..HEAD"}); code != 2 {
-		t.Errorf("title on a missing repository = %d, want 2", code)
-	}
-}
-
 func TestGitCommits(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -140,9 +62,9 @@ func TestGitCommits(t *testing.T) {
 	if len(commits) != 2 || commits[0].subject != "feat: signed" || len(commits[0].signoffs) != 1 {
 		t.Fatalf("commits = %+v", commits)
 	}
-	// The body, where footers live, follows the subject.
-	if got := strings.TrimSpace(commits[1].body); got != "Co-Authored-By: Someone <s@example.com>" {
-		t.Errorf("body = %q, want the footer", got)
+	// A trailer other than Signed-off-by is no sign-off.
+	if commits[1].subject != "feat: unsigned" || len(commits[1].signoffs) != 0 {
+		t.Errorf("commits[1] = %+v, want the unsigned commit without sign-offs", commits[1])
 	}
 	problems := checkDCO(commits)
 	if len(problems) != 1 || !strings.Contains(problems[0], "feat: unsigned") {
@@ -159,56 +81,56 @@ func TestGitCommits(t *testing.T) {
 	}
 }
 
-func TestRunUsage(t *testing.T) {
-	if run(t.Context(), nil) != 2 || run(t.Context(), []string{"nope"}) != 2 || run(t.Context(), []string{"dco"}) != 2 ||
-		run(t.Context(), []string{"deprecations"}) != 2 || run(t.Context(), []string{"golden"}) != 2 {
-		t.Error("usage errors must exit 2")
+// TestDCORangeSkipsMergesAndDependabot checks a range as the PR pipeline
+// passes it: GitHub's merge commit carries no sign-off and is skipped, and
+// so is a Dependabot commit, which cannot sign off; the signed commits
+// pass.
+func TestDCORangeSkipsMergesAndDependabot(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not installed")
 	}
-	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat(cli): add version"}) != 0 {
-		t.Error("valid title rejected")
+	dir := t.TempDir()
+	git(t, dir, "init", "-q", "-b", "main")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "base")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "build(deps): Bump x from 1.0.0 to 1.0.1",
+		"--author", "dependabot[bot] <49699333+dependabot[bot]@users.noreply.github.com>")
+	git(t, dir, "checkout", "-q", "-b", "side", "HEAD~1")
+	git(t, dir, "commit", "-q", "--allow-empty", "-s", "-m", "fix: side change")
+	git(t, dir, "checkout", "-q", "main")
+	git(t, dir, "merge", "-q", "--no-ff", "-m", "Merge branch 'side'", "side")
+	commits, err := gitCommits(t.Context(), dir, "HEAD~2..HEAD")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "Add version"}) != 1 {
-		t.Error("invalid title accepted")
+	if len(commits) != 2 {
+		t.Fatalf("commits = %+v, want the Dependabot and side commits without the merge", commits)
 	}
-	if run(t.Context(), []string{"title", "-docs", repoDocs}) != 2 {
-		t.Error("title without -range or -title must exit 2")
+	if code := run(t.Context(), []string{"dco", "-C", dir, "-range", "HEAD~2..HEAD"}); code != 0 {
+		t.Errorf("dco on a signed commit, a Dependabot commit and a merge = %d, want 0", code)
 	}
-	if run(t.Context(), []string{"title", "-docs", repoDocs, "-title", "feat: x", "-range", "HEAD~1..HEAD"}) != 2 {
-		t.Error("title with both -range and -title must exit 2")
-	}
-	if run(t.Context(), []string{"title", "-docs", filepath.Join(t.TempDir(), "missing"), "-title", "feat: x"}) != 2 {
-		t.Error("unreadable docs directory must exit 2")
+	git(t, dir, "commit", "-q", "--allow-empty", "-m", "fix: unsigned")
+	if code := run(t.Context(), []string{"dco", "-C", dir, "-range", "HEAD~3..HEAD"}); code != 1 {
+		t.Errorf("dco on a range holding an unsigned commit = %d, want 1", code)
 	}
 }
 
-func TestDocSlugs(t *testing.T) {
-	docs := fstest.MapFS{
-		"README.md":                              {},
-		"glossary.md":                            {},
-		"architecture/03-data-plane.md":          {},
-		"adr/0001-implementation-language-go.md": {},
-		"_meta/manifest.yaml":                    {},
-		"_meta/research/scalability-patterns.md": {},
-	}
-	got, err := docSlugs(docs)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := []string{"data-plane", "glossary", "implementation-language-go", "readme", "scalability-patterns"}
-	if !slices.Equal(got, want) {
-		t.Errorf("docSlugs = %v, want %v", got, want)
-	}
-	if _, err := docSlugs(fstest.MapFS{"x.txt": {}}); err == nil {
-		t.Error("a tree without documents must be an error")
-	}
-	// The repository's own documents yield the documented example.
-	repo, err := docSlugs(os.DirFS(repoDocs))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, slug := range []string{"data-plane", "configuration-model", "repository-layout-and-conventions", "roadmap-and-milestones"} {
-		if !slices.Contains(repo, slug) {
-			t.Errorf("repository documents lack slug %q", slug)
+// TestRunUsage checks the usage errors, the commit checks other than the
+// DCO sign-off among them: commitcheck has no title, deprecations or
+// golden command.
+func TestRunUsage(t *testing.T) {
+	for _, args := range [][]string{
+		nil,
+		{"nope"},
+		{"title", "-range", "HEAD~1..HEAD"},
+		{"title", "-title", "feat(cli): add version"},
+		{"deprecations", "-range", "HEAD~1..HEAD"},
+		{"golden", "-range", "HEAD~1..HEAD"},
+		{"dco"},
+		{"dco", "-range"},
+		{"dco", "-unknown", "x", "-range", "HEAD~1..HEAD"},
+	} {
+		if code := run(t.Context(), args); code != 2 {
+			t.Errorf("run(%q) = %d, want 2", args, code)
 		}
 	}
 }

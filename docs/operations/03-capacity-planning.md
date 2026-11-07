@@ -2,15 +2,15 @@
 
 ## Summary
 
-This document turns workload figures into Node counts, container sizes, State Store shards and Ruralz Control replicas, with coefficients citing [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), three worked examples, headroom, autoscaling bounds, costs and re-planning triggers. Every coefficient is a (target) or (hypothesis) until a published release record replaces it (P10). Its readers are operators sizing a Cell and architects checking Cell ceilings.
+This document turns workload figures into Node counts, container sizes, State Store shards and Ruralz Control replicas, with its own coefficients, three worked examples, headroom, autoscaling bounds, costs and re-planning triggers. Every coefficient carries a (target) or (hypothesis) tag (P10). Its readers are operators sizing a Cell and architects checking Cell ceilings.
 
 ## Scope and non-goals
 
-In scope: sizing Ruralz Gateway Nodes, each Cell's State Store, Ruralz Control replicas and the Control Store in one Region; Planned (M4) multi-region pre-provisioning applies it per Region. "Pack 8.x" cites the [foundation pack](../_meta/foundation-pack.md). Measured sizes replace interim values once F2, the memory runs and Data plane's cache layout publish.
+In scope: sizing Ruralz Gateway Nodes, each Cell's State Store, Ruralz Control replicas and the Control Store in one Region; Planned (M4) multi-region pre-provisioning applies it per Region. "Pack 8.x" cites the [foundation pack](../_meta/foundation-pack.md).
 
 Non-goals, with owners:
 
-- Budget values and method: [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md), which wins on conflict.
+- Per-Node limits and caps: [Data plane](../architecture/03-data-plane.md#bounded-resources), [Scalability](../architecture/11-scalability-and-distributed-state.md#per-node-limits) and the other documents that own them, which win on conflict.
 - Ceilings, accuracy bounds and autoscaling signals: [Scalability and distributed state](../architecture/11-scalability-and-distributed-state.md).
 - Topologies and starting sizes: [Deployment topologies](01-deployment-topologies.md), whose [Sizing defaults](01-deployment-topologies.md#sizing-defaults) this model replaces.
 - Rollout pacing and Control Store internals: [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md); upgrade order: [Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md).
@@ -23,7 +23,7 @@ Collect one row per Route class: Routes sharing protocol, Filter Chain (`ruralz 
 | Input | Symbol | Source |
 |---|---|---|
 | Peak rate per Route class | λ_r | `ruralz_http_requests_total` by `route`, or a forecast |
-| Closest benchmark scenario | c_base | S1, S2, S3 or S7 ([Scenarios](../architecture/12-performance-budgets-and-benchmarking.md#scenarios)) |
+| Closest workload class | c_base | Plain HTTP/1.1 proxying; HTTP/1.1 with `auth.jwt` and `ratelimit`; the same over HTTP/2 and TLS 1.3; gRPC unary (K-1) |
 | Upstream legs; parallel steps | k_r; q_r | The Route's `composition` steps |
 | Merged body; AI prompt size (KiB) | β_r; e_r | Access-log `response_bytes`, `request_bytes` by `route` |
 | Plugin Phase calls per request | p_r | `Plugin.spec.phases` of attached `plugin` Policies |
@@ -40,7 +40,7 @@ Collect one row per Route class: Routes sharing protocol, Filter Chain (`ruralz 
 | Zones; Regions | Z; R_g | Topology |
 | Nodes planned, at maxReplicas, serving; largest Rollout batch | N; N_max; N_serving; n_batch | This model; autoscaler; `ruralz_control_cluster_nodes`; [Rollout plan](../architecture/04-control-plane-and-gitops.md#rollout-plan-batches-and-gates): N under `all-at-once`, half the non-canary Nodes under `canary` (target) |
 | Nodes of one Ruralz Control deployment | N_all | Σ `ruralz_control_connected_nodes` over replicas and Clusters |
-| Environments; Revision, diff and source sizes | E; s_rev, s_diff, s_src | Ruralz Control; s_diff ≈ 0.1 × s_rev, s_src ≈ s_rev (hypothesis), OQ-capacity-planning-3 |
+| Environments; Revision, diff and source sizes | E; s_rev, s_diff, s_src | Ruralz Control; s_diff ≈ 0.1 × s_rev, s_src ≈ s_rev (hypothesis) |
 | Revisions kept per Environment; older referenced ones | n_keep; n_ref | 50 (target), a [Control plane](../architecture/04-control-plane-and-gitops.md#building-and-recording-a-revision) policy; older referenced ones (active, Last-Known-Good, promoted), 3 until measured (hypothesis), OQ-capacity-planning-9 |
 | Audit per day and days kept; Raft log; backups kept | d_audit; L_raft; n_bk | 10 MiB for 365 days, 1 GiB, 14 until measured (hypothesis); audit has no retention period (OQ-capacity-planning-9) |
 | Growth and outage headroom | h | 30% (target), [Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability) |
@@ -57,7 +57,7 @@ flowchart LR
     st["Connections, streams, chunk and message rates"]
     ssin["State Store calls per request, keys, hot keys"]
     fl["Deployment inputs: Nodes, Environments, Revision size"]
-    coef["Coefficients: Performance Budgets and interim owners"]
+    coef["Coefficients: this document and design owners"]
     cpu["CPU demand U"]
     units["Connections, in-flight units, buffered bytes"]
     hr["Headroom: zone fraction, h = 30% (target)"]
@@ -102,32 +102,32 @@ flowchart LR
 
 ### Coefficients
 
-Every coefficient cites [Performance budgets and benchmarking](../architecture/12-performance-budgets-and-benchmarking.md) (PB) or, where PB has no value yet, its owner and the Open question that adds it to PB. Configuration defaults cite their owner; retention counts are policies in [Planning inputs](#planning-inputs). PB adopts the latest published release record ([Production comparison](../architecture/12-performance-budgets-and-benchmarking.md#production-comparison)). The first RH-1 budget runs replace each coefficient they measure with its cited measurement from the `0.1.0` candidate's release records, linking the record, and every worked example is re-derived from them; targets stay unchanged, and later release records update the coefficients through the Coefficients re-planning trigger. CPU values are per 4-vCPU RH-1 core set; other hardware needs its own ladder run.
+Each coefficient is this document's own (target) or (hypothesis), or a value its Owner fixes; configuration defaults cite their owner, and retention counts are policies in [Planning inputs](#planning-inputs). CPU coefficients count microseconds of one dedicated core (hypothesis), so a Node on other hardware shows its difference through the CPU above plan trigger ([Re-planning triggers](#re-planning-triggers)).
 
-| ID | Coefficient | Value | PB row | Interim owner |
-|---|---|---|---|---|
-| K-1 | c_base, CPU per request: S1, S2, S3, S7; Δ_redis, per blocking `redis` call | 80, 125, 142, 133 µs; 20 µs (target) | [Resources per core](../architecture/12-performance-budgets-and-benchmarking.md#resources-per-core), [Throughput targets](../architecture/12-performance-budgets-and-benchmarking.md#throughput-targets) | PB |
-| K-2 | c_leg, per extra upstream leg; c_merge, per KiB merged | 14 µs; 30 µs (hypothesis) | [Per-stage budget](../architecture/12-performance-budgets-and-benchmarking.md#per-stage-latency-budget) | PB; OQ-capacity-planning-4 |
-| K-3 | c_plg, per Plugin Phase call; c_chunk, per chunk or message | 30 µs; 12 µs (target) | Throughput targets, S4, S6 | PB |
-| K-4 | c_est, per prompt KiB estimated; c_hs, per TLS 1.3 handshake | 25 µs; 500 µs (hypothesis) | Per-stage budget; Resources per core | PB |
-| K-5 | M_fix: loaded RSS, `maxBufferedBytes`, state tables; m_route per Route (PB-6) | 256 + 512 + 475 = 1,243 MiB; 2 KB (target) | [Memory budget](../architecture/12-performance-budgets-and-benchmarking.md#memory-budget) | PB |
-| K-6 | m_tls, TLS connection or WebSocket session; m_clear, cleartext or upstream connection | 96 KiB; 24 KiB (target) | Memory budget | PB |
-| K-7 | m_unit: request or step; stream pump | 64 KiB plus headers (hypothesis); 32 KiB (target) | Memory budget | [Data plane](../architecture/03-data-plane.md#streaming) |
-| K-8 | Flood: m_c per connection; m_u per unit at a 256 KiB header block | 592 KiB; 320 KiB (hypothesis) | [Constants](../architecture/12-performance-budgets-and-benchmarking.md#constants-the-suite-verifies) | [Data plane](../architecture/03-data-plane.md#bounded-resources) |
-| K-9 | C_max; I_max; n_str per HTTP/2 connection; M_rej, 2,000 pre-routing writes of 256 KiB | 20,000; 20,000; 250; 500 MiB (target) | Constants | Data plane |
-| K-10 | m_share, 32 KiB per subscribed stream from a 128 MiB share | About 4,000 streams (hypothesis) | Pending (OQ-capacity-planning-4) | Data plane |
-| K-11 | u_s, units per SSE response; per WebSocket session | 1; 3 (hypothesis) | [Milestone plan](../architecture/12-performance-budgets-and-benchmarking.md#milestone-plan), M3 session memory; units pending (OQ-capacity-planning-4) | Data plane; OQ-capacity-planning-1 |
-| K-12 | q_shard, GCRA calls per shard at 70% script CPU | About 100,000 per second (hypothesis) | Throughput targets, G1 | [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing) |
-| K-13 | State Store connections per shard per Node | 2 plus 8 (target) | Constants | Scalability |
-| K-14 | m_key, bytes per limit or Quota key; calls per Node for an unknown mix | 128 B; 5,000 per second (hypothesis) | Pending; G1 counts calls, not bytes (OQ-capacity-planning-2) | This document; [Sizing defaults](01-deployment-topologies.md#sizing-defaults) |
-| K-15 | Control Streams; Snapshots per second, per replica | 5,000; 20 (hypothesis) | [Control-plane timing](../architecture/12-performance-budgets-and-benchmarking.md#control-plane-scale-timing), F2 | [Control plane](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure) |
-| K-16 | Heartbeat interval | 15 s (target) | None (configuration default) | Control plane |
-| K-17 | Largest batch at 10,000 Nodes | 5 minutes (target) | Control-plane timing | Control plane |
-| K-18 | K retired snapshots; grace; snapshot heap per Route | 2; 30 s; 0.5 KB (target) | Constants; [Reload](../architecture/12-performance-budgets-and-benchmarking.md#startup-and-reload-time-by-configuration-size) | Data plane |
-| K-19 | s_rev per resource; replica container; Enrollments per second per leader | About 1.5 KiB; 2 vCPU, 4 GiB; about 20 (hypothesis) | Pending (OQ-capacity-planning-3) | This document; Sizing defaults; [RA-3](01-deployment-topologies.md#ra-3-multi-region-active-active-with-cells) |
-| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | [Benchmark suite](../architecture/12-performance-budgets-and-benchmarking.md#benchmark-suite-and-ci-gating), SM-10 | [Vision](../vision/01-vision-and-positioning.md#success-metrics); OQ-vision-and-positioning-15 |
-| K-21 | P_plg, `limits.maxPluginMemoryBytes` default | 2 GiB (target) | Memory budget | WASM plugin system |
-| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | [GOGC and GOMEMLIMIT](../architecture/12-performance-budgets-and-benchmarking.md#gogc-and-gomemlimit) rule 1 for 0.9; Throughput targets, G1, for 0.5; 0.7 and 0.5 pending (OQ-capacity-planning-2) | [Scale unit](../architecture/11-scalability-and-distributed-state.md#scale-unit); Cell sizing |
+| ID | Coefficient | Value | Owner |
+|---|---|---|---|
+| K-1 | c_base, CPU per request: plain HTTP/1.1 proxying of a 1 KiB response; HTTP/1.1 with `auth.jwt` and `ratelimit` on the `memory` driver; the same over HTTP/2 and TLS 1.3; gRPC unary with a 1 KiB message; Δ_redis, per blocking `redis` call | 80, 125, 142, 133 µs; 20 µs (target) | This document |
+| K-2 | c_leg, per extra upstream leg; c_merge, per KiB merged | 14 µs; 30 µs (hypothesis) | This document |
+| K-3 | c_plg, per Plugin Phase call; c_chunk, per chunk or message | 30 µs; 12 µs (target) | This document |
+| K-4 | c_est, per prompt KiB estimated; c_hs, per TLS 1.3 handshake | 25 µs; 500 µs (hypothesis) | This document |
+| K-5 | M_fix: loaded RSS, `maxBufferedBytes`, state tables; m_route per Route | 256 + 512 + 475 = 1,243 MiB; 2 KB (target) | This document; `maxBufferedBytes`: [Configuration model](../architecture/02-configuration-model.md#body-buffering-and-limits); state tables: [Per-Node limits](../architecture/11-scalability-and-distributed-state.md#per-node-limits) |
+| K-6 | m_tls, TLS connection or WebSocket session; m_clear, cleartext or upstream connection | 96 KiB; 24 KiB (target) | This document |
+| K-7 | m_unit: request or step; stream pump | 64 KiB plus headers (hypothesis); 32 KiB (target) | [Data plane](../architecture/03-data-plane.md#streaming) |
+| K-8 | Flood: m_c per connection; m_u per unit at a 256 KiB header block | 592 KiB; 320 KiB (hypothesis) | [Data plane](../architecture/03-data-plane.md#bounded-resources) |
+| K-9 | C_max; I_max; n_str per HTTP/2 connection; M_rej, 2,000 pre-routing writes of 256 KiB | 20,000; 20,000; 250; 500 MiB (target) | Data plane |
+| K-10 | m_share, 32 KiB per subscribed stream from a 128 MiB share | About 4,000 streams (hypothesis) | Data plane |
+| K-11 | u_s, units per SSE response; per WebSocket session | 1; 3 (hypothesis) | Data plane; OQ-capacity-planning-1 |
+| K-12 | q_shard, GCRA calls per shard at 70% script CPU | About 100,000 per second (hypothesis) | [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing) |
+| K-13 | State Store connections per shard per Node | 2 plus 8 (target) | Scalability |
+| K-14 | m_key, bytes per limit or Quota key; calls per Node for an unknown mix | 128 B; 5,000 per second (hypothesis) | This document; [Sizing defaults](01-deployment-topologies.md#sizing-defaults) |
+| K-15 | Control Streams; Snapshots per second, per replica | 5,000; 20 (hypothesis) | [Control plane](../architecture/04-control-plane-and-gitops.md#heartbeat-and-backpressure) |
+| K-16 | Heartbeat interval, a configuration default | 15 s (target) | Control plane |
+| K-17 | Largest batch at 10,000 Nodes | 5 minutes (target) | Control plane |
+| K-18 | K retired snapshots; grace; snapshot heap per Route | 2; 30 s; 0.5 KB (target) | [Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload) for K and the grace period; this document for the heap |
+| K-19 | s_rev per resource; replica container; Enrollments per second per leader | About 1.5 KiB; 2 vCPU, 4 GiB; about 20 (hypothesis) | This document; Sizing defaults; [RA-3](01-deployment-topologies.md#ra-3-multi-region-active-active-with-cells) |
+| K-20 | e, prompt estimate error (SM-10) | 2% (hypothesis) | [Vision](../vision/01-vision-and-positioning.md#success-metrics); OQ-vision-and-positioning-15 |
+| K-21 | P_plg, `limits.maxPluginMemoryBytes` default | 2 GiB (target) | WASM plugin system |
+| K-22 | `GOMEMLIMIT` share of container; `maxmemory` use; shard GCRA share | 0.9; 0.7; 0.5 (target) | [Scale unit](../architecture/11-scalability-and-distributed-state.md#scale-unit) for 0.9; Cell sizing for 0.7 and 0.5 |
 
 ### Formulas
 
@@ -205,7 +205,7 @@ Every `https` listener negotiates HTTP/2 by ALPN and every `http` listener accep
 
 ## Worked examples
 
-Every figure below is a (target) for a three-zone Cell (Z = 3, u_z = 0.53, f_z = 0.5), h = 30% (target). [H] marks lines resting on a (hypothesis) coefficient, re-derived when its benchmark publishes.
+Every figure below is a (target) for a three-zone Cell (Z = 3, u_z = 0.53, f_z = 0.5), h = 30% (target). [H] marks lines resting on a (hypothesis) coefficient.
 
 ### Example 1: REST aggregation at 20k rps (target)
 
@@ -262,7 +262,7 @@ An assistant streams completions over SSE and TLS from one `ai` Upstream, 500 st
 | Input | Value |
 |---|---|
 | Streams S = S_sub; new streams λ | 500; 25 per second over 20 s each (target) |
-| Chunk rate | 100 per second, the S6 rate (target) |
+| Chunk rate | 100 per second (target) |
 | Prompt; output cap C | 16 KiB, about 2,000 tokens; `max_tokens` 4,096 (target) |
 | State Store | s = 1 reservation, w = 1 settlement; 2,000 Consumers with monthly token Quotas, none above 1% of streams (target) |
 
@@ -363,19 +363,16 @@ Capacity covers peak plus h on the survivors of the largest single failure. Fail
 | State Store primary failover | A replica per shard across zones | Rate Limits fail open within N_serving × ceiling for about 15 s (hypothesis), pack 8.8 | [State Store availability](../architecture/11-scalability-and-distributed-state.md#state-store-availability) |
 | Hot key | Above 25% of a shard: `config.localOnly`, a declared per-Node ceiling, a split `config.key` or its own Cell | λ_key × (1 + h) ≤ about 25,000; λ_slot × (1 + h) ≤ 50,000 per second (hypothesis) | [Rate limits](../architecture/11-scalability-and-distributed-state.md#distributed-rate-limits) |
 | Reconnect storm (zone loss, Drain, snapshot retirement) | Handshakes and upgrade GCRA calls fit | λ_storm × (c_hs + c_up) ≤ 10% of survivor CPU (target); W_rc ≥ W_rc,min (hypothesis) | This document |
-| Hot Reload under load | Configuration memory and reload time | (K + 2) × snapshot; 1 s at 5,000 Routes (target) | [Reload time](../architecture/12-performance-budgets-and-benchmarking.md#startup-and-reload-time-by-configuration-size) |
-| Zero-Downtime Upgrade on a VM | For planning, two processes, each `GOMEMLIMIT` at M_flood ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target); verified shared ceilings below | [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md) |
+| Hot Reload under load | Configuration memory | (K + 2) × snapshot (target) | [Data plane](../architecture/03-data-plane.md#configuration-snapshots-and-hot-reload) |
+| Zero-Downtime Upgrade on a VM | Two processes, each `GOMEMLIMIT` at M_flood ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Host memory ≥ 2 × container (hypothesis): 26 GiB for Example 1 (target) | [Zero-downtime upgrades](02-zero-downtime-upgrades-and-hot-reload.md) |
 | Ruralz Control replica or zone loss | Survivors at 80% of shedding onset | r_min (hypothesis) | [Scaling](../architecture/11-scalability-and-distributed-state.md#scaling-ruralz-control-and-the-state-store) |
 
-Once shared ceilings are verified, the new process runs under 90% of the limit minus the old RSS (target), admitting each ceiling minus the old process's usage. Independent limits below M_flood are not allowed: halving memory does not merely halve C_cap, as the 6,250 MiB (hypothesis) unit term is fixed, so a mid-Drain flood would OOM-kill a process.
+During a handover the new process runs under 90% of the limit minus the old RSS (target), admitting each ceiling minus the old process's usage ([In-place handover](02-zero-downtime-upgrades-and-hot-reload.md#in-place-handover)). Independent limits below M_flood are not allowed: halving memory does not merely halve C_cap, as the 6,250 MiB (hypothesis) unit term is fixed, so a mid-Drain flood would OOM-kill a process.
 
 ```text
 VM host memory during a handover
   planning:      host ≥ 2 × container                                            (hypothesis)
                  Example 1: 2 × 13 GiB = 26 GiB                                   (target) [H]
-  verified shared ceilings: host ≥ container + overlap extra, about 0.6 GiB
-                 plus (K + 2) × s_snap                                            (hypothesis)
-                 Example 1: 13 GiB + 0.6 GiB + 1 MiB ≈ 13.6 GiB                   (target) [H]
   independent split: 0.45 × host ≥ M_flood at C_cap', so
                  C_cap' = (0.45 × host − M_flood without the C_cap × m_c term) / m_c  (hypothesis)
                  Example 1 floor without connections: 1,245 + 500 + 6,250 + 469
@@ -385,7 +382,7 @@ VM host memory during a handover
                  no split below the 26 GiB of planning                            (target) [H]
 ```
 
-At 80% of saturation, S2 allows a 2 ms gateway-added p99 (target, PB-16), so a zone loss burns SLO-GW-2 until OQ-performance-budgets-and-benchmarking-13 decides; a Cluster that must hold 1 ms (target) plans with u_z = 0.6 × (Z − 1) / Z (target).
+Zone-loss survivors run at up to 80% of saturation. Gateway-added p99 holds the 1 ms of SLO-GW-2 ([SLO definitions](../architecture/10-observability.md#slo-definitions)) at 60% of saturation (hypothesis) but can exceed it at 80% (hypothesis), so a zone loss burns SLO-GW-2; a Cluster that must hold 1 ms (target) through it plans with u_z = 0.6 × (Z − 1) / Z (target) (OQ-capacity-planning-6).
 
 ## Autoscaling policies
 
@@ -432,7 +429,7 @@ Sizing rules:
 - GCRA runs at up to 50% of q_shard (hypothesis), leaving margin under 70% script CPU for a Node count lagging 40% (hypothesis): 16 shards (target) carry 800,000 calls per second, 615,000 at peak with h (hypothesis), matching [Cell sizing](../architecture/11-scalability-and-distributed-state.md#cell-sizing).
 - A hot key cannot be split and hash tags gather a Consumer's keys, so λ_key and λ_slot are checked apart ([Hot key](#headroom-and-failure-capacity)).
 - Memory stays under 70% of `maxmemory` (target) with `noeviction` wherever limit, Quota or Token Budget keys live. `maxclients` MUST exceed 10 × N_serving above 900 Nodes and SHOULD exceed 10 × N_max (target).
-- Two of three zones reach a zonal primary at a 2 ms p99 (hypothesis), PB-14; `stateStoreTimeout` stays at 5 to 10 ms (target).
+- Two of three zones reach a zonal primary at a 2 ms p99 (hypothesis); `stateStoreTimeout` stays at 5 to 10 ms (target).
 - Persistence SHOULD be on where Quota or Token Budget windows exceed one day (OQ-scalability-and-distributed-state-13); Response Cache entries never share a deployment with Token Budget keys: beside them, `cache` runs only on its own `stateStore.cache` deployment ([Distributed caches](../architecture/11-scalability-and-distributed-state.md#distributed-caches)).
 - A layout change adds no calls (pack 8.7). Only Quota counters on the switch-boundary path may admit up to twice the Consumer quota for one window per Node lacking the signal (hypothesis); GCRA and Token Budget counters admit nothing extra ([Layout changes](../engineering/04-release-versioning-and-compatibility.md#state-store-layout-changes)).
 - Limits are exact only inside one Cell ([bounds](../architecture/11-scalability-and-distributed-state.md#consistency-and-accuracy-bounds)), so a Consumer reaching C_cells Cells gets up to C_cells × each limit (target), so a split pins each Consumer to one Cell by hostname or tenant, or divides limits with one Environment per Cell ([Divided](../architecture/11-scalability-and-distributed-state.md#regional-versus-global-quotas)).
@@ -451,7 +448,7 @@ Ruralz Control, Planned (M2), is off the request path, so its size follows Node 
 | Audit, Raft log, two Raft snapshots | 3.6 + 1 + 0.2 GiB (target) [H] |
 | Volume per replica | D_store 7.5 GiB / 0.7, so 20 GiB (target) [H] |
 | Audit growth, no retention period | 10 MiB per day: 70% of the volume after about 1,030 days (target) [H] |
-| Replica container | 2 vCPU, 4 GiB until F2 (target) [H] |
+| Replica container | 2 vCPU, 4 GiB (target) [H] |
 | Enrollment of a 90-Node step | 4.5 s (target) [H] |
 | `${RURALZ_DATA_DIR}` per Node | 2 × (s_rev + s_src) = 34 MiB, within 1 GiB (target) [H] |
 
@@ -483,7 +480,7 @@ Each trigger is measured or a checkable event, and reruns the model for its Cell
 |---|---|---|---|
 | Traffic growth | `ruralz_http_requests_total` peak | Above 1.15 × planned λ (target) | Recompute N and n_shard |
 | CPU above plan | Container CPU at peak | Above u_z on three days in seven (target) | Recompute c_r, then N |
-| Latency budget | `ruralz_http_gateway_duration_seconds` p99 | Above its Performance Budget for 5 minutes (target) | Profile, then re-plan |
+| Gateway-added latency | `ruralz_http_gateway_duration_seconds` p99 | Above the 1 ms of SLO-GW-2 for 5 minutes (target) | Profile, then re-plan |
 | Ceilings | `ruralz_listener_open_connections`; `ruralz_http_active_requests` × units per request; `ruralz_node_buffered_bytes` | Above the autoscaling thresholds at peak (target) | Recompute N_conn, N_unit, N_buf |
 | Overload | `RZ-RT-005` or `RZ-UP-006` in `ruralz_http_node_responses_total` | Any outside a declared incident (target) | Add Nodes or raise `maxConnections`, then re-plan |
 | Memory | `ruralz_runtime_heap_bytes` | Above 70% of `GOMEMLIMIT` at peak (target) | Resize containers |
@@ -497,7 +494,6 @@ Each trigger is measured or a checkable event, and reruns the model for its Cell
 | Rollout time | `ruralz_control_rollout_duration_seconds` p95 | Above 30 s at 100 Nodes (target) | Check Revision size and egress |
 | Configuration size | Routes; `ruralz_config_activation_duration_seconds{stage="total"}` p99 | R crosses 1,000, 5,000 or 10,000, or reload above 1 s (target) | Recompute memory and reload |
 | Cell ceilings | Nodes; shards | Above 800 Nodes or 12 shards per Cell (target) | Plan a split with Consumer pinning |
-| Coefficients | Release record | Any moves by more than 10% (target) | Rerun every example |
 | Design change (event) | `ruralz bundle diff` against the active Revision; topology | New Policy type with a State Store call, protocol class, Region or zone count | Re-plan before shipping |
 
 Operators SHOULD also rerun the model at each minor upgrade ([Release cadence](../engineering/04-release-versioning-and-compatibility.md#release-cadence-and-support-windows)).
@@ -507,11 +503,8 @@ Operators SHOULD also rerun the model at each minor upgrade ([Release cadence](.
 | ID | Question | Options | Owner | Blocking? |
 |---|---|---|---|---|
 | OQ-capacity-planning-1 | Does an upgraded WebSocket session hold three in-flight units (upgrade plus two pumps) or two? | (a) Three (current); (b) two, lowering Example 3 to 54 Nodes (target) | data-plane | Yes, for WebSocket sizing (M3) |
-| OQ-capacity-planning-2 | Which bytes per key do limit, Quota and cache keys use, which per-Node call rate replaces K-14, and do K-22's 0.7 and 0.5 shares hold? | (a) G1 and S5 variants measure them (proposed); (b) keep K-14 | performance-budgets-and-benchmarking | No |
-| OQ-capacity-planning-3 | What are s_rev per resource, a replica's container and memory per Control Stream, and Enrollments per second per leader? | (a) F2 and R1 record them (proposed); (b) keep K-19 | performance-budgets-and-benchmarking | No |
-| OQ-capacity-planning-4 | Should PB verify stream-share admission (K-10) and the leg and merge costs K-2, and record units per session (K-11) in its M3 session-memory run? | (a) A composition scenario and a stream-share constant (proposed); (b) no | performance-budgets-and-benchmarking | No |
 | OQ-capacity-planning-5 | Should small or connection-heavy Nodes get a lower in-flight unit or HTTP/2 stream ceiling, since an L4 cap leaves 6,250 MiB (hypothesis) of unit memory in every flood floor and blocks VM handover memory splits? | (a) Fixed 20,000 units and 250 streams (current); (b) Gateway `limits` fields, with OQ-deployment-topologies-21 and OQ-data-plane-1 | data-plane | No |
-| OQ-capacity-planning-6 | Should a Cluster that must hold 1 ms p99 (target) through a zone loss plan at 60% of saturation? | (a) Operator choice (current); (b) mandatory, with OQ-performance-budgets-and-benchmarking-13 | scalability-and-distributed-state | No |
+| OQ-capacity-planning-6 | Should a Cluster that must hold 1 ms p99 (target) through a zone loss plan at 60% of saturation? | (a) Operator choice (current); (b) mandatory | scalability-and-distributed-state | No |
 | OQ-capacity-planning-7 | Should closing snapshots jitter stream closes across the grace period, as Drain does, and long-lived streams jitter their `timeout` end (OQ-scalability-and-distributed-state-6)? | (a) No, relying on client jitter W_rc (current); (b) jitter both over 30 s (target) | data-plane | No |
 | OQ-capacity-planning-8 | Should Observability add a per-Node in-flight-unit gauge, a stream-share gauge and per-Route active-stream and body-size series? | (a) Yes, proposing `ruralz_node_inflight_units` and `ruralz_node_stream_share_bytes`; (b) access logs (current) | observability | No |
 | OQ-capacity-planning-9 | Which retention period applies to audit segments, and how many Revisions older than the latest 50 per Environment stay referenced (n_ref)? | (a) A fixed audit period and a measured n_ref (proposed); (b) pruning audit after `ruralz control backup`; (c) none | control-plane-and-gitops | Yes, for Control Store sizing (M2) |

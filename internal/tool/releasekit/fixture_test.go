@@ -6,7 +6,6 @@ package main
 import (
 	"context"
 	"debug/buildinfo"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -29,14 +28,12 @@ func fixtureTime() time.Time { return time.Date(2026, 10, 1, 12, 30, 45, 0, time
 // fixtureNotice is the fixture repository's NOTICE.
 const fixtureNotice = "Ruralz\nCopyright 2026 Revington\n"
 
-// fixture is a repository root, build output, notices, an image layout
-// and benchmark records for package, with a stub git and stub build facts.
+// fixture is a repository root, build output, notices and an image layout
+// for package, with a stub git and stub build facts.
 type fixture struct {
 	root, dist, notices, out string
 	// image is the OCI layout of the fixture image; empty packages none.
-	image string
-	// bench holds the fixture's benchmark records.
-	bench   string
+	image   string
 	version string
 	// deps are the modules every fake binary links.
 	deps []*debug.Module
@@ -115,55 +112,8 @@ func newFixture(t *testing.T, version string) *fixture {
 		writeFile(t, filepath.Join(fx.notices, a.target(), noticeMember), fixtureNotice+"\nThird-party notices\n")
 		writeFile(t, filepath.Join(fx.notices, a.target(), thirdPartyMember), thirdPartyText("go1.27.3", fx.deps))
 	}
-	fx.bench = writeBench(t, version)
 	fx.writeImage(t, nil)
 	return fx
-}
-
-// benchRecordJSON is a ruralz.bench.v1 record as far as releasekit reads
-// it.
-func benchRecordJSON(scenario, kind, version string, histograms, profiles []string, summary map[string]any) map[string]any {
-	r := map[string]any{
-		"format": benchFormat,
-		"identity": map[string]any{
-			"scenario": scenario, "kind": kind, "commit": fixtureCommit, "version": version, "baseline": "", "toolchain": "go1.27.3",
-		},
-		"environment": map[string]any{"hardwareProfile": "RH-1"},
-		"latency":     map[string]any{"histogramFiles": histograms},
-		"resources":   map[string]any{"cpuProfileFiles": profiles},
-		"validity":    map[string]any{"verdict": "valid", "reasons": []any{}},
-		"budgets": []any{map[string]any{
-			"id": "SM-4", "value": "<= 1ms (target)", "result": "0.84ms", "slo": "SLO-GW-2", "verdict": "pass",
-		}},
-	}
-	if summary != nil {
-		r["summary"] = summary
-	}
-	return r
-}
-
-// writeBench writes the benchmark records of a release run into a fresh
-// directory: an S2 comparison summary over a head run, with its
-// histogram and CPU profile, and a single S1 run; and the rotation state,
-// which no archive ships. It holds three records.
-func writeBench(t *testing.T, version string) string {
-	t.Helper()
-	dir := filepath.Join(t.TempDir(), "bench")
-	write := func(rel string, v any) {
-		data, err := json.Marshal(v)
-		if err != nil {
-			t.Fatal(err)
-		}
-		writeFile(t, filepath.Join(dir, filepath.FromSlash(rel)), string(data))
-	}
-	write("S2/summary-comparison.json", benchRecordJSON("S2", "summary", version, []string{}, []string{},
-		map[string]any{"of": "comparison", "verdict": "none", "runs": []any{"run-1-head.json"}}))
-	write("S2/run-1-head.json", benchRecordJSON("S2", "macro", version, []string{"run-1-head.hlog"}, []string{"run-1-head.cpu.pprof"}, nil))
-	writeFile(t, filepath.Join(dir, "S2", "run-1-head.hlog"), "#[StartTime: 1790000000.000]\n")
-	writeFile(t, filepath.Join(dir, "S2", "run-1-head.cpu.pprof"), "pprof")
-	write("S1/run-1.json", benchRecordJSON("S1", "macro", version, []string{}, []string{}, nil))
-	write("state.json", map[string]any{"slot": 2, "requeued": []any{}})
-	return dir
 }
 
 // stubGit answers the commit time of fixtureCommit and fails otherwise.
@@ -212,7 +162,7 @@ func (fx *fixture) facts() func([]byte) (buildFacts, error) {
 func (fx *fixture) options() packageOptions {
 	return packageOptions{
 		root: fx.root, dist: fx.dist, notices: fx.notices, out: fx.out, version: fx.version, commit: fixtureCommit,
-		image: fx.image, bench: fx.bench,
+		image: fx.image,
 	}
 }
 

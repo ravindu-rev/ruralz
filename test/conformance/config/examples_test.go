@@ -27,7 +27,6 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/schemaview"
 	"github.com/ravindu-rev/ruralz/internal/config/tree"
 	"github.com/ravindu-rev/ruralz/internal/gateway/compile"
-	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
@@ -47,9 +46,6 @@ const (
 	// shopRestBundle is the part of it an M1 Node serves (configuration
 	// model "REST example Bundle").
 	shopRestBundle = "shop-rest-bundle"
-	// quickstartBundle is the Bundle of the scripted quickstart
-	// (Deployment topologies "Quickstart").
-	quickstartBundle = "quickstart"
 )
 
 // exampleSource is one document section that shows files of examples/: a
@@ -63,7 +59,6 @@ func exampleSources() []exampleSource {
 	return []exampleSource{
 		{configModelDoc, "## Complete annotated example Bundle", shopBundle},
 		{configModelDoc, "## REST example Bundle", shopRestBundle},
-		{topologiesDoc, "#### Quickstart", quickstartBundle},
 	}
 }
 
@@ -777,26 +772,24 @@ func secretProblems(res *pipeline.Result) []string {
 }
 
 // TestExampleBundlesServedInM1 checks that an M1 Node serves the REST
-// example Bundle and the quickstart Bundle in every render: the Node's
-// serve check (compile.Serve) refuses nothing, and every secretRef is one
-// a Node resolves in M1 (secretProblems). Both find every later-milestone
-// feature and secretRef of the shop-bundle, so the check is not vacuous.
+// example Bundle in every render: the Node's serve check (compile.Serve)
+// refuses nothing, and every secretRef is one a Node resolves in M1
+// (secretProblems). Both find every later-milestone feature and secretRef
+// of the shop-bundle, so the check is not vacuous.
 func TestExampleBundlesServedInM1(t *testing.T) {
 	s := mustSuite(t)
-	for _, x := range []string{shopRestBundle, quickstartBundle} {
-		renders := exampleRenders(t, s, x)
-		for _, r := range sortedKeys(renders) {
-			res := renders[r]
-			ds, err := compile.Serve(s.node, res.Validated, res.Files)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(ds) > 0 {
-				t.Errorf("%s, render %s: an M1 Node refuses\n%s", x, r, texts(ds))
-			}
-			if ps := secretProblems(res); len(ps) > 0 {
-				t.Errorf("%s, render %s: an M1 Node cannot resolve\n%s", x, r, strings.Join(ps, "\n"))
-			}
+	renders := exampleRenders(t, s, shopRestBundle)
+	for _, r := range sortedKeys(renders) {
+		res := renders[r]
+		ds, err := compile.Serve(s.node, res.Validated, res.Files)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(ds) > 0 {
+			t.Errorf("%s, render %s: an M1 Node refuses\n%s", shopRestBundle, r, texts(ds))
+		}
+		if ps := secretProblems(res); len(ps) > 0 {
+			t.Errorf("%s, render %s: an M1 Node cannot resolve\n%s", shopRestBundle, r, strings.Join(ps, "\n"))
 		}
 	}
 	shop := exampleRenders(t, s, shopBundle)[noEnv]
@@ -828,35 +821,6 @@ func TestExampleBundlesServedInM1(t *testing.T) {
 	}
 	if got := secretProblems(shop); !slices.Equal(got, wantSecrets) {
 		t.Errorf("secretProblems(shop-bundle) =\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(wantSecrets, "\n"))
-	}
-}
-
-// TestQuickstartBundle checks what quickstart.sh relies on in the
-// quickstart Bundle (Deployment topologies "Quickstart"): Route hello
-// takes every path to the one Endpoint of Upstream hello, 127.0.0.1:9000,
-// and quickstart-header acts on every response it returns, so a response
-// carrying x-quickstart came through the Filter Chain.
-func TestQuickstartBundle(t *testing.T) {
-	s := mustSuite(t)
-	res := exampleRenders(t, s, quickstartBundle)[noEnv]
-	f := diag.Field
-	if got := nodeAt(t, res, v1alpha1.KindRoute, "hello", f("spec"), f("match"), f("path"), f("prefix")); got != "/" {
-		t.Errorf("Route hello path prefix = %q, want /", got)
-	}
-	up, ok := res.Validated.Bundle.Upstream("hello")
-	if !ok || len(up.Spec.Endpoints) != 1 || up.Spec.Endpoints[0].Address != "127.0.0.1:9000" {
-		t.Errorf("Upstream hello = %+v, want the one Endpoint 127.0.0.1:9000", up)
-	}
-	c := res.Validated.Chains["hello"]
-	if c == nil {
-		t.Fatal("no chain for hello")
-	}
-	var names []string
-	for _, e := range c.Client[phase.OnResponse] {
-		names = append(names, e.Policy)
-	}
-	if !slices.Equal(names, []string{"quickstart-header"}) {
-		t.Errorf("Route hello onResponse = %q, want [quickstart-header]", names)
 	}
 }
 

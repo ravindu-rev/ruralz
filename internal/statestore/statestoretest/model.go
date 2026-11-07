@@ -224,8 +224,3 @@ func (m *Model) Refund(r statestore.Refund) bool {
 	m.counts[key] -= min(units, m.counts[key])
 	return true
 }
-
-// Count returns the counter of one Quota window.
-func (m *Model) Count(name string, window time.Duration, month bool, start time.Time, d statestore.Digest) int64 {
-	return m.counts[modelWindow(name, window, month, start.UnixMilli(), d)]
-}

@@ -23,11 +23,12 @@ import (
 // that never becomes valid. The cases with the real ruralzd are
 // integration-tagged (run_integration_test.go).
 
-// quickstart is the quickstart Bundle of docs/operations/01-deployment-topologies.md.
-const quickstart = `apiVersion: ruralz/v1alpha1
+// helloBundle is a minimal Bundle: one listener, Upstream hello and a
+// Route hello taking every path to it.
+const helloBundle = `apiVersion: ruralz/v1alpha1
 kind: Gateway
 metadata:
-  name: quickstart
+  name: hello
 spec:
   listeners:
     - name: http
@@ -80,7 +81,7 @@ func runOptions(t *testing.T, clk *clocktest.Fake) Options {
 // TestRunUsage checks the usage errors, exit 2 before any work.
 func TestRunUsage(t *testing.T) {
 	dir := t.TempDir()
-	src := writeFile(t, dir, "bundle.yaml", quickstart)
+	src := writeFile(t, dir, "bundle.yaml", helloBundle)
 	envs := writeFile(t, dir, "environments.yaml", "apiVersion: ruralz/v1alpha1\nkind: Environment\nmetadata:\n  name: dev\nspec: {}\n")
 	for _, c := range []struct {
 		args   []string
@@ -106,7 +107,7 @@ func TestRunUsage(t *testing.T) {
 // unusable secret overrides file, no ruralzd to launch.
 func TestRunRefusedInputs(t *testing.T) {
 	dir := t.TempDir()
-	src := writeFile(t, dir, "bundle.yaml", quickstart)
+	src := writeFile(t, dir, "bundle.yaml", helloBundle)
 	missing := filepath.Join(dir, "absent")
 	noEnv := writeFile(t, dir, "empty-envs.yaml", "")
 	badOverrides := writeFile(t, dir, "overrides.yaml", "nocolon: x\n")
@@ -148,7 +149,7 @@ func TestRunWatchesInvalidFirstRender(t *testing.T) {
 	t.Setenv("TEMP", tmp)
 	clk := clocktest.New(epoch())
 	dir := t.TempDir()
-	bad := strings.Replace(quickstart, "    - name: hello\n", "    - name: missing\n", 1)
+	bad := strings.Replace(helloBundle, "    - name: hello\n", "    - name: missing\n", 1)
 	src := writeFile(t, dir, "bundle.yaml", bad)
 	inv := start(t, runOptions(t, clk), nil, "dev", "run", src, "--ruralzd", selfBinary(t))
 	waitFor(t, "the first diagnostics", func() bool { return strings.Count(inv.stderr.String(), "RZ-CFG-009") == 1 && clk.Pending() == 1 })
@@ -192,7 +193,7 @@ func TestRunWatchesInvalidFirstRender(t *testing.T) {
 func TestRunSignalWithoutChild(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
 	clk := clocktest.New(epoch())
-	src := writeFile(t, t.TempDir(), "bundle.yaml", strings.Replace(quickstart, "    - name: hello\n", "    - name: missing\n", 1))
+	src := writeFile(t, t.TempDir(), "bundle.yaml", strings.Replace(helloBundle, "    - name: hello\n", "    - name: missing\n", 1))
 	o := runOptions(t, clk)
 	sigs := make(chan chan<- os.Signal, 1)
 	o.Notify = func(c chan<- os.Signal, _ ...os.Signal) { sigs <- c }
@@ -214,7 +215,7 @@ func TestRunSignalWithoutChild(t *testing.T) {
 // severities are colored; NO_COLOR keeps them plain.
 func TestRunFailureColors(t *testing.T) {
 	t.Setenv("TMPDIR", t.TempDir())
-	src := writeFile(t, t.TempDir(), "bundle.yaml", strings.Replace(quickstart, "    - name: hello\n", "    - name: missing\n", 1))
+	src := writeFile(t, t.TempDir(), "bundle.yaml", strings.Replace(helloBundle, "    - name: hello\n", "    - name: missing\n", 1))
 	for _, c := range []struct {
 		environ []string
 		want    string

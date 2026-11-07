@@ -20,7 +20,7 @@ import (
 )
 
 // maxArchiveBytes bounds the uncompressed content verify reads from one
-// archive: ruralzd's stripped budget is 160 MiB (target), so 1 GiB leaves
+// archive: 1 GiB is several times a stripped release binary, so it leaves
 // room while stopping a corrupt archive from exhausting memory.
 const maxArchiveBytes = 1 << 30
 

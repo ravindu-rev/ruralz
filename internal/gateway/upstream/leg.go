@@ -308,7 +308,7 @@ func (ls *legState) run(ctx context.Context) (*snapshot.UpstreamResponse, error)
 	if g := ls.leg.Begin(u.rt.res, &u.res, ls.o.Deadline, u.bal.bal.Len()); g != resilience.GateNone {
 		return nil, &LegError{Upstream: u.name, Err: g.Err()}
 	}
-	ls.hashKey(ctx)
+	ls.hashKey()
 loop:
 	for {
 		a, g := ls.leg.StartAttempt()
@@ -338,16 +338,15 @@ loop:
 	return ls.end(ctx)
 }
 
-// hashKey evaluates the ring-hash key once per leg, over the Base
-// variables under the Route deadline (baseVars); retries reuse it. A
+// hashKey evaluates the ring-hash key once per leg; retries reuse it. A
 // runtime error picks weighted random Endpoints for the whole leg and is
 // counted in ruralz_upstream_cel_errors_total{field="hashKey"}.
-func (ls *legState) hashKey(ctx context.Context) {
+func (ls *legState) hashKey() {
 	u := ls.u
 	if u.alg != balance.RingHash || u.hashKey == nil {
 		return
 	}
-	k, err := u.hashKey.EvalString(ctx, ls.baseVars())
+	k, err := u.hashKey.EvalString(ls.base)
 	if err != nil {
 		ls.random = true
 		u.metrics.CELErrors[emit.CELHashKey].Add(ls.o.Stripe, 1)
@@ -616,7 +615,7 @@ func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, er
 		return stepStop, nil, nil
 	}
 	v := ls.legVars(a.Number, nil, kind, endpoint)
-	failed := ls.failureWhen(ctx, v)
+	failed := ls.failureWhen(v)
 	if tracked {
 		ls.ha.End(ls.now(), health.Outcome{Failed: failed, Cause: cause, Passive: u.passive, Stripe: ls.o.Stripe})
 	}
@@ -643,7 +642,7 @@ func (ls *legState) onError(ctx, actx context.Context, a *resilience.Attempt, er
 		in.FilterRetry = retry
 	}
 	if !in.FilterRetry {
-		in.RetryOn = ls.retryOn(ctx, v)
+		in.RetryOn = ls.retryOn(v)
 	}
 	return ls.decide(in), nil, nil
 }
@@ -679,7 +678,7 @@ func (ls *legState) onResponse(ctx, sctx context.Context, a *resilience.Attempt,
 	httpfield.StripNamed(resp.Trailer, end.connOpts)
 	end.status = resp.StatusCode
 	v := ls.legVars(a.Number, resp, resilience.KindNone, endpoint)
-	failed := ls.failureWhen(ctx, v)
+	failed := ls.failureWhen(v)
 	if tracked {
 		ls.ha.End(now, health.Outcome{Failed: failed, Passive: u.passive, Stripe: ls.o.Stripe})
 	}
@@ -702,7 +701,7 @@ func (ls *legState) onResponse(ctx, sctx context.Context, a *resilience.Attempt,
 	}
 	in := resilience.RetryInput{FilterRetry: filterRetry, Replayable: ls.replayable(), RetryAfter: resp.Header.Get("Retry-After")}
 	if !filterRetry {
-		in.RetryOn = ls.retryOn(ctx, v)
+		in.RetryOn = ls.retryOn(v)
 	}
 	if ls.decide(in) == stepRetry {
 		// The slot and the in-flight count go now; the body is drained
@@ -871,31 +870,16 @@ func (ls *legState) unpark() {
 	ls.park = parked{}
 }
 
-// baseVars returns the leg's own copy of the client's Base variables
-// (Outbound.X's activation, which concurrent legs share and none writes)
-// under the Route deadline Outbound.Deadline: the request deadline at
-// which hashKey, retryOn and failureWhen stop a tracked comprehension
-// (docs/architecture/02-configuration-model.md "Limits").
-func (ls *legState) baseVars() *expr.Vars {
+// legVars returns the leg activation of retryOn and failureWhen: the
+// client request (without body), the response or the error, the attempt
+// and the upstream (name and Endpoint).
+func (ls *legState) legVars(attempt int, resp *http.Response, kind resilience.Kind, endpoint string) *expr.Vars {
 	v := &ls.vars
 	if ls.base != nil {
 		*v = *ls.base
 	} else {
 		*v = expr.Vars{}
 	}
-	v.Deadline = time.Time{}
-	if ls.o != nil {
-		v.Deadline = ls.o.Deadline
-	}
-	return v
-}
-
-// legVars returns the leg activation of retryOn and failureWhen: the
-// client request (without body), the response or the error, the attempt
-// and the upstream (name and Endpoint), under the Route deadline
-// (baseVars).
-func (ls *legState) legVars(attempt int, resp *http.Response, kind resilience.Kind, endpoint string) *expr.Vars {
-	v := ls.baseVars()
 	if v.Request == nil {
 		ls.req.Method = ls.method
 		v.Request = &ls.req
@@ -916,8 +900,8 @@ func (ls *legState) legVars(attempt int, resp *http.Response, kind resilience.Ki
 
 // failureWhen evaluates circuitBreaker.failureWhen; a runtime error counts
 // as a failure and in ruralz_upstream_cel_errors_total.
-func (ls *legState) failureWhen(ctx context.Context, v *expr.Vars) bool {
-	failed, err := resilience.EvalFailureWhen(ctx, ls.u.res.Breaker.FailureWhen, v)
+func (ls *legState) failureWhen(v *expr.Vars) bool {
+	failed, err := resilience.EvalFailureWhen(ls.u.res.Breaker.FailureWhen, v)
 	if err != nil {
 		ls.u.metrics.CELErrors[emit.CELFailureWhen].Add(ls.o.Stripe, 1)
 	}
@@ -926,8 +910,8 @@ func (ls *legState) failureWhen(ctx context.Context, v *expr.Vars) bool {
 
 // retryOn evaluates retries.retryOn; a runtime error means no retry and
 // counts in ruralz_upstream_cel_errors_total.
-func (ls *legState) retryOn(ctx context.Context, v *expr.Vars) bool {
-	ok, err := resilience.EvalRetryOn(ctx, ls.u.res.Retry.RetryOn, v)
+func (ls *legState) retryOn(v *expr.Vars) bool {
+	ok, err := resilience.EvalRetryOn(ls.u.res.Retry.RetryOn, v)
 	if err != nil {
 		ls.u.metrics.CELErrors[emit.CELRetryOn].Add(ls.o.Stripe, 1)
 	}

@@ -112,9 +112,8 @@ sequenceDiagram
 
 ### Confirmation
 
-- **Generated drift gate**: CI stage 3 in `pr-fast` regenerates `deploy/crds/` and fails on `git diff --exit-code` ([CI stages](../engineering/02-repository-layout-and-conventions.md#ci-stages)), Planned (M2).
+- **Generated drift check**, Planned (M2): the PR pipeline regenerates `deploy/crds/` and fails on any difference from the committed files ([PR pipeline](../engineering/03-testing-and-quality-strategy.md#pr-pipeline)).
 - **Equivalence test** (proposed), Planned (M2): the golden-corpus example Bundle rendered for `prod`, applied by `kubectl apply --server-side` without tool labels or annotations to a bound namespace in kind (Kubernetes in Docker), MUST yield its Git render's digest and RZ-CFG diagnostics ([Golden tests](../engineering/03-testing-and-quality-strategy.md#golden-tests)); once the translation drops tool-managed labels and annotations, it MUST also cover Helm and client-side applies.
-- **kind end-to-end suite**, Planned (M2): chart install, CRD ingestion with conditions, rolling pod replacement with readiness gating and Drain ([End-to-end tests](../engineering/03-testing-and-quality-strategy.md#end-to-end-tests)). It also (proposed) fails on any generated CRD the API server rejects or finds over its cost budget, asserts that a multi-object change applied in random order records exactly one Revision, and that a Node's service account is denied `list` on `ruralz.io` resources.
 - **Upgrade test** (proposed), Planned (M3): `ruralz-crds.yaml` applies in [Release artifacts](../engineering/04-release-versioning-and-compatibility.md#release-artifacts) order and fails on a served-version addition before finalize.
 - **Amendment trigger**: a pull request adding a Gateway API resource, a CRD reader outside Ruralz Control, or a CRD field absent from the Configuration model MUST amend this ADR.
 

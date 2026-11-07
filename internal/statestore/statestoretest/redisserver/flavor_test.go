@@ -14,26 +14,41 @@ import (
 )
 
 // TestParseFlavor checks that RURALZ_TEST_STATESTORE takes exactly the
-// values the testing strategy defines.
+// values the testing strategy defines: process, container, or both joined
+// by a comma in either order, which String spells process first.
 func TestParseFlavor(t *testing.T) {
+	both := FlavorProcess | FlavorContainer
 	for _, tc := range []struct {
 		in   string
 		want Flavor
 		ok   bool
+		// str is the String of the parsed set.
+		str string
 	}{
-		{"", FlavorNone, true},
-		{"process", FlavorProcess, true},
-		{"container", FlavorContainer, true},
-		{"Process", FlavorNone, false},
-		{" process", FlavorNone, false},
-		{"docker", FlavorNone, false},
+		{"", FlavorNone, true, ""},
+		{"process", FlavorProcess, true, "process"},
+		{"container", FlavorContainer, true, "container"},
+		{"process,container", both, true, "process,container"},
+		{"container,process", both, true, "process,container"},
+		{"Process", FlavorNone, false, ""},
+		{" process", FlavorNone, false, ""},
+		{"docker", FlavorNone, false, ""},
+		{"process,process", FlavorNone, false, ""},
+		{"process,container,process", FlavorNone, false, ""},
+		{"process,", FlavorNone, false, ""},
+		{",container", FlavorNone, false, ""},
+		{"process, container", FlavorNone, false, ""},
+		{"process;container", FlavorNone, false, ""},
 	} {
 		got, err := ParseFlavor(tc.in)
 		if got != tc.want || (err == nil) != tc.ok {
 			t.Errorf("ParseFlavor(%q) = %v, %v; want %v, ok %v", tc.in, got, err, tc.want, tc.ok)
 		}
-		if err == nil && got.String() != tc.in {
-			t.Errorf("ParseFlavor(%q).String() = %q", tc.in, got.String())
+		if err == nil && got.String() != tc.str {
+			t.Errorf("ParseFlavor(%q).String() = %q, want %q", tc.in, got.String(), tc.str)
+		}
+		if err != nil && !strings.Contains(err.Error(), "process,container") {
+			t.Errorf("ParseFlavor(%q) error %q does not name the value selecting both flavors", tc.in, err)
 		}
 	}
 }
@@ -78,6 +93,10 @@ func TestKindProperties(t *testing.T) {
 	if FlavorNone.Kinds() != nil {
 		t.Errorf("FlavorNone.Kinds() = %v, want none", FlavorNone.Kinds())
 	}
+	both := FlavorProcess | FlavorContainer
+	if got, want := both.Kinds(), slices.Concat(FlavorProcess.Kinds(), FlavorContainer.Kinds()); !slices.Equal(got, want) {
+		t.Errorf("%v.Kinds() = %v, want the process kinds, then the container kinds: %v", both, got, want)
+	}
 	if !strings.HasPrefix(ImageRedis8, "redis:8") || !strings.HasPrefix(ImageValkey9, "valkey/valkey:9.0") {
 		t.Errorf("images %q and %q, want the redis:8 and valkey/valkey:9.0 the tech stack names", ImageRedis8, ImageValkey9)
 	}
@@ -97,8 +116,8 @@ func TestServerBinary(t *testing.T) {
 	}
 }
 
-// TestKindsFromEnvironment checks that Kinds follows RURALZ_TEST_STATESTORE
-// and skips without it.
+// TestKindsFromEnvironment checks that Kinds follows RURALZ_TEST_STATESTORE,
+// both flavors' kinds when it selects both, and skips without it.
 func TestKindsFromEnvironment(t *testing.T) {
 	t.Setenv(EnvStateStore, "process")
 	if got := Kinds(t); !slices.Equal(got, []Kind{Process, ProcessCluster, ProcessSentinel}) {
@@ -107,6 +126,13 @@ func TestKindsFromEnvironment(t *testing.T) {
 	t.Setenv(EnvStateStore, "container")
 	if got := Kinds(t); !slices.Equal(got, FlavorContainer.Kinds()) {
 		t.Errorf("Kinds with container = %v", got)
+	}
+	all := []Kind{Process, ProcessCluster, ProcessSentinel, Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster, Redis8Sentinel, Valkey9Sentinel}
+	for _, v := range []string{"process,container", "container,process"} {
+		t.Setenv(EnvStateStore, v)
+		if got := Kinds(t); !slices.Equal(got, all) {
+			t.Errorf("Kinds with %s = %v, want every kind, the process kinds first: %v", v, got, all)
+		}
 	}
 	t.Run("unset skips", func(t *testing.T) {
 		t.Setenv(EnvStateStore, "")
@@ -192,14 +218,16 @@ func TestContainerMissing(t *testing.T) {
 }
 
 // TestSelectedFlavorFailsWithoutPrerequisite checks the gates of Start: a
-// kind whose flavor RURALZ_TEST_STATESTORE selects fails when it cannot
-// run here (no redis-server, no Docker daemon, a cluster container off
-// Linux); a kind of an unselected flavor skips with the reason instead,
-// a container kind without asking Docker; a process kind runs wherever a
-// redis-server is found; an invalid variable fails every kind.
+// kind whose flavor RURALZ_TEST_STATESTORE selects, alone or beside the
+// other, fails when it cannot run here (no redis-server, no Docker
+// daemon, a cluster container off Linux); a kind of an unselected flavor
+// skips with the reason instead, a container kind without asking Docker;
+// a process kind runs wherever a redis-server is found; an invalid
+// variable fails every kind.
 func TestSelectedFlavorFailsWithoutPrerequisite(t *testing.T) {
 	process := map[string]string{EnvStateStore: "process"}
 	container := map[string]string{EnvStateStore: "container"}
+	both := map[string]string{EnvStateStore: "process,container"}
 	found := map[string]string{"redis-server": "/usr/bin/redis-server"}
 	down := errors.New("no daemon")
 	for _, tc := range []struct {
@@ -229,7 +257,14 @@ func TestSelectedFlavorFailsWithoutPrerequisite(t *testing.T) {
 		{"container selected, Docker answers", container, nil, "linux", nil, Dragonfly, "", "", "", 1},
 		{"container unset", nil, nil, "linux", down, Redis8, "", EnvStateStore + "=container", "", 0},
 		{"container unselected", process, nil, "linux", down, Valkey9Cluster, "", EnvStateStore + "=container", "", 0},
+		{"both selected, redis-server found", both, found, "linux", nil, Process, "/usr/bin/redis-server", "", "", 0},
+		{"both selected, no redis-server", both, nil, "linux", nil, ProcessCluster, "", "", EnvStateStore + "=process,container selects redis-server-cluster", 0},
+		{"both selected, sentinel without redis-server", both, nil, "linux", nil, ProcessSentinel, "", "", "no redis-server", 0},
+		{"both selected, Docker answers", both, nil, "linux", nil, Redis8Cluster, "", "", "", 1},
+		{"both selected, no Docker", both, found, "linux", down, Valkey9, "", "", EnvStateStore + "=process,container selects valkey-9", 1},
+		{"both selected, cluster off Linux", both, found, "windows", nil, Valkey9Cluster, "", "", "Linux", 0},
 		{"invalid variable", map[string]string{EnvStateStore: "x"}, found, "linux", nil, Process, "", "", EnvStateStore, 0},
+		{"invalid variable naming a flavor twice", map[string]string{EnvStateStore: "container,container"}, found, "linux", nil, Redis8, "", "", EnvStateStore, 0},
 	} {
 		h, calls := fakeHost(tc.env, tc.paths, tc.goos, tc.docker)
 		path, skip, err := h.gate(t.Context(), tc.k)
@@ -276,8 +311,8 @@ func TestStartGates(t *testing.T) {
 }
 
 // TestStartSkipsUnselectedContainer checks the public Start: a container
-// kind without RURALZ_TEST_STATESTORE=container skips the test before
-// any Docker call.
+// kind whose flavor RURALZ_TEST_STATESTORE does not select skips the test
+// before any Docker call.
 func TestStartSkipsUnselectedContainer(t *testing.T) {
 	t.Run("skip", func(t *testing.T) {
 		t.Setenv(EnvStateStore, "")

@@ -190,7 +190,7 @@ func TestBatchesOldestFirst(t *testing.T) {
 // TestFullClassDropsOnlyItsOwnWrites checks that a class at its item cap
 // drops and counts its next write, releasing the Target reference, while
 // the other classes keep accepting: stores saturating the queue never
-// drop an invalidation (CE-16).
+// drop an invalidation.
 func TestFullClassDropsOnlyItsOwnWrites(t *testing.T) {
 	q, m, _, _ := testQueue(t, small(4, 64, 1))
 	tg := newTarget()

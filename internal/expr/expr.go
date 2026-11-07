@@ -11,7 +11,6 @@
 package expr
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -280,12 +279,9 @@ type Refs struct {
 }
 
 // Program is an immutable compiled expression, safe for concurrent
-// evaluation. Evaluation reads v and never writes it. A cost-tracked
-// program holding a comprehension stops at the earlier of v.Deadline and
-// the comprehension stop, both on the evaluating Compiler's clock and
-// fixed when the evaluation starts; one that starts at or after
-// v.Deadline, or under a ctx that has already ended, stops at its first
-// interrupt check. ctx's own deadline, a wall-clock instant, is never read
+// evaluation. Evaluation reads v and never writes it. Its cost bounds its
+// work: a program that can pass the runtime cost limit is cost-tracked and
+// fails with KindCostLimit there, and any other one cannot reach it
 // (docs/architecture/02-configuration-model.md "Limits").
 type Program interface {
 	// Place returns the place the program was compiled for.
@@ -297,14 +293,14 @@ type Program interface {
 	// Cost returns the static estimate at nominal sizes.
 	Cost() CostRange
 	// EvalBool evaluates a bool place; a non-bool result is KindResultType.
-	EvalBool(ctx context.Context, v *Vars) (bool, error)
+	EvalBool(v *Vars) (bool, error)
 	// EvalString evaluates a string place.
-	EvalString(ctx context.Context, v *Vars) (string, error)
+	EvalString(v *Vars) (string, error)
 	// EvalInt evaluates an int place (config.cost); a non-int result is
 	// KindResultType.
-	EvalInt(ctx context.Context, v *Vars) (int64, error)
+	EvalInt(v *Vars) (int64, error)
 	// EvalValue evaluates a dyn place (transform bodies).
-	EvalValue(ctx context.Context, v *Vars) (Value, error)
+	EvalValue(v *Vars) (Value, error)
 }
 
 // ProgramSet is the immutable program set of one snapshot, passed as the
@@ -529,7 +525,6 @@ type ErrorKind uint8
 // Runtime error kinds.
 const (
 	KindCostLimit ErrorKind = iota + 1
-	KindDeadline
 	KindNull
 	KindNoSuchKey
 	KindNoSuchOverload
@@ -545,8 +540,6 @@ func (k ErrorKind) String() string {
 	switch k {
 	case KindCostLimit:
 		return "cost_limit"
-	case KindDeadline:
-		return "deadline"
 	case KindNull:
 		return "null"
 	case KindNoSuchKey:
@@ -789,14 +782,6 @@ type Vars struct {
 	Now time.Time
 	// Duration is the total request time (onLog and accessLog.when).
 	Duration time.Duration
-	// Deadline is no CEL variable: it is the request deadline that stops a
-	// cost-tracked comprehension (Program), on the clock of the evaluating
-	// Compiler, ruralzd's process clock. The data plane sets the Route
-	// deadline, the request start plus the Route timeout, once the Route
-	// is fixed, and the candidate Route's while its match.when runs
-	// (docs/architecture/02-configuration-model.md "Limits"). The zero
-	// time is no deadline.
-	Deadline time.Time
 }
 
 // Reset clears v for reuse from a pool.

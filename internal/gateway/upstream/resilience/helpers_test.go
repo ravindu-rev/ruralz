@@ -4,7 +4,6 @@
 package resilience
 
 import (
-	"context"
 	"math/rand/v2"
 	"sync"
 	"time"
@@ -75,20 +74,20 @@ func (p *fakeProgram) Source() string       { return "fake" }
 func (p *fakeProgram) Refs() expr.Refs      { return expr.Refs{} }
 func (p *fakeProgram) Cost() expr.CostRange { return expr.CostRange{} }
 
-func (p *fakeProgram) EvalBool(context.Context, *expr.Vars) (bool, error) {
+func (p *fakeProgram) EvalBool(*expr.Vars) (bool, error) {
 	p.calls++
 	return p.ok, p.err
 }
 
-func (p *fakeProgram) EvalString(context.Context, *expr.Vars) (string, error) {
+func (p *fakeProgram) EvalString(*expr.Vars) (string, error) {
 	return "", p.err
 }
 
-func (p *fakeProgram) EvalInt(context.Context, *expr.Vars) (int64, error) {
+func (p *fakeProgram) EvalInt(*expr.Vars) (int64, error) {
 	return 0, p.err
 }
 
-func (p *fakeProgram) EvalValue(context.Context, *expr.Vars) (expr.Value, error) {
+func (p *fakeProgram) EvalValue(*expr.Vars) (expr.Value, error) {
 	return nil, p.err
 }
 

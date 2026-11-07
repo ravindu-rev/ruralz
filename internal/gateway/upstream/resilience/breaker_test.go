@@ -637,20 +637,6 @@ func FuzzBreakerTransitions(f *testing.F) {
 	})
 }
 
-// BenchmarkBreakerAccounting measures the breaker budget (2 µs p50, 8 µs
-// p99 target): one closed-state Allow and Record per leg, from every core.
-func BenchmarkBreakerAccounting(b *testing.B) {
-	br := NewBreaker(clock.Real(), nil, nil)
-	cfg := DefaultBreakerConfig()
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			p, _ := br.Allow(&cfg)
-			br.Record(&cfg, p, LegSuccess)
-		}
-	})
-}
-
 // TestBreakerAccountingAllocs keeps the closed-state accounting free of
 // allocations.
 func TestBreakerAccountingAllocs(t *testing.T) {

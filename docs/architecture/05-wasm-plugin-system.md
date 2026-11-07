@@ -11,7 +11,7 @@ In scope: the Summary's topics, the `RZ-PLG` registry ([foundation pack](../_met
 Non-goals:
 
 - Fields, owned by [Configuration model](02-configuration-model.md#plugin); other knobs are Open questions.
-- Filter Chain execution ([Data plane](03-data-plane.md)), trust policy names ([Security and identity](08-security-and-identity.md), [ADR-0017](../adr/0017-artifact-signing.md)) and authoritative benchmarks ([Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md)).
+- Filter Chain execution ([Data plane](03-data-plane.md)) and trust policy names ([Security and identity](08-security-and-identity.md), [ADR-0017](../adr/0017-artifact-signing.md)).
 - Hostile third-party code: Plugins are operator-installed; the sandbox bounds faults and over-reach.
 - Outbound network, filesystem and environment access; the WebAssembly component model.
 - A Revington-hosted marketplace: Plugins live in any OCI registry (P1).
@@ -29,7 +29,7 @@ Non-goals:
 | WG-5 | Plugins pinned by digest inside the Revision | P5 |
 | WG-6 | Hot Reload and Rollouts swap Plugins without dropping requests | P9 |
 | WG-7 | Several PDK languages over one sandboxed ABI | P6 |
-| WG-8 | A pooled Phase call costs 50 µs or less at p99 (target), SM-6 | P10 |
+| WG-8 | A pooled Phase call costs 50 µs or less at p99 (target) | P10 |
 
 ### Prior art Ruralz builds on
 
@@ -51,7 +51,7 @@ The runtime is wazero, module `github.com/tetratelabs/wazero` ([ADR-0004](../adr
 2. **Compiled code in memory only.** A persisted wazero cache would run native code no signature covers, so restarts recompile verified artifacts.
 3. **Pools per configuration.** `api.Function.Call` is not goroutine-safe ([source](https://github.com/wazero/wazero/blob/main/api/wasm.go)), so each call takes its own instance of shared compiled code ([source](https://github.com/wazero/wazero/blob/main/runtime.go)). Policies with equal digest, canonical `config` and limits share a pool.
 4. **Memory limit per instance.** `limits.memoryBytes` in 64 KiB WebAssembly pages; a declared minimum above it is RZ-CFG-028. The wazero default is 4 GiB ([source](https://github.com/wazero/wazero/blob/main/config.go)).
-5. **Deadlines, not fuel.** wazero has no metering ([source](https://github.com/wazero/wazero/issues/422)); close-on-context-done ([source](https://github.com/wazero/wazero/blob/main/config.go)) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), and SM-6 includes it. Deadlines and host-side call budgets bound Plugin CPU (OQ-tech-stack-and-libraries-8, options (a) and (b)).
+5. **Deadlines, not fuel.** wazero has no metering ([source](https://github.com/wazero/wazero/issues/422)); close-on-context-done ([source](https://github.com/wazero/wazero/blob/main/config.go)) costs 10 to 20x on loop-heavy guests ([source](https://github.com/wazero/wazero/issues/2466)), and WG-8's target includes it. Deadlines and host-side call budgets bound Plugin CPU (OQ-tech-stack-and-libraries-8, options (a) and (b)).
 6. **Instantiate off the request path.** A per-Node pool manager creates, refills and recycles instances, keeping idle at least max(1, 25% of busy) (target). Requests never compile or instantiate; they wait at most 1 ms (target).
 7. **Per-Phase acquisition and parking.** An instance serves one Phase call, never the Upstream wait; per-request state stays in `context.use`. During its one State Store call the guest is parked, timer stopped, outside the compute reserve, which never depends on core count. Beyond the parked bound no call is attempted and `state_*` returns `ERR_LIMIT` (`RZ-PLG-010`); an open State client breaker skips the call (pack section 8.7) with `ERR_UNAVAILABLE` (`RZ-STS`).
 8. **Discard after a fault.** Faulted instances are destroyed; their refills are rate-limited, and a fault breaker prevents instantiation loops.
@@ -475,11 +475,11 @@ Calls emit span `ruralz.filter.<name>`. [Observability](10-observability.md) def
 
 ## Performance model
 
-One wazero host-call microbenchmark measured 47.62 ns ([source](https://github.com/wazero/wazero/issues/2466)); the only dated Wasmtime comparison is from 2023 ([source](https://00f.net/2023/01/04/webassembly-benchmark-2023/)). Ruralz publishes its own numbers (P10).
+One wazero host-call microbenchmark measured 47.62 ns ([source](https://github.com/wazero/wazero/issues/2466)); the only dated Wasmtime comparison is from 2023 ([source](https://00f.net/2023/01/04/webassembly-benchmark-2023/)). Ruralz states its own values below as targets and hypotheses (P10).
 
-| Budget item | Value |
+| Item | Value |
 |---|---|
-| Phase call overhead, pooled, deadline interruption on, p99 (SM-6) | 50 µs or less (target) |
+| Phase call overhead, pooled, deadline interruption on, p99 (WG-8) | 50 µs or less (target) |
 | Host Function call, excluding copying | 0.2 µs or less (hypothesis) |
 | Header-only Plugin Phase with its logic, p99 | 100 µs or less (target) |
 | Taking an idle instance without contention | 1 µs or less (hypothesis) |
@@ -488,9 +488,7 @@ One wazero host-call microbenchmark measured 47.62 ns ([source](https://github.c
 | Creation throughput, 8 cores, 4 workers | 4,000 per second typical, 40 at the maximum (hypothesis) |
 | `state.read` reference pool ramp from 1 to 25 instances | 250 ms or less (target) |
 | Compiled code per MiB of Wasm, on amd64 and arm64 | 4 MiB or less (hypothesis), the accounting factor |
-| Gateway-added p99 with long guest calls during garbage collection | 1 ms or less (target), benchmarked (OQ-wasm-plugin-system-16) |
-
-[Performance budgets and benchmarking](12-performance-budgets-and-benchmarking.md) owns authoritative values.
+| Gateway-added p99 with long guest calls during garbage collection | 1 ms or less (target) (OQ-wasm-plugin-system-16) |
 
 ### Sizing
 

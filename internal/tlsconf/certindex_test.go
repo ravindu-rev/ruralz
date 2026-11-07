@@ -692,27 +692,3 @@ func TestCertIndexConcurrent(t *testing.T) {
 		}
 	}
 }
-
-func BenchmarkLookup(b *testing.B) {
-	ca := newCA(b, "bench")
-	st := newFakeStore()
-	var specs []CertSpec
-	for _, n := range []string{"a", "b", "c", "d"} {
-		l := ca.issue(b, leafOpts{cn: n, dns: []string{n + ".example.com", "*." + n + ".example.com"}})
-		st.put(ref(n+".crt"), l.certPEM)
-		st.put(ref(n+".key"), l.keyPEM)
-		specs = append(specs, CertSpec{Name: n, Certificate: ref(n + ".crt"), PrivateKey: ref(n + ".key")})
-	}
-	ix, err := BuildCertIndex(specs, st)
-	if err != nil {
-		b.Fatal(err)
-	}
-	defer ix.Close()
-	hello := &tls.ClientHelloInfo{ServerName: "x.c.example.com"}
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := ix.GetCertificate(hello); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

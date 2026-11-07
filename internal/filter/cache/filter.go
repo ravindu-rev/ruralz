@@ -135,7 +135,7 @@ func (f *Filter) request(ctx context.Context, x filter.Exchange) filter.Result {
 // (OQ-security-and-identity-32), bypasses the cache: ok is false.
 func (f *Filter) partition(ctx context.Context, x filter.Exchange) (string, bool) {
 	if f.key != nil {
-		v, err := f.key.EvalString(ctx, x.Vars())
+		v, err := f.key.EvalString(x.Vars())
 		if err != nil {
 			f.log.DebugContext(ctx, "cache config.key failed to evaluate; the request bypasses the cache",
 				catalog.KeyPolicy, f.policy, catalog.KeyError, err.Error())

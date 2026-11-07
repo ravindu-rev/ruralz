@@ -155,9 +155,9 @@ func TestStartWaitOutput(t *testing.T) { // Start, wait, output
 	if _, ok := p.Signaled(); ok {
 		t.Fatal("Signaled after a normal exit")
 	}
-	o, e := p.LogPaths()
-	if o != filepath.Join(dir, "node-1.out") || e != filepath.Join(dir, "node-1.err") {
-		t.Fatalf("LogPaths = %s %s", o, e)
+	o, e := filepath.Join(dir, "node-1.out"), filepath.Join(dir, "node-1.err")
+	if _, err := os.Stat(e); err != nil {
+		t.Fatalf("stderr log: %v", err)
 	}
 	logOut, err := os.ReadFile(o) //nolint:gosec // G304: test log file
 	if err != nil || !bytes.Contains(logOut, []byte("hello stdout")) {
@@ -180,21 +180,6 @@ func TestStartWaitOutput(t *testing.T) { // Start, wait, output
 	}
 	if err := p.Kill(); err != nil {
 		t.Fatalf("Kill after exit = %v", err)
-	}
-}
-
-func TestStdin(t *testing.T) {
-	s := helper("cat")
-	s.Stdin = strings.NewReader("from stdin\n")
-	p, err := Start(ctx(t), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
-		t.Fatalf("Wait = %d, %v", code, err)
-	}
-	if out, _ := p.Output(); string(out) != "from stdin\n" {
-		t.Fatalf("stdout = %q", out)
 	}
 }
 
@@ -369,10 +354,10 @@ func TestOutputBounds(t *testing.T) { // Output bounds
 	if !bytes.Equal(out, bytes.Repeat([]byte("0123456789abcdef"), (64<<10)/16)) {
 		t.Fatal("retained bytes are not the tail")
 	}
-	if w, _ := p.Written(); w < 1<<20 {
+	if w, _ := written(p); w < 1<<20 {
 		t.Fatalf("Written = %d", w)
 	}
-	o, _ := p.LogPaths()
+	o := filepath.Join(s.LogDir, s.Name+".out")
 	if st, err := os.Stat(o); err != nil || st.Size() < 1<<20 {
 		t.Fatalf("log file holds %v bytes: %v", st, err)
 	}
@@ -401,7 +386,7 @@ func TestBlockStdout(t *testing.T) {
 		t.Fatal("the process finished its flood with stdout held")
 	case <-time.After(200 * time.Millisecond):
 	}
-	if out, _ := p.Written(); out >= flood {
+	if out, _ := written(p); out >= flood {
 		t.Fatalf("%d of %d bytes reached the harness with stdout held", out, flood)
 	}
 	unblock()
@@ -409,7 +394,7 @@ func TestBlockStdout(t *testing.T) {
 	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
 		t.Fatalf("Wait = %d, %v; want 0", code, err)
 	}
-	if out, _ := p.Written(); out != flood {
+	if out, _ := written(p); out != flood {
 		t.Fatalf("Written = %d after the release, want %d", out, flood)
 	}
 	if _, errb := p.Output(); !bytes.Contains(errb, []byte("flooded\n")) {
@@ -469,8 +454,8 @@ func TestRing(t *testing.T) {
 			if got := string(r.bytes()); got != tt.want {
 				t.Fatalf("bytes = %q, want %q", got, tt.want)
 			}
-			if r.written() != int64(total) {
-				t.Fatalf("written = %d", r.written())
+			if r.total != int64(total) {
+				t.Fatalf("total = %d", r.total)
 			}
 		})
 	}
@@ -497,123 +482,6 @@ func TestRing(t *testing.T) {
 	case <-r.changed():
 	default:
 		t.Fatal("changed not closed after finish")
-	}
-}
-
-func TestSampleLive(t *testing.T) { // /proc sampling
-	if runtime.GOOS != "linux" {
-		t.Skip("/proc sampling is Linux only")
-	}
-	p, err := Start(ctx(t), helper("spin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = p.Kill() }()
-	if _, err := p.WaitOutput(ctx(t), regexp.MustCompile("ready")); err != nil {
-		t.Fatal(err)
-	}
-	a, err := p.Sample()
-	if err != nil {
-		t.Fatal(err)
-	}
-	time.Sleep(300 * time.Millisecond)
-	b, err := p.Sample()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.RSSBytes <= 0 || b.Threads < 1 || b.UserCPU+b.SysCPU <= 0 {
-		t.Fatalf("sample = %+v", b)
-	}
-	if share := CPUShare(a, b); share <= 0.1 || share > float64(runtime.NumCPU())+0.5 {
-		t.Fatalf("CPU share of a spinning process = %.2f", share)
-	}
-	_ = p.Kill()
-	if _, err := p.Wait(ctx(t)); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := p.Sample(); err == nil {
-		t.Fatal("Sample after exit: want error")
-	}
-}
-
-func TestSampleProcFakeTree(t *testing.T) { // RSS from a fake /proc tree
-	root := t.TempDir()
-	dir := filepath.Join(root, "42")
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		t.Fatal(err)
-	}
-	stat := "42 (ruralzd (x) y) S 1 42 42 0 -1 4194560 100 0 0 0 250 50 0 0 20 0 9 0 12345 1000000 2000 18446744073709551615\n"
-	status := "Name:\truralzd\nVmPeak:\t  200000 kB\nVmRSS:\t   91136 kB\nThreads:\t9\n"
-	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(stat), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	u, err := SampleProc(root, 42)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if u.UserCPU != 2500*time.Millisecond || u.SysCPU != 500*time.Millisecond || u.RSSBytes != 91136*1024 || u.Threads != 9 {
-		t.Fatalf("Usage = %+v", u)
-	}
-	if _, err := SampleProc(root, 43); err == nil {
-		t.Fatal("missing pid: want error")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte("Name: x\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("status without Threads: want error")
-	}
-	if err := os.Remove(filepath.Join(dir, "status")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("missing status: want error")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "status"), []byte(status), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte("42 (x) S 1"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := SampleProc(root, 42); err == nil {
-		t.Fatal("short stat: want error")
-	}
-}
-
-func TestParseProcFiles(t *testing.T) {
-	good := "1 (a) S " + strings.Repeat("0 ", 10) + "7 8 0 0 0 0 3 0\n"
-	if u, s, th, err := ParseStat([]byte(good)); err != nil || u != 7 || s != 8 || th != 3 {
-		t.Fatalf("ParseStat = %d %d %d %v", u, s, th, err)
-	}
-	statErrs := []string{
-		"no parens",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "x 8 0 0 0 0 3 0",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "7 x 0 0 0 0 3 0",
-		"1 (a) S " + strings.Repeat("0 ", 10) + "7 8 0 0 0 0 x 0",
-	}
-	for _, s := range statErrs {
-		if _, _, _, err := ParseStat([]byte(s)); err == nil {
-			t.Errorf("ParseStat(%q): want error", s)
-		}
-	}
-	if rss, th, err := ParseStatus([]byte("State:\tZ (zombie)\nThreads:\t1\n")); err != nil || rss != 0 || th != 1 {
-		t.Fatalf("zombie status = %d %d %v", rss, th, err)
-	}
-	for _, s := range []string{"VmRSS:\tx kB\nThreads:\t1\n", "VmRSS:\t10 MB\nThreads:\t1\n", "Threads:\tx\n"} {
-		if _, _, err := ParseStatus([]byte(s)); err == nil {
-			t.Errorf("ParseStatus(%q): want error", s)
-		}
-	}
-	a := Usage{UserCPU: time.Second, Time: time.Unix(0, 0)}
-	b := Usage{UserCPU: 2 * time.Second, SysCPU: time.Second, Time: time.Unix(4, 0)}
-	if got := CPUShare(a, b); got != 0.5 {
-		t.Fatalf("CPUShare = %v", got)
-	}
-	if got := CPUShare(b, b); got != 0 {
-		t.Fatalf("CPUShare without elapsed time = %v", got)
 	}
 }
 
@@ -774,8 +642,8 @@ func TestLineMatcherScansEachByteOnce(t *testing.T) { // cost follows the output
 			t.Fatal("unexpected match")
 		}
 	}
-	if m.scanned != r.written() {
-		t.Fatalf("scanned %d bytes for %d written, want each byte once", m.scanned, r.written())
+	if m.scanned != r.total {
+		t.Fatalf("scanned %d bytes for %d written, want each byte once", m.scanned, r.total)
 	}
 	// A long line without a newline is matched again as it grows, but
 	// one scan never reads more than the new bytes plus MaxLineBytes.
@@ -795,7 +663,7 @@ func TestLineMatcherScansEachByteOnce(t *testing.T) { // cost follows the output
 	}
 }
 
-func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a chatty Node (GD-2)
+func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a chatty Node
 	const lines = 20000
 	p, err := Start(ctx(t), helper("chatty", fmt.Sprintf("CHATTY_LINES=%d", lines)))
 	if err != nil {
@@ -805,7 +673,7 @@ func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a c
 	if err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("WaitOutput = %v, want the exit error", err)
 	}
-	out, errb := p.Written()
+	out, errb := written(p)
 	written := out + errb
 	if out < lines*100 {
 		t.Fatalf("child wrote %d bytes, want at least %d", out, lines*100)
@@ -828,4 +696,15 @@ func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a c
 	if _, err := q.Wait(ctx(t)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// written returns the total bytes p wrote to stdout and stderr, including
+// bytes the rings no longer hold.
+func written(p *Process) (stdout, stderr int64) {
+	total := func(r *ring) int64 {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.total
+	}
+	return total(p.stdout), total(p.stderr)
 }

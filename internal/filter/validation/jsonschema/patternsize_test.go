@@ -266,10 +266,16 @@ func TestPatternProgramMemory(t *testing.T) {
 	}
 }
 
+// memoryCase is a named schema whose compiled form TestPatternProgramMemory
+// measures.
+type memoryCase struct {
+	name, schema string
+}
+
 // documentMemoryCases are documents of MaxSubschemas positions, whose
 // compiled schemas the library keeps (about 2.4 KB each), with patterns:
 // the largest ones, or a small one in every position.
-func documentMemoryCases() []analysisCase {
+func documentMemoryCases() []memoryCase {
 	var b strings.Builder
 	b.WriteString(`{"properties":{`)
 	for i := range MaxSubschemas - 9 {
@@ -282,7 +288,7 @@ func documentMemoryCases() []analysisCase {
 		}
 	}
 	b.WriteString(`}}`)
-	return []analysisCase{
+	return []memoryCase{
 		{name: "positions and the largest patterns", schema: b.String()},
 		{name: "small patterns", schema: fillPatterns(func(i int) string { return fmt.Sprintf(`^%c$`, 0x3400+i) })},
 	}
@@ -294,8 +300,8 @@ func documentMemoryCases() []analysisCase {
 // of many ranges, and the anchored programs under 1,000 instructions for
 // which Go would build its one-pass matcher, among them the shapes
 // TestPatternProgramMemory names.
-func patternMemoryCases() []analysisCase {
-	return []analysisCase{
+func patternMemoryCases() []memoryCase {
+	return []memoryCase{
 		{name: "largest anchored patterns", schema: patternsOf(8, func(i int) string { return "^" + largestPattern(tailRune(i), -2) + "$" })},
 		{name: "anchored class repetitions", schema: fillPatterns(func(i int) string { return fmt.Sprintf(`^\pL{990}%c`, 0x3400+i) })},
 		{name: "large class repetitions", schema: fillPatterns(func(i int) string { return fmt.Sprintf(`^%s{990}%c`, cjkClass(1000), 0x3400+i) })},

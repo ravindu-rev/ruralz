@@ -192,11 +192,3 @@ func FuzzSlot(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkDigestSlot(b *testing.B) {
-	d := statestore.DigestOf("user-42")
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = DigestSlot(d)
-	}
-}

@@ -44,24 +44,11 @@ type manifest struct {
 	// Images is the container image plan the release workflow pushes,
 	// with the digests the image build recorded.
 	Images []imagePlan `json:"images"`
-	// Bench is the benchmark records archive.
-	Bench benchInfo `json:"bench"`
 	// Checksums, Signature and Notes name the other files of the
 	// directory.
 	Checksums string `json:"checksums"`
 	Signature string `json:"signature"`
 	Notes     string `json:"notes"`
-}
-
-// benchInfo is the benchmark records archive of the manifest: the
-// ruralz.bench.v1 records of the release's Latency and soak jobs with the
-// histograms and CPU profiles they name.
-type benchInfo struct {
-	Name   string `json:"name"`
-	Size   int64  `json:"size"`
-	SHA256 string `json:"sha256"`
-	// Records counts the records the archive holds.
-	Records int `json:"records"`
 }
 
 // archiveInfo is one archive of the manifest.

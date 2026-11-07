@@ -612,20 +612,6 @@ func (c *Corpus) Canonical() [][]byte {
 	return out
 }
 
-// Archives returns every Bundle of every entry as a txtar archive (file
-// names relative to the Bundle root), the input format of Bundle-level
-// fuzz targets.
-func (c *Corpus) Archives() [][]byte {
-	var out [][]byte
-	for _, e := range c.Entries {
-		for _, b := range e.Bundles {
-			a := Archive{Comment: []byte(e.Name + "/" + b.Name + "\n"), Files: b.Files}
-			out = append(out, a.Format())
-		}
-	}
-	return out
-}
-
 func contents(files []File) [][]byte {
 	out := make([][]byte, len(files))
 	for i, f := range files {
@@ -645,9 +631,6 @@ func AddJSON(f *testing.F) int { return add(f, (*Corpus).JSON) }
 // AddCanonical adds every golden canonical form as a seed and returns the
 // count.
 func AddCanonical(f *testing.F) int { return add(f, (*Corpus).Canonical) }
-
-// AddArchives adds every Bundle as a txtar seed and returns the count.
-func AddArchives(f *testing.F) int { return add(f, (*Corpus).Archives) }
 
 func add(f *testing.F, seeds func(*Corpus) [][]byte) int {
 	f.Helper()

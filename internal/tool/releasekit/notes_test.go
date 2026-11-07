@@ -57,6 +57,15 @@ func TestFooters(t *testing.T) {
 	if got := footers("BREAKING CHANGES: not a token match\n", footerBreaking); len(got) != 0 {
 		t.Errorf("footers matched another token: %q", got)
 	}
+	// Release-As is read in any case, as Conventional Commits reads every
+	// footer token but BREAKING CHANGE; footers matches its keys exactly.
+	cased := "Release-As: 1.0.0\nrelease-as: 1.1.0\nRELEASE-AS: 1.2.0\nRelease-Ass: 9.0.0\n"
+	if got, want := footersFold(cased, footerReleaseAs), []string{"1.0.0", "1.1.0", "1.2.0"}; !slices.Equal(got, want) {
+		t.Errorf("footersFold = %q, want %q", got, want)
+	}
+	if got, want := footers(cased, footerReleaseAs), []string{"1.0.0"}; !slices.Equal(got, want) {
+		t.Errorf("footers = %q, want %q", got, want)
+	}
 }
 
 // TestClassifyCommits sorts commits into the notes sections.
@@ -105,10 +114,10 @@ func TestClassifyCommits(t *testing.T) {
 // underscores included, and a fence longer than any backtick run inside.
 func TestCodeSpan(t *testing.T) {
 	for in, want := range map[string]string{
-		"ruralz_0.1.0_bench.tar.gz": "`ruralz_0.1.0_bench.tar.gz`",
-		`a\b`:                       "`a\\b`",
-		"a`b":                       "``a`b``",
-		"`edge":                     "`` `edge ``",
+		"ruralzd_0.1.0_image.cdx.json": "`ruralzd_0.1.0_image.cdx.json`",
+		`a\b`:                          "`a\\b`",
+		"a`b":                          "``a`b``",
+		"`edge":                        "`` `edge ``",
 	} {
 		if got := codeSpan(in); got != want {
 			t.Errorf("codeSpan(%q) = %q, want %q", in, got, want)
@@ -134,30 +143,22 @@ func sampleImages(version string) []imagePlan {
 }
 
 func sampleNotes(version string) notesInput {
-	in := notesInput{
+	return notesInput{
 		Version: version, Commit: fixtureCommit, From: "v0.0.9",
-		Archives: artifacts(), Images: sampleImages(version), Bench: benchArchiveName(version),
+		Archives: artifacts(), Images: sampleImages(version),
 		Features: []noteItem{{Scope: "cli", Text: "add the version command", Hash: fixtureCommit}},
 		Schema:   []string{"`ruralz/v1alpha1`: no schema changes."},
-		Records: []benchRecord{
-			{Budgets: []benchBudget{{ID: "PB-2", Value: "<= 1ms (target)", Result: "0.84ms", SLO: "SLO-GW-2", Verdict: "pass"}}, Summary: &benchSummary{Of: "comparison", Verdict: "pass"}},
-			{Budgets: []benchBudget{{ID: "PB-3", Value: "<= 150us (target)", Result: "160us", Verdict: "fail"}}, Summary: &benchSummary{Of: "comparison", Verdict: "none"}},
-		},
-		Skipped: []skippedGate{{Gate: "Benchmarks", By: "octocat", Role: "maintain", Reason: "RH-1 is\nbeing rebuilt"}},
 	}
-	in.Records[0].Identity.Scenario, in.Records[0].Identity.Commit, in.Records[0].Environment.HardwareProfile = "S2", fixtureCommit, "RH-1"
-	in.Records[0].Identity.Baseline = "v0.0.9"
-	in.Records[1].Identity.Scenario, in.Records[1].Identity.Commit = "S1", strings.Repeat("e", 40)
-	return in
 }
 
-// TestRenderNotes: every section of the Release artifacts row, in order,
-// with the verification steps naming the signer and the cosign floor.
+// TestRenderNotes: every section of the Release notes row, in order and
+// nothing after the verification steps, which name the signer, the release
+// run on main, and the oldest cosign releases it accepts.
 func TestRenderNotes(t *testing.T) {
 	got := renderNotes(sampleNotes("0.1.0"))
 	headings := []string{
 		"# Ruralz 0.1.0\n", "## Artifacts", "## Features", "## Fixes", "## Performance", "## Dependency updates",
-		"## Deprecations", "## Upgrade notes", "## Schema, Plugin ABI and Control Stream", "## Budget results", "## Verification", "## Skipped gates",
+		"## Deprecations", "## Upgrade notes", "## Schema, Plugin ABI and Control Stream", "## Verification",
 	}
 	last := -1
 	for _, h := range headings {
@@ -166,6 +167,9 @@ func TestRenderNotes(t *testing.T) {
 			t.Errorf("heading %q missing or out of order", h)
 		}
 		last = i
+	}
+	if n := strings.Count(got, "\n## "); n != len(headings)-1 {
+		t.Errorf("the notes have %d sections, want %d:\n%s", n, len(headings)-1, got)
 	}
 	for _, want := range []string{
 		"Release 0.1.0 of Ruralz, built from commit [`0123456789ab`]",
@@ -176,17 +180,13 @@ func TestRenderNotes(t *testing.T) {
 		"- **cli:** add the version command ([`0123456789ab`](https://github.com/ravindu-rev/ruralz/commit/" + fixtureCommit + "))",
 		"## Fixes\n\nNone.\n",
 		"- `ruralz/v1alpha1`: no schema changes.",
-		"| Scenario | Summary | A/B verdict | Budget | Value | Result | SLO | Verdict | Hardware | Commit |",
-		`| S2 | comparison | pass against v0.0.9 | PB-2 | \<= 1ms (target) | 0.84ms | SLO-GW-2 | pass | RH-1 | 0123456789ab |`,
-		`| S1 | comparison | none | PB-3 | \<= 150us (target) | 160us |  | fail |  | eeeeeeeeeeee (other commit) |`,
-		"Rows marked (other commit) were measured on another commit",
 		"cosign 3.1.3 or newer on 3.x, or 2.6.5 or newer on 2.x",
 		"GHSA-fx35-mq7g-6g98",
-		"--certificate-identity https://github.com/ravindu-rev/ruralz/.github/workflows/release-build.yml@refs/tags/v0.1.0",
+		"by the reusable workflow `release-build.yml` of the release run on `refs/heads/main`",
+		"--certificate-identity https://github.com/ravindu-rev/ruralz/.github/workflows/release-build.yml@refs/heads/main \\\n",
 		"--certificate-oidc-issuer https://token.actions.githubusercontent.com",
 		"sha256sum --ignore-missing -c SHA256SUMS",
-		"`release-manifest.json`, which lists every archive's members and digests and the image digests",
-		"`ruralz_0.1.0_bench.tar.gz` holds the `ruralz.bench.v1` records",
+		"`release-manifest.json`, which lists every archive's members and digests and the image digests, and `NOTES.md`.",
 		"The image index is `ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + "`; its SBOM is `ruralzd_0.1.0_image.cdx.json`.",
 		"cosign verify-blob SHA256SUMS --bundle SHA256SUMS.sigstore.json --new-bundle-format \\\n",
 		"gh attestation verify ruralzd_0.1.0_linux_amd64.tar.gz --repo ravindu-rev/ruralz \\\n     --signer-workflow ravindu-rev/ruralz/.github/workflows/release-build.yml\n",
@@ -196,33 +196,32 @@ func TestRenderNotes(t *testing.T) {
 		"gh attestation verify oci://ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + " --repo ravindu-rev/ruralz",
 		"xattr -d com.apple.quarantine ruralzd",
 		"A download with `curl` never carries the flag.",
-		"| Benchmarks | Stage 9's alloc/op, size and idle RSS gates; from M6, within 5% p99 and 3% alloc/op of the previous release (target)",
-		"zero telemetry drops, PB-2 and PB-3 | @octocat | maintain | RH-1 is being rebuilt |",
-		"[release gates](https://github.com/ravindu-rev/ruralz/blob/v0.1.0/docs/engineering/03-testing-and-quality-strategy.md#release-gates)",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notes lack %q", want)
 		}
 	}
-}
-
-// TestRenderNotesKinds: a candidate names its one image tag; a development
-// build publishes none; no records and no skipped gate say so.
-func TestRenderNotesKinds(t *testing.T) {
-	rc := sampleNotes("0.1.0-rc.1")
-	rc.Records, rc.Skipped, rc.From = nil, nil, ""
-	got := renderNotes(rc)
-	for _, want := range []string{
-		"Release candidate 0.1.0-rc.1 of Ruralz", "changes since the first commit.",
-		"Image `ghcr.io/ravindu-rev/ruralzd:0.1.0-rc.1` for", "No benchmark summary records were provided for this build.",
-		"None: no maintainer skipped a release gate.",
-	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("candidate notes lack %q", want)
+	for _, absent := range []string{"refs/tags/", "bench", "Budget", "skipped", "release gate", "candidate"} {
+		if strings.Contains(got, absent) {
+			t.Errorf("notes name %q", absent)
 		}
 	}
-	if dev := renderNotes(sampleNotes("0.0.0-dev")); !strings.Contains(dev, "no tag is published for a development build") {
-		t.Error("development notes name an image tag")
+}
+
+// TestRenderNotesKinds: the first release lists the changes since the
+// first commit; a development build, a pre-release included, publishes no
+// image tag.
+func TestRenderNotesKinds(t *testing.T) {
+	first := sampleNotes("0.1.0")
+	first.From = ""
+	if got := renderNotes(first); !strings.Contains(got, "Release 0.1.0 of Ruralz") || !strings.Contains(got, "changes since the first commit.") {
+		t.Errorf("first-release notes:\n%s", got)
+	}
+	for _, version := range []string{"0.0.0-dev", "0.1.0-rc.1"} {
+		dev := renderNotes(sampleNotes(version))
+		if !strings.Contains(dev, "Development build "+version+" of Ruralz") || !strings.Contains(dev, "no tag is published for a development build") {
+			t.Errorf("development notes of %s:\n%s", version, dev)
+		}
 	}
 	// A dry run without Docker records no image, so the notes give no
 	// image digest to verify.
@@ -277,68 +276,6 @@ func TestSchemaChanges(t *testing.T) {
 	}
 }
 
-// TestReadBudgets reads ruralz.bench.v1 summary records, nested or not,
-// sorted, and skips the run records; a missing directory holds none;
-// another JSON file, a record of another kind and a summary record without
-// its summary are errors.
-func TestReadBudgets(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, filepath.Join(dir, "nightly", "s2.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S2","kind":"summary","commit":"c"},"budgets":[{"id":"PB-2","value":"v","result":"r","slo":"","verdict":"pass"}],"summary":{"of":"comparison","verdict":"pass"}}`)
-	writeFile(t, filepath.Join(dir, "s1.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"summary"},"budgets":[],"summary":{"of":"ladder","verdict":"none"}}`)
-	writeFile(t, filepath.Join(dir, "runs", "s2-head-1.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"S2","kind":"macro"},"budgets":[{"id":"PB-2","value":"v","result":"r1","slo":"","verdict":"pass"}]}`)
-	writeFile(t, filepath.Join(dir, "runs", "cel.json"), `{"format":"ruralz.bench.v1","identity":{"scenario":"CEL","kind":"component"},"budgets":[]}`)
-	writeFile(t, filepath.Join(dir, "s1.hlog"), "histogram")
-	got, err := readBudgets(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0].Identity.Scenario != "S1" || got[0].Summary.Of != "ladder" ||
-		got[1].file != "nightly/s2.json" || got[1].Budgets[0].ID != "PB-2" || got[1].Budgets[0].Result != "r" {
-		t.Errorf("records = %+v", got)
-	}
-	if none, err := readBudgets(filepath.Join(dir, "absent")); err != nil || none != nil {
-		t.Errorf("missing directory: %v %v", none, err)
-	}
-	for name, doc := range map[string]string{
-		"foreign.json":      `{"format":"other"}`,
-		"kind.json":         `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"trend"},"budgets":[]}`,
-		"bare-summary.json": `{"format":"ruralz.bench.v1","identity":{"scenario":"S1","kind":"summary"},"budgets":[]}`,
-	} {
-		bad := t.TempDir()
-		writeFile(t, filepath.Join(bad, name), doc)
-		if _, err := readBudgets(bad); err == nil || !strings.Contains(err.Error(), name) {
-			t.Errorf("%s: %v", name, err)
-		}
-	}
-}
-
-// TestReadSkipped validates the skipped-gates document.
-func TestReadSkipped(t *testing.T) {
-	dir := t.TempDir()
-	good := `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Benchmarks","by":"octo-cat","role":"maintain","reason":"RH-1 down"}]}`
-	cases := map[string]string{
-		"unknown gate":   `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Compatibility","by":"o","role":"admin","reason":"r"}]}`,
-		"twice":          `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Chaos","by":"o","role":"admin","reason":"r"},{"gate":"Chaos","by":"p","role":"admin","reason":"s"}]}`,
-		"login":          `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Chaos","by":"-bad","role":"admin","reason":"r"}]}`,
-		"role":           `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Chaos","by":"o","role":"write","reason":"r"}]}`,
-		"reason":         `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Chaos","by":"o","role":"admin","reason":"  "}]}`,
-		"format":         `{"format":"ruralz.skippedgates.v2","skipped":[]}`,
-		"unknown member": `{"format":"ruralz.skippedgates.v1","skipped":[],"note":"x"}`,
-	}
-	p := filepath.Join(dir, "skipped.json")
-	writeFile(t, p, good)
-	got, err := readSkipped(p)
-	if err != nil || len(got) != 1 || got[0].By != "octo-cat" {
-		t.Errorf("readSkipped(good) = %+v, %v", got, err)
-	}
-	for name, content := range cases {
-		writeFile(t, p, content)
-		if _, err := readSkipped(p); err == nil {
-			t.Errorf("%s: accepted", name)
-		}
-	}
-}
-
 func TestCheckRef(t *testing.T) {
 	for _, ref := range []string{"v0.1.0", "HEAD", "origin/main", "HEAD^", fixtureCommit} {
 		if err := checkRef(ref); err != nil {
@@ -369,9 +306,10 @@ func gitIn(t *testing.T, dir string, args ...string) string {
 }
 
 // TestRunNotesOnRepository renders the notes of a real Git range: by
-// default the commits after the previous release tag, skipping a release
-// candidate's tag, with schema changes against it; and the first release
-// from the root.
+// default the commits after the previous release tag, with schema changes
+// against it, whatever the release commit's own tag, which the release run
+// creates before the notes, and a tag that is no release tag, such as a
+// Go PDK's; and the first release from the root.
 func TestRunNotesOnRepository(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -382,7 +320,7 @@ func TestRunNotesOnRepository(t *testing.T) {
 	writeFile(t, schemaPath, schemaDoc(`"Gateway","Route"`, `"RouteSpec":{"properties":{"timeout":{}}}`))
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "--quiet", "-m", "feat(config): add the schema")
-	gitIn(t, dir, "tag", "v0.1.0")
+	gitIn(t, dir, "tag", "-a", "-m", "Ruralz 0.1.0", "v0.1.0")
 	for _, msg := range []string{
 		"fix(gateway): handle <script> in hosts",
 		"perf(gateway): cut an allocation",
@@ -391,17 +329,16 @@ func TestRunNotesOnRepository(t *testing.T) {
 	} {
 		gitIn(t, dir, "commit", "--quiet", "--allow-empty", "-m", msg)
 		if strings.HasPrefix(msg, "perf") {
-			gitIn(t, dir, "tag", "v0.2.0-rc.1")
+			gitIn(t, dir, "tag", "sdk/go/v0.3.0")
 		}
 	}
 	writeFile(t, schemaPath, schemaDoc(`"Gateway","Route","Upstream"`, `"RouteSpec":{"properties":{"timeout":{},"retries":{}}}`))
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "--quiet", "-m", "feat(cli)!: rename the output flag\n\nBREAKING CHANGE: --old is now --new\nand scripts must change.\n\nDeprecated: --legacy-output; removed in 0.4.0")
+	gitIn(t, dir, "tag", "-a", "-m", "Ruralz 0.2.0", "v0.2.0")
 
 	out := filepath.Join(t.TempDir(), "NOTES.md")
-	skipped := filepath.Join(t.TempDir(), "skipped.json")
-	writeFile(t, skipped, `{"format":"ruralz.skippedgates.v1","skipped":[{"gate":"Chaos","by":"octocat","role":"admin","reason":"flaky runner"}]}`)
-	o := notesOptions{root: dir, version: "0.2.0", from: "", to: "HEAD", budgets: filepath.Join(dir, "absent"), skipped: skipped, out: out}
+	o := notesOptions{root: dir, version: "0.2.0", from: "", to: "HEAD", out: out}
 	if err := runNotes(t.Context(), o, runGit); err != nil {
 		t.Fatal(err)
 	}
@@ -417,7 +354,6 @@ func TestRunNotesOnRepository(t *testing.T) {
 		"**cli:** --legacy-output; removed in 0.4.0",
 		"`ruralz/v1alpha1`: Kind `Upstream` added.", "`ruralz/v1alpha1`: `RouteSpec.retries` added.",
 		"`ruralz.plugin.v1`: not served by this release.", "`ruralz.control.v1`: not served by this release.",
-		"passed on the candidate commit | @octocat | admin | flaky runner |",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notes lack %q:\n%s", want, got)
@@ -429,7 +365,7 @@ func TestRunNotesOnRepository(t *testing.T) {
 		}
 	}
 
-	o.from, o.skipped, o.version = rootRef, "", "0.1.0"
+	o.from, o.version = rootRef, "0.1.0"
 	if err := runNotes(t.Context(), o, runGit); err != nil {
 		t.Fatal(err)
 	}
@@ -465,6 +401,8 @@ func TestRunNotesErrors(t *testing.T) {
 		"to":      func(o *notesOptions) { o.to = "--all" },
 		"from":    func(o *notesOptions) { o.from = "-x" },
 		"git":     func(*notesOptions) {},
+		// The default range reads the release tags, which fails too.
+		"previous release": func(o *notesOptions) { o.from = "" },
 	}
 	for name, change := range cases {
 		o := base
@@ -475,9 +413,8 @@ func TestRunNotesErrors(t *testing.T) {
 	}
 }
 
-// TestRunNotesManifest: with -manifest the notes name the image digests and
-// the records archive the manifest records; a manifest of another version
-// or commit is an error.
+// TestRunNotesManifest: with -manifest the notes name the image digests the
+// manifest records; a manifest of another version or commit is an error.
 func TestRunNotesManifest(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not installed")
@@ -488,7 +425,7 @@ func TestRunNotesManifest(t *testing.T) {
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "--quiet", "-m", "feat(config): add the schema")
 	head := gitIn(t, dir, "rev-parse", "HEAD")
-	m := &manifest{Format: manifestFormat, Version: "0.2.0", Commit: head, Images: sampleImages("0.2.0"), Bench: benchInfo{Name: benchArchiveName("0.2.0")}}
+	m := &manifest{Format: manifestFormat, Version: "0.2.0", Commit: head, Images: sampleImages("0.2.0")}
 	data, err := encodeManifest(m)
 	if err != nil {
 		t.Fatal(err)
@@ -504,7 +441,7 @@ func TestRunNotesManifest(t *testing.T) {
 	for _, want := range []string{
 		"cosign verify ghcr.io/ravindu-rev/ruralzd@" + sampleIndex,
 		"The image index is `ghcr.io/ravindu-rev/ruralzd@" + sampleIndex + "`",
-		"`ruralz_0.2.0_bench.tar.gz` holds",
+		"Image `ghcr.io/ravindu-rev/ruralzd:0.2.0` and `ghcr.io/ravindu-rev/ruralzd:0.2` for",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("notes lack %q:\n%s", want, got)

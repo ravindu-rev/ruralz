@@ -73,9 +73,9 @@ func offlineStages() map[string]string {
 
 // postDigestCodes returns the RZ-CFG codes of the checks after the digest
 // (Figure 3: the online stage, Ruralz Control and the Node), which may
-// carry no source position: the integration and end-to-end cases assert
-// them by code and resource (docs/engineering/03-testing-and-quality-
-// strategy.md "Conformance suites"), never a negative fixture.
+// carry no source position: the integration cases assert them by code
+// and resource (docs/engineering/03-testing-and-quality-strategy.md
+// "Conformance suites"), never a negative fixture.
 func postDigestCodes() []string {
 	return []string{
 		"RZ-CFG-024", "RZ-CFG-026", "RZ-CFG-027", "RZ-CFG-028", "RZ-CFG-033",

@@ -255,25 +255,3 @@ func TestYield(t *testing.T) {
 		t.Fatal(err)
 	}
 }
-
-// BenchmarkMergeShapes merges each scaleShapes input at 10,000 entries
-// (stage D share of the validation budget on hostile shapes).
-func BenchmarkMergeShapes(b *testing.B) {
-	for _, sh := range scaleShapes() {
-		b.Run(sh.name, func(b *testing.B) {
-			opts := Options{Schemas: schemas(b)}
-			b.ReportAllocs()
-			for range b.N {
-				b.StopTimer()
-				base, patches := sh.build(10_000)
-				b.StartTimer()
-				for _, r := range base {
-					_ = CheckBase(r, opts)
-				}
-				if _, _, err := Apply(b.Context(), base, patches, opts); err != nil {
-					b.Fatal(err)
-				}
-			}
-		})
-	}
-}

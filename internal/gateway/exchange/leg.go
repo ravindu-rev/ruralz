@@ -32,7 +32,7 @@ const noAttempt = -1
 // handleChunk is how many leg handles one allocation holds. Handles are
 // never reused, so each leg takes a fresh one; carving them out of
 // pooled chunks keeps the request path at one allocation per handleChunk
-// legs, which rounds to none per request (PB-8).
+// legs, which rounds to none per request.
 const handleChunk = 64
 
 // errClosed is returned by a leg response body read after Close.

@@ -1,11 +1,11 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package promtext scrapes and parses the Prometheus text exposition format
-// (version 0.0.4, plus the OpenMetrics 1.0 additions a scrape may meet:
-// "# UNIT", "# EOF", exemplars, _created samples and quoted UTF-8 names)
-// so integration, end-to-end and chaos tests can assert counters, gauges
-// and histogram quantiles of a Node's /metrics.
+// Package promtext parses the Prometheus text exposition format (version
+// 0.0.4, plus the OpenMetrics 1.0 additions a scrape may meet: "# UNIT",
+// "# EOF", exemplars, _created samples and quoted UTF-8 names) so unit and
+// integration tests can assert counters, gauges and histogram quantiles of
+// a Node's /metrics.
 //
 // The package is standard library only: /metrics exposition belongs to
 // internal/telemetry, and the parser is the independent reader tests use
@@ -15,17 +15,14 @@ package promtext
 import (
 	"bufio"
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"io"
 	"math"
-	"net/http"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Metric types as written after "# TYPE".
@@ -40,9 +37,6 @@ const (
 	TypeStateSet       = "stateset"
 	TypeGaugeHistogram = "gaugehistogram"
 )
-
-// MaxScrapeBytes bounds a scraped body.
-const MaxScrapeBytes = 64 << 20
 
 // Labels is a label set. Matching a sample against Labels requires every
 // given name to have the given value; a value "" matches an absent label.
@@ -98,19 +92,13 @@ type Sample struct {
 	Labels Labels
 	// Value is the sample value; +Inf, -Inf and NaN are allowed.
 	Value float64
-	// Timestamp is the optional timestamp in milliseconds; HasTimestamp
-	// tells whether one was written.
-	Timestamp    int64
-	HasTimestamp bool
 }
 
 // Family is one metric family: the samples following a "# TYPE" (or, for
-// untyped samples, sharing one name).
+// untyped samples, sharing one name), whose HELP and UNIT text is not
+// kept.
 type Family struct {
-	Name    string
 	Type    string
-	Help    string
-	Unit    string
 	Samples []Sample
 }
 
@@ -148,62 +136,6 @@ func Parse(r io.Reader) (Set, error) {
 
 // ParseBytes parses an exposition held in memory.
 func ParseBytes(b []byte) (Set, error) { return Parse(bytes.NewReader(b)) }
-
-// Scrape fetches url with GET and parses the body. header is added to the
-// request (for example Authorization for the admin metrics token); the
-// request asks for text format 0.0.4. A nil client uses a client with a
-// 10 s timeout.
-func Scrape(ctx context.Context, client *http.Client, url string, header http.Header) (Set, error) {
-	if client == nil {
-		client = &http.Client{Timeout: 10 * time.Second}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	for k, vs := range header {
-		for _, v := range vs {
-			req.Header.Add(k, v)
-		}
-	}
-	req.Header.Set("Accept", "text/plain;version=0.0.4;q=1,*/*;q=0.1")
-	resp, err := client.Do(req)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxScrapeBytes+1))
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	if resp.StatusCode != http.StatusOK {
-		return Set{}, fmt.Errorf("promtext: scrape %s: status %d: %s", url, resp.StatusCode, bytes.TrimSpace(body[:min(len(body), 512)]))
-	}
-	if len(body) > MaxScrapeBytes {
-		return Set{}, fmt.Errorf("promtext: scrape %s: body exceeds %d bytes", url, MaxScrapeBytes)
-	}
-	set, err := ParseBytes(body)
-	if err != nil {
-		return Set{}, fmt.Errorf("promtext: scrape %s: %w", url, err)
-	}
-	return set, nil
-}
-
-// Names returns every family name, sorted.
-func (s Set) Names() []string {
-	out := make([]string, 0, len(s.Families))
-	for n := range s.Families {
-		out = append(out, n)
-	}
-	slices.Sort(out)
-	return out
-}
-
-// Family returns the family named name.
-func (s Set) Family(name string) (*Family, bool) {
-	f, ok := s.Families[name]
-	return f, ok
-}
 
 // Samples returns the samples named name (a sample name, such as
 // "x_bucket" or "x_total") whose labels match, in exposition order.
@@ -374,7 +306,7 @@ func (p *parser) parseComment(line string) error {
 	if len(fields) < 3 || (fields[1] != "HELP" && fields[1] != "TYPE" && fields[1] != "UNIT") {
 		return nil // an ordinary comment
 	}
-	// Re-split so HELP keeps its inner spacing.
+	// Re-split after the keyword; HELP and UNIT name a family, TYPE types it.
 	rest := strings.TrimLeft(strings.TrimPrefix(strings.TrimLeft(line[1:], " \t"), fields[1]), " \t")
 	name, text, err := p.metricName(rest)
 	if err != nil {
@@ -382,12 +314,7 @@ func (p *parser) parseComment(line string) error {
 	}
 	text = strings.TrimLeft(text, " \t")
 	f := p.family(name)
-	switch fields[1] {
-	case "HELP":
-		f.Help = unescapeHelp(text)
-	case "UNIT":
-		f.Unit = strings.TrimSpace(text)
-	default:
+	if fields[1] == "TYPE" {
 		typ := strings.TrimSpace(text)
 		switch typ {
 		case TypeCounter, TypeGauge, TypeHistogram, TypeSummary, TypeUntyped,
@@ -460,15 +387,13 @@ func (p *parser) parseSample(line string) error {
 	}
 	smp.Value = v
 	if len(fields) == 2 {
-		ts, err := strconv.ParseInt(fields[1], 10, 64)
-		if err != nil {
-			f, ferr := strconv.ParseFloat(fields[1], 64)
-			if ferr != nil {
+		// A timestamp is checked, then not kept: integer milliseconds,
+		// or OpenMetrics seconds.
+		if _, err := strconv.ParseInt(fields[1], 10, 64); err != nil {
+			if _, ferr := strconv.ParseFloat(fields[1], 64); ferr != nil {
 				return p.errorf("timestamp %q: %v", fields[1], err)
 			}
-			ts = int64(f * 1000) // OpenMetrics timestamps are seconds
 		}
-		smp.Timestamp, smp.HasTimestamp = ts, true
 	}
 	f := p.familyOf(smp.Name)
 	f.Samples = append(f.Samples, smp)
@@ -539,7 +464,7 @@ func (p *parser) parseLabels(s string, smp *Sample) (string, error) {
 func (p *parser) family(name string) *Family {
 	f, ok := p.set.Families[name]
 	if !ok {
-		f = &Family{Name: name}
+		f = &Family{}
 		p.set.Families[name] = f
 	}
 	return f
@@ -618,30 +543,6 @@ func readQuoted(s string) (string, int, error) {
 		}
 	}
 	return "", 0, errors.New("unterminated quoted string")
-}
-
-// unescapeHelp undoes the \\ and \n escapes of HELP text.
-func unescapeHelp(s string) string {
-	if !strings.Contains(s, `\`) {
-		return s
-	}
-	var b strings.Builder
-	for i := 0; i < len(s); i++ {
-		if s[i] == '\\' && i+1 < len(s) {
-			switch s[i+1] {
-			case '\\':
-				b.WriteByte('\\')
-				i++
-				continue
-			case 'n':
-				b.WriteByte('\n')
-				i++
-				continue
-			}
-		}
-		b.WriteByte(s[i])
-	}
-	return b.String()
 }
 
 // parseFloat parses a sample value, accepting the exposition spellings

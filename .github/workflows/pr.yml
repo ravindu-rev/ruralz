@@ -1,0 +1,151 @@
+# Copyright 2026 Revington
+# SPDX-License-Identifier: Apache-2.0
+#
+# pr: the one pipeline of every pull request to main
+# (docs/engineering/02-repository-layout-and-conventions.md, "CI stages").
+# release.yml runs it again on the main commit it releases, through
+# workflow_call. Its jobs run in order, each after the one before passed:
+#   ci           make lint (golangci-lint with .golangci.yml, gofumpt and
+#                goimports, actionlint with the pinned shellcheck), make dco
+#                (the sign-off of the change's own non-merge commits,
+#                Dependabot's aside) and make supply-chain (go mod verify,
+#                govulncheck, depgate)
+#   unit         make test: the race tests with cgo, then CGO_ENABLED=0
+#   integration  make integration: the integration-tagged tests, with a
+#                local redis-server and the runner's Docker
+#   pr           passes only when the three passed; the one required status
+#                check
+# A caller grants contents: read; the pipeline needs no other permission
+# and no secret.
+name: pr
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  # A push to a pull request cancels the pipeline still running on its
+  # previous head. A run release.yml calls is a group of its own, so it
+  # never waits for or cancels another run.
+  group: pr-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
+# No workflow-level GOTOOLCHAIN: setup-go reads the go.mod toolchain line only
+# while GOTOOLCHAIN is unset, then sets GOTOOLCHAIN=local itself.
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The DCO check reads the change's commits.
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make lint
+      - name: DCO sign-off of the change's commits
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          PUSH_AFTER: ${{ github.event.after }}
+        run: |
+          # A pull request's commits are those its head adds to its base; a
+          # push to main, the run release.yml calls, adds those of the
+          # merged pull request.
+          case "$EVENT" in
+            pull_request)
+              range="$PR_BASE..$PR_HEAD" ;;
+            push)
+              # A push that creates its branch has no previous commit.
+              if [[ -z "$PUSH_BEFORE" || "$PUSH_BEFORE" =~ ^0+$ ]]; then
+                echo "dco: the push created its branch, so it adds no commit range to check"
+                exit 0
+              fi
+              range="$PUSH_BEFORE..$PUSH_AFTER" ;;
+            *)
+              echo "dco: a $EVENT run adds no commit range to check"
+              exit 0 ;;
+          esac
+          DCO_RANGE="$range" make dco
+      - run: make supply-chain
+
+  unit:
+    name: unit
+    needs: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - run: make test
+
+  integration:
+    name: integration
+    needs: unit
+    # ubuntu-24.04 keeps redis-server 7.0.15 (tech stack CI tooling row).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      # The State Store suites run every kind of both flavors, the process
+      # kinds on the local redis-server and the container kinds on the
+      # runner's Docker, and fail rather than skip when either cannot run;
+      # the process harness runs on the local redis-server.
+      RURALZ_TEST_STATESTORE: process,container
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - name: Install redis-server
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends redis-server
+          # The suites launch their own servers on free ports.
+          sudo systemctl disable --now redis-server
+          echo "RURALZ_TEST_REDIS_SERVER=$(command -v redis-server)" >>"$GITHUB_ENV"
+          redis-server --version
+      - name: Allow unprivileged user namespaces
+        # The security suite gives an admin client a non-loopback address
+        # inside a user and network namespace; Ubuntu's AppArmor otherwise
+        # denies capabilities in unprivileged user namespaces.
+        run: |
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - run: make integration
+
+  pr:
+    name: pr
+    # Runs even when a job before it failed or was skipped, so a failure
+    # never leaves the required check skipped, which GitHub counts as
+    # passed.
+    if: always()
+    needs: [ci, unit, integration]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: ci, unit and integration passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            if [[ "$r" != success ]]; then exit 1; fi
+          done

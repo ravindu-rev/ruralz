@@ -68,8 +68,7 @@ func scaleFiles() *tree.FileTable {
 
 // TestScale resolves lists of a few thousand members and thousands of
 // Routes and checks the far end of every list. It reads no clock:
-// BenchmarkResolve measures the cost, and TestScaleLinear pins its
-// growth with counters.
+// TestScaleLinear pins the growth of the cost with counters.
 func TestScale(t *testing.T) {
 	n, routes := 3000, 100
 	if testing.Short() {

@@ -26,7 +26,8 @@ type Harness struct {
 	Open func(t *testing.T, o OpenOptions) statestore.Driver
 	// Advance moves the time driver d and its store see by the given
 	// duration: a fake clock's Advance, or a real sleep against a live
-	// server.
+	// server, which the suite repeats until the store's own clock has
+	// moved that far.
 	Advance func(t *testing.T, d statestore.Driver, by time.Duration)
 	// Exact is true when time moves only through Advance (a fake clock):
 	// the suite then also checks the literal numbers. Without it,
@@ -115,8 +116,10 @@ const callTimeout = 10 * time.Second
 // within a span of store time (a GCRA emission interval, a lease, one
 // Quota window) reads the span from the store's own times and checks its
 // outcomes only when the span held (suite.timed); a time to live is
-// checked within the store time measured since it was set (suite.ttlNear).
-// No result then depends on the machine's speed.
+// checked within the store time measured since it was set (suite.ttlNear);
+// and a wait lasts until the store's own clock has moved its whole length
+// (suite.advance). No result then depends on the machine's speed or on a
+// correction of the store's wall clock.
 const (
 	// timedAttempts bounds the attempts of a span on real time.
 	timedAttempts = 3
@@ -211,14 +214,31 @@ func (s *suite) digest(name string) statestore.Digest {
 
 func (s *suite) name(base string) string { return base + "-" + s.nonce }
 
-func (s *suite) advance(by time.Duration) { s.h.Advance(s.t, s.d, by) }
+// advance moves the time the case's driver and its store see by `by`:
+// exactly, through the harness, on a fake clock. Against real time the
+// harness sleeps on the monotonic clock while the store stamps its
+// decisions with its own wall clock (Redis TIME), which a correction on
+// its host can slew slower or step back during the sleep, so a bare sleep
+// can give the store less time than it slept and leave a lease, interval
+// or window that the case waits out still running. advance therefore
+// reads the store's time before (serverNow) and sleeps again for every
+// shortfall until the store's clock has moved by `by` too.
+func (s *suite) advance(by time.Duration) {
+	s.t.Helper()
+	if s.h.Exact {
+		s.h.Advance(s.t, s.d, by)
+		return
+	}
+	end := s.serverNow().Add(by)
+	for wait := by; wait > 0; wait = end.Sub(s.serverNow()) {
+		s.h.Advance(s.t, s.d, wait)
+	}
+}
 
 // advancePast moves time past a RetryAfter so the next call sees the
 // instant it named: exactly by it on a fake clock. Against real time the
-// store stamps its calls with the wall clock, rounded to the millisecond,
-// while the sleep runs on the monotonic one, so a wall-clock correction
-// can give the store less than was slept: it also waits a millisecond per
-// case unit, far below every interval.
+// store stamps its calls with its clock rounded to the millisecond, so it
+// also waits a millisecond per case unit, far below every interval.
 func (s *suite) advancePast(retry time.Duration) {
 	if !s.h.Exact {
 		retry += time.Millisecond * s.unit

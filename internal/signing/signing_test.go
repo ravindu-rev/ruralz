@@ -373,28 +373,3 @@ func FuzzParseDigest(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkVerifyArtifact(b *testing.B) {
-	artifact := bytes.Repeat([]byte{0xa5}, 4<<20)
-	want := revision.Sum(artifact)
-	ctx := b.Context()
-	b.SetBytes(int64(len(artifact)))
-	b.ReportAllocs()
-	for b.Loop() {
-		if err := VerifyArtifact(ctx, bytes.NewReader(artifact), want, int64(len(artifact))); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkVerifyRevision(b *testing.B) {
-	content := bytes.Repeat([]byte(canonical), 1000)
-	want := revision.Sum(content)
-	b.SetBytes(int64(len(content)))
-	b.ReportAllocs()
-	for b.Loop() {
-		if err := VerifyRevision(content, want); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

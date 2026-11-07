@@ -347,8 +347,8 @@ func (st *state) handle(ctx context.Context) {
 		st.preRouting(sctx, codeNoRoute)
 		return
 	}
-	mctx, mspan := h.tracer.StartRouteMatch(sctx)
-	res := router.Match(mctx, x.MatchRequest(), x.ParamBuf())
+	_, mspan := h.tracer.StartRouteMatch(sctx)
+	res := router.Match(x.MatchRequest(), x.ParamBuf())
 	routeName := unmatchedRoute
 	if res.Err == nil && res.Route >= 0 && int(res.Route) < len(snap.Routes) {
 		routeName = snap.Routes[res.Route].Name

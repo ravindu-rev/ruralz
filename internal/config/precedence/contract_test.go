@@ -83,8 +83,8 @@ func TestImportsAllowed(t *testing.T) {
 
 // TestNoWallClock checks that no file of the package, tests included,
 // reads the wall clock or waits on it (time.Now only in clock.Real; tests
-// never depend on wall-clock time). Costs are measured by benchmarks and
-// growth by counters (TestScaleLinear).
+// never depend on wall-clock time). Counters measure the growth of the
+// cost (TestScaleLinear).
 func TestNoWallClock(t *testing.T) {
 	banned := []string{"Now", "Since", "Until", "After", "AfterFunc", "Sleep", "Tick", "NewTimer", "NewTicker"}
 	for _, f := range packageFiles(t, true) {

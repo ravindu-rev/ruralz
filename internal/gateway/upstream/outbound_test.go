@@ -27,9 +27,7 @@ import (
 // Tests for the attempt context (the attempt record, armed on the leg's
 // reused deadline timer, answering httptrace's key) and the copy-free
 // forwarding writer (the pooled outgoing header sharing the client's
-// values), the Upstream layer row of
-// docs/architecture/12-performance-budgets-and-benchmarking.md "Per-stage
-// latency budget".
+// values) of the Upstream layer.
 
 // funcTransport is a RoundTripper over a function.
 type funcTransport func(*http.Request) (*http.Response, error)

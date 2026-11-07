@@ -67,8 +67,8 @@ func TestPlanOffsets(t *testing.T) {
 
 // TestPlanWavesStayInTheirEighths checks, for many draws, that shard i
 // shuts down within the i-th eighth of the jitter window, so the waves are
-// in order, and that no 1 s slice of the window holds more than two waves,
-// the bound CE-2 asserts.
+// in order, and that no 1 s slice of the window holds more than two
+// waves.
 func TestPlanWavesStayInTheirEighths(t *testing.T) {
 	start := time.Date(2026, 10, 30, 12, 0, 0, 0, time.UTC)
 	src := rand.NewPCG(1, 2)

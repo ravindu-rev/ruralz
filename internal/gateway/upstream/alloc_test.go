@@ -81,26 +81,15 @@ func cannedLeg(t testing.TB) func() {
 	}
 }
 
-// BenchmarkLegCanned measures the attempt loop of a pass-through leg
-// without net/http (the canned transport).
-func BenchmarkLegCanned(b *testing.B) {
-	leg := cannedLeg(b)
-	b.ReportAllocs()
-	for b.Loop() {
-		leg()
-	}
-}
-
-// TestLegAllocations reports the Ruralz-owned allocations of the Upstream
-// layer stage for a pass-through leg (docs/architecture/12-performance-budgets-and-benchmarking.md
-// "Per-stage latency budget", Upstream layer: 6 (target)) and fails when
-// they grow past the count this implementation reaches (maxLegAllocs).
+// TestLegAllocations checks that a pass-through leg allocates no more
+// than maxLegAllocs, the count this implementation reaches, net/http
+// excluded.
 func TestLegAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("allocation counts are meaningless under -race")
 	}
 	got := legAllocs(t)
-	t.Logf("allocations per leg: %.0f (stage target 6)", got)
+	t.Logf("allocations per leg: %.0f", got)
 	if got > maxLegAllocs {
 		t.Errorf("allocations per leg = %.0f, want at most %d", got, maxLegAllocs)
 	}

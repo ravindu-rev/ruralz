@@ -55,7 +55,7 @@ func (l listView[S]) Contains(elem ref.Val) ref.Val {
 
 // Get returns the element at index.
 func (l listView[S]) Get(index ref.Val) ref.Val {
-	i, err := types.IndexOrError(index)
+	i, err := types.GetOrError(index)
 	if err != nil {
 		return types.ValOrErr(index, "%v", err)
 	}

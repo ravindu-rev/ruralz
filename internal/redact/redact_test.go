@@ -615,26 +615,3 @@ func FuzzSensitive(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkRedacts(b *testing.B) {
-	set := New(revisionHeaders()...)
-	names := []string{"Content-Type", "Authorization", "X-Client-Id", "x-request-id", "Traceparent", "X-Api-Key"}
-	b.ReportAllocs()
-	for b.Loop() {
-		for _, n := range names {
-			_ = set.Redacts(n)
-		}
-	}
-}
-
-func BenchmarkTapHeaders(b *testing.B) {
-	set := New(revisionHeaders()...)
-	h := http.Header{
-		"Accept": {"application/json"}, "Authorization": {"Bearer x"}, "Content-Type": {"application/json"},
-		"User-Agent": {"bench"}, "X-Api-Key": {"k"}, "X-Request-Id": {"r"}, "Traceparent": {"00-1-2-01"},
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = set.Headers(h)
-	}
-}

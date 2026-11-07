@@ -93,7 +93,7 @@ func TestStageJCost(t *testing.T) {
 		"r.yaml": routeWhen("r", "orders", "    when: 'request.headers.all(a, request.headers.all(b, request.headers.all(c, a + b + c != \"\")))'\n", ""),
 	}), Request{})
 	wantTexts(t, "cost", res.Diagnostics,
-		"r.yaml:8:11 error RZ-CFG-015 Route/r spec.match.when: CEL Route.spec.match.when: estimated cost 4430019 exceeds 10000 at nominal sizes (strings 256, lists and maps 32) (nested comprehensions multiply: iterate over fewer or smaller values)")
+		"r.yaml:8:11 error RZ-CFG-015 Route/r spec.match.when: CEL Route.spec.match.when: estimated cost 4462787 exceeds 10000 at nominal sizes (strings 256, lists and maps 32) (nested comprehensions multiply: iterate over fewer or smaller values)")
 }
 
 // ratelimitWith returns a ratelimit Policy whose spec holds the YAML of

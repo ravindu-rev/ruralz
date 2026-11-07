@@ -6,8 +6,8 @@
 // fixtures with compiled Routers and Filter Chains, canned Forwarders, a
 // deterministic Tracer, a recording access log, recording metric handles
 // and a fake connection. It never imports the handler, so the handler's
-// own tests use it as well as the ruralzd wiring, conformance and
-// benchmark suites. Production code never imports it.
+// own tests use it as well as the tests of the packages around the
+// handler. Production code never imports it.
 package handlertest
 
 import (
@@ -181,7 +181,7 @@ func Snapshot(t testing.TB, s Spec) *snapshot.Snapshot {
 			}
 		}
 		for _, n := range names {
-			bound[n] = append(bound[n], router.Route{Index: int32(i), Name: r.Name, Match: r.Match, When: r.When, Timeout: rt.Timeout})
+			bound[n] = append(bound[n], router.Route{Index: int32(i), Name: r.Name, Match: r.Match, When: r.When})
 		}
 	}
 	for _, l := range listeners {

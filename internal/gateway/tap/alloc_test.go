@@ -5,9 +5,9 @@ package tap
 
 import "testing"
 
-// Allocation gate and benchmarks of docs/architecture/10-observability.md
-// "Overhead per signal": /tap without a subscriber, 0 allocations (one
-// atomic load); with one subscriber, 1 allocation per event at most.
+// The /tap rows of docs/architecture/10-observability.md "Overhead per
+// signal": without a subscriber 0 allocations (one atomic load); with one
+// subscriber at most 1 allocation per event.
 
 // TestNoSubscriberAllocatesNothing checks the no-subscriber row: Active
 // and Publish allocate nothing.
@@ -38,25 +38,5 @@ func TestOneSubscriberAllocations(t *testing.T) {
 		s.consume(len(s.pending()))
 	}); n > 1 {
 		t.Fatalf("%v allocations per event, want at most 1", n)
-	}
-}
-
-func BenchmarkActiveNoSubscriber(b *testing.B) {
-	h := New(Config{})
-	for b.Loop() {
-		if h.Active() {
-			b.Fatal("Active without subscribers")
-		}
-	}
-}
-
-func BenchmarkPublishOneSubscriber(b *testing.B) {
-	h := New(Config{})
-	s := h.subscribe(1)
-	ev, _ := fullEvent()
-	b.ReportAllocs()
-	for b.Loop() {
-		h.Publish(0, &ev)
-		s.consume(len(s.pending()))
 	}
 }

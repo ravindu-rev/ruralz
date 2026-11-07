@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -26,9 +25,8 @@ import (
 )
 
 // Tests for the dependencies of the process harness: the State Store
-// through each Node's own proxies, with TLS and an ACL user; the L4
-// balancer over the Nodes, with PROXY protocol v2; and the in-process
-// mocks.
+// through each Node's own proxies, with TLS and an ACL user, and the
+// in-process mocks.
 
 // ping authenticates as the URL's user, when it names one, and sends PING
 // through the URL's host, over TLS for rediss.
@@ -76,7 +74,7 @@ func TestStateStoreThroughPerNodeProxies(t *testing.T) {
 	nodes := addNodes(t, topo, 2, o)
 	hosts := map[string]string{}
 	for _, n := range nodes {
-		v, ok := n.SecretValue(refStoreURL)
+		v, ok := secretValue(n, refStoreURL)
 		if !ok {
 			t.Fatalf("%s has no State Store URL", n.Name())
 		}
@@ -110,7 +108,7 @@ func TestStateStoreThroughPerNodeProxies(t *testing.T) {
 		if got := proxies[0].Upstream(); got != primary {
 			t.Errorf("%s proxy dials %s after Promote, want the promoted %s", n.Name(), got, primary)
 		}
-		v, _ := n.SecretValue(refStoreURL)
+		v, _ := secretValue(n, refStoreURL)
 		u, _ := url.Parse(string(v))
 		ping(t, topo, u)
 	}
@@ -131,7 +129,7 @@ func TestStateStoreRESPProxy(t *testing.T) {
 	if !ok || len(counters) != 1 {
 		t.Fatalf("RESPProxy = %v, %v", counters, ok)
 	}
-	v, _ := n.SecretValue(refStoreURL)
+	v, _ := secretValue(n, refStoreURL)
 	u, _ := url.Parse(string(v))
 	if u.Scheme != "redis" {
 		t.Fatalf("a counted State Store URL has scheme %s, want redis", u.Scheme)
@@ -144,10 +142,7 @@ func TestStateStoreRESPProxy(t *testing.T) {
 
 // With RESPProxy each primary of a process cluster announces a counting
 // proxy of its own: the cluster's slot map names the proxies, so commands
-// a cluster client sends to the servers directly are counted too. The
-// primaries' replicas replicate through the same proxies, so their
-// handshakes count there as well; the test counts the PING it sends
-// beside them.
+// a cluster client sends to the servers directly are counted too.
 func TestClusterRESPProxiesCountEveryCommand(t *testing.T) {
 	topo := standinTopology(t)
 	ss := topo.StartStateStore("cluster", StateStoreOptions{Kind: redisserver.ProcessCluster, RESPProxy: true})
@@ -201,7 +196,7 @@ func TestStateStoreURL(t *testing.T) {
 	o := nodeOptions(t, topo)
 	o.StateStoreURLs = map[string]string{refStoreURL: "main", "file:/etc/ruralz/unused-url": "other"}
 	n := addNodes(t, topo, 1, o)[0]
-	v, _ := n.SecretValue(refStoreURL)
+	v, _ := secretValue(n, refStoreURL)
 	if got, ok := n.StateStoreURL("main"); !ok || got != string(v) {
 		t.Errorf("StateStoreURL(main) = %q, %v; want the referenced secret's value", got, ok)
 	}
@@ -239,69 +234,6 @@ func TestLeakScanReadsTheStateStoreKeyspace(t *testing.T) {
 	}
 	if err := os.Remove(filepath.Join(topo.captures.dir, "statestore-main")); err != nil {
 		t.Fatal(err)
-	}
-}
-
-// The balancer splices to each Node's listener and probes /readyz over
-// the admin TLS; a Node added later joins it.
-func TestBalancerOverTheNodes(t *testing.T) {
-	topo := standinTopology(t)
-	nodes := addNodes(t, topo, 2, nodeOptions(t, topo))
-	lb, err := topo.StartBalancer(t.Context(), "http", BalancerOptions{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lb.WaitHealthy(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	// A connection per request: the balancer picks a backend per
-	// connection.
-	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
-	pids := map[string]bool{}
-	for range 4 {
-		resp := get(t, client, "http://"+lb.Addr()+"/")
-		pids[resp.Header.Get("X-Standin-Pid")] = true
-	}
-	for _, n := range nodes {
-		if !pids[strconv.Itoa(n.Process().PID())] {
-			t.Errorf("no request reached %s through the balancer", n.Name())
-		}
-	}
-	third := addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	if _, ok := lb.Backend(third.Name()); !ok {
-		t.Fatalf("%s did not join the balancer", third.Name())
-	}
-	if err := lb.WaitHealthy(t.Context(), third.Name()); err != nil {
-		t.Fatal(err)
-	}
-	if lb.Listener() != "http" {
-		t.Errorf("Listener = %s", lb.Listener())
-	}
-}
-
-// With ProxyProtocol a Node's proxyProtocol listener sees each client's
-// own address: a client on 127.0.0.2 reaches the Node as 127.0.0.2.
-func TestBalancerProxyProtocol(t *testing.T) {
-	if runtime.GOOS != "linux" {
-		t.Skip("only Linux answers 127.0.0.2 without an alias")
-	}
-	topo := standinTopology(t)
-	o := nodeOptions(t, topo)
-	o.Bundle = []byte(strings.Replace(testBundle, "      port: 8080\n", "      port: 8080\n      proxyProtocol: true\n", 1))
-	addNodes(t, topo, 1, o)
-	lb, err := topo.StartBalancer(t.Context(), "http", BalancerOptions{ProxyProtocol: true})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := lb.WaitHealthy(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	local := &net.TCPAddr{IP: net.IPv4(127, 0, 0, 2)}
-	client := &http.Client{Transport: &http.Transport{DialContext: (&net.Dialer{LocalAddr: local}).DialContext}}
-	resp := get(t, client, "http://"+lb.Addr()+"/")
-	host, _, err := net.SplitHostPort(resp.Header.Get("X-Standin-Client"))
-	if err != nil || host != "127.0.0.2" {
-		t.Errorf("the Node saw the client as %q, want 127.0.0.2", resp.Header.Get("X-Standin-Client"))
 	}
 }
 
