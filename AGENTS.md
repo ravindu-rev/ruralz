@@ -1,6 +1,6 @@
 # Ruralz agent instructions
 
-Ruralz is an Apache-2.0 API gateway in Go with no feature gating, owned by Revington. Module `github.com/ravindu-rev/ruralz`. `docs/` is the spec. The code is at milestone M1 Core gateway, in progress: `ruralzd` serves file-mode traffic, and release `0.1.0` is not out yet. Check the tree for what exists; never import or claim a package that is not there.
+Ruralz is an Apache-2.0 API gateway in Go with no feature gating, owned by Revington. Module `github.com/ravindu-rev/ruralz`. `docs/` is the spec. Release `0.1.0` shipped milestone M1 Core gateway: file-mode `ruralzd` and the `ruralz` CLI. The code is at milestone M2 WASM + Control/GitOps, in progress. Check the tree for what exists; never import or claim a package that is not there.
 
 ## Where things are decided
 
