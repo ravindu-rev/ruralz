@@ -72,10 +72,7 @@ func (t *Topology) tearDown() {
 		t.t.Errorf("topology: secret leak: %s", f)
 	}
 	if t.t.Failed() {
-		artifacts := t.cfg.ArtifactDir
-		if artifacts == "" {
-			artifacts = os.Getenv(ArtifactDirEnv)
-		}
+		artifacts := os.Getenv(ArtifactDirEnv)
 		if artifacts == "" {
 			t.t.Logf("topology: %s is unset: no failure evidence kept", ArtifactDirEnv)
 		} else if dir, err := t.writeEvidence(artifacts, nodes, sinks); err != nil {

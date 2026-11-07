@@ -4,12 +4,10 @@
 package loadgen
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"io"
 	"math"
-	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,26 +19,40 @@ import (
 // start + k/Rate.
 func TestOpenLoopScheduleIsExact(t *testing.T) {
 	fk := clocktest.New(epoch())
-	var s seen
-	tgt := TargetFunc(func(_ context.Context, r Request) Response {
-		s.add(r)
+	s := seen{clk: fk}
+	tgt := targetFunc(func(context.Context) Response {
+		s.add()
 		return Response{Status: 200}
 	})
 	g := start(t, tgt, Config{Rate: 10, Duration: time.Second, Clock: fk})
 	res := drive(t, g, fk, ms(100))
-	reqs := s.list()
-	slices.SortFunc(reqs, func(a, b Request) int { return cmp.Compare(a.Seq, b.Seq) })
-	if len(reqs) != 10 {
-		t.Fatalf("%d requests, want 10", len(reqs))
+	times := s.list()
+	if len(times) != 10 {
+		t.Fatalf("%d requests, want 10", len(times))
 	}
-	for k, r := range reqs {
-		if r.Seq != uint64(k) || !r.Intended.Equal(epoch().Add(ms(100*k))) {
-			t.Errorf("request %d = seq %d at %v, want seq %d at %v", k, r.Seq, r.Intended, k, epoch().Add(ms(100*k)))
+	for k, at := range times {
+		if !at.Equal(epoch().Add(ms(100 * k))) {
+			t.Errorf("request %d sent at %v, want %v", k, at, epoch().Add(ms(100*k)))
 		}
 	}
 	if res.Offered != 10 || res.Outcomes[Success] != 10 || res.Statuses[200] != 10 {
 		t.Errorf("offered %d success %d statuses %v; want 10, 10, 10 of 200", res.Offered, res.Outcomes[Success], res.Statuses)
 	}
+}
+
+// stallFirst returns a target that holds its first request until release
+// is closed or the request's context ends, answering status at once to
+// the others.
+func stallFirst(s *seen, release <-chan struct{}, status int) Target {
+	return targetFunc(func(ctx context.Context) Response {
+		if s.add() == 0 {
+			select {
+			case <-release:
+			case <-ctx.Done():
+			}
+		}
+		return Response{Status: status}
+	})
 }
 
 // A stalled request never delays the schedule: the requests due behind it
@@ -49,23 +61,13 @@ func TestOpenLoopScheduleIsExact(t *testing.T) {
 func TestStallDoesNotDelayTheSchedule(t *testing.T) {
 	fk := clocktest.New(epoch())
 	release := make(chan struct{})
-	var s seen
-	tgt := TargetFunc(func(ctx context.Context, r Request) Response {
-		s.add(r)
-		if r.Seq == 0 {
-			select {
-			case <-release:
-			case <-ctx.Done():
-			}
-		}
-		return Response{Status: 200}
-	})
-	g := start(t, tgt, Config{Rate: 10, Duration: time.Second, MaxInFlight: 1, Clock: fk})
-	waitFor(t, "request 0 in flight", func() bool { return g.Progress().InFlight == 1 })
+	s := seen{clk: fk}
+	g := start(t, stallFirst(&s, release, 200), Config{Rate: 10, Duration: time.Second, MaxInFlight: 1, Clock: fk})
+	waitFor(t, "request 0 in flight", func() bool { return progressOf(g).inFlight == 1 })
 	fk.Advance(time.Second)
-	waitFor(t, "requests 1 to 9 backlogged", func() bool { return g.Progress().Backlog == 9 })
-	if p := g.Progress(); p.Scheduled != 10 || p.Done != 0 {
-		t.Fatalf("while request 0 stalls: %d scheduled, %d done; want 10 and 0", p.Scheduled, p.Done)
+	waitFor(t, "requests 1 to 9 backlogged", func() bool { return progressOf(g).backlog == 9 })
+	if p := progressOf(g); p.scheduled != 10 || p.done != 0 {
+		t.Fatalf("while request 0 stalls: %d scheduled, %d done; want 10 and 0", p.scheduled, p.done)
 	}
 	close(release)
 	res, err := g.Wait()
@@ -75,12 +77,8 @@ func TestStallDoesNotDelayTheSchedule(t *testing.T) {
 	if res.Outcomes[Success] != 10 || res.Outcomes[Missed] != 0 {
 		t.Errorf("success %d missed %d, want 10 and 0", res.Outcomes[Success], res.Outcomes[Missed])
 	}
-	reqs := s.list()
-	slices.SortFunc(reqs, func(a, b Request) int { return cmp.Compare(a.Seq, b.Seq) })
-	for k, r := range reqs {
-		if r.Seq != uint64(k) || !r.Intended.Equal(epoch().Add(ms(100*k))) {
-			t.Errorf("request %d = seq %d intended at %v, want seq %d at %v", k, r.Seq, r.Intended, k, epoch().Add(ms(100*k)))
-		}
+	if n := len(s.list()); n != 10 {
+		t.Errorf("the target saw %d requests, want 10", n)
 	}
 }
 
@@ -98,21 +96,11 @@ func TestMissedWhenNoWorkerOrBacklogRoom(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			fk := clocktest.New(epoch())
 			release := make(chan struct{})
-			var s seen
-			tgt := TargetFunc(func(ctx context.Context, r Request) Response {
-				s.add(r)
-				if r.Seq == 0 {
-					select {
-					case <-release:
-					case <-ctx.Done():
-					}
-				}
-				return Response{Status: 204}
-			})
-			g := start(t, tgt, Config{Rate: 10, Duration: time.Second, MaxInFlight: 1, MaxBacklog: c.backlog, Clock: fk})
-			waitFor(t, "request 0 in flight", func() bool { return g.Progress().InFlight == 1 })
+			s := seen{clk: fk}
+			g := start(t, stallFirst(&s, release, 204), Config{Rate: 10, Duration: time.Second, MaxInFlight: 1, MaxBacklog: c.backlog, Clock: fk})
+			waitFor(t, "request 0 in flight", func() bool { return progressOf(g).inFlight == 1 })
 			fk.Advance(time.Second)
-			waitFor(t, "the misses", func() bool { return g.Progress().Missed == c.wantMissed })
+			waitFor(t, "the misses", func() bool { return progressOf(g).missed == c.wantMissed })
 			close(release)
 			res, err := g.Wait()
 			if err != nil {
@@ -128,29 +116,24 @@ func TestMissedWhenNoWorkerOrBacklogRoom(t *testing.T) {
 	}
 }
 
-func TestRequestsEndTheRun(t *testing.T) {
+// Without Duration the run lasts until its context ends; the requests
+// already due went out, and Wait returns the context's error.
+func TestContextEndsAnOpenEndedRun(t *testing.T) {
 	fk := clocktest.New(epoch())
-	g := start(t, ok(), Config{Rate: 10, Requests: 5, Clock: fk})
-	if res := drive(t, g, fk, ms(100)); res.Offered != 5 || res.Outcomes[Success] != 5 {
-		t.Errorf("offered %d success %d, want 5 and 5", res.Offered, res.Outcomes[Success])
+	ctx, cancel := context.WithCancel(t.Context())
+	g, err := Start(ctx, ok(), Config{Rate: 10, Clock: fk})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-// Without Duration or Requests the run lasts until Stop; requests already
-// due still go out.
-func TestStopEndsAnOpenEndedRun(t *testing.T) {
-	fk := clocktest.New(epoch())
-	g := start(t, ok(), Config{Rate: 10, Clock: fk})
 	for range 3 {
 		waitFor(t, "the generator to go idle", func() bool { return idle(g, fk) })
 		fk.Advance(ms(100))
 	}
 	waitFor(t, "the generator to go idle", func() bool { return idle(g, fk) })
-	g.Stop()
-	g.Stop() // idempotent
+	cancel()
 	res, err := g.Wait()
-	if err != nil {
-		t.Fatal(err)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Wait error = %v, want context.Canceled", err)
 	}
 	if res.Offered != 4 || res.Outcomes[Success] != 4 {
 		t.Errorf("offered %d success %d, want 4 and 4", res.Offered, res.Outcomes[Success])
@@ -162,7 +145,7 @@ func TestStopEndsAnOpenEndedRun(t *testing.T) {
 func TestContextEndCancelsInFlight(t *testing.T) {
 	fk := clocktest.New(epoch())
 	ctx, cancel := context.WithCancel(t.Context())
-	tgt := TargetFunc(func(ctx context.Context, _ Request) Response {
+	tgt := targetFunc(func(ctx context.Context) Response {
 		<-ctx.Done()
 		return Response{Err: ctx.Err()}
 	})
@@ -170,7 +153,7 @@ func TestContextEndCancelsInFlight(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	waitFor(t, "request 0 in flight", func() bool { return g.Progress().InFlight == 1 })
+	waitFor(t, "request 0 in flight", func() bool { return progressOf(g).inFlight == 1 })
 	cancel()
 	res, err := g.Wait()
 	if !errors.Is(err, context.Canceled) {
@@ -185,14 +168,14 @@ func TestContextEndCancelsInFlight(t *testing.T) {
 // sees its context canceled still reports Timeout.
 func TestTimeoutRunsOnTheInjectedClock(t *testing.T) {
 	fk := clocktest.New(epoch())
-	tgt := TargetFunc(func(ctx context.Context, _ Request) Response {
+	tgt := targetFunc(func(ctx context.Context) Response {
 		<-ctx.Done()
 		return Response{Err: ctx.Err()} // context.Canceled, as net/http reports
 	})
-	g := start(t, tgt, Config{Rate: 1, Requests: 1, Timeout: 2 * time.Second, Clock: fk})
+	g := start(t, tgt, Config{Rate: 1, Duration: time.Second, Timeout: 2 * time.Second, Clock: fk})
 	waitFor(t, "the request's timeout to be armed", func() bool { return fk.Pending() == 1 })
 	fk.Advance(2*time.Second - 1)
-	if g.Progress().Done != 0 {
+	if progressOf(g).done != 0 {
 		t.Fatal("the request ended before its timeout")
 	}
 	fk.Advance(1)
@@ -209,8 +192,9 @@ func TestTimeoutRunsOnTheInjectedClock(t *testing.T) {
 // their problem document; a success carries no counted code.
 func TestStatusesAndCodes(t *testing.T) {
 	fk := clocktest.New(epoch())
-	tgt := TargetFunc(func(_ context.Context, r Request) Response {
-		switch r.Seq % 10 {
+	s := seen{clk: fk}
+	tgt := targetFunc(func(context.Context) Response {
+		switch s.add() % 10 {
 		case 0:
 			return Response{Status: 503, Code: "RZ-RT-005"}
 		case 1:
@@ -243,7 +227,6 @@ func TestStartRejects(t *testing.T) {
 		{"negative rate", func(c *Config) { c.Rate = -1 }},
 		{"NaN rate", func(c *Config) { c.Rate = math.NaN() }},
 		{"infinite rate", func(c *Config) { c.Rate = math.Inf(1) }},
-		{"duration and requests", func(c *Config) { c.Requests = 5 }},
 		{"negative duration", func(c *Config) { c.Duration = -1 }},
 		{"negative timeout", func(c *Config) { c.Timeout = -1 }},
 		{"negative in-flight bound", func(c *Config) { c.MaxInFlight = -1 }},

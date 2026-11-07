@@ -135,9 +135,6 @@ func TestBuildReleaseFlags(t *testing.T) {
 	if !strings.HasPrefix(LDFlags("v", "c", "f"), "-s -w -X "+Module+"/internal/buildinfo.version=v ") {
 		t.Fatalf("LDFlags = %q", LDFlags("v", "c", "f"))
 	}
-	if set.Path(Ruralzd) != set.Ruralzd || set.Path(Ruralz) != set.Ruralz || set.Path("x") != "" {
-		t.Fatal("Set.Path")
-	}
 }
 
 // FromDir finds the Windows binaries a directory holds by their .exe
@@ -199,7 +196,6 @@ func TestBuildErrors(t *testing.T) {
 	}{
 		{"bad command", BuildOptions{Commands: []string{"../x"}}, "bad command"},
 		{"no such command", BuildOptions{Commands: []string{"nope"}}, "go build"},
-		{"bad go command", BuildOptions{GoCmd: filepath.Join(root, "no-go")}, "no-go"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -219,9 +215,6 @@ func TestBuildErrors(t *testing.T) {
 }
 
 func TestGoCommand(t *testing.T) {
-	if p, err := goCommand("/x/go"); err != nil || p != "/x/go" {
-		t.Fatalf("explicit = %s, %v", p, err)
-	}
 	gr := t.TempDir()
 	t.Setenv("GOROOT", gr)
 	if err := os.MkdirAll(filepath.Join(gr, "bin"), 0o750); err != nil {
@@ -230,12 +223,12 @@ func TestGoCommand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(gr, "bin", "go"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if p, err := goCommand(""); err != nil || p != filepath.Join(gr, "bin", "go") {
+	if p, err := goCommand(); err != nil || p != filepath.Join(gr, "bin", "go") {
 		t.Fatalf("GOROOT go = %s, %v", p, err)
 	}
 	t.Setenv("GOROOT", "")
 	t.Setenv("PATH", t.TempDir())
-	if _, err := goCommand(""); err == nil {
+	if _, err := goCommand(); err == nil {
 		t.Fatal("no go on PATH: want error")
 	}
 }

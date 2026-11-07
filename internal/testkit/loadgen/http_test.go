@@ -76,7 +76,7 @@ func TestHTTPRequestShape(t *testing.T) {
 	}))
 	tg := newTarget(t, HTTPConfig{URL: srv.url + "/work?x=1"})
 	for seq := range uint64(3) {
-		if resp := tg.Do(t.Context(), Request{Seq: seq}); resp.Outcome != Success || resp.Status != 200 || resp.Err != nil {
+		if resp := tg.Do(t.Context()); resp.Outcome != Success || resp.Status != 200 || resp.Err != nil {
 			t.Errorf("seq %d: %+v", seq, resp)
 		}
 	}
@@ -114,7 +114,7 @@ func TestHTTPProblemCode(t *testing.T) {
 		{"/plain", "", ServerError},
 		{"/ok-problem", "", Success},
 	} {
-		resp := newTarget(t, HTTPConfig{URL: srv.url + c.path}).Do(t.Context(), Request{})
+		resp := newTarget(t, HTTPConfig{URL: srv.url + c.path}).Do(t.Context())
 		if resp.Code != c.code || resp.Outcome != c.outcome {
 			t.Errorf("%s: code %q outcome %v, want %q %v", c.path, resp.Code, resp.Outcome, c.code, c.outcome)
 		}
@@ -130,8 +130,8 @@ func TestHTTPConnectionBound(t *testing.T) {
 	}))
 	tg := newTarget(t, HTTPConfig{URL: srv.url, Connections: 2})
 	var wg sync.WaitGroup
-	for seq := range uint64(6) {
-		wg.Go(func() { tg.Do(t.Context(), Request{Seq: seq}) })
+	for range 6 {
+		wg.Go(func() { tg.Do(t.Context()) })
 	}
 	waitFor(t, "two requests in handlers", func() bool { return inHandler.Load() == 2 })
 	close(release)
@@ -147,7 +147,7 @@ func TestHTTPDoesNotFollowRedirects(t *testing.T) {
 		hits.Add(1)
 		http.Redirect(w, r, "/elsewhere", http.StatusFound)
 	}))
-	resp := newTarget(t, HTTPConfig{URL: srv.url}).Do(t.Context(), Request{})
+	resp := newTarget(t, HTTPConfig{URL: srv.url}).Do(t.Context())
 	if resp.Status != http.StatusFound || resp.Outcome != Success || hits.Load() != 1 {
 		t.Errorf("status %d outcome %v after %d requests, want 302 unfollowed", resp.Status, resp.Outcome, hits.Load())
 	}
@@ -194,7 +194,7 @@ func TestHTTPFailuresAreClassified(t *testing.T) {
 		{"closed mid-body", short.url, Closed, 200},
 		{"untrusted certificate", untrusted.URL, TLSError, 0},
 	} {
-		resp := newTarget(t, HTTPConfig{URL: c.url}).Do(t.Context(), Request{})
+		resp := newTarget(t, HTTPConfig{URL: c.url}).Do(t.Context())
 		if resp.Outcome != c.want || resp.Status != c.status || resp.Err == nil {
 			t.Errorf("%s: outcome %v status %d err %v; want %v, %d", c.name, resp.Outcome, resp.Status, resp.Err, c.want, c.status)
 		}
@@ -243,7 +243,7 @@ func TestRunAgainstHTTP(t *testing.T) {
 		t.Errorf("offered %d success %d statuses %v over %d connections", res.Offered, res.Outcomes[Success], res.Statuses, srv.conns.Load())
 	}
 
-	g = start(t, newTarget(t, HTTPConfig{URL: srv.url + "/hang"}), Config{Rate: 1, Requests: 1, Timeout: time.Second, Clock: fk})
+	g = start(t, newTarget(t, HTTPConfig{URL: srv.url + "/hang"}), Config{Rate: 1, Duration: time.Second, Timeout: time.Second, Clock: fk})
 	waitFor(t, "the request's timeout to be armed", func() bool { return fk.Pending() == 1 })
 	fk.Advance(time.Second)
 	res, err := g.Wait()

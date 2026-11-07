@@ -41,16 +41,14 @@ type Options struct {
 	// authenticate.
 	Users []User
 	// Replica adds a replica of the standalone primary, for a scripted
-	// failover (Deployment.Promote). The sentinel kinds always have one,
-	// and the cluster kinds one per primary.
+	// failover (Deployment.Promote). The sentinel kinds always have one.
 	Replica bool
 	// Announce, when set, returns the address clients dial for a primary
 	// ("host:port"), such as a proxy forwarding to addr. URLs name it,
 	// and a cluster node announces it (cluster-announce-ip and
 	// cluster-announce-port), so redirects and CLUSTER SLOTS name it too;
 	// "" keeps addr. It is called once per primary and start attempt,
-	// before the primary starts. A cluster's replicas announce their own
-	// addresses, so a promoted replica is reached directly.
+	// before the primary starts.
 	Announce func(node int, addr string) string
 	// Config holds extra configuration directives, one per element, such
 	// as "maxmemory 64mb". They follow the generated directives, so a
@@ -58,12 +56,10 @@ type Options struct {
 	Config []string
 }
 
-// User is one ACL user.
+// User is one ACL user, allowed every key, channel and command.
 type User struct {
 	Name     string
 	Password string
-	// Rules are the user's ACL rules; default "~*", "&*" and "+@all".
-	Rules []string
 }
 
 // validate checks o for kind k.
@@ -77,7 +73,7 @@ func (o Options) validate(k Kind) error {
 	switch k.Topology() {
 	case statestore.TopologyCluster:
 		if o.Replica {
-			return fmt.Errorf("redisserver: %s has a replica per primary already", k)
+			return fmt.Errorf("redisserver: %s takes no Replica, which only a standalone primary has", k)
 		}
 	case statestore.TopologySentinel:
 		if o.Replica {
@@ -120,14 +116,9 @@ type tlsFiles struct {
 
 // nodeConfig describes one redis-server process.
 type nodeConfig struct {
-	// bind is the address the server listens on; "" is loopback.
-	bind    string
-	port    int
-	busPort int // cluster bus port; 0 outside a cluster
-	dir     string
-	// base is the deployment's directory, which holds dir and the TLS
-	// files, and which a Host shares with a server it runs in a container.
-	base     string
+	port     int
+	busPort  int // cluster bus port; 0 outside a cluster
+	dir      string
 	tls      *tlsFiles
 	users    []User
 	primary  string // "host:port" of the primary of a replica
@@ -165,21 +156,13 @@ func (n nodeConfig) listener() []directive {
 	}
 }
 
-// bindAddr returns the address n listens on: bind, or loopback.
-func (n nodeConfig) bindAddr() string {
-	if n.bind == "" {
-		return loopback
-	}
-	return n.bind
-}
-
 // directives returns n's configuration, Config last.
 func (n nodeConfig) directives() ([]directive, error) {
 	if n.sentinel != nil {
 		return n.sentinelDirectives()
 	}
 	ds := []directive{
-		{"bind", n.bindAddr()},
+		{"bind", loopback},
 		{"dir", n.dir},
 		{"save", ""},
 		{"appendonly", "no"},
@@ -230,7 +213,7 @@ func (n nodeConfig) sentinelDirectives() ([]directive, error) {
 	if err != nil {
 		return nil, fmt.Errorf("redisserver: monitored address %q: %w", n.sentinel.primary, err)
 	}
-	ds := []directive{{"bind", n.bindAddr()}, {"dir", n.dir}}
+	ds := []directive{{"bind", loopback}, {"dir", n.dir}}
 	ds = append(ds, n.listener()...)
 	ds = append(ds, userDirectives(n.users)...)
 	ds = append(ds, sentinelMonitor(n.sentinel.masterSet, host, p)...)
@@ -262,11 +245,7 @@ func userDirectives(users []User) []directive {
 	var ds []directive
 	listed := false
 	for _, u := range users {
-		rules := u.Rules
-		if len(rules) == 0 {
-			rules = []string{"~*", "&*", "+@all"}
-		}
-		ds = append(ds, append(directive{"user", u.Name, "reset", "on", ">" + u.Password}, rules...))
+		ds = append(ds, directive{"user", u.Name, "reset", "on", ">" + u.Password, "~*", "&*", "+@all"})
 		listed = listed || u.Name == "default"
 	}
 	if !listed {

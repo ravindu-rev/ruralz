@@ -107,11 +107,10 @@ func (k *Key) Signer() crypto.Signer { return k.signer }
 
 // JWK is a public JSON Web Key (RFC 7517) as the JWKS document serves it.
 type JWK struct {
-	Kty    string   `json:"kty"`
-	Kid    string   `json:"kid,omitempty"`
-	Use    string   `json:"use,omitempty"`
-	Alg    string   `json:"alg,omitempty"`
-	KeyOps []string `json:"key_ops,omitempty"`
+	Kty string `json:"kty"`
+	Kid string `json:"kid,omitempty"`
+	Use string `json:"use,omitempty"`
+	Alg string `json:"alg,omitempty"`
 	// N and E are the RSA modulus and exponent.
 	N string `json:"n,omitempty"`
 	E string `json:"e,omitempty"`

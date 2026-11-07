@@ -74,7 +74,7 @@ func TestStateStoreThroughPerNodeProxies(t *testing.T) {
 	nodes := addNodes(t, topo, 2, o)
 	hosts := map[string]string{}
 	for _, n := range nodes {
-		v, ok := n.SecretValue(refStoreURL)
+		v, ok := secretValue(n, refStoreURL)
 		if !ok {
 			t.Fatalf("%s has no State Store URL", n.Name())
 		}
@@ -108,7 +108,7 @@ func TestStateStoreThroughPerNodeProxies(t *testing.T) {
 		if got := proxies[0].Upstream(); got != primary {
 			t.Errorf("%s proxy dials %s after Promote, want the promoted %s", n.Name(), got, primary)
 		}
-		v, _ := n.SecretValue(refStoreURL)
+		v, _ := secretValue(n, refStoreURL)
 		u, _ := url.Parse(string(v))
 		ping(t, topo, u)
 	}
@@ -129,7 +129,7 @@ func TestStateStoreRESPProxy(t *testing.T) {
 	if !ok || len(counters) != 1 {
 		t.Fatalf("RESPProxy = %v, %v", counters, ok)
 	}
-	v, _ := n.SecretValue(refStoreURL)
+	v, _ := secretValue(n, refStoreURL)
 	u, _ := url.Parse(string(v))
 	if u.Scheme != "redis" {
 		t.Fatalf("a counted State Store URL has scheme %s, want redis", u.Scheme)
@@ -142,10 +142,7 @@ func TestStateStoreRESPProxy(t *testing.T) {
 
 // With RESPProxy each primary of a process cluster announces a counting
 // proxy of its own: the cluster's slot map names the proxies, so commands
-// a cluster client sends to the servers directly are counted too. The
-// primaries' replicas replicate through the same proxies, so their
-// handshakes count there as well; the test counts the PING it sends
-// beside them.
+// a cluster client sends to the servers directly are counted too.
 func TestClusterRESPProxiesCountEveryCommand(t *testing.T) {
 	topo := standinTopology(t)
 	ss := topo.StartStateStore("cluster", StateStoreOptions{Kind: redisserver.ProcessCluster, RESPProxy: true})
@@ -199,7 +196,7 @@ func TestStateStoreURL(t *testing.T) {
 	o := nodeOptions(t, topo)
 	o.StateStoreURLs = map[string]string{refStoreURL: "main", "file:/etc/ruralz/unused-url": "other"}
 	n := addNodes(t, topo, 1, o)[0]
-	v, _ := n.SecretValue(refStoreURL)
+	v, _ := secretValue(n, refStoreURL)
 	if got, ok := n.StateStoreURL("main"); !ok || got != string(v) {
 		t.Errorf("StateStoreURL(main) = %q, %v; want the referenced secret's value", got, ok)
 	}

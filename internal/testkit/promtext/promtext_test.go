@@ -39,11 +39,11 @@ func TestParseGoldenFamilies(t *testing.T) {
 		"untyped_metric":                       TypeUntyped,
 		"another_untyped":                      TypeUntyped,
 	}
-	if got := s.Names(); len(got) != len(want) {
-		t.Fatalf("Names = %v, want %d families", got, len(want))
+	if got := len(s.Families); got != len(want) {
+		t.Fatalf("%d families, want %d", got, len(want))
 	}
 	for name, typ := range want {
-		f, ok := s.Family(name)
+		f, ok := s.Families[name]
 		if !ok {
 			t.Fatalf("family %s missing", name)
 		}
@@ -51,23 +51,20 @@ func TestParseGoldenFamilies(t *testing.T) {
 			t.Errorf("%s type = %q, want %q", name, f.Type, typ)
 		}
 	}
-	h, _ := s.Family("ruralz_http_gateway_duration_seconds")
+	h := s.Families["ruralz_http_gateway_duration_seconds"]
 	if len(h.Samples) != 12 {
 		t.Fatalf("histogram samples = %d, want 12", len(h.Samples))
 	}
-	sum, _ := s.Family("rpc_latency_seconds")
+	sum := s.Families["rpc_latency_seconds"]
 	if len(sum.Samples) != 4 {
 		t.Fatalf("summary samples = %d, want 4", len(sum.Samples))
 	}
-	ti, _ := s.Family("target_info")
-	if ti.Help != "Target metadata with an escaped \"help\" \\ line\nsecond line." {
-		t.Fatalf("help = %q", ti.Help)
-	}
+	ti := s.Families["target_info"]
 	if got := ti.Samples[0].Labels["note"]; got != "quote \" backslash \\ newline \n end" {
 		t.Fatalf("escaped label = %q", got)
 	}
 	u := s.Samples("untyped_metric", nil)
-	if len(u) != 1 || !math.IsInf(u[0].Value, -1) || !u[0].HasTimestamp || u[0].Timestamp != 1700000000000 {
+	if len(u) != 1 || !math.IsInf(u[0].Value, -1) {
 		t.Fatalf("untyped sample = %+v", u)
 	}
 	if v, err := s.Value("another_untyped", nil); err != nil || !math.IsNaN(v) {
@@ -230,8 +227,8 @@ req_created{code="200"} 1.7e9
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, _ := s.Family("req")
-	if f.Type != TypeCounter || f.Unit != "requests" || len(f.Samples) != 2 {
+	f := s.Families["req"]
+	if f.Type != TypeCounter || len(f.Samples) != 2 {
 		t.Fatalf("req family = %+v", f)
 	}
 	if v, err := s.Value("req_total", L("code", "200")); err != nil || v != 7 {
@@ -241,7 +238,7 @@ req_created{code="200"} 1.7e9
 		t.Fatalf("my.metric = %v, %v", v, err)
 	}
 	o := s.Samples("other.metric", nil)
-	if len(o) != 1 || o[0].Timestamp != 1250 {
+	if len(o) != 1 {
 		t.Fatalf("other.metric = %+v", o)
 	}
 	if _, err := ParseBytes([]byte(in + "x 1\n")); err == nil {
@@ -283,13 +280,17 @@ func TestParseErrors(t *testing.T) {
 }
 
 func TestParseTolerances(t *testing.T) {
-	in := "\n  \n# just a comment\n# HELP only_help Help without type.\nonly_help 1\r\nx{a=\"1\",} 2\n\tspaced   3   \n"
+	in := "\n  \n# just a comment\n# HELP only_help Help without type.\nonly_help 1\r\nx{a=\"1\",} 2\n\tspaced   3   \n" +
+		"# TYPE typed_spaced counter \t\ntyped_spaced_total 4\n"
 	s, err := ParseBytes([]byte(in))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if f, _ := s.Family("only_help"); f.Type != TypeUntyped || f.Help != "Help without type." {
+	if f := s.Families["only_help"]; f.Type != TypeUntyped || len(f.Samples) != 1 {
 		t.Fatalf("only_help = %+v", f)
+	}
+	if f := s.Families["typed_spaced"]; f == nil || f.Type != TypeCounter || len(f.Samples) != 1 {
+		t.Fatalf("a TYPE line with trailing blanks: typed_spaced = %+v", f)
 	}
 	if v, err := s.Value("x", L("a", "1")); err != nil || v != 2 {
 		t.Fatalf("trailing comma: %v, %v", v, err)
@@ -317,8 +318,7 @@ func FuzzParse(f *testing.F) {
 		}
 		// Every sample is reachable through its family and its name.
 		n := 0
-		for _, name := range s.Names() {
-			fam, _ := s.Family(name)
+		for name, fam := range s.Families {
 			n += len(fam.Samples)
 			for _, smp := range fam.Samples {
 				if len(s.Samples(smp.Name, smp.Labels)) == 0 {

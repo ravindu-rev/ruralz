@@ -155,9 +155,9 @@ func TestStartWaitOutput(t *testing.T) { // Start, wait, output
 	if _, ok := p.Signaled(); ok {
 		t.Fatal("Signaled after a normal exit")
 	}
-	o, e := p.LogPaths()
-	if o != filepath.Join(dir, "node-1.out") || e != filepath.Join(dir, "node-1.err") {
-		t.Fatalf("LogPaths = %s %s", o, e)
+	o, e := filepath.Join(dir, "node-1.out"), filepath.Join(dir, "node-1.err")
+	if _, err := os.Stat(e); err != nil {
+		t.Fatalf("stderr log: %v", err)
 	}
 	logOut, err := os.ReadFile(o) //nolint:gosec // G304: test log file
 	if err != nil || !bytes.Contains(logOut, []byte("hello stdout")) {
@@ -180,21 +180,6 @@ func TestStartWaitOutput(t *testing.T) { // Start, wait, output
 	}
 	if err := p.Kill(); err != nil {
 		t.Fatalf("Kill after exit = %v", err)
-	}
-}
-
-func TestStdin(t *testing.T) {
-	s := helper("cat")
-	s.Stdin = strings.NewReader("from stdin\n")
-	p, err := Start(ctx(t), s)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
-		t.Fatalf("Wait = %d, %v", code, err)
-	}
-	if out, _ := p.Output(); string(out) != "from stdin\n" {
-		t.Fatalf("stdout = %q", out)
 	}
 }
 
@@ -369,10 +354,10 @@ func TestOutputBounds(t *testing.T) { // Output bounds
 	if !bytes.Equal(out, bytes.Repeat([]byte("0123456789abcdef"), (64<<10)/16)) {
 		t.Fatal("retained bytes are not the tail")
 	}
-	if w, _ := p.Written(); w < 1<<20 {
+	if w, _ := written(p); w < 1<<20 {
 		t.Fatalf("Written = %d", w)
 	}
-	o, _ := p.LogPaths()
+	o := filepath.Join(s.LogDir, s.Name+".out")
 	if st, err := os.Stat(o); err != nil || st.Size() < 1<<20 {
 		t.Fatalf("log file holds %v bytes: %v", st, err)
 	}
@@ -401,7 +386,7 @@ func TestBlockStdout(t *testing.T) {
 		t.Fatal("the process finished its flood with stdout held")
 	case <-time.After(200 * time.Millisecond):
 	}
-	if out, _ := p.Written(); out >= flood {
+	if out, _ := written(p); out >= flood {
 		t.Fatalf("%d of %d bytes reached the harness with stdout held", out, flood)
 	}
 	unblock()
@@ -409,7 +394,7 @@ func TestBlockStdout(t *testing.T) {
 	if code, err := p.Wait(ctx(t)); err != nil || code != 0 {
 		t.Fatalf("Wait = %d, %v; want 0", code, err)
 	}
-	if out, _ := p.Written(); out != flood {
+	if out, _ := written(p); out != flood {
 		t.Fatalf("Written = %d after the release, want %d", out, flood)
 	}
 	if _, errb := p.Output(); !bytes.Contains(errb, []byte("flooded\n")) {
@@ -469,8 +454,8 @@ func TestRing(t *testing.T) {
 			if got := string(r.bytes()); got != tt.want {
 				t.Fatalf("bytes = %q, want %q", got, tt.want)
 			}
-			if r.written() != int64(total) {
-				t.Fatalf("written = %d", r.written())
+			if r.total != int64(total) {
+				t.Fatalf("total = %d", r.total)
 			}
 		})
 	}
@@ -657,8 +642,8 @@ func TestLineMatcherScansEachByteOnce(t *testing.T) { // cost follows the output
 			t.Fatal("unexpected match")
 		}
 	}
-	if m.scanned != r.written() {
-		t.Fatalf("scanned %d bytes for %d written, want each byte once", m.scanned, r.written())
+	if m.scanned != r.total {
+		t.Fatalf("scanned %d bytes for %d written, want each byte once", m.scanned, r.total)
 	}
 	// A long line without a newline is matched again as it grows, but
 	// one scan never reads more than the new bytes plus MaxLineBytes.
@@ -688,7 +673,7 @@ func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a c
 	if err == nil || !strings.Contains(err.Error(), "exited") {
 		t.Fatalf("WaitOutput = %v, want the exit error", err)
 	}
-	out, errb := p.Written()
+	out, errb := written(p)
 	written := out + errb
 	if out < lines*100 {
 		t.Fatalf("child wrote %d bytes, want at least %d", out, lines*100)
@@ -711,4 +696,15 @@ func TestWaitOutputChattyProcess(t *testing.T) { // a waiter does not burden a c
 	if _, err := q.Wait(ctx(t)); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// written returns the total bytes p wrote to stdout and stderr, including
+// bytes the rings no longer hold.
+func written(p *Process) (stdout, stderr int64) {
+	total := func(r *ring) int64 {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		return r.total
+	}
+	return total(p.stdout), total(p.stderr)
 }

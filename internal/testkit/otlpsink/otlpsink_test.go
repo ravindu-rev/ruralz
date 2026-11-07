@@ -60,7 +60,7 @@ func TestReceivesEachSignal(t *testing.T) { // TLS with a test CA
 				t.Fatal(err)
 			}
 			st := s.Stats()
-			if st.TraceRequests != 1 || st.MetricRequests != 1 || st.LogRequests != 1 || st.Rejected != 0 || st.Dropped != 0 {
+			if st.TraceRequests != 1 || st.MetricRequests != 1 || st.LogRequests != 1 {
 				t.Fatalf("Stats = %+v", st)
 			}
 			reqs := s.Requests()
@@ -95,8 +95,8 @@ func TestReceivesEachSignal(t *testing.T) { // TLS with a test CA
 			if !bytes.Contains(reqs[0].Raw, []byte("rzcanary-marker")) || !bytes.Contains(reqs[2].Raw, []byte("rzcanary-marker")) {
 				t.Error("raw bytes lack the marker (canary scans)")
 			}
-			if got := s.SpanNames(s.TraceIDs()[0]); !slices.Equal(got, []string{"GET orders"}) {
-				t.Errorf("SpanNames = %v", got)
+			if got := spanNames(s.Trace(s.TraceIDs()[0])); !slices.Equal(got, []string{"GET orders"}) {
+				t.Errorf("span names = %v", got)
 			}
 			if got := s.MetricNames(); !slices.Equal(got, []string{"ruralz_http_requests_total"}) {
 				t.Errorf("MetricNames = %v", got)
@@ -104,8 +104,8 @@ func TestReceivesEachSignal(t *testing.T) { // TLS with a test CA
 			if logs := s.Logs(); len(logs) != 1 || logs[0].EventName() != "ruralz.access" {
 				t.Errorf("Logs = %v", logs)
 			}
-			if got := s.RequestsOf(Metrics); len(got) != 1 || got[0].Signal != Metrics {
-				t.Errorf("RequestsOf(Metrics) = %v", got)
+			if got := slices.DeleteFunc(s.Requests(), func(r Request) bool { return r.Signal != Metrics }); len(got) != 1 {
+				t.Errorf("metrics requests = %v", got)
 			}
 		})
 	}
@@ -365,7 +365,7 @@ func TestReject(t *testing.T) { // Collector failing exports
 	if status.Code(err) != codes.InvalidArgument || !strings.Contains(err.Error(), "otlpsink: rejected") {
 		t.Fatalf("err = %v, want InvalidArgument", err)
 	}
-	if st := s.Stats(); st.Rejected != 2 || st.TraceRequests != 0 || st.LogRequests != 0 {
+	if st := s.Stats(); st.TraceRequests != 0 || st.LogRequests != 0 {
 		t.Fatalf("Stats = %+v", st)
 	}
 	if len(s.Requests()) != 0 {
@@ -400,7 +400,7 @@ func TestStall(t *testing.T) { // Collector stalls
 		t.Fatalf("stalled export returned after %v", d)
 	}
 	// The server sees the cancellation shortly after the client.
-	waitFor(t, func() bool { st := s.Stats(); return st.Stalled == 0 && st.Rejected == 1 })
+	waitFor(t, func() bool { return s.Stats().Stalled == 0 })
 
 	// Held exports get the next mode's answer.
 	done := make(chan error, 1)
@@ -409,8 +409,8 @@ func TestStall(t *testing.T) { // Collector stalls
 		done <- err
 	}()
 	waitFor(t, func() bool { return s.Stats().Stalled == 1 })
-	if _, ok := s.Mode().(Stall); !ok {
-		t.Fatalf("Mode = %v", s.Mode())
+	if m := modeOf(s); m != (Stall{}) {
+		t.Fatalf("mode = %v", m)
 	}
 	if err := s.SetMode(Stall{}); err != nil { // no-op
 		t.Fatal(err)
@@ -421,11 +421,11 @@ func TestStall(t *testing.T) { // Collector stalls
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if names := s.SpanNames(s.TraceIDs()[0]); !slices.Equal(names, []string{"held"}) {
-		t.Fatalf("SpanNames = %v", names)
+	if names := spanNames(s.Trace(s.TraceIDs()[0])); !slices.Equal(names, []string{"held"}) {
+		t.Fatalf("span names = %v", names)
 	}
 	st := s.Stats()
-	if st.Stalled != 0 || st.Rejected != 1 || st.TraceRequests != 1 {
+	if st.Stalled != 0 || st.TraceRequests != 1 {
 		t.Fatalf("Stats = %+v", st)
 	}
 
@@ -523,8 +523,8 @@ func TestDownRelistenFails(t *testing.T) {
 	if err := s.SetMode(Accept{}); err == nil {
 		t.Fatal("SetMode(Accept) succeeded with the port taken")
 	}
-	if _, ok := s.Mode().(Down); !ok {
-		t.Fatalf("Mode = %v, want Down", s.Mode())
+	if m := modeOf(s); m != (Down{}) {
+		t.Fatalf("mode = %v, want Down", m)
 	}
 }
 
@@ -547,8 +547,8 @@ func TestLimits(t *testing.T) { // bounded recording
 				}
 			}
 			st := s.Stats()
-			if st.TraceRequests != 3 || st.Dropped != 1 {
-				t.Fatalf("Stats = %+v, want 3 answered and 1 dropped", st)
+			if st.TraceRequests != 3 {
+				t.Fatalf("Stats = %+v, want 3 answered", st)
 			}
 			if n := len(s.Requests()); n != 2 {
 				t.Fatalf("recorded %d requests, want 2", n)
@@ -603,17 +603,20 @@ func TestWaitHelpers(t *testing.T) {
 	if err != nil || len(spans) != 1 {
 		t.Fatalf("WaitSpans = %v, %v", spans, err)
 	}
-	logs, err := s.WaitLogs(ctx, 1, nil)
-	if err != nil || len(logs) != 1 {
-		t.Fatalf("WaitLogs = %v, %v", logs, err)
+	var m Metric
+	if err := s.Wait(ctx, func() bool {
+		var ok bool
+		m, ok = s.LastMetric("ruralz_http_requests_total")
+		return ok
+	}); err != nil || m.Name() != "ruralz_http_requests_total" {
+		t.Fatalf("Wait for the metric = %v, %v", m, err)
 	}
-	m, err := s.WaitMetric(ctx, "ruralz_http_requests_total")
-	if err != nil || m.Name() != "ruralz_http_requests_total" {
-		t.Fatalf("WaitMetric = %v, %v", m, err)
-	}
-	logs, err = s.WaitLogs(ctx, 1, func(l LogRecord) bool { return l.Body() == "access" })
-	if err != nil || len(logs) != 1 {
-		t.Fatalf("WaitLogs(pred) = %v, %v", logs, err)
+	var logs []LogRecord
+	if err := s.Wait(ctx, func() bool {
+		logs = s.FindLogs(func(l LogRecord) bool { return l.Body() == "access" })
+		return len(logs) >= 1
+	}); err != nil || len(logs) != 1 {
+		t.Fatalf("Wait for the access log = %v, %v", logs, err)
 	}
 	wg.Wait()
 }
@@ -647,7 +650,7 @@ func TestCloseAndContext(t *testing.T) {
 	if err := s.SetMode(Accept{}); !errors.Is(err, ErrClosed) {
 		t.Fatalf("SetMode after Close: %v, want ErrClosed", err)
 	}
-	if st := s.Stats(); st.Rejected != 1 || st.Stalled != 0 {
+	if st := s.Stats(); st.Stalled != 0 {
 		t.Fatalf("Stats = %+v", st)
 	}
 	_ = cc.Close()

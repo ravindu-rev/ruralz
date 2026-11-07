@@ -8,24 +8,23 @@
 // for unit tests, serving
 //
 //   - a JWKS endpoint (JWKSURL) with RS256 and ES256 keys by default (PS256
-//     and EdDSA on request), rotated by hand (Rotate) or on a period
-//     (Config.RotateEvery), with a programmable Cache-Control header;
+//     and EdDSA on request), rotated by hand (Rotate), with a configurable
+//     Cache-Control header;
 //   - an OAuth2 client-credentials token endpoint (TokenURL, RFC 6749
 //     section 4.4) that authenticates clients with client_secret_basic or
 //     client_secret_post and issues signed JWT access tokens;
-//   - JWT minting (Mint, MintWith, Key.Sign) and verification (ParseJWKS,
-//     Verify) on the standard library's crypto only.
+//   - JWT minting (Mint, MintWith, Key.Sign) on the standard library's
+//     crypto only.
 //
 // Overrides script failures per endpoint (a status such as 429 with
 // Retry-After, a replacement body, a delay). Every JWKS fetch and token
-// request is recorded, bounded, with its headers and credentials: the
+// request is recorded, bounded, with its answer and credentials: the
 // token endpoint is a designated destination of the canary secret, so
 // tests assert it arrives here and nowhere else.
 //
 // Goroutines: the http.Server's serve loop and its per-connection
-// goroutines, and the rotation loop when RotateEvery is set, all owned by
-// the Server; Close, or the end of the Start context, stops them and
-// waits for every handler.
+// goroutines, owned by the Server; Close, or the end of the Start
+// context, stops them and waits for every handler.
 package mockidp
 
 import (
@@ -34,10 +33,10 @@ import (
 	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"mime"
 	"net"
 	"net/http"
@@ -62,9 +61,9 @@ const (
 	DefaultTokenTTL = time.Hour
 	// JWKSContentType is the JWKS response's media type (RFC 7517).
 	JWKSContentType = "application/jwk-set+json"
-	// MaxRecorded bounds the recorded JWKS fetches and token requests
+	// maxRecorded bounds the recorded JWKS fetches and token requests
 	// (the newest are kept).
-	MaxRecorded = 1024
+	maxRecorded = 1024
 	// maxTokenBody bounds a token request body.
 	maxTokenBody = 64 << 10
 	// readHeaderTimeout bounds reading request headers.
@@ -79,14 +78,9 @@ type Config struct {
 	// cleartext HTTP (auth.jwt and auth.upstream-oauth2 require https
 	// URLs, RZ-CFG-037, so Node tests pass one).
 	TLS *tls.Config
-	// Keys are the published keys in document order; the last key of
-	// each algorithm signs for it. Default: a generated RS256 key and a
-	// generated ES256 key.
-	Keys []*Key
 	// CacheControl is the JWKS Cache-Control value; default
-	// DefaultCacheControl. NoCacheControl omits the header.
-	CacheControl   string
-	NoCacheControl bool
+	// DefaultCacheControl.
+	CacheControl string
 	// Clients maps client IDs to secrets for the token endpoint; when
 	// empty, any client ID and secret is accepted (and recorded).
 	Clients map[string]string
@@ -97,16 +91,9 @@ type Config struct {
 	// iat. Start rejects other values; a missing or zero expires_in is
 	// scripted with SetTokenOverride instead.
 	TokenTTL time.Duration
-	// RotateEvery, when positive, rotates every algorithm's signing key
-	// on this period, keeping the previous key published (two per
-	// algorithm).
-	RotateEvery time.Duration
 	// Now is the clock for token iat and exp (a fake clock's Now in
 	// tests); default time.Now.
 	Now func() time.Time
-	// ErrorLog receives the net/http server's own errors; nil discards
-	// them.
-	ErrorLog slog.Handler
 }
 
 // Override scripts one endpoint's answers. The zero value answers
@@ -124,23 +111,14 @@ func (o Override) canned() bool { return o.Status != 0 || o.Body != nil }
 
 // Fetch is one recorded JWKS request.
 type Fetch struct {
-	Time       time.Time
-	Method     string
-	Header     http.Header
-	RemoteAddr string
 	// Status is the answer's status.
 	Status int
 }
 
-// TokenRequest is one recorded token endpoint request.
+// TokenRequest is one recorded token endpoint request. A body refused as
+// too large (413) leaves the form fields empty, but the record still
+// carries the Basic credentials.
 type TokenRequest struct {
-	Time       time.Time
-	Method     string
-	Header     http.Header
-	RemoteAddr string
-	// Form is the decoded request body; nil for a body refused as too
-	// large (413), whose record still carries the Basic credentials.
-	Form url.Values
 	// AuthMethod is "client_secret_basic", "client_secret_post" or ""
 	// (none, or both: Basic credentials together with a client_secret
 	// form field). A client_id form field alongside Basic credentials
@@ -150,14 +128,10 @@ type TokenRequest struct {
 	// ClientID and ClientSecret are the presented credentials, decoded:
 	// the Basic user and password form-decoded (RFC 6749 section 2.3.1),
 	// else the client_id and client_secret form fields. With both
-	// methods they hold the Basic credentials (Form keeps the other). A
-	// Basic part that is not validly form-encoded (a raw "%zz") is kept
-	// as sent and MalformedCredentials is set.
+	// methods they hold the Basic credentials. A Basic part that is not
+	// validly form-encoded (a raw "%zz") is kept as sent and
+	// MalformedCredentials is set.
 	ClientID, ClientSecret string
-	// RawClientID and RawClientSecret are the credentials as sent: the
-	// Basic user and password before form-decoding, else the form fields
-	// (then equal to ClientID and ClientSecret).
-	RawClientID, RawClientSecret string
 	// MalformedCredentials reports Basic credentials that are not validly
 	// form-encoded; the request is answered 401 invalid_client.
 	MalformedCredentials bool
@@ -172,10 +146,6 @@ type TokenRequest struct {
 type Stats struct {
 	// JWKSFetches and TokenRequests count requests to each endpoint.
 	JWKSFetches, TokenRequests int64
-	// TokensIssued counts access tokens issued.
-	TokensIssued int64
-	// Rotations counts key rotations (manual and periodic).
-	Rotations int64
 }
 
 // Server is a running mock identity provider.
@@ -186,24 +156,22 @@ type Server struct {
 	srv     *http.Server
 	closing chan struct{}
 
-	mu           sync.Mutex // guards the fields below
-	keys         []*Key
-	doc          []byte
-	cacheControl string
-	noCache      bool
-	clients      map[string]string
-	jwksOver     Override
-	tokenOver    Override
-	fetches      []Fetch
-	tokenReqs    []TokenRequest
-	closed       bool
-	stopAfter    func() bool
+	mu        sync.Mutex // guards the fields below
+	keys      []*Key
+	doc       []byte
+	jwksOver  Override
+	tokenOver Override
+	fetches   []Fetch
+	tokenReqs []TokenRequest
+	closed    bool
+	stopAfter func() bool
 
+	clients   map[string]string // immutable after Start
 	handlers  sync.WaitGroup
-	loops     sync.WaitGroup
+	serveDone chan struct{}
 	closeOnce sync.Once
 
-	jwksCount, tokenCount, issued, rotations atomic.Int64
+	jwksCount, tokenCount atomic.Int64
 }
 
 // Start listens on c.Listen and serves until Close is called or ctx ends.
@@ -223,23 +191,13 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 	if c.CacheControl == "" {
 		c.CacheControl = DefaultCacheControl
 	}
-	if c.RotateEvery < 0 {
-		return nil, errors.New("mockidp: negative RotateEvery")
-	}
-	keys := slices.Clone(c.Keys)
-	if len(keys) == 0 {
-		for _, alg := range []Alg{RS256, ES256} {
-			k, err := GenerateKey(alg)
-			if err != nil {
-				return nil, err
-			}
-			keys = append(keys, k)
+	var keys []*Key
+	for _, alg := range []Alg{RS256, ES256} {
+		k, err := GenerateKey(alg)
+		if err != nil {
+			return nil, err
 		}
-	}
-	for _, k := range keys {
-		if k == nil || k.signer == nil {
-			return nil, errors.New("mockidp: Config.Keys holds a key not made by GenerateKey or NewKey")
-		}
+		keys = append(keys, k)
 	}
 	if c.TLS != nil {
 		c.TLS = c.TLS.Clone()
@@ -249,26 +207,18 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 		return nil, fmt.Errorf("mockidp: listen %s: %w", c.Listen, err)
 	}
 	s := &Server{
-		cfg:          c,
-		addr:         ln.Addr().String(),
-		closing:      make(chan struct{}),
-		keys:         keys,
-		cacheControl: c.CacheControl,
-		noCache:      c.NoCacheControl,
-		clients:      map[string]string{},
-	}
-	for id, secret := range c.Clients {
-		s.clients[id] = secret
+		cfg:       c,
+		addr:      ln.Addr().String(),
+		closing:   make(chan struct{}),
+		keys:      keys,
+		clients:   maps.Clone(c.Clients),
+		serveDone: make(chan struct{}),
 	}
 	s.url = "http://" + s.addr
 	if c.TLS != nil {
 		s.url = "https://" + s.addr
 	}
 	s.rebuildLocked()
-	errorLog := c.ErrorLog
-	if errorLog == nil {
-		errorLog = slog.DiscardHandler
-	}
 	mux := http.NewServeMux()
 	mux.HandleFunc(JWKSPath, s.serveJWKS)
 	mux.HandleFunc(TokenPath, s.serveToken)
@@ -276,24 +226,19 @@ func Start(ctx context.Context, c Config) (*Server, error) {
 		Handler:           s.admit(mux),
 		TLSConfig:         c.TLS,
 		ReadHeaderTimeout: readHeaderTimeout,
-		ErrorLog:          slog.NewLogLogger(errorLog, slog.LevelError),
+		ErrorLog:          slog.NewLogLogger(slog.DiscardHandler, slog.LevelError),
 		// Handlers outlive neither Close nor ctx (the AfterFunc below
 		// closes the Server), so they carry ctx's values, not its end.
 		BaseContext: func(net.Listener) context.Context { return context.WithoutCancel(ctx) },
 	}
-	s.loops.Add(1)
 	go func() {
-		defer s.loops.Done()
+		defer close(s.serveDone)
 		if c.TLS != nil {
 			_ = s.srv.ServeTLS(ln, "", "")
 			return
 		}
 		_ = s.srv.Serve(ln)
 	}()
-	if c.RotateEvery > 0 {
-		s.loops.Add(1)
-		go s.rotateLoop(c.RotateEvery)
-	}
 	// The callback may run at once (ctx already done); Close then waits
 	// for s.mu, so stopAfter is assigned before it is read.
 	s.mu.Lock()
@@ -318,8 +263,8 @@ func (s *Server) admit(next http.Handler) http.Handler {
 	})
 }
 
-// Close stops the server and the rotation loop and waits for them and
-// every handler. It is idempotent; recorded requests stay readable.
+// Close stops the server and waits for its serve loop and every handler.
+// It is idempotent; recorded requests stay readable.
 func (s *Server) Close() error {
 	var err error
 	s.closeOnce.Do(func() {
@@ -329,7 +274,7 @@ func (s *Server) Close() error {
 		s.mu.Unlock()
 		close(s.closing)
 		err = s.srv.Close()
-		s.loops.Wait()
+		<-s.serveDone
 		s.handlers.Wait()
 		if stopAfter != nil {
 			stopAfter()
@@ -337,10 +282,6 @@ func (s *Server) Close() error {
 	})
 	return err
 }
-
-// URL returns the base URL, "https://<addr>" over TLS, else
-// "http://<addr>".
-func (s *Server) URL() string { return s.url }
 
 // Issuer returns the iss of minted tokens, the base URL.
 func (s *Server) Issuer() string { return s.url }
@@ -374,13 +315,6 @@ func (s *Server) JWKS() []byte {
 	return slices.Clone(s.doc)
 }
 
-// Keys returns the published keys in document order.
-func (s *Server) Keys() []*Key {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return slices.Clone(s.keys)
-}
-
 // Key returns the signing key of alg: the last published key with that
 // algorithm.
 func (s *Server) Key(alg Alg) (*Key, bool) {
@@ -396,20 +330,6 @@ func (s *Server) signerLocked(alg Alg) (*Key, bool) {
 		}
 	}
 	return nil, false
-}
-
-// AddKey publishes k at the end of the document, making it the signing
-// key of its algorithm. Duplicate kids are allowed (auth.jwt keeps them as
-// a list, tried in document order).
-func (s *Server) AddKey(k *Key) error {
-	if k == nil || k.signer == nil {
-		return errors.New("mockidp: AddKey needs a key made by GenerateKey or NewKey")
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.keys = append(s.keys, k)
-	s.rebuildLocked()
-	return nil
 }
 
 // RemoveKey unpublishes every key with kid and returns how many it
@@ -439,65 +359,7 @@ func (s *Server) Rotate(alg Alg, keepPrevious bool) (*Key, error) {
 	}
 	s.keys = append(s.keys, k)
 	s.rebuildLocked()
-	s.rotations.Add(1)
 	return k, nil
-}
-
-// rotateLoop rotates every algorithm with a signing key each period,
-// keeping the newest two keys of each.
-func (s *Server) rotateLoop(every time.Duration) {
-	defer s.loops.Done()
-	t := time.NewTicker(every)
-	defer t.Stop()
-	for {
-		select {
-		case <-s.closing:
-			return
-		case <-t.C:
-			s.rotateAll()
-		}
-	}
-}
-
-func (s *Server) rotateAll() {
-	s.mu.Lock()
-	var algs []Alg
-	for _, k := range s.keys {
-		if !slices.Contains(algs, k.Alg) {
-			algs = append(algs, k.Alg)
-		}
-	}
-	s.mu.Unlock()
-	for _, alg := range algs {
-		k, err := GenerateKey(alg)
-		if err != nil {
-			continue
-		}
-		s.mu.Lock()
-		s.keys = append(s.keys, k)
-		// Keep the two newest keys of alg.
-		seen := 0
-		for i := len(s.keys) - 1; i >= 0; i-- {
-			if s.keys[i].Alg != alg {
-				continue
-			}
-			seen++
-			if seen > 2 {
-				s.keys = slices.Delete(s.keys, i, i+1)
-			}
-		}
-		s.rebuildLocked()
-		s.mu.Unlock()
-		s.rotations.Add(1)
-	}
-}
-
-// SetCacheControl sets the JWKS Cache-Control value; "" omits the header
-// (auth.jwt then keeps a set for 1 h).
-func (s *Server) SetCacheControl(v string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.cacheControl, s.noCache = v, v == ""
 }
 
 // SetJWKSOverride scripts the JWKS endpoint; the zero Override restores
@@ -516,14 +378,6 @@ func (s *Server) SetTokenOverride(o Override) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.tokenOver = o
-}
-
-// SetClient registers or replaces a client's secret for the token
-// endpoint.
-func (s *Server) SetClient(id, secret string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.clients[id] = secret
 }
 
 // JWKSFetches returns the recorded JWKS requests, oldest first.
@@ -545,8 +399,6 @@ func (s *Server) Stats() Stats {
 	return Stats{
 		JWKSFetches:   s.jwksCount.Load(),
 		TokenRequests: s.tokenCount.Load(),
-		TokensIssued:  s.issued.Load(),
-		Rotations:     s.rotations.Load(),
 	}
 }
 
@@ -612,8 +464,8 @@ func canned(w http.ResponseWriter, o Override) int {
 }
 
 func appendBounded[T any](s []T, v T) []T {
-	if len(s) >= MaxRecorded {
-		s = slices.Delete(s, 0, len(s)-MaxRecorded+1)
+	if len(s) >= maxRecorded {
+		s = slices.Delete(s, 0, len(s)-maxRecorded+1)
 	}
 	return append(s, v)
 }
@@ -621,16 +473,16 @@ func appendBounded[T any](s []T, v T) []T {
 func (s *Server) serveJWKS(w http.ResponseWriter, r *http.Request) {
 	s.jwksCount.Add(1)
 	s.mu.Lock()
-	o, doc, cc, noCache := s.jwksOver, s.doc, s.cacheControl, s.noCache
+	o, doc := s.jwksOver, s.doc
 	s.mu.Unlock()
-	status := s.answerJWKS(w, r, o, doc, cc, noCache)
-	f := Fetch{Time: time.Now(), Method: r.Method, Header: r.Header.Clone(), RemoteAddr: r.RemoteAddr, Status: status}
+	status := s.answerJWKS(w, r, o, doc)
+	f := Fetch{Status: status}
 	s.mu.Lock()
 	s.fetches = appendBounded(s.fetches, f)
 	s.mu.Unlock()
 }
 
-func (s *Server) answerJWKS(w http.ResponseWriter, r *http.Request, o Override, doc []byte, cc string, noCache bool) int {
+func (s *Server) answerJWKS(w http.ResponseWriter, r *http.Request, o Override, doc []byte) int {
 	if !s.wait(r.Context(), o.Delay) {
 		panic(http.ErrAbortHandler)
 	}
@@ -641,9 +493,7 @@ func (s *Server) answerJWKS(w http.ResponseWriter, r *http.Request, o Override, 
 	}
 	h := w.Header()
 	h.Set("Content-Type", JWKSContentType)
-	if !noCache {
-		h.Set("Cache-Control", cc)
-	}
+	h.Set("Cache-Control", s.cfg.CacheControl)
 	if o.canned() {
 		return canned(w, o)
 	}
@@ -686,7 +536,7 @@ func (s *Server) serveToken(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	o := s.tokenOver
 	s.mu.Unlock()
-	rec := TokenRequest{Time: time.Now(), Method: r.Method, Header: r.Header.Clone(), RemoteAddr: r.RemoteAddr}
+	var rec TokenRequest
 	rec.Status = s.answerToken(w, r, o, &rec)
 	s.mu.Lock()
 	s.tokenReqs = appendBounded(s.tokenReqs, rec)
@@ -699,7 +549,6 @@ func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override,
 	basicID, basicSecret, basic := r.BasicAuth()
 	if basic {
 		rec.AuthMethod = "client_secret_basic"
-		rec.RawClientID, rec.RawClientSecret = basicID, basicSecret
 		var idOK, secretOK bool
 		rec.ClientID, idOK = formDecode(basicID)
 		rec.ClientSecret, secretOK = formDecode(basicSecret)
@@ -710,7 +559,6 @@ func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override,
 		return writeJSON(w, http.StatusRequestEntityTooLarge, tokenError{Error: "invalid_request", Description: "body too large"})
 	}
 	form, formErr := url.ParseQuery(string(body))
-	rec.Form = form
 	rec.GrantType, rec.Scope = form.Get("grant_type"), form.Get("scope")
 	_, postID := form["client_id"]
 	_, postSecret := form["client_secret"]
@@ -718,7 +566,6 @@ func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override,
 	if !basic && (postID || postSecret) {
 		rec.AuthMethod = "client_secret_post"
 		rec.ClientID, rec.ClientSecret = form.Get("client_id"), form.Get("client_secret")
-		rec.RawClientID, rec.RawClientSecret = rec.ClientID, rec.ClientSecret
 	}
 	if both {
 		rec.AuthMethod = ""
@@ -764,7 +611,6 @@ func (s *Server) answerToken(w http.ResponseWriter, r *http.Request, o Override,
 		return writeJSON(w, http.StatusInternalServerError, tokenError{Error: "server_error"})
 	}
 	rec.AccessToken = token
-	s.issued.Add(1)
 	return writeJSON(w, http.StatusOK, tokenResponse{
 		AccessToken: token,
 		TokenType:   "Bearer",

@@ -49,17 +49,17 @@ func configArg(t *testing.T, s *Server, name string) string {
 	return v.Elems[1].Str
 }
 
-// TestProcessStartKillRestart checks the process lifecycle: a server
-// ready on a loopback port, its URL, a kill that stops it, and a restart
-// on the same port that loses what it held in memory.
-func TestProcessStartKillRestart(t *testing.T) {
+// TestProcessStartKill checks the process lifecycle: a server ready on a
+// loopback port, its URL, persistence off, and a kill that stops it,
+// which a second kill finds done.
+func TestProcessStartKill(t *testing.T) {
 	d := startHelper(t, Process, Options{})
 	s := d.Primary()
 	if d.Kind() != Process || d.Topology() != statestore.TopologyStandalone || len(d.Nodes()) != 1 || d.Replica() != nil {
 		t.Fatalf("deployment %s %v, %d nodes, replica %v", d.Kind(), d.Topology(), len(d.Nodes()), d.Replica())
 	}
-	if want := "redis://" + s.Addr(); d.URL() != want || s.URL() != want || s.ClientAddr() != s.Addr() {
-		t.Errorf("URL %q, server URL %q, want %q", d.URL(), s.URL(), want)
+	if want := "redis://" + s.Addr(); d.URL() != want || s.ClientAddr() != s.Addr() {
+		t.Errorf("URL %q, client address %q, want %q", d.URL(), s.ClientAddr(), want)
 	}
 	if host, _, _ := net.SplitHostPort(s.Addr()); host != "127.0.0.1" {
 		t.Errorf("Addr %q, want loopback", s.Addr())
@@ -71,9 +71,6 @@ func TestProcessStartKillRestart(t *testing.T) {
 	if got := configArg(t, s, "save"); got != "" {
 		t.Errorf("save = %q, want persistence off", got)
 	}
-	if !strings.Contains(s.Output(), "Ready to accept connections") {
-		t.Errorf("Output = %q, want the readiness line", s.Output())
-	}
 
 	if err := s.Kill(t.Context()); err != nil {
 		t.Fatal(err)
@@ -81,20 +78,9 @@ func TestProcessStartKillRestart(t *testing.T) {
 	if _, err := s.Do(t.Context(), "PING"); err == nil {
 		t.Fatal("PING after Kill succeeded")
 	}
-	addr := s.Addr()
-	if err := s.Restart(t.Context()); err != nil {
-		t.Fatal(err)
+	if err := s.Kill(t.Context()); err != nil {
+		t.Errorf("Kill of an exited server = %v, want nil", err)
 	}
-	if s.Addr() != addr {
-		t.Fatalf("Addr after Restart = %q, want %q", s.Addr(), addr)
-	}
-	if got := mustDo(t, s, "GET", "k"); !got.Null {
-		t.Errorf("GET after Restart = %v, want nil", got)
-	}
-	if err := s.Restart(t.Context()); err != nil {
-		t.Fatalf("Restart of a running server: %v", err)
-	}
-	mustDo(t, s, "PING")
 }
 
 // TestProcessRetriesTakenPort checks that a port another process takes
@@ -176,11 +162,10 @@ func TestProcessTLSAndUsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = c.Close() }()
-	var re *ReplyError
-	if _, err := c.Do(t.Context(), "PING"); !errors.As(err, &re) || re.Code() != "NOAUTH" {
+	if _, err := c.Do(t.Context(), "PING"); err == nil || !strings.Contains(err.Error(), "error reply: NOAUTH") {
 		t.Errorf("PING without AUTH = %v, want NOAUTH", err)
 	}
-	if _, err := dialConn(t.Context(), s.Addr(), dialOptions{tls: d.ClientTLS(), user: "ops", password: "wrong"}); !errors.As(err, &re) || re.Code() != "WRONGPASS" {
+	if _, err := dialConn(t.Context(), s.Addr(), dialOptions{tls: d.ClientTLS(), user: "ops", password: "wrong"}); err == nil || !strings.Contains(err.Error(), "error reply: WRONGPASS") {
 		t.Errorf("AUTH with a wrong password = %v, want WRONGPASS", err)
 	}
 
@@ -203,8 +188,8 @@ func TestProcessTLSAndUsers(t *testing.T) {
 }
 
 // TestProcessReplicaPromote checks Options.Replica and Promote: a replica
-// synced from the primary, promoted to primary, and kept a primary
-// across its restarts.
+// synced from the primary and promoted to primary, which the URL then
+// names; a second Promote finds no replica.
 func TestProcessReplicaPromote(t *testing.T) {
 	d := startHelper(t, Process, Options{Replica: true, Users: []User{{Name: "ruralz", Password: "pw"}}})
 	primary, replica := d.Primary(), d.Replica()
@@ -223,14 +208,8 @@ func TestProcessReplicaPromote(t *testing.T) {
 	if d.Primary() != replica || d.Replica() != nil {
 		t.Fatalf("after Promote: primary %s, replica %v; want the former replica alone", d.Primary().Name(), d.Replica())
 	}
-	if d.URL() != replica.URL() {
-		t.Errorf("URL %q, want the promoted server's %q", d.URL(), replica.URL())
-	}
-	if err := replica.Restart(t.Context()); err != nil {
-		t.Fatal(err)
-	}
-	if got := configArg(t, replica, "replicaof"); got != "-" {
-		t.Errorf("replicaof after Promote and Restart = %q, want none", got)
+	if want := "redis://ruralz:pw@" + replica.Addr(); d.URL() != want {
+		t.Errorf("URL %q, want the promoted server's %q", d.URL(), want)
 	}
 	if err := d.Promote(t.Context()); !errors.Is(err, errNoReplica) {
 		t.Errorf("second Promote = %v, want errNoReplica", err)

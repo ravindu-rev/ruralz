@@ -86,9 +86,6 @@ func TestOTelSDKExporters(t *testing.T) {
 	if !ok || m.Proto.GetSum().GetDataPoints()[0].GetAsInt() != 3 {
 		t.Fatalf("metric = %v %v", m, ok)
 	}
-	if v, _ := ResourceAttr(m.Resource, "service.name"); ValueString(v) != "ruralzd" {
-		t.Fatalf("metric resource = %v", m.Resource)
-	}
 	logs := s.Logs()
 	if len(logs) != 1 || logs[0].Body() != "access" || logs[0].EventName() != "ruralz.access" {
 		t.Fatalf("logs = %v", logs)

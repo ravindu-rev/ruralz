@@ -80,17 +80,16 @@ func TestReadValueErrors(t *testing.T) {
 	}
 }
 
-// TestReplyError checks that error replies, simple and blob, surface as a
-// *ReplyError with their code.
+// TestReplyError checks that error replies, simple and blob, surface as an
+// error carrying their message.
 func TestReplyError(t *testing.T) {
-	for in, code := range map[string]string{"-NOSCRIPT No matching script\r\n": "NOSCRIPT", "!11\r\nSYNTAX bad!\r\n": "SYNTAX", "-ERR\r\n": "ERR"} {
+	for _, in := range []string{"-NOSCRIPT No matching script\r\n", "!11\r\nSYNTAX bad!\r\n", "-ERR\r\n"} {
 		v, err := read(in)
 		if err != nil {
 			t.Fatal(err)
 		}
-		var re *ReplyError
-		if !errors.As(v.Err(), &re) || re.Code() != code || !strings.Contains(re.Error(), v.Str) {
-			t.Errorf("%q: Err() = %v, want a ReplyError with code %s", in, v.Err(), code)
+		if e := v.Err(); e == nil || e.Error() != "redisserver: error reply: "+v.Str {
+			t.Errorf("%q: Err() = %v, want an error naming the reply %q", in, e, v.Str)
 		}
 	}
 	if v, _ := read("+OK\r\n"); v.Err() != nil {

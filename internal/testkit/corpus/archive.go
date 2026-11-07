@@ -45,15 +45,6 @@ func ParseArchive(data []byte) *Archive {
 	return a
 }
 
-// Map returns the files by name (a later duplicate wins).
-func (a *Archive) Map() map[string][]byte {
-	out := make(map[string][]byte, len(a.Files))
-	for _, f := range a.Files {
-		out[f.Name] = f.Data
-	}
-	return out
-}
-
 // findMarker returns the text before the next marker line, the marker's
 // file name and the text after the marker line.
 func findMarker(data []byte) (before []byte, name string, after []byte) {

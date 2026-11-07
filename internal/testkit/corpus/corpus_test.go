@@ -291,7 +291,7 @@ func TestEntryPathAndFile(t *testing.T) {
 	}
 }
 
-func TestSeeds(t *testing.T) { // YAML, JSON, canonical and Bundle seeds
+func TestSeeds(t *testing.T) { // YAML, JSON and canonical seeds
 	c, err := Load(sampleTree(t))
 	if err != nil {
 		t.Fatal(err)
@@ -312,19 +312,6 @@ func TestSeeds(t *testing.T) { // YAML, JSON, canonical and Bundle seeds
 	if len(canon) != 2 || string(canon[0]) != `{"none":true}` || string(canon[1]) != `{"prod":true}` {
 		t.Fatalf("Canonical = %q", canon)
 	}
-	arch := c.Archives()
-	// golden/minimal bundle and bundle-json, golden/shop-diff from and to,
-	// golden/shop-json, json-subset yaml and json, four negative Bundles.
-	if len(arch) != 11 {
-		t.Fatalf("Archives = %d", len(arch))
-	}
-	a := ParseArchive(arch[0])
-	if string(a.Comment) != "golden/minimal/bundle\n" || len(a.Files) != 4 {
-		t.Fatalf("first archive = %q", arch[0])
-	}
-	if got := a.Map()["routes/orders.yaml"]; string(got) != "kind: Route\n" {
-		t.Fatalf("archive file = %q", got)
-	}
 	if all := c.Files(); len(all) < len(yaml)+len(json) {
 		t.Fatalf("Files() = %d", len(all))
 	}
@@ -335,7 +322,7 @@ func TestAbsent(t *testing.T) { // tolerant of absent dirs
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Entries) != 0 || len(c.YAML()) != 0 || len(c.Archives()) != 0 || len(c.Canonical()) != 0 {
+	if len(c.Entries) != 0 || len(c.YAML()) != 0 || len(c.JSON()) != 0 || len(c.Canonical()) != 0 {
 		t.Fatalf("absent corpus not empty: %+v", c)
 	}
 	// Present root, absent golden/ and json-subset/.
@@ -565,7 +552,6 @@ func archivesEqual(a, b *Archive) bool {
 }
 
 func FuzzParseArchive(f *testing.F) { // Seeded through the corpus helpers themselves
-	AddArchives(f)
 	AddYAML(f)
 	AddJSON(f)
 	AddCanonical(f)

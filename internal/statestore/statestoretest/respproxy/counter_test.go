@@ -92,11 +92,21 @@ func names(log []Command) []string {
 	return out
 }
 
+// fakeClock returns a clock that moves only when a test advances it.
+func fakeClock() *clocktest.Fake { return clocktest.New(time.Unix(0, 0)) }
+
+// held returns the chunks of replies c's reply delays hold right now.
+func held(c *Counter) int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.holds)
+}
+
 // TestCounterCountsCommandsAndReplies checks the totals and the log of
 // one connection: commands by name, replies, error replies by code, and
-// each command's arguments and reply.
+// each command's connection, round trip and reply.
 func TestCounterCountsCommandsAndReplies(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	cn := newConn(c, 7)
 	cn.up(cmd("SET", "k", "v"))
 	cn.down("+OK\r\n")
@@ -120,22 +130,21 @@ func TestCounterCountsCommandsAndReplies(t *testing.T) {
 	if want := map[string]int64{"NOSCRIPT": 1}; !maps.Equal(s.Errors, want) {
 		t.Errorf("Errors = %v, want %v", s.Errors, want)
 	}
-	log := c.Log()
+	log := c.LogSince(0)
 	if got := names(log); !slices.Equal(got, []string{"SET", "EVALSHA", "SCRIPT LOAD", "GET"}) {
 		t.Fatalf("log names = %q", got)
 	}
 	for i, want := range []Command{
-		{Seq: 1, Conn: 7, RoundTrip: 1, Name: "SET", Args: []string{"SET", "k", "v"}, Argc: 3, Reply: Reply{Kind: '+'}},
+		{seq: 1, Conn: 7, RoundTrip: 1, Name: "SET", Reply: Reply{Kind: '+'}},
 		{
-			Seq: 2, Conn: 7, RoundTrip: 2, Name: "EVALSHA", Args: []string{"EVALSHA", "abc", "1", "rl:{x}"}, Argc: 4,
+			seq: 2, Conn: 7, RoundTrip: 2, Name: "EVALSHA",
 			Reply: Reply{Kind: '-', Err: "NOSCRIPT No matching script. Please use EVAL."},
 		},
-		{Seq: 3, Conn: 7, RoundTrip: 3, Name: "SCRIPT LOAD", Args: []string{"script", "load", "return 1"}, Argc: 3, Reply: Reply{Kind: '$'}},
-		{Seq: 4, Conn: 7, RoundTrip: 4, Name: "GET", Args: []string{"GET", "k"}, Argc: 2, Reply: Reply{Kind: '$'}},
+		{seq: 3, Conn: 7, RoundTrip: 3, Name: "SCRIPT LOAD", Reply: Reply{Kind: '$'}},
+		{seq: 4, Conn: 7, RoundTrip: 4, Name: "GET", Reply: Reply{Kind: '$'}},
 	} {
 		got := log[i]
-		if got.Seq != want.Seq || got.Conn != want.Conn || got.RoundTrip != want.RoundTrip || got.Name != want.Name ||
-			!slices.Equal(got.Args, want.Args) || got.Argc != want.Argc || got.Cut || got.Reply != want.Reply {
+		if got != want {
 			t.Errorf("log[%d] = %+v, want %+v", i, got, want)
 		}
 	}
@@ -198,7 +207,7 @@ func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
 		} {
 			t.Run(chunking.name+"/"+delays.name, func(t *testing.T) {
 				clk := clocktest.New(time.Unix(0, 0))
-				c := NewCounter(CounterConfig{Clock: clk})
+				c := newCounter(clk, logSize)
 				if err := c.SetReplyDelays(delays.delays...); err != nil {
 					t.Fatal(err)
 				}
@@ -214,7 +223,7 @@ func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
 					t.Fatalf("forwarded %q with %d chunks waiting, want every reply byte once", strings.Join(got, ""), waiting)
 				}
 				s := c.Snapshot()
-				if s.Commands != 9 || s.Replies != 9 || s.Pushes != 1 || s.RoundTrips != 1 || s.Desyncs != 0 || s.Held != 0 {
+				if s.Commands != 9 || s.Replies != 9 || s.Pushes != 1 || s.RoundTrips != 1 || s.Desyncs != 0 || held(c) != 0 {
 					t.Errorf("Snapshot = %+v, want 9 commands and replies in one round trip, 1 push, none held", s)
 				}
 				if want := map[string]int64{"EVALSHA": 6, "GET": 1, "HMGET": 1, "TIME": 1}; !maps.Equal(s.ByName, want) {
@@ -223,7 +232,7 @@ func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
 				if want := map[string]int64{"ERR": 1, "NOSCRIPT": 1}; !maps.Equal(s.Errors, want) {
 					t.Errorf("Errors = %v, want %v", s.Errors, want)
 				}
-				log := c.Log()
+				log := c.LogSince(0)
 				if got := names(log); !slices.Equal(got, wantNames) {
 					t.Fatalf("log names = %q, want %q", got, wantNames)
 				}
@@ -242,7 +251,7 @@ func TestCounterCountsEachCommandAndReplyOnce(t *testing.T) {
 // after every reply starts a new one, and that connections never share
 // one.
 func TestCounterRoundTrips(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	a, b := newConn(c, 1), newConn(c, 2)
 	a.up(cmd("GET", "x") + cmd("HMGET", "h", "f")) // one write: pipelined
 	b.up(cmd("PING"))
@@ -256,7 +265,7 @@ func TestCounterRoundTrips(t *testing.T) {
 	b.down("+PONG\r\n")
 
 	var got []uint64
-	for _, e := range c.Log() {
+	for _, e := range c.LogSince(0) {
 		got = append(got, e.RoundTrip)
 	}
 	// GET, HMGET, PING (b), PING, EVALSHA, PING (b).
@@ -271,7 +280,7 @@ func TestCounterRoundTrips(t *testing.T) {
 // TestCounterSplitReplies checks that a reply split across chunks is
 // counted once, when complete, and matched to its command.
 func TestCounterSplitReplies(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	cn := newConn(c, 1)
 	cn.up(cmd("GET", "k"))
 	cn.down("$5\r\nhel")
@@ -279,8 +288,8 @@ func TestCounterSplitReplies(t *testing.T) {
 		t.Fatalf("Replies = %d after half a reply, want 0", s.Replies)
 	}
 	cn.down("lo\r\n")
-	if s := c.Snapshot(); s.Replies != 1 || c.Log()[0].Reply.Kind != '$' {
-		t.Fatalf("Replies = %d, reply %+v; want 1 and a bulk string", s.Replies, c.Log()[0].Reply)
+	if s := c.Snapshot(); s.Replies != 1 || c.LogSince(0)[0].Reply.Kind != '$' {
+		t.Fatalf("Replies = %d, reply %+v; want 1 and a bulk string", s.Replies, c.LogSince(0)[0].Reply)
 	}
 }
 
@@ -288,7 +297,7 @@ func TestCounterSplitReplies(t *testing.T) {
 // replies is counted apart and leaves the command-to-reply matching in
 // step.
 func TestCounterPushesAnswerNoCommand(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	cn := newConn(c, 1)
 	cn.up(cmd("GET", "a") + cmd("INCR", "n"))
 	cn.down(">2\r\n$10\r\ninvalidate\r\n*1\r\n$1\r\na\r\n$3\r\nbar\r\n:5\r\n")
@@ -296,7 +305,7 @@ func TestCounterPushesAnswerNoCommand(t *testing.T) {
 	if s.Pushes != 1 || s.Replies != 2 {
 		t.Errorf("Pushes %d, Replies %d; want 1 and 2", s.Pushes, s.Replies)
 	}
-	if log := c.Log(); log[0].Reply.Kind != '$' || log[1].Reply.Kind != ':' {
+	if log := c.LogSince(0); log[0].Reply.Kind != '$' || log[1].Reply.Kind != ':' {
 		t.Errorf("replies %+v, %+v; want GET a bulk string and INCR an integer", log[0].Reply, log[1].Reply)
 	}
 }
@@ -304,7 +313,7 @@ func TestCounterPushesAnswerNoCommand(t *testing.T) {
 // TestCounterDesync checks that a direction whose bytes stop parsing is
 // counted once and then ignored, while other connections go on.
 func TestCounterDesync(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	a, b := newConn(c, 1), newConn(c, 2)
 	a.up(cmd("PING") + "*1\r\n:1\r\n")
 	a.up(cmd("PING"))
@@ -317,15 +326,15 @@ func TestCounterDesync(t *testing.T) {
 	}
 }
 
-// TestCounterLogBound checks that the log keeps the newest LogSize
-// commands and counts the evicted ones, that a reply to an evicted
-// command is still counted, and that a negative size keeps no log.
+// TestCounterLogBound checks that the log keeps the newest commands its
+// size allows and counts the evicted ones, and that a reply to an evicted
+// command is still counted.
 func TestCounterLogBound(t *testing.T) {
-	c := NewCounter(CounterConfig{LogSize: 2})
+	c := newCounter(fakeClock(), 2)
 	cn := newConn(c, 1)
 	cn.up(cmd("A") + cmd("B") + cmd("C"))
 	cn.down("+1\r\n+2\r\n+3\r\n")
-	if got := names(c.Log()); !slices.Equal(got, []string{"B", "C"}) {
+	if got := names(c.LogSince(0)); !slices.Equal(got, []string{"B", "C"}) {
 		t.Errorf("Log = %q, want [B C]", got)
 	}
 	if got := names(c.LogSince(2)); !slices.Equal(got, []string{"C"}) {
@@ -337,18 +346,10 @@ func TestCounterLogBound(t *testing.T) {
 	if s := c.Snapshot(); s.LogEvicted != 1 || s.Replies != 3 || s.Commands != 3 {
 		t.Errorf("Snapshot = %+v, want 1 evicted, 3 commands and 3 replies", s)
 	}
-	for _, e := range c.Log() {
+	for _, e := range c.LogSince(0) {
 		if e.Reply.Kind != '+' {
 			t.Errorf("%s reply %+v, want a simple string", e.Name, e.Reply)
 		}
-	}
-
-	none := NewCounter(CounterConfig{LogSize: -1})
-	cn = newConn(none, 1)
-	cn.up(cmd("PING"))
-	cn.down("+PONG\r\n")
-	if s := none.Snapshot(); len(none.Log()) != 0 || s.Commands != 1 || s.Replies != 1 || s.LogEvicted != 0 {
-		t.Errorf("no log: Log %v, Snapshot %+v; want no entries, one command and one reply", none.Log(), s)
 	}
 }
 
@@ -356,7 +357,7 @@ func TestCounterLogBound(t *testing.T) {
 // than maxPending commands awaiting replies stops matching replies to
 // commands but goes on counting them.
 func TestCounterUnmatchedAfterOverflow(t *testing.T) {
-	c := NewCounter(CounterConfig{LogSize: 4})
+	c := newCounter(fakeClock(), 4)
 	cn := newConn(c, 1)
 	n := maxPending + 1
 	cn.up(strings.Repeat(cmd("PING"), n))
@@ -364,9 +365,9 @@ func TestCounterUnmatchedAfterOverflow(t *testing.T) {
 	if s := c.Snapshot(); s.Commands != int64(n) || s.Replies != int64(n) || s.RoundTrips != 1 {
 		t.Errorf("Snapshot = %+v, want %d commands and replies in one round trip", s, n)
 	}
-	for _, e := range c.Log() {
+	for _, e := range c.LogSince(0) {
 		if e.Reply.Kind != 0 {
-			t.Errorf("command %d matched reply %+v after the overflow", e.Seq, e.Reply)
+			t.Errorf("command %d matched reply %+v after the overflow", e.seq, e.Reply)
 		}
 	}
 	cn.up(cmd("PING"))
@@ -376,9 +377,9 @@ func TestCounterUnmatchedAfterOverflow(t *testing.T) {
 }
 
 // TestSnapshotSub checks that Sub keeps only what changed, and keeps the
-// later Seq and Held.
+// later Seq.
 func TestSnapshotSub(t *testing.T) {
-	c := NewCounter(CounterConfig{})
+	c := newCounter(fakeClock(), logSize)
 	cn := newConn(c, 1)
 	cn.up(cmd("GET", "a"))
 	cn.down("-ERR x\r\n")
@@ -386,7 +387,7 @@ func TestSnapshotSub(t *testing.T) {
 	cn.up(cmd("GET", "b") + cmd("EVALSHA", "s", "0"))
 	cn.down("$-1\r\n-NOSCRIPT x\r\n")
 	d := c.Snapshot().Sub(before)
-	if d.Commands != 2 || d.Replies != 2 || d.RoundTrips != 1 || d.Seq != 3 || d.Held != 0 {
+	if d.Commands != 2 || d.Replies != 2 || d.RoundTrips != 1 || d.Seq != 3 {
 		t.Errorf("Sub = %+v, want 2 commands and replies, 1 round trip, Seq 3", d)
 	}
 	if want := map[string]int64{"GET": 1, "EVALSHA": 1}; !maps.Equal(d.ByName, want) {
@@ -428,7 +429,7 @@ func TestCommandName(t *testing.T) {
 // counted only once released, while replies to other commands pass.
 func TestReplyDelayHoldsMatchingReplies(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Command: "evalsha", Delay: 200 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
@@ -438,14 +439,14 @@ func TestReplyDelayHoldsMatchingReplies(t *testing.T) {
 	cn.expectSent(t, "the GET reply", []string{"$-1\r\n"}, 0)
 	cn.up(cmd("EVALSHA", "s", "0"))
 	cn.down(":1\r\n")
-	if s := c.Snapshot(); s.Held != 1 || s.Replies != 1 {
+	if s := c.Snapshot(); held(c) != 1 || s.Replies != 1 {
 		t.Fatalf("Snapshot = %+v with the EVALSHA reply read, want it held and 1 reply", s)
 	}
 	clk.Advance(199 * time.Millisecond)
 	cn.expectSent(t, "before the delay", []string{"$-1\r\n"}, 1)
 	clk.Advance(time.Millisecond)
 	cn.expectSent(t, "after the delay", []string{"$-1\r\n", ":1\r\n"}, 0)
-	if s := c.Snapshot(); s.Replies != 2 || s.Held != 0 {
+	if s := c.Snapshot(); s.Replies != 2 || held(c) != 0 {
 		t.Fatalf("Snapshot = %+v after the delay, want 2 replies, none held", s)
 	}
 }
@@ -459,7 +460,7 @@ func TestReplyDelayHoldsMatchingReplies(t *testing.T) {
 // the order read, and for no delay of its own.
 func TestReplyDelayHoldsEachReplyFromItsRead(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: 4 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
@@ -470,20 +471,20 @@ func TestReplyDelayHoldsEachReplyFromItsRead(t *testing.T) {
 	cn.down("$-1\r\n") // read at 0.5 s: waits behind the first
 	clk.Advance(500 * time.Millisecond)
 	cn.down(":0\r\n") // read at 1 s: held until 5 s
-	if s := c.Snapshot(); s.Held != 2 || s.Replies != 0 {
+	if s := c.Snapshot(); held(c) != 2 || s.Replies != 0 {
 		t.Fatalf("Snapshot = %+v with every reply read, want both EVALSHA replies held and none counted", s)
 	}
 	clk.Advance(3 * time.Second)
 	cn.expectSent(t, "at 4 s", []string{":1\r\n", "$-1\r\n"}, 1)
-	if s := c.Snapshot(); s.Held != 1 || s.Replies != 2 {
+	if s := c.Snapshot(); held(c) != 1 || s.Replies != 2 {
 		t.Fatalf("Snapshot = %+v at 4 s, want the second EVALSHA reply held and 2 replies", s)
 	}
 	clk.Advance(time.Second)
 	cn.expectSent(t, "at 5 s", []string{":1\r\n", "$-1\r\n", ":0\r\n"}, 0)
-	if s := c.Snapshot(); s.Held != 0 || s.Replies != 3 {
+	if s := c.Snapshot(); held(c) != 0 || s.Replies != 3 {
 		t.Fatalf("Snapshot = %+v at 5 s, want none held and 3 replies", s)
 	}
-	for i, e := range c.Log() {
+	for i, e := range c.LogSince(0) {
 		if e.Reply.Kind == 0 {
 			t.Errorf("log[%d] %s has no reply once every reply was forwarded", i, e.Name)
 		}
@@ -494,7 +495,7 @@ func TestReplyDelayHoldsEachReplyFromItsRead(t *testing.T) {
 // command holds every reply and that the longest matching delay wins.
 func TestReplyDelayEveryReplyAndLongest(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Delay: 100 * time.Millisecond}, ReplyDelay{Command: "GET", Delay: 300 * time.Millisecond}); err != nil {
 		t.Fatal(err)
 	}
@@ -518,7 +519,7 @@ func TestReplyDelayEveryReplyAndLongest(t *testing.T) {
 // waits for the chunk that started it.
 func TestReplyDelayMatchesAcrossChunks(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: time.Second}); err != nil {
 		t.Fatal(err)
 	}
@@ -527,8 +528,8 @@ func TestReplyDelayMatchesAcrossChunks(t *testing.T) {
 	cn.down("$5\r\nhel") // the first GET reply starts: not held
 	cn.down("lo\r\n:1\r\n$2\r\nh")
 	cn.down("i\r\n") // the rest of the second GET reply
-	if s := c.Snapshot(); s.Held != 1 {
-		t.Fatalf("Held = %d, want the chunk starting the EVALSHA reply held", s.Held)
+	if n := held(c); n != 1 {
+		t.Fatalf("%d chunks held, want the chunk starting the EVALSHA reply held", n)
 	}
 	cn.expectSent(t, "while the EVALSHA reply is held", []string{"$5\r\nhel"}, 2)
 	clk.Advance(time.Second)
@@ -544,7 +545,7 @@ func TestReplyDelayMatchesAcrossChunks(t *testing.T) {
 // delays, and that negative delays are refused.
 func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
@@ -570,14 +571,14 @@ func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); !errors.Is(err, ErrClosed) {
 		t.Errorf("SetReplyDelays after Close = %v, want ErrClosed", err)
 	}
-	if s := c.Snapshot(); s.Replies != 3 || s.Held != 0 {
+	if s := c.Snapshot(); s.Replies != 3 || held(c) != 0 {
 		t.Errorf("Snapshot = %+v, want 3 replies, none held", s)
 	}
 	if n := clk.Pending(); n != 0 {
 		t.Errorf("%d hold timers armed after Close, want none", n)
 	}
 
-	d := NewCounter(CounterConfig{Clock: clk})
+	d := newCounter(clk, logSize)
 	if err := d.SetReplyDelays(ReplyDelay{Command: "GET", Delay: -time.Millisecond}); err == nil {
 		t.Error("negative delay: want an error")
 	}
@@ -593,7 +594,7 @@ func TestReplyDelayReleasedOnChangeAndClose(t *testing.T) {
 // releases are.
 func TestReplyDelayDecidedUnderReplacedDelays(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
+	c := newCounter(clk, logSize)
 	if err := c.SetReplyDelays(ReplyDelay{Delay: time.Hour}); err != nil {
 		t.Fatal(err)
 	}
@@ -604,30 +605,7 @@ func TestReplyDelayDecidedUnderReplacedDelays(t *testing.T) {
 	if c.arm(time.Hour, gen, func() { t.Error("released a hold that was never armed") }) {
 		t.Fatal("armed a hold decided under replaced delays")
 	}
-	if s := c.Snapshot(); s.Held != 0 || clk.Pending() != 0 {
-		t.Errorf("Held = %d with %d timers armed, want none", s.Held, clk.Pending())
-	}
-}
-
-// TestCommandAt checks that each logged command carries the time the
-// Counter read it, on the injected clock.
-func TestCommandAt(t *testing.T) {
-	clk := clocktest.New(time.Unix(100, 0))
-	c := NewCounter(CounterConfig{Clock: clk})
-	cn := newConn(c, 1)
-	cn.up(cmd("GET", "a"))
-	cn.down("$-1\r\n")
-	clk.Advance(250 * time.Millisecond)
-	cn.up(cmd("GET", "b"))
-	cn.down("$-1\r\n")
-	log := c.Log()
-	if len(log) != 2 {
-		t.Fatalf("Log holds %d commands, want 2", len(log))
-	}
-	if want := time.Unix(100, 0); !log[0].At.Equal(want) {
-		t.Errorf("first command At = %v, want %v", log[0].At, want)
-	}
-	if want := time.Unix(100, 250*int64(time.Millisecond)); !log[1].At.Equal(want) {
-		t.Errorf("second command At = %v, want %v", log[1].At, want)
+	if held(c) != 0 || clk.Pending() != 0 {
+		t.Errorf("%d replies held with %d timers armed, want none", held(c), clk.Pending())
 	}
 }

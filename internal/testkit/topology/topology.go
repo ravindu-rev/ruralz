@@ -70,8 +70,6 @@ type Config struct {
 	// internal/testkit/binaries, the controllable-clock build for the
 	// correctness suites, or a stand-in. Required.
 	Binary string
-	// Args are the Node's arguments; ruralzd takes none.
-	Args []string
 	// TestClock reports that Binary follows the clock commands on file
 	// descriptor 3 (binaries.Set.TestClock): the harness passes each Node
 	// process its command socket and keeps one clock for them all.
@@ -93,10 +91,6 @@ type Config struct {
 	// Transport turns off the TLS and credentials the harness otherwise
 	// chooses on its own hops.
 	Transport Transport
-	// ArtifactDir receives a failed test's evidence; default
-	// $RURALZ_TEST_ARTIFACT_DIR as the teardown finds it, and none when
-	// both are empty.
-	ArtifactDir string
 }
 
 // Transport turns off what the harness otherwise chooses on the hops it
@@ -105,9 +99,6 @@ type Transport struct {
 	// CleartextAdmin serves the admin port without TLS: no
 	// RURALZ_ADMIN_TLS_DIR. The tokens still apply, from loopback.
 	CleartextAdmin bool
-	// CleartextStateStore runs process State Stores without TLS
-	// (redis://).
-	CleartextStateStore bool
 	// NoStateStoreUser runs process State Stores without an ACL user.
 	NoStateStoreUser bool
 	// CleartextOTLP serves OTLP sinks over h2c, an http endpoint.
@@ -232,9 +223,6 @@ func (t *Topology) armTeardown() { t.t.Cleanup(t.teardown) }
 
 // Dir returns the topology's private directory.
 func (t *Topology) Dir() string { return t.root }
-
-// Clock returns the topology's one controllable clock.
-func (t *Topology) Clock() *Clock { return t.clock }
 
 // TestClock reports whether the Nodes follow the controllable clock.
 func (t *Topology) TestClock() bool { return t.cfg.TestClock }
@@ -390,18 +378,6 @@ func probePort(ctx context.Context) (int, error) {
 	}
 	// Any other failure means the host has no IPv6 loopback.
 	return port, nil
-}
-
-// Node returns the Node named name.
-func (t *Topology) Node(name string) (*Node, bool) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	for _, n := range t.nodes {
-		if n.name == name {
-			return n, true
-		}
-	}
-	return nil, false
 }
 
 // track records a started dependency for the teardown; it reports false

@@ -134,15 +134,6 @@ func (c Canary) Scan(source string, data []byte) []Finding {
 	return out
 }
 
-// ScanFile scans one file; the Source of each finding is path.
-func (c Canary) ScanFile(path string) ([]Finding, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: the harness scans files it wrote itself
-	if err != nil {
-		return nil, fmt.Errorf("canary: %w", err)
-	}
-	return c.Scan(path, data), nil
-}
-
 // ScanDir scans every regular file under root (symbolic links are not
 // followed); the Source of each finding is the slash-separated path
 // relative to root.

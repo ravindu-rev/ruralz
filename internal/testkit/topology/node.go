@@ -52,7 +52,7 @@ type NodeOptions struct {
 	// ServerCertificate). The value of "provider:name" is the whole file,
 	// which keyed references read as a JSON object; otherwise the file is
 	// a JSON object of the keyed references' values. A reference without a
-	// value gets a fresh canary, which SecretValue returns.
+	// value gets a fresh canary, kept across re-renders.
 	Secrets map[string][]byte
 	// AuthoredSecrets lists references the test render keeps as authored,
 	// "provider:name#key" for one reference or "provider:name" for every
@@ -276,7 +276,7 @@ func (n *Node) env() []string {
 // the topology's clock.
 func (n *Node) startProcess(ctx context.Context, binary, name string) (*proc.Process, error) {
 	t := n.t
-	spec := proc.Spec{Name: name, Path: binary, Args: t.cfg.Args, Env: n.env(), LogDir: n.logDir}
+	spec := proc.Spec{Name: name, Path: binary, Env: n.env(), LogDir: n.logDir}
 	var conn net.Conn
 	var child *os.File
 	if t.cfg.TestClock {
@@ -502,9 +502,6 @@ func (n *Node) Reload(ctx context.Context, rendered []byte) (*Render, error) {
 // Name returns the Node's name, such as "node-1".
 func (n *Node) Name() string { return n.name }
 
-// Dir returns the Node's private directory.
-func (n *Node) Dir() string { return n.dir }
-
 // SecretRoot returns RURALZ_SECRET_ROOT.
 func (n *Node) SecretRoot() string { return n.secretRoot }
 
@@ -577,15 +574,6 @@ func (n *Node) MetricsToken() string { return n.metricsToken }
 // TokenFile returns RURALZ_ADMIN_TOKEN_FILE, for a ruralz command's
 // --admin-token-file.
 func (n *Node) TokenFile() string { return n.tokenPath }
-
-// SecretValue returns the value the harness wrote for the reference ref,
-// supplied or generated.
-func (n *Node) SecretValue(ref string) ([]byte, bool) {
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	v, ok := n.secrets[ref]
-	return v, ok
-}
 
 // SecretPath returns the file the test render maps the reference ref to.
 func (n *Node) SecretPath(ref string) (string, bool) {

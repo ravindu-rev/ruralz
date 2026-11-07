@@ -54,7 +54,7 @@ func TestTeardownScansForLeaks(t *testing.T) {
 	})
 	cfg := standinCfg(t)
 	cfg.Env = append(cfg.Env, standinLeakEnv+"=1")
-	cfg.ArtifactDir = artifacts
+	t.Setenv(ArtifactDirEnv, artifacts)
 	topo = New(rtb, cfg)
 	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	waitLine(t, node, `standin: operator token `)
@@ -86,12 +86,14 @@ func TestTeardownScansForLeaks(t *testing.T) {
 }
 
 // A failed test's evidence holds each process's logs, a listing of each
-// RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP records; a
-// passing test keeps none.
+// RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP records, in
+// a directory named after the test under RURALZ_TEST_ARTIFACT_DIR.
 func TestFailureEvidence(t *testing.T) {
 	artifacts := t.TempDir()
+	t.Setenv(ArtifactDirEnv, artifacts)
 	rtb := &recordingTB{TB: t}
 	var node *Node
+	// Registered before New, so it runs after the teardown.
 	t.Cleanup(func() {
 		if node == nil {
 			return // the test failed before
@@ -119,45 +121,24 @@ func TestFailureEvidence(t *testing.T) {
 			t.Errorf("recorded %q, want the forced failure alone", got)
 		}
 	})
-	cfg := standinCfg(t)
-	cfg.ArtifactDir = artifacts
-	topo := New(rtb, cfg)
+	topo := New(rtb, standinCfg(t))
 	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
 	if _, err := topo.StartOTLPSink(otlpsink.Config{}); err != nil {
 		t.Fatal(err)
 	}
 	rtb.Errorf("forced failure")
+}
 
-	passing := t.TempDir()
-	quiet := &recordingTB{TB: t}
+// A passing test keeps no evidence under RURALZ_TEST_ARTIFACT_DIR.
+func TestPassingTestKeepsNoEvidence(t *testing.T) {
+	artifacts := t.TempDir()
+	t.Setenv(ArtifactDirEnv, artifacts)
+	// Registered before New, so it runs after the teardown.
 	t.Cleanup(func() {
-		if entries, err := os.ReadDir(passing); err != nil || len(entries) != 0 {
+		if entries, err := os.ReadDir(artifacts); err != nil || len(entries) != 0 {
 			t.Errorf("a passing test kept evidence: %v %v", entries, err)
 		}
 	})
-	qcfg := standinCfg(t)
-	qcfg.ArtifactDir = passing
-	q := New(quiet, qcfg)
-	addNodes(t, q, 1, nodeOptions(t, q))
-}
-
-// Without Config.ArtifactDir a failed test's evidence goes under
-// RURALZ_TEST_ARTIFACT_DIR as the teardown finds it.
-func TestFailureEvidenceUnderTheEnvironmentDirectory(t *testing.T) {
-	artifacts := t.TempDir()
-	t.Setenv(ArtifactDirEnv, artifacts)
-	rtb := &recordingTB{TB: t}
-	var node *Node
-	// Registered before New, so it runs after the teardown.
-	t.Cleanup(func() {
-		if node == nil {
-			return // the test failed before
-		}
-		if _, err := os.Stat(filepath.Join(artifacts, fileName(t.Name()), node.Name(), "logs", node.Name()+".out")); err != nil {
-			t.Errorf("no evidence under %s: %v", ArtifactDirEnv, err)
-		}
-	})
-	topo := New(rtb, standinCfg(t))
-	node = addNodes(t, topo, 1, nodeOptions(t, topo))[0]
-	rtb.Errorf("forced failure")
+	topo := New(&recordingTB{TB: t}, standinCfg(t))
+	addNodes(t, topo, 1, nodeOptions(t, topo))
 }

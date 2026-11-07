@@ -126,7 +126,7 @@ func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 	if err != nil {
 		return nil, fmt.Errorf("redisserver: %s endpoint: %w", k, err)
 	}
-	s := &Server{name: string(k), addr: addr, client: addr, acc: d.acc, ctr: ctr}
+	s := &Server{name: string(k), addr: addr, client: addr, acc: d.acc}
 	if err := waitServing(ctx, s, k); err != nil {
 		return nil, err
 	}
@@ -136,8 +136,7 @@ func startContainer(tb testing.TB, k Kind) (*Deployment, error) {
 
 // startContainerCluster starts three cluster-enabled containers and forms
 // them into a cluster over their container IPs, which members announce
-// and only a Linux host reaches, then one more container per primary that
-// joins as its replica.
+// and only a Linux host reaches.
 func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, logger testcontainers.LoggerOption) error {
 	cmd := append([]string{d.kind.server(), "--cluster-enabled", "yes", "--protected-mode", "no", "--save", "", "--appendonly", "no"},
 		containerUserArgs(*d.acc.user)...)
@@ -159,13 +158,13 @@ func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, lo
 			return clusterNode{}, fmt.Errorf("redisserver: %s container has no IP", name)
 		}
 		addr := net.JoinHostPort(ip, strconv.Itoa(clusterPort))
-		s := &Server{name: name, addr: addr, client: addr, acc: d.acc, ctr: ctr}
+		s := &Server{name: name, addr: addr, client: addr, acc: d.acc}
 		if err := waitServing(ctx, s, d.kind); err != nil {
 			return clusterNode{}, err
 		}
 		return clusterNode{srv: s, host: ip, port: clusterPort, busPort: clusterBusPort}, nil
 	}
-	var nodes, replicas []clusterNode
+	var nodes []clusterNode
 	for i := range clusterPrimaries {
 		n, err := run(fmt.Sprintf("%s-%d", d.kind, i))
 		if err != nil {
@@ -174,18 +173,7 @@ func startContainerCluster(ctx context.Context, tb testing.TB, d *Deployment, lo
 		d.nodes = append(d.nodes, n.srv)
 		nodes = append(nodes, n)
 	}
-	if err := bootstrapCluster(ctx, nodes); err != nil {
-		return err
-	}
-	for i := range clusterPrimaries {
-		r, err := run(fmt.Sprintf("%s-%d-replica", d.kind, i))
-		if err != nil {
-			return err
-		}
-		d.shardReplicas = append(d.shardReplicas, r.srv)
-		replicas = append(replicas, r)
-	}
-	return attachReplicas(ctx, nodes, replicas)
+	return bootstrapCluster(ctx, nodes)
 }
 
 // startContainerSentinel starts a primary, its replica and a sentinel
@@ -211,7 +199,7 @@ func startContainerSentinel(ctx context.Context, tb testing.TB, d *Deployment, l
 			return nil, "", fmt.Errorf("redisserver: %s container has no IP", name)
 		}
 		addr := net.JoinHostPort(ip, strconv.Itoa(port))
-		s := &Server{name: name, addr: addr, client: addr, acc: d.acc, ctr: ctr}
+		s := &Server{name: name, addr: addr, client: addr, acc: d.acc}
 		return s, ip, waitServing(ctx, s, d.kind)
 	}
 	server := append([]string{d.kind.server(), "--protected-mode", "no", "--save", "", "--appendonly", "no"}, containerUserArgs(*d.acc.user)...)

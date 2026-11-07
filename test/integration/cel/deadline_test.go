@@ -70,7 +70,7 @@ func TestNoStopAtRouteDeadline(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := "/deadline/" + strings.ReplaceAll(tc.name, " ", "-")
-			if err := s.main.SetRoute(path, mockup.Behavior{Delay: mockup.Fixed(upstreamHold)}); err != nil {
+			if err := s.main.SetRoute(path, mockup.Behavior{Delay: upstreamHold}); err != nil {
 				t.Fatal(err)
 			}
 			before := scrape(t, s.top, s.n)

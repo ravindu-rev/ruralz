@@ -73,13 +73,13 @@
 // counting RESP proxies, each primary of a process cluster also announces
 // a counting proxy of its own, shared by every Node (StateStore.Proxies),
 // so the commands a cluster's slot map sends to the servers directly are
-// counted too; the primaries' replicas replicate through those proxies,
-// so their handshakes and acknowledgments (PING, AUTH, REPLCONF, PSYNC)
-// count beside the Nodes' commands. The harness chooses TLS from
-// internal/testkit/pki and credentials on every hop it owns: rediss:// with
-// an ACL user, an https OTLP sink, and admin TLS through
-// RURALZ_ADMIN_TLS_DIR with operator and metrics tokens. Transport turns
-// each off; cleartext elsewhere appears only where the Bundle declares it.
+// counted too. The harness chooses TLS from internal/testkit/pki and
+// credentials on every hop it owns: rediss:// with an ACL user, an https
+// OTLP sink, and admin TLS through RURALZ_ADMIN_TLS_DIR with operator and
+// metrics tokens. Transport turns off the admin TLS, the State Store's ACL
+// user and the OTLP sink's TLS; a State Store behind counting RESP
+// proxies runs without TLS, since they read the commands, and cleartext
+// elsewhere appears only where the Bundle declares it.
 // StartMockUpstream, StartIDP and StartOTLPSink run the in-process mocks.
 //
 // # Secret leaks
@@ -101,8 +101,7 @@
 //
 // When a test fails, the harness copies each process's logs, a listing of
 // each RURALZ_DATA_DIR, each Node's /debug/snapshots and the OTLP records
-// into a directory named after the test under RURALZ_TEST_ARTIFACT_DIR
-// (Config.ArtifactDir overrides it).
+// into a directory named after the test under RURALZ_TEST_ARTIFACT_DIR.
 //
 // # Teardown
 //

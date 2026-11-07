@@ -85,7 +85,7 @@ func (t *HTTPTarget) Close() error {
 }
 
 // Do sends one GET request and reads the whole response body.
-func (t *HTTPTarget) Do(ctx context.Context, _ Request) Response {
+func (t *HTTPTarget) Do(ctx context.Context) Response {
 	var resp Response
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.url, nil)
 	if err != nil {

@@ -54,10 +54,10 @@ LDFLAGS := -s -w \
 DCO_RANGE ?= origin/main..HEAD
 export DCO_RANGE
 
-# make integration. RURALZ_TEST_STATESTORE=process|container and
-# RURALZ_TEST_REDIS_SERVER select the State Store flavors
-# (docs/engineering/03-testing-and-quality-strategy.md, "Integration
-# tests"); INTEGRATION_TIMEOUT bounds each package.
+# make integration. RURALZ_TEST_STATESTORE (process, container or
+# process,container) and RURALZ_TEST_REDIS_SERVER select the State Store
+# flavors (docs/engineering/03-testing-and-quality-strategy.md,
+# "Integration tests"); INTEGRATION_TIMEOUT bounds each package.
 INTEGRATION_TIMEOUT ?= 25m
 
 # The release. NOTICES_DIR receives depgate's per-artifact NOTICE and

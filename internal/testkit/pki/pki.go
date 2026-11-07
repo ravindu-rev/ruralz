@@ -4,11 +4,10 @@
 // Package pki issues the test certificates the harness needs: a test CA
 // (and intermediates), server certificates for Node listeners, the admin
 // listener, mock Upstreams, the mock IdP, the OTLP sink and TLS State
-// Stores, client certificates for auth.mtls, CRLs, PEM files, and an
-// SSL_CERT_FILE bundle so child processes trust the test CA.
+// Stores, client certificates for auth.mtls, CRLs and PEM files.
 //
-// Keys are ECDSA P-256 by default, or RSA 2,048-bit. Everything is
-// standard library crypto; nothing here is fit for production use.
+// Keys are ECDSA P-256. Everything is standard library crypto; nothing
+// here is fit for production use.
 package pki
 
 import (
@@ -17,12 +16,10 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"math/big"
 	"net"
@@ -31,28 +28,6 @@ import (
 	"path/filepath"
 	"time"
 )
-
-// KeyType selects the key algorithm.
-type KeyType int
-
-// Key types.
-const (
-	// ECDSAP256 is an ECDSA key on P-256 (the default).
-	ECDSAP256 KeyType = iota
-	// RSA2048 is a 2,048-bit RSA key.
-	RSA2048
-)
-
-// String returns the key type name.
-func (k KeyType) String() string {
-	switch k {
-	case ECDSAP256:
-		return "ECDSA-P256"
-	case RSA2048:
-		return "RSA-2048"
-	}
-	return fmt.Sprintf("KeyType(%d)", int(k))
-}
 
 // Default validity: from one hour ago (tolerating clock skew between
 // processes) for 30 days.
@@ -65,7 +40,6 @@ const (
 type CAOptions struct {
 	// CommonName defaults to "Ruralz Test CA".
 	CommonName string
-	KeyType    KeyType
 	// NotBefore and NotAfter default to now - DefaultBackdate and
 	// NotBefore + DefaultValidity.
 	NotBefore, NotAfter time.Time
@@ -93,7 +67,6 @@ type LeafOptions struct {
 	// Server and Client select the extended key usages; with neither set
 	// the certificate is for both.
 	Server, Client bool
-	KeyType        KeyType
 	// NotBefore and NotAfter default like CAOptions'.
 	NotBefore, NotAfter time.Time
 }
@@ -101,7 +74,6 @@ type LeafOptions struct {
 // Leaf is an issued end-entity certificate.
 type Leaf struct {
 	Cert *x509.Certificate
-	Key  crypto.Signer
 	// CertPEM is the leaf certificate alone.
 	CertPEM []byte
 	// ChainPEM is the leaf followed by every intermediate up to (not
@@ -109,8 +81,6 @@ type Leaf struct {
 	ChainPEM []byte
 	// KeyPEM is the key in PKCS #8 PEM.
 	KeyPEM []byte
-	// Issuer is the CA that signed the leaf.
-	Issuer *CA
 }
 
 // NewCA creates a self-signed root CA.
@@ -126,7 +96,7 @@ func newCA(o CAOptions, parent *CA) (*CA, error) {
 			o.CommonName = "Ruralz Test Intermediate CA"
 		}
 	}
-	key, err := newKey(o.KeyType)
+	key, err := newKey()
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +143,7 @@ func (ca *CA) Root() *CA {
 
 // Issue signs a leaf certificate.
 func (ca *CA) Issue(o LeafOptions) (*Leaf, error) {
-	key, err := newKey(o.KeyType)
+	key, err := newKey()
 	if err != nil {
 		return nil, err
 	}
@@ -190,9 +160,6 @@ func (ca *CA) Issue(o LeafOptions) (*Leaf, error) {
 		KeyUsage:     x509.KeyUsageDigitalSignature,
 		DNSNames:     o.DNSNames,
 		IPAddresses:  o.IPAddresses,
-	}
-	if o.KeyType == RSA2048 {
-		tmpl.KeyUsage |= x509.KeyUsageKeyEncipherment
 	}
 	switch {
 	case o.Server && !o.Client:
@@ -226,7 +193,7 @@ func (ca *CA) Issue(o LeafOptions) (*Leaf, error) {
 	for c := ca; c.Parent != nil; c = c.Parent {
 		chain = append(chain, c.CertPEM...)
 	}
-	return &Leaf{Cert: cert, Key: key, CertPEM: certPEM, ChainPEM: chain, KeyPEM: keyPEM, Issuer: ca}, nil
+	return &Leaf{Cert: cert, CertPEM: certPEM, ChainPEM: chain, KeyPEM: keyPEM}, nil
 }
 
 // Server issues a server certificate for hosts, each a DNS name or an IP
@@ -346,43 +313,6 @@ func (ca *CA) WriteFile(path string) error {
 	return nil
 }
 
-// WriteBundle writes the certificates of cas, concatenated, to path: the
-// file a child process names in SSL_CERT_FILE to trust them.
-func WriteBundle(path string, cas ...*CA) error {
-	if len(cas) == 0 {
-		return errors.New("pki: WriteBundle needs at least one CA")
-	}
-	var b bytes.Buffer
-	for _, ca := range cas {
-		b.Write(ca.CertPEM)
-	}
-	if err := os.WriteFile(path, b.Bytes(), 0o600); err != nil {
-		return fmt.Errorf("pki: %w", err)
-	}
-	return nil
-}
-
-// Env returns the SSL_CERT_FILE environment entry for a bundle path.
-func Env(bundlePath string) string { return "SSL_CERT_FILE=" + bundlePath }
-
-func newKey(t KeyType) (crypto.Signer, error) {
-	switch t {
-	case ECDSAP256:
-		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			return nil, fmt.Errorf("pki: generate %v key: %w", t, err)
-		}
-		return k, nil
-	case RSA2048:
-		k, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			return nil, fmt.Errorf("pki: generate %v key: %w", t, err)
-		}
-		return k, nil
-	}
-	return nil, fmt.Errorf("pki: unknown key type %v", t)
-}
-
 func newSerial() (*big.Int, error) {
 	n, err := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 127))
 	if err != nil {
@@ -411,4 +341,13 @@ func encodeKey(k crypto.Signer) ([]byte, error) {
 		return nil, fmt.Errorf("pki: marshal key: %w", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}), nil
+}
+
+// newKey generates an ECDSA key on P-256.
+func newKey() (crypto.Signer, error) {
+	k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return nil, fmt.Errorf("pki: generate key: %w", err)
+	}
+	return k, nil
 }

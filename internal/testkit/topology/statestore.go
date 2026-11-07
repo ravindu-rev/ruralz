@@ -63,7 +63,6 @@ type StateStore struct {
 
 // storeLink is one Node's proxies in front of a State Store.
 type storeLink struct {
-	node string
 	// fault holds one proxy per URL endpoint; resp the same proxies as
 	// counting RESP proxies, with StateStoreOptions.RESPProxy.
 	fault []*faultproxy.Proxy
@@ -92,7 +91,7 @@ func (t *Topology) StartStateStore(name string, o StateStoreOptions) *StateStore
 	s := &StateStore{t: t, name: name, opts: o}
 	var ro redisserver.Options
 	if o.Kind.Flavor() == redisserver.FlavorProcess {
-		ro.TLS = !t.cfg.Transport.CleartextStateStore && !o.RESPProxy
+		ro.TLS = !o.RESPProxy
 		if !t.cfg.Transport.NoStateStoreUser {
 			ro.Users = []redisserver.User{{Name: StateStoreUser, Password: t.Canary()}}
 		}
@@ -193,7 +192,7 @@ func (s *StateStore) CAPEM() []byte {
 // redirects and a sentinel's primary name the servers themselves, so a
 // proxy covers the seed or sentinel connections there.
 func (s *StateStore) link(_ context.Context, n *Node) (*storeLink, error) {
-	l := &storeLink{node: n.name}
+	l := &storeLink{}
 	proxy := func(addr string) (string, error) {
 		fc := faultproxy.Config{Upstream: addr}
 		if s.opts.RESPProxy {

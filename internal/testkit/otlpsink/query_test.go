@@ -63,16 +63,8 @@ func TestSpanOrderQueries(t *testing.T) {
 		"GET orders", "ruralz.route.match", "ruralz.filter.auth-jwt", "ruralz.filter.cors",
 		"ruralz.filter.ratelimit", "ruralz.upstream.orders", "ruralz.upstream.attempt",
 	}
-	if got := s.SpanNames(tr1); !slices.Equal(got, wantOrder) {
-		t.Fatalf("SpanNames = %v\nwant %v", got, wantOrder)
-	}
-	roots := s.Roots(tr1)
-	if len(roots) != 1 || roots[0].Name() != "GET orders" || roots[0].ParentSpanID() != "" {
-		t.Fatalf("Roots(tr1) = %v", roots)
-	}
-	roots = s.Roots(tr2)
-	if len(roots) != 1 || roots[0].Name() != "POST pay" || roots[0].ParentSpanID() != "cd00000000000008" {
-		t.Fatalf("Roots(tr2) = %v", roots)
+	if got := spanNames(s.Trace(tr1)); !slices.Equal(got, wantOrder) {
+		t.Fatalf("Trace(tr1) names = %v\nwant %v", got, wantOrder)
 	}
 	wantTree := "GET orders [SERVER]\n" +
 		"  ruralz.route.match [INTERNAL]\n" +
@@ -97,17 +89,14 @@ func TestSpanOrderQueries(t *testing.T) {
 	if sp.Kind() != server || sp.TraceID() != tr1 || sp.SpanID() != root {
 		t.Fatalf("span = %s %s %s", sp.Kind(), sp.TraceID(), sp.SpanID())
 	}
-	if got := sp.End().Sub(sp.Start()); got != time.Millisecond {
-		t.Fatalf("duration = %v", got)
+	if got := sp.Proto.GetEndTimeUnixNano() - sp.Proto.GetStartTimeUnixNano(); got != uint64(time.Millisecond) {
+		t.Fatalf("duration = %d ns, want 1 ms", got)
 	}
 	if sp.AttrString("http.request.method") != "GET" || sp.AttrString("missing") != "" {
 		t.Fatalf("attributes = %v", sp.Proto.GetAttributes())
 	}
 	if v, ok := ResourceAttr(sp.Resource, "service.name"); !ok || ValueString(v) != "gw" {
 		t.Fatalf("resource = %v", sp.Resource)
-	}
-	if sp.Scope.GetName() != "github.com/ravindu-rev/ruralz" || sp.Request != 2 {
-		t.Fatalf("scope %v request %d", sp.Scope, sp.Request)
 	}
 	got := s.FindSpans(func(sp Span) bool { return sp.Name() == "ruralz.filter.auth-jwt" })
 	if len(got) != 2 || got[0].TraceID() != tr1 || got[1].TraceID() != tr2 {
@@ -162,9 +151,6 @@ func TestLogAndMetricQueries(t *testing.T) {
 	if l.Body() != "request served" || l.EventName() != "ruralz.access" || l.AttrString("request_id") != "01J" || l.AttrString("x") != "" {
 		t.Fatalf("log = %v", l.Proto)
 	}
-	if l.TraceID() != "ab000000000000000000000000000001" || l.SpanID() != "cd00000000000001" {
-		t.Fatalf("log ids = %s %s", l.TraceID(), l.SpanID())
-	}
 	if !l.Time().Equal(time.Date(2026, 9, 26, 12, 0, 0, 0, time.UTC)) {
 		t.Fatalf("log time = %v", l.Time())
 	}
@@ -176,14 +162,11 @@ func TestLogAndMetricQueries(t *testing.T) {
 		t.Fatalf("MetricNames = %v", got)
 	}
 	m, ok := s.LastMetric("ruralz_http_requests_total")
-	if !ok || m.Proto.GetSum().GetDataPoints()[0].GetAsInt() != 5 || m.Request != 3 {
+	if !ok || m.Proto.GetSum().GetDataPoints()[0].GetAsInt() != 5 {
 		t.Fatalf("LastMetric = %v %v", m, ok)
 	}
 	if _, ok := s.LastMetric("absent"); ok {
 		t.Fatal("LastMetric(absent) found")
-	}
-	if n := len(s.Metrics()); n != 4 {
-		t.Fatalf("Metrics = %d", n)
 	}
 }
 

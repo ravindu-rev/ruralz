@@ -9,6 +9,8 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/statestore"
@@ -18,30 +20,36 @@ import (
 // (docs/engineering/03-testing-and-quality-strategy.md "Integration
 // tests").
 const (
-	// EnvStateStore selects the flavor the State Store suites run
-	// against: "process" or "container".
+	// EnvStateStore selects the flavors the State Store suites run
+	// against: "process", "container", or both as "process,container".
 	EnvStateStore = "RURALZ_TEST_STATESTORE"
 	// EnvRedisServer names the redis-server binary of the process flavor;
 	// without it, redis-server is looked up in PATH.
 	EnvRedisServer = "RURALZ_TEST_REDIS_SERVER"
 )
 
-// Flavor is how State Store servers run.
+// Flavor is a set of the ways State Store servers run: FlavorProcess,
+// FlavorContainer, both (FlavorProcess|FlavorContainer) or none. A kind
+// runs in exactly one.
 type Flavor uint8
 
-// Flavors.
+// Flavors, each a bit of a set.
 const (
-	// FlavorNone is an unset EnvStateStore: the suites skip.
-	FlavorNone Flavor = iota
+	// FlavorNone is the empty set, an unset EnvStateStore: the suites
+	// skip.
+	FlavorNone Flavor = 0
 	// FlavorProcess runs local redis-server processes.
-	FlavorProcess
+	FlavorProcess Flavor = 1
 	// FlavorContainer runs the images of images.go through
 	// testcontainers-go, on the linux/amd64 container leg.
-	FlavorContainer
+	FlavorContainer Flavor = 2
 )
 
-// String returns the EnvStateStore value of f ("" for FlavorNone).
-func (f Flavor) String() string {
+// flavors returns the single flavors in the order a set lists them.
+func flavors() []Flavor { return []Flavor{FlavorProcess, FlavorContainer} }
+
+// name returns the EnvStateStore name of the single flavor f.
+func (f Flavor) name() string {
 	switch f {
 	case FlavorProcess:
 		return "process"
@@ -52,29 +60,46 @@ func (f Flavor) String() string {
 	}
 }
 
-// ParseFlavor parses an EnvStateStore value; "" is FlavorNone.
-func ParseFlavor(s string) (Flavor, error) {
-	switch s {
-	case "":
-		return FlavorNone, nil
-	case "process":
-		return FlavorProcess, nil
-	case "container":
-		return FlavorContainer, nil
+// String returns the EnvStateStore value of f: the names of its flavors,
+// process first, joined by commas ("" for FlavorNone).
+func (f Flavor) String() string {
+	var names []string
+	for _, one := range flavors() {
+		if f&one != 0 {
+			names = append(names, one.name())
+		}
 	}
-	return FlavorNone, fmt.Errorf("redisserver: %s=%q, want process or container", EnvStateStore, s)
+	return strings.Join(names, ",")
 }
 
-// Kinds returns the kinds of f, standalone first.
-func (f Flavor) Kinds() []Kind {
-	switch f {
-	case FlavorProcess:
-		return []Kind{Process, ProcessCluster, ProcessSentinel}
-	case FlavorContainer:
-		return []Kind{Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster, Redis8Sentinel, Valkey9Sentinel}
-	default:
-		return nil
+// ParseFlavor parses an EnvStateStore value: "process", "container", or
+// both joined by a comma in either order, each once; "" is FlavorNone.
+func ParseFlavor(s string) (Flavor, error) {
+	if s == "" {
+		return FlavorNone, nil
 	}
+	var f Flavor
+	for name := range strings.SplitSeq(s, ",") {
+		i := slices.IndexFunc(flavors(), func(one Flavor) bool { return one.name() == name })
+		if i < 0 || f&flavors()[i] != 0 {
+			return FlavorNone, fmt.Errorf("redisserver: %s=%q, want process, container or process,container", EnvStateStore, s)
+		}
+		f |= flavors()[i]
+	}
+	return f, nil
+}
+
+// Kinds returns the kinds of f's flavors: the process kinds, then the
+// container kinds, standalone first within each.
+func (f Flavor) Kinds() []Kind {
+	var out []Kind
+	if f&FlavorProcess != 0 {
+		out = append(out, Process, ProcessCluster, ProcessSentinel)
+	}
+	if f&FlavorContainer != 0 {
+		out = append(out, Redis8, Valkey9, Dragonfly, Redis8Cluster, Valkey9Cluster, Redis8Sentinel, Valkey9Sentinel)
+	}
+	return out
 }
 
 // Kind is a State Store deployment the suites run against.
@@ -162,8 +187,8 @@ func (k Kind) Image() string {
 	}
 }
 
-// Kinds returns the kinds EnvStateStore selects. It skips tb when the
-// variable is unset and fails it when the value is invalid.
+// Kinds returns the kinds of the flavors EnvStateStore selects. It skips
+// tb when the variable is unset and fails it when the value is invalid.
 func Kinds(tb testing.TB) []Kind {
 	tb.Helper()
 	f, err := ParseFlavor(os.Getenv(EnvStateStore))
@@ -171,7 +196,7 @@ func Kinds(tb testing.TB) []Kind {
 		tb.Fatal(err)
 	}
 	if f == FlavorNone {
-		tb.Skipf("redisserver: %s is unset; set it to process (a local redis-server) or container (Docker) to run the State Store suites", EnvStateStore)
+		tb.Skipf("redisserver: %s is unset; set it to process (a local redis-server), container (Docker) or process,container to run the State Store suites", EnvStateStore)
 	}
 	return f.Kinds()
 }
@@ -238,8 +263,8 @@ func (h host) gate(ctx context.Context, k Kind) (path, skip string, err error) {
 			return path, "", err
 		}
 	case FlavorContainer:
-		if selected != FlavorContainer {
-			return "", fmt.Sprintf("the container flavor runs only with %s=container", EnvStateStore), nil
+		if selected&FlavorContainer == 0 {
+			return "", fmt.Sprintf("the container flavor runs only with %s=container or %s=process,container", EnvStateStore, EnvStateStore), nil
 		}
 		if why = h.containerMissing(ctx, k); why == "" {
 			return "", "", nil
@@ -247,7 +272,7 @@ func (h host) gate(ctx context.Context, k Kind) (path, skip string, err error) {
 	default:
 		return "", "", fmt.Errorf("redisserver: unknown kind %q", string(k))
 	}
-	if selected == k.Flavor() {
+	if selected&k.Flavor() != 0 {
 		return "", "", fmt.Errorf("redisserver: %s=%s selects %s, which cannot run here: %s", EnvStateStore, selected, k, why)
 	}
 	return "", why, nil

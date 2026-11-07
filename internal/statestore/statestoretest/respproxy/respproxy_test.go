@@ -14,9 +14,10 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/testkit/faultproxy"
 )
 
-func startProxy(t *testing.T, c Config) *Proxy {
+// startProxy starts a proxy whose reply delays run on clk.
+func startProxy(t *testing.T, c Config, clk *clocktest.Fake) *Proxy {
 	t.Helper()
-	p, err := Start(t.Context(), c)
+	p, err := start(t.Context(), c, clk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +34,7 @@ func startProxy(t *testing.T, c Config) *Proxy {
 // connection.
 func TestProxyCountsThroughFaultProxy(t *testing.T) {
 	up := startUpstream(t, defaultReply)
-	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}})
+	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}}, fakeClock())
 	cl := dialClient(t, p.Addr())
 	cl.send(cmd("PING") + cmd("EVALSHA", "s", "1", "rl:{a}"))
 	if got := cl.reply(); got != "+PONG" {
@@ -54,7 +55,7 @@ func TestProxyCountsThroughFaultProxy(t *testing.T) {
 	if len(conns) != 1 {
 		t.Fatalf("Conns = %v, want one", conns)
 	}
-	for _, e := range p.Log() {
+	for _, e := range p.LogSince(0) {
 		if e.Conn != conns[0].ID {
 			t.Errorf("%s on connection %d, want %d", e.Name, e.Conn, conns[0].ID)
 		}
@@ -71,18 +72,18 @@ func TestProxyCountsThroughFaultProxy(t *testing.T) {
 func TestProxySlowReplyDelaysOnlyMatchingReplies(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	up := startUpstream(t, defaultReply)
-	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}}, clk)
 	if err := p.SetReplyDelays(ReplyDelay{Command: "VSIM", Delay: time.Second}); err != nil {
 		t.Fatal(err)
 	}
 	slow, fast := dialClient(t, p.Addr()), dialClient(t, p.Addr())
 	slow.send(cmd("VSIM", "idx", "VALUES", "1", "0.5"))
-	waitFor(t, "the VSIM reply held", func() bool { return p.Snapshot().Held == 1 })
+	waitFor(t, "the VSIM reply held", func() bool { return held(p.Counter) == 1 })
 	fast.send(cmd("EVALSHA", "s", "0"))
 	if got := fast.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
 		t.Fatalf("EVALSHA = %q", got)
 	}
-	if s := p.Snapshot(); s.Held != 1 || s.Replies != 1 {
+	if s := p.Snapshot(); held(p.Counter) != 1 || s.Replies != 1 {
 		t.Fatalf("Snapshot = %+v, want the VSIM reply still held", s)
 	}
 	clk.Advance(time.Second)
@@ -100,28 +101,28 @@ func TestProxySlowReplyDelaysOnlyMatchingReplies(t *testing.T) {
 func TestProxySlowRepliesHeldSideBySide(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	up := startUpstream(t, defaultReply)
-	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}}, clk)
 	if err := p.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: 4 * time.Second}); err != nil {
 		t.Fatal(err)
 	}
 	cl := dialClient(t, p.Addr())
 	cl.send(cmd("EVALSHA", "a", "0"))
-	waitFor(t, "the first reply held", func() bool { return p.Snapshot().Held == 1 })
+	waitFor(t, "the first reply held", func() bool { return held(p.Counter) == 1 })
 	clk.Advance(time.Second)
 	cl.send(cmd("EVALSHA", "b", "0"))
-	waitFor(t, "the second reply held beside the first", func() bool { return p.Snapshot().Held == 2 })
+	waitFor(t, "the second reply held beside the first", func() bool { return held(p.Counter) == 2 })
 	clk.Advance(3 * time.Second)
 	if got := cl.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
 		t.Fatalf("first EVALSHA = %q", got)
 	}
-	if s := p.Snapshot(); s.Held != 1 || s.Replies != 1 {
+	if s := p.Snapshot(); held(p.Counter) != 1 || s.Replies != 1 {
 		t.Fatalf("Snapshot = %+v at 4 s, want the second reply still held and one reply", s)
 	}
 	clk.Advance(time.Second)
 	if got := cl.reply(); !strings.HasPrefix(got, "-NOSCRIPT") {
 		t.Fatalf("second EVALSHA = %q", got)
 	}
-	if s := p.Snapshot(); s.Held != 0 || s.Replies != 2 {
+	if s := p.Snapshot(); held(p.Counter) != 0 || s.Replies != 2 {
 		t.Fatalf("Snapshot = %+v at 5 s, want none held and both replies", s)
 	}
 }
@@ -132,16 +133,16 @@ func TestProxySlowRepliesHeldSideBySide(t *testing.T) {
 // each logged once with its reply, with no reply delay and with every
 // EVALSHA reply held, the held replies released by a change of the delays.
 func TestProxyCountsPipelinedBatchOnce(t *testing.T) {
-	for _, held := range []bool{false, true} {
+	for _, delayed := range []bool{false, true} {
 		name := "no delay"
-		if held {
+		if delayed {
 			name = "replies held"
 		}
 		t.Run(name, func(t *testing.T) {
 			clk := clocktest.New(time.Unix(0, 0))
 			up := startUpstream(t, defaultReply)
-			p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
-			if held {
+			p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: up.addr()}}, clk)
+			if delayed {
 				if err := p.SetReplyDelays(ReplyDelay{Command: "EVALSHA", Delay: time.Hour}); err != nil {
 					t.Fatal(err)
 				}
@@ -152,8 +153,8 @@ func TestProxyCountsPipelinedBatchOnce(t *testing.T) {
 				batch.WriteString(cmd("EVALSHA", "sha", "1", "rz:rl:flood:{"+strconv.Itoa(i)+"}"))
 			}
 			cl.send(batch.String())
-			if held {
-				waitFor(t, "a held reply", func() bool { return p.Snapshot().Held > 0 })
+			if delayed {
+				waitFor(t, "a held reply", func() bool { return held(p.Counter) > 0 })
 				if err := p.SetReplyDelays(); err != nil {
 					t.Fatal(err)
 				}
@@ -164,11 +165,11 @@ func TestProxyCountsPipelinedBatchOnce(t *testing.T) {
 				}
 			}
 			s := p.Snapshot()
-			if s.Commands != 64 || s.Count("EVALSHA") != 64 || s.Replies != 64 || s.Errors["NOSCRIPT"] != 64 || s.Held != 0 || s.Desyncs != 0 {
+			if s.Commands != 64 || s.Count("EVALSHA") != 64 || s.Replies != 64 || s.Errors["NOSCRIPT"] != 64 || held(p.Counter) != 0 || s.Desyncs != 0 {
 				t.Errorf("Snapshot = %+v, want 64 EVALSHA commands and replies, none held", s)
 			}
 			answered := 0
-			for _, e := range p.Log() {
+			for _, e := range p.LogSince(0) {
 				if e.Name == "EVALSHA" && e.Reply.Kind == '-' {
 					answered++
 				}
@@ -187,7 +188,7 @@ func TestProxyCountsPipelinedBatchOnce(t *testing.T) {
 func TestProxyFaultsPassThrough(t *testing.T) {
 	a := startUpstream(t, func([]string) string { return "+a\r\n" })
 	b := startUpstream(t, func([]string) string { return "+b\r\n" })
-	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: a.addr()}})
+	p := startProxy(t, Config{Fault: faultproxy.Config{Upstream: a.addr()}}, fakeClock())
 	live := dialClient(t, p.Addr())
 	live.send(cmd("PING"))
 	if got := live.reply(); got != "+a" {
@@ -218,7 +219,7 @@ func TestProxyFaultsPassThrough(t *testing.T) {
 func TestProxyCloseReleasesHeldReply(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	up := startUpstream(t, defaultReply)
-	p, err := Start(t.Context(), Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+	p, err := start(t.Context(), Config{Fault: faultproxy.Config{Upstream: up.addr()}}, clk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,15 +228,15 @@ func TestProxyCloseReleasesHeldReply(t *testing.T) {
 	}
 	cl := dialClient(t, p.Addr())
 	cl.send(cmd("PING"))
-	waitFor(t, "the PING reply held", func() bool { return p.Snapshot().Held == 1 })
+	waitFor(t, "the PING reply held", func() bool { return held(p.Counter) == 1 })
 	if err := p.Close(); err != nil {
 		t.Fatal(err)
 	}
 	if err := p.Close(); err != nil {
 		t.Fatalf("second Close = %v", err)
 	}
-	if s := p.Snapshot(); s.Held != 0 {
-		t.Fatalf("Held = %d after Close", s.Held)
+	if n := held(p.Counter); n != 0 {
+		t.Fatalf("%d replies held after Close", n)
 	}
 }
 
@@ -245,7 +246,7 @@ func TestProxyContextEndCloses(t *testing.T) {
 	clk := clocktest.New(time.Unix(0, 0))
 	up := startUpstream(t, defaultReply)
 	ctx, cancel := context.WithCancel(t.Context())
-	p, err := Start(ctx, Config{Fault: faultproxy.Config{Upstream: up.addr()}, Counter: CounterConfig{Clock: clk}})
+	p, err := start(ctx, Config{Fault: faultproxy.Config{Upstream: up.addr()}}, clk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,10 +255,10 @@ func TestProxyContextEndCloses(t *testing.T) {
 	}
 	cl := dialClient(t, p.Addr())
 	cl.send(cmd("PING"))
-	waitFor(t, "the PING reply held", func() bool { return p.Snapshot().Held == 1 })
+	waitFor(t, "the PING reply held", func() bool { return held(p.Counter) == 1 })
 	cancel()
 	waitFor(t, "the proxy closed", func() bool {
-		return p.Snapshot().Held == 0 && p.SetMode(faultproxy.Pass{}) != nil
+		return held(p.Counter) == 0 && p.SetMode(faultproxy.Pass{}) != nil
 	})
 	if err := p.Close(); err != nil {
 		t.Fatal(err)

@@ -11,10 +11,10 @@
 // incoming metadata (headers), the peer address, the connection's
 // sequence number and the TLS state; Stats counts connections opened and
 // open now, so a test sees an exporter close its old connection. Spans,
-// log records and metrics are also kept flattened with their resource and
-// scope, and the span queries order a trace by start time (ties in
-// arrival order): Trace, SpanNames, Roots and FormatTree answer "which
-// spans, in which order, under which parent".
+// with their resource, log records and metrics are also kept flattened,
+// and the span queries order a trace by start time (ties in arrival
+// order): Trace and FormatTree answer "which spans, in which order, under
+// which parent".
 //
 // Modes script collector failures for exporter tests: Accept records and
 // answers OK; Reject answers every export with a gRPC status; Stall
@@ -159,12 +159,11 @@ type Config struct {
 	// DefaultMaxRecvMsgSize.
 	MaxRecvMsgSize int
 	// MaxRequests bounds the recorded export requests; default
-	// DefaultMaxRequests. Exports past the bound are answered OK and
-	// counted in Stats.Dropped, not recorded.
+	// DefaultMaxRequests. Exports past the bound are answered OK, not
+	// recorded.
 	MaxRequests int
 	// MaxBytes bounds the recorded wire bytes; default DefaultMaxBytes.
-	// Exports past the bound are answered OK and counted in
-	// Stats.Dropped.
+	// Exports past the bound are answered OK, not recorded.
 	MaxBytes int64
 	// Mode is the initial mode; default Accept.
 	Mode Mode
@@ -173,14 +172,8 @@ type Config struct {
 // Stats counts export requests.
 type Stats struct {
 	// TraceRequests, MetricRequests and LogRequests count exports answered
-	// OK per signal, recorded or dropped.
+	// OK per signal, recorded or not.
 	TraceRequests, MetricRequests, LogRequests int64
-	// Rejected counts exports answered with an error (Reject, a Stall the
-	// client abandoned, a Down or Close that ended the export).
-	Rejected int64
-	// Dropped counts exports answered OK but not recorded (MaxRequests or
-	// MaxBytes reached).
-	Dropped int64
 	// Stalled is the number of exports Stall holds now.
 	Stalled int64
 	// Connections counts the client connections opened (HTTP/2
@@ -213,7 +206,7 @@ type Sink struct {
 	wg        sync.WaitGroup // serve loops
 	closeOnce sync.Once
 
-	rejected, stalled atomic.Int64
+	stalled atomic.Int64
 }
 
 // Start listens on a free loopback port and serves the OTLP collector
@@ -313,13 +306,6 @@ func (s *Sink) URL() string {
 	return "http://" + s.addr
 }
 
-// Mode returns the current mode.
-func (s *Sink) Mode() Mode {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.mode
-}
-
 // SetMode switches the mode for held and new exports. Entering Down stops
 // the server; leaving Down listens on Addr again, which fails when the
 // port was taken meanwhile (the sink then stays Down).
@@ -370,7 +356,6 @@ func (s *Sink) SetMode(m Mode) error {
 // Stats returns the export counters.
 func (s *Sink) Stats() Stats {
 	st := s.rec.stats()
-	st.Rejected = s.rejected.Load()
 	st.Stalled = s.stalled.Load()
 	st.Connections = s.conns.opened.Load()
 	st.OpenConnections = s.conns.open.Load()
@@ -455,7 +440,6 @@ func (s *Sink) hold(ctx context.Context, release <-chan struct{}) error {
 // record.
 func (s *Sink) handle(ctx context.Context, sig Signal, msg any, raw []byte) error {
 	if err := s.admit(ctx); err != nil {
-		s.rejected.Add(1)
 		return err
 	}
 	req := Request{Signal: sig, Received: time.Now(), Raw: raw, Conn: connSeq(ctx)}

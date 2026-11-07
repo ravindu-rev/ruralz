@@ -526,7 +526,7 @@ An admin sets the repository's GitHub settings below in GitHub itself; no code i
 |---|---|---|
 | `ci` | golangci-lint with `.golangci.yml` and its formatters; actionlint with the pinned shellcheck on the workflows; the [DCO sign-off](#dco-sign-off) of the pull request's own non-merge commits, Dependabot's aside; `go mod verify`, govulncheck and depgate | `make lint`, `make dco`, `make supply-chain` |
 | `unit` | `go test -race -shuffle=on ./...` with cgo and the `netgo,osusergo` tags, then `CGO_ENABLED=0 go test -shuffle=on ./...`, the shipped configuration: the unit tests, the property tests, every fuzz target's seed corpus, and the repository's own tests (repocheck, depgate, the generated files against their sources, the error codes against the documents) | `make test` |
-| `integration` | `go test -race -shuffle=on -tags integration ./...` on `ubuntu-24.04`, with a local `redis-server` and, under `RURALZ_TEST_STATESTORE=container`, the runner's Docker for the testcontainers cases: the conformance suites and the State Store, CLI and Node integration tests | `make integration` |
+| `integration` | `go test -race -shuffle=on -tags integration ./...` on `ubuntu-24.04`, with a local `redis-server` and the runner's Docker for the testcontainers cases, under `RURALZ_TEST_STATESTORE=process,container`, so the State Store suites run every kind of both flavors: the conformance suites and the State Store, CLI and Node integration tests | `make integration` |
 
 A last job, `pr`, needs all three and passes only when each of them passed. It is the one required status check ([Repository settings](#repository-settings)), so neither a failed job nor one skipped after a failure lets a pull request merge.
 

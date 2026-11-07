@@ -1,18 +1,17 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package proc starts, signals, waits for and samples the processes of a
-// test topology: ruralzd Nodes, ruralz commands, redis-server and
-// re-executed test binaries. Each Process captures stdout and stderr into
-// optional log files plus bounded in-memory rings (up to 8 MiB each by
-// default, allocated as output arrives), is started and reaped by one
-// goroutine it owns, and is killed when the context given to Start ends,
-// so no process outlives its test.
+// Package proc starts, signals and waits for the processes of a test
+// topology: ruralzd Nodes, ruralz commands, redis-server and re-executed
+// test binaries. Each Process captures stdout and stderr into optional log
+// files plus bounded in-memory rings (up to 8 MiB each by default,
+// allocated as output arrives), is started and reaped by one goroutine it
+// owns, and is killed when the context given to Start ends, so no process
+// outlives its test.
 //
-// On Linux, Sample reads CPU time, RSS and thread count from /proc, and
-// InNetNS re-executes a test inside a fresh network namespace holding only
-// a loopback interface, with per-namespace sysctls such as
-// net.ipv4.tcp_migrate_req. FreePort gives a test a loopback port for its
+// On Linux, RunInNetNS re-executes a test inside a fresh network namespace
+// holding only a loopback interface, and AddDevice gives such a namespace
+// a non-loopback address. FreePort gives a test a loopback port for its
 // processes, which on Linux no other socket takes until the test ends.
 package proc
 
@@ -21,7 +20,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,8 +65,6 @@ type Spec struct {
 	// DefaultRingBytes. A ring starts at 64 KiB and grows to this bound
 	// only as the process writes.
 	RingBytes int
-	// Stdin is the process's standard input; default none.
-	Stdin io.Reader
 	// ExtraFiles are open files the process inherits after standard error,
 	// entry i as file descriptor 3+i, such as the clock command socket of
 	// a controllable-clock Node (internal/clock.CommandFD). Unix only, as
@@ -90,8 +86,6 @@ type Process struct {
 	out     *os.File
 	outDone chan struct{}
 	done    chan struct{}
-	outPath string
-	errPath string
 	// Set by the reaper before done is closed.
 	state   *os.ProcessState
 	waitErr error
@@ -128,13 +122,13 @@ func Start(ctx context.Context, s Spec) (*Process, error) {
 	}
 	p := &Process{name: name, done: make(chan struct{}), stdout: newRing(size), stderr: newRing(size)}
 	if s.LogDir != "" {
-		p.outPath = filepath.Join(s.LogDir, name+".out")
-		p.errPath = filepath.Join(s.LogDir, name+".err")
+		outPath := filepath.Join(s.LogDir, name+".out")
+		errPath := filepath.Join(s.LogDir, name+".err")
 		var err error
-		if p.stdout.file, err = openLog(p.outPath); err != nil {
+		if p.stdout.file, err = openLog(outPath); err != nil {
 			return nil, err
 		}
-		if p.stderr.file, err = openLog(p.errPath); err != nil {
+		if p.stderr.file, err = openLog(errPath); err != nil {
 			_ = p.stdout.file.Close()
 			return nil, err
 		}
@@ -147,9 +141,6 @@ func Start(ctx context.Context, s Spec) (*Process, error) {
 		cmd.Env = []string{}
 	}
 	cmd.Dir = s.Dir
-	if s.Stdin != nil {
-		cmd.Stdin = s.Stdin
-	}
 	cmd.ExtraFiles = s.ExtraFiles
 	out, outW, err := os.Pipe()
 	if err != nil {
@@ -318,15 +309,6 @@ func (p *Process) Output() (stdout, stderr []byte) {
 // is fine, reads again; the process's exit also releases it, and the
 // reaper then reads the pipe to its end. Standard error stays read.
 func (p *Process) BlockStdout() (unblock func()) { return p.stdout.hold() }
-
-// Written returns the total bytes the process wrote to stdout and stderr,
-// including bytes the rings no longer hold.
-func (p *Process) Written() (stdout, stderr int64) {
-	return p.stdout.written(), p.stderr.written()
-}
-
-// LogPaths returns the stdout and stderr log files ("" without LogDir).
-func (p *Process) LogPaths() (stdout, stderr string) { return p.outPath, p.errPath }
 
 // WaitOutput waits until a line of stdout or stderr matches re and returns
 // the submatches of the first match (stdout searched first). It starts
@@ -559,12 +541,6 @@ func (r *ring) since(dst []byte, off int64) ([]byte, int64, int64) {
 	dst = append(dst, r.buf[i:i+first]...)
 	dst = append(dst, r.buf[:cnt-first]...)
 	return dst, from, r.total
-}
-
-func (r *ring) written() int64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.total
 }
 
 // changed returns a channel closed by the next write (or at once after

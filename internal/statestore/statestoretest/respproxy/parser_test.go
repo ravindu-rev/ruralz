@@ -14,16 +14,12 @@ import (
 // recorder is a sink that writes what it receives as lines.
 type recorder struct{ events []string }
 
-func (r *recorder) command(args [][]byte, argc int64, cut bool) {
+func (r *recorder) command(args [][]byte) {
 	parts := make([]string, len(args))
 	for i, a := range args {
 		parts[i] = string(a)
 	}
-	s := fmt.Sprintf("cmd %s argc=%d", strings.Join(parts, "|"), argc)
-	if cut {
-		s += " cut"
-	}
-	r.events = append(r.events, s)
+	r.events = append(r.events, "cmd "+strings.Join(parts, "|"))
 }
 
 func (r *recorder) replyStart() { r.events = append(r.events, "start") }
@@ -58,14 +54,14 @@ func parse(replies bool, chunks ...string) ([]string, bool) {
 
 func commandCases() []parseCase {
 	return []parseCase{
-		{name: "array of bulk strings", in: "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n", want: []string{"cmd SET|k|v argc=3"}},
-		{name: "pipelined commands", in: "*1\r\n$4\r\nPING\r\n*2\r\n$3\r\nGET\r\n$1\r\nk\r\n", want: []string{"cmd PING argc=1", "cmd GET|k argc=2"}},
-		{name: "binary argument holding CRLF", in: "*2\r\n$4\r\nECHO\r\n$4\r\na\r\nb\r\n", want: []string{"cmd ECHO|a\r\nb argc=2"}},
-		{name: "empty argument", in: "*2\r\n$4\r\nECHO\r\n$0\r\n\r\n", want: []string{"cmd ECHO| argc=2"}},
-		{name: "inline command", in: "PING\r\n", want: []string{"cmd PING argc=1"}},
-		{name: "inline command ended by LF", in: "set  k\tv\n", want: []string{"cmd set|k|v argc=3"}},
-		{name: "blank inline lines and empty arrays are skipped", in: "\r\n\n*0\r\n*-1\r\n PING \r\n", want: []string{"cmd PING argc=1"}},
-		{name: "inline then array", in: "PING\r\n*1\r\n$4\r\nPING\r\n", want: []string{"cmd PING argc=1", "cmd PING argc=1"}},
+		{name: "array of bulk strings", in: "*3\r\n$3\r\nSET\r\n$1\r\nk\r\n$1\r\nv\r\n", want: []string{"cmd SET|k"}},
+		{name: "pipelined commands", in: "*1\r\n$4\r\nPING\r\n*2\r\n$3\r\nGET\r\n$1\r\nk\r\n", want: []string{"cmd PING", "cmd GET|k"}},
+		{name: "binary argument holding CRLF", in: "*2\r\n$4\r\nECHO\r\n$4\r\na\r\nb\r\n", want: []string{"cmd ECHO|a\r\nb"}},
+		{name: "empty argument", in: "*2\r\n$4\r\nECHO\r\n$0\r\n\r\n", want: []string{"cmd ECHO|"}},
+		{name: "inline command", in: "PING\r\n", want: []string{"cmd PING"}},
+		{name: "inline command ended by LF", in: "set  k\tv\n", want: []string{"cmd set|k"}},
+		{name: "blank inline lines and empty arrays are skipped", in: "\r\n\n*0\r\n*-1\r\n PING \r\n", want: []string{"cmd PING"}},
+		{name: "inline then array", in: "PING\r\n*1\r\n$4\r\nPING\r\n", want: []string{"cmd PING", "cmd PING"}},
 		{name: "argument of another type", in: "*1\r\n+PING\r\n", wantErr: true},
 		{name: "null bulk argument", in: "*1\r\n$-1\r\n", wantErr: true},
 		{name: "bad command length", in: "*x\r\n", wantErr: true},
@@ -73,7 +69,7 @@ func commandCases() []parseCase {
 		{name: "bad argument length", in: "*1\r\n$+4\r\nPING\r\n", wantErr: true},
 		{name: "argument not followed by CRLF", in: "*1\r\n$4\r\nPINGxx", wantErr: true},
 		{name: "nothing after a desync", in: "*1\r\n:1\r\n*1\r\n$4\r\nPING\r\n", wantErr: true},
-		{name: "events before a desync stay", in: "*1\r\n$4\r\nPING\r\n*1\r\n:1\r\n", want: []string{"cmd PING argc=1"}, wantErr: true},
+		{name: "events before a desync stay", in: "*1\r\n$4\r\nPING\r\n*1\r\n:1\r\n", want: []string{"cmd PING"}, wantErr: true},
 	}
 }
 
@@ -215,14 +211,16 @@ func TestParserBounds(t *testing.T) {
 	for i := range args {
 		args[i] = fmt.Sprint(i)
 	}
-	got, _ := parse(false, cmd(args...))
-	if want := fmt.Sprintf("cmd %s argc=%d cut", strings.Join(args[:maxArgs], "|"), len(args)); !slices.Equal(got, []string{want}) {
-		t.Errorf("a command of %d arguments = %q, want %q", len(args), got, want)
+	for _, in := range []string{cmd(args...), strings.Join(args, " ") + "\r\n"} {
+		got, _ := parse(false, in)
+		if want := "cmd " + strings.Join(args[:maxArgs], "|"); !slices.Equal(got, []string{want}) {
+			t.Errorf("a command of %d arguments = %q, want %q", len(args), got, want)
+		}
 	}
 	big := strings.Repeat("k", maxArgBytes+10)
 	for _, in := range []string{cmd("GET", big), "GET " + big + "\r\n"} {
 		got, _ := parse(false, in)
-		if want := "cmd GET|" + big[:maxArgBytes] + " argc=2 cut"; !slices.Equal(got, []string{want}) {
+		if want := "cmd GET|" + big[:maxArgBytes]; !slices.Equal(got, []string{want}) {
 			t.Errorf("a %d-byte argument = %q, want it cut to %d bytes", len(big), got, maxArgBytes)
 		}
 	}

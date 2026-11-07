@@ -232,3 +232,19 @@ func exportAll(ctx context.Context, cc *grpc.ClientConn, marker string) error {
 	_, err := collogs.NewLogsServiceClient(cc).Export(ctx, logReq("svc", logRecord("access", "ruralz.access", str("marker", marker))))
 	return err
 }
+
+// spanNames returns the names of spans, in order.
+func spanNames(spans []Span) []string {
+	out := make([]string, len(spans))
+	for i, sp := range spans {
+		out[i] = sp.Name()
+	}
+	return out
+}
+
+// modeOf returns s's current mode.
+func modeOf(s *Sink) Mode {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.mode
+}
