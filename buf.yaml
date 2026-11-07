@@ -1,0 +1,20 @@
+# buf.yaml (buf configuration, not a Ruralz Bundle). The api/proto module
+# holds the Control Stream and the Plugin ABI v1 protos; make lint runs
+# buf format, buf lint and buf breaking on it, and make generate writes its
+# Go code (docs/engineering/02-repository-layout-and-conventions.md, "buf
+# rules"). No deps: buf reads nothing from the network.
+version: v2
+modules:
+  - path: api/proto
+lint:
+  use: [STANDARD, COMMENTS]
+  # Foundation pack section 2 fixes the service name ControlStream.
+  service_suffix: Stream
+  ignore_only:
+    # The enums of abi.proto carry the frozen Plugin ABI v1 numbers, whose 0
+    # is debug, method, name or client to Upstream, never an _UNSPECIFIED
+    # value (docs/architecture/05-wasm-plugin-system.md "Contract").
+    ENUM_ZERO_VALUE_SUFFIX:
+      - api/proto/ruralz/plugin/v1/abi.proto
+breaking:
+  use: [FILE]

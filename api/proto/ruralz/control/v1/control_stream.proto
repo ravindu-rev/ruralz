@@ -1,0 +1,359 @@
+syntax = "proto3";
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+// Package ruralz.control.v1 is the Control Stream: the protocol between
+// Ruralz Control and its Nodes (docs/architecture/04-control-plane-and-gitops.md
+// "Control Stream", ADR-0007). Additive changes stay in this package; a
+// breaking change needs ruralz.control.v2
+// (docs/engineering/04-release-versioning-and-compatibility.md "Control
+// Stream versioning").
+
+package ruralz.control.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ravindu-rev/ruralz/internal/gen/proto/ruralz/control/v1;controlv1";
+
+// ControlStream is the service every Node dials on port 8091, in gRPC mode;
+// Ruralz Control never dials a Node. Enroll authenticates with a token over
+// server-authenticated TLS with a pinned server CA; Stream needs a valid,
+// unrevoked Node certificate over mTLS, the only source of node.id.
+service ControlStream {
+  // Enroll redeems a one-time Enrollment token for the Node's identity in
+  // its Cluster, consuming the token. Ruralz Control refuses a rejected
+  // token with RZ-CP-001, a taken node.id with RZ-CP-002, and any Enroll
+  // with RZ-CP-004 while it has no leader.
+  rpc Enroll(EnrollRequest) returns (EnrollResponse);
+
+  // Stream is the Node's one bidirectional stream: configuration, the
+  // promoted digest, trust anchors and revocations down; Hello, ACK, NACK and
+  // heartbeats up. Ruralz Control refuses it with RZ-CP-002 or RZ-CP-003, or
+  // sheds it with Reconnect or RZ-CP-010.
+  rpc Stream(stream StreamRequest) returns (stream StreamResponse);
+}
+
+// EnrollRequest is the request of Enroll.
+message EnrollRequest {
+  // The content of the file RURALZ_ENROLLMENT_TOKEN_FILE names: the
+  // one-time token that `ruralz node token` minted for one Cluster, or a
+  // Kubernetes pod's projected service account token.
+  string token = 1;
+
+  // The node.id the Node generated at first boot, a ULID.
+  string node_id = 2;
+
+  // The Node's product version, such as 0.2.0.
+  string version = 3;
+
+  // The highest schema level the Node serves for each apiVersion, keyed by
+  // apiVersion, such as ruralz/v1alpha1.
+  map<string, uint32> schema_levels = 4;
+}
+
+// EnrollResponse is the response of Enroll: the Node's identity, which it
+// persists under ${RURALZ_DATA_DIR}/identity/.
+message EnrollResponse {
+  // The name of the Cluster the Node enrolled in, which its certificate
+  // names and its Revisions' signatures must name.
+  string cluster = 1;
+
+  // The name of the Environment of that Cluster, which its Revisions'
+  // signatures must name.
+  string environment = 2;
+}
+
+// StreamRequest is one message a Node sends on Stream.
+message StreamRequest {
+  // The message; the first on every stream is a Hello.
+  oneof message {
+    // Opens the stream.
+    Hello hello = 1;
+
+    // Answers a configuration message the Node activated, or a TrustUpdate
+    // or RevocationUpdate it accepted.
+    Ack ack = 2;
+
+    // Answers a configuration message or TrustUpdate the Node rejected.
+    Nack nack = 3;
+
+    // Reports the Node's state every heartbeat interval.
+    Heartbeat heartbeat = 4;
+
+    // Asks for a renewed Node certificate.
+    RenewRequest renew_request = 5;
+  }
+}
+
+// StreamResponse is one message Ruralz Control sends on Stream.
+message StreamResponse {
+  // The message.
+  oneof message {
+    // Delivers a Revision's whole content, in chunks.
+    Snapshot snapshot = 1;
+
+    // Delivers a Revision as resource changes to the Node's active one.
+    Delta delta = 2;
+
+    // Answers a Heartbeat.
+    HeartbeatReply heartbeat_reply = 3;
+
+    // Delivers a root-signed anchor set.
+    TrustUpdate trust_update = 4;
+
+    // Delivers signed revocation entries and the high-water mark.
+    RevocationUpdate revocation_update = 5;
+
+    // Answers a RenewRequest.
+    RenewResponse renew_response = 6;
+
+    // Asks the Node to close the stream and dial again.
+    Reconnect reconnect = 7;
+  }
+}
+
+// Hello is the first message of every stream. Ruralz Control compares it
+// with the committed assignment for the Node and answers with nothing, a
+// Delta or a Snapshot; a Hello matching the pending assignment's digest,
+// store_epoch and assignment_seq is that assignment's Ack. A Hello that
+// mismatches the Node certificate is refused with RZ-CP-002.
+message Hello {
+  // The digest of the Node's active Revision, sha256:<64 hex>; empty when
+  // the Node has none.
+  string active_digest = 1;
+
+  // The digest of the Node's Last-Known-Good Revision, sha256:<64 hex>;
+  // empty when it has none.
+  string lkg_digest = 2;
+
+  // The Node's product version, such as 0.2.0. Ruralz Control treats a
+  // Hello without a valid one as the first ruralz.control.v1 release.
+  string binary_version = 3;
+
+  // The highest schema level the Node serves for each apiVersion, keyed by
+  // apiVersion, such as ruralz/v1alpha1.
+  map<string, uint32> schema_levels = 4;
+
+  // The nonce of the last configuration message the Node received; empty
+  // when it has received none.
+  bytes last_nonce = 5;
+
+  // The store_epoch of the highest assignment the Node accepted: the
+  // version of the anchor set that opened that epoch.
+  google.protobuf.Timestamp store_epoch = 6;
+
+  // The assignment_seq of the highest assignment the Node accepted within
+  // store_epoch.
+  uint64 assignment_seq = 7;
+
+  // The version of the newest anchor set the Node holds, its root signing
+  // time. An older one than Ruralz Control holds gets a TrustUpdate first.
+  google.protobuf.Timestamp anchor_set_version = 8;
+
+  // The highest revocation sequence the Node holds; Ruralz Control sends
+  // the entries after it.
+  uint64 revocation_seq = 9;
+}
+
+// Snapshot delivers the assigned Revision's ruralz.canonical.v1 content in
+// chunks. A chunked Snapshot is one configuration message: every chunk
+// carries its nonce, and the Node verifies, compiles and swaps once the last
+// chunk arrived, answering with Ack, or with Nack while it keeps its active
+// Revision.
+message Snapshot {
+  // The configuration message's 128-bit random nonce, 16 bytes.
+  bytes nonce = 1;
+
+  // The byte offset of chunk in the content.
+  uint64 offset = 2;
+
+  // The length of the whole content in bytes.
+  uint64 total_bytes = 3;
+
+  // The content's bytes from offset, at most 1 MiB (target).
+  bytes chunk = 4;
+}
+
+// Delta delivers the assigned Revision as changes to the Node's active
+// Revision, when the change encodes within 1 MiB (target). The Node applies
+// every op to base_digest's content; a result that does not hash to the
+// assigned digest is a Nack with RZ-CFG-027, after which the next delivery
+// is a Snapshot. Empty ops carry only new signatures.
+message Delta {
+  // The configuration message's 128-bit random nonce, 16 bytes.
+  bytes nonce = 1;
+
+  // The digest of the Revision the ops apply to, sha256:<64 hex>: the
+  // Node's active Revision.
+  string base_digest = 2;
+
+  // The resource changes, in order.
+  repeated DeltaOp ops = 3;
+}
+
+// DeltaOp changes one resource of the ruralz.canonical.v1 content, named by
+// kind and name.
+message DeltaOp {
+  // The resource's kind, such as Route.
+  string kind = 1;
+
+  // The resource's metadata.name.
+  string name = 2;
+
+  // What the op does to the resource.
+  oneof change {
+    // The resource's new canonical form, its RFC 8785 JSON object as the
+    // ruralz.canonical.v1 content holds it: it replaces the resource, or
+    // adds it when absent.
+    bytes replace = 3;
+
+    // Deletes the resource.
+    google.protobuf.Empty delete = 4;
+  }
+}
+
+// Ack answers a configuration message the Node activated: active, not
+// durable. It counts per (node.id, store_epoch, assignment_seq), not per
+// stream, and a stale nonce changes nothing. It also answers a TrustUpdate
+// or RevocationUpdate the Node accepted.
+message Ack {
+  // The nonce of the message it answers.
+  bytes nonce = 1;
+
+  // The digest of the Revision the Node activated, sha256:<64 hex>.
+  string digest = 2;
+
+  // The store_epoch of the assignment the Node activated.
+  google.protobuf.Timestamp store_epoch = 3;
+
+  // The assignment_seq of the assignment the Node activated.
+  uint64 assignment_seq = 4;
+}
+
+// Nack answers a configuration message or TrustUpdate the Node rejected
+// before any swap; the Node keeps its active Revision.
+message Nack {
+  // The nonce of the message it answers.
+  bytes nonce = 1;
+
+  // The digest of the Revision the Node rejected, sha256:<64 hex>.
+  string digest = 2;
+
+  // The registered RZ code of the rejection, such as RZ-CFG-027.
+  string code = 3;
+
+  // Whether the rejection reproduces from the Revision.
+  NackClass class = 4;
+
+  // Human-readable detail, truncated to 4 KiB (target).
+  string detail = 5;
+}
+
+// NackClass classifies a Nack (foundation pack section 8.3).
+enum NackClass {
+  // No class: a Nack names one, and Ruralz Control counts an unset one as
+  // transient, like a deterministic claim it cannot reproduce.
+  NACK_CLASS_UNSPECIFIED = 0;
+
+  // An RZ-CFG error that reproduces from the Revision: once Ruralz Control
+  // reproduces it, it fails the Rollout gate at once.
+  NACK_CLASS_DETERMINISTIC = 1;
+
+  // A fetch, resource or timeout failure: Ruralz Control retries the Node
+  // with backoff, then marks it lagging and quarantines it.
+  NACK_CLASS_TRANSIENT = 2;
+}
+
+// Heartbeat reports the Node's state every heartbeat interval, 15 s
+// (target); it feeds Rollout gates and Drift, and three missed (target)
+// mean the Node is disconnected.
+message Heartbeat {
+  // The digest of the Node's active Revision, sha256:<64 hex>; empty when
+  // the Node has none.
+  string active_digest = 1;
+
+  // The digest of the Node's Last-Known-Good Revision, sha256:<64 hex>;
+  // empty when it has none.
+  string lkg_digest = 2;
+
+  // The highest schema level the Node serves for each apiVersion, keyed by
+  // apiVersion, such as ruralz/v1alpha1.
+  map<string, uint32> schema_levels = 3;
+
+  // Whether the Node is ready: its /readyz returns 200.
+  bool ready = 4;
+
+  // Whether the Node is draining.
+  bool draining = 5;
+
+  // The highest revocation sequence the Node holds.
+  uint64 revocation_seq = 6;
+}
+
+// HeartbeatReply answers a Heartbeat. A Node promotes its candidate to
+// Last-Known-Good whenever its active digest equals the Cluster's promoted
+// digest.
+message HeartbeatReply {
+  // The Cluster's published Node count, clusterNodeCount: its qualified
+  // Nodes. Absent while Ruralz Control withholds it; the Node then keeps
+  // its last count.
+  optional uint32 cluster_node_count = 1;
+
+  // How often the Node sends a Heartbeat: 15 s (target), which Ruralz
+  // Control MAY raise under load, never for active-set Nodes.
+  google.protobuf.Duration heartbeat_interval = 2;
+}
+
+// TrustUpdate delivers a root-signed anchor set, fenced only by its version;
+// it counts toward the one unacknowledged configuration message per Node,
+// and the Node answers with Ack or Nack.
+message TrustUpdate {
+  // The message's 128-bit random nonce, 16 bytes.
+  bytes nonce = 1;
+}
+
+// RevocationUpdate delivers leader-signed revocation entries and the Cluster's
+// high-water mark, outside the Revision digest; an update without entries
+// is a mark-only update, every 10 s (target). It has its own window of one
+// unacknowledged update, so a pending Snapshot never delays a revocation,
+// and the Node answers with an Ack it signs.
+message RevocationUpdate {
+  // The message's 128-bit random nonce, 16 bytes.
+  bytes nonce = 1;
+}
+
+// RenewRequest asks for a renewed Node certificate keeping node.id and the
+// Cluster, at two thirds of its lifetime; a replica forwards it to the
+// leader, which refuses a revoked identity with RZ-CP-003.
+message RenewRequest {}
+
+// RenewResponse answers a RenewRequest with the renewed certificate.
+message RenewResponse {}
+
+// Reconnect asks the Node to close the stream and dial again after
+// retry_after, with full jitter.
+message Reconnect {
+  // How long the Node waits before it dials again.
+  google.protobuf.Duration retry_after = 1;
+
+  // Why Ruralz Control asks.
+  ReconnectReason reason = 2;
+}
+
+// ReconnectReason says why Ruralz Control sent a Reconnect.
+enum ReconnectReason {
+  // No reason given.
+  RECONNECT_REASON_UNSPECIFIED = 0;
+
+  // The replica is draining.
+  RECONNECT_REASON_DRAIN = 1;
+
+  // The replica's token bucket on new streams is empty.
+  RECONNECT_REASON_SHED = 2;
+
+  // The replica has been stale, without word from a leader, for 30 s
+  // (target).
+  RECONNECT_REASON_REBALANCE = 3;
+}

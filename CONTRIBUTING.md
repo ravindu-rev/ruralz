@@ -31,25 +31,26 @@ Go comes from the `go.mod` `toolchain` line: with the default `GOTOOLCHAIN=auto`
 
 ```sh
 make help                                       # list targets
-make tools                                      # pinned golangci-lint, govulncheck, actionlint, shellcheck and promtool into bin/
+make tools                                      # pinned golangci-lint, govulncheck, actionlint, shellcheck, buf, its protoc plugins and promtool into bin/
 make lint dco supply-chain test integration     # what the PR pipeline runs
 ```
 
 | Target | PR pipeline job | What it runs |
 |---|---|---|
-| `make lint` | `ci` | golangci-lint with `.golangci.yml`, gofumpt and goimports, and actionlint on the workflows |
+| `make lint` | `ci` | golangci-lint with `.golangci.yml`, gofumpt and goimports, actionlint on the workflows, and the buf rules checks: `buf format`, `buf lint`, `buf breaking` against `BREAKING_MAIN` (default `origin/main`) and the newest release tags, and the committed protobuf code against `buf generate` |
 | `make dco` | `ci` | The DCO check of every non-merge commit of `DCO_RANGE` (default `origin/main..HEAD`) |
 | `make supply-chain` | `ci` | `go mod verify`, govulncheck, and `depgate`: license gate G2, crypto denylist G3, the `ruralzd` Raft, `ruralz` jwx and `ruralz` and `ruralz-control` MaxMind DB reader denylists, no test support in a binary, and advisory version floors |
 | `make test` | `unit` | `go test -race -shuffle=on` with cgo, then the tests again with `CGO_ENABLED=0`, including the property tests, the fuzz seed corpora and `./test/conformance/config` |
 | `make integration` | `integration` | The integration tests (tag `integration`): the conformance suites and the State Store, CLI and Node suites, with promtool's alert rule tests; needs a local `redis-server`, and Docker for the State Store container kinds |
-| `make generate` | None | `go generate ./...`, then fails if the generated JSON Schema, served-feature table, alert rules or Grafana dashboards (`deploy/grafana`) differ from the index |
+| `make generate` | None | `go generate ./...` and `buf generate`, then fails if the generated JSON Schema, served-feature table, alert rules, Grafana dashboards (`deploy/grafana`) or protobuf code (`internal/gen/proto`) differ from the index |
 | `make build` | None | Every binary for linux/amd64 and linux/arm64, the CLI also for darwin and windows, with `CGO_ENABLED=0`, `-trimpath` and `-s -w` into `dist/` |
 | `make release-dry-run`, `make release` | None: the release | Release packaging without signing, then with keyless signing |
 
 ## Code conventions
 
 - New Go code starts in `internal/`; `cmd/<binary>/main.go` holds wiring only. `pkg/` and `api/schema` import only the standard library and `pkg/`.
-- Every hand-written Go, proto and TypeScript file starts with `Copyright <creation year> <copyright holder>` (Revington for Revington's work) and `SPDX-License-Identifier: Apache-2.0`.
+- Every hand-written Go, proto and TypeScript file starts with `Copyright <creation year> <copyright holder>` (Revington for Revington's work) and `SPDX-License-Identifier: Apache-2.0`; a proto file carries them as the trailing comment of its `syntax` statement, so its generated Go code starts with the `Code generated` line.
+- The protos under `api/proto/` generate the Go code under `internal/gen/proto/`: change a proto, run `make generate`, and commit both.
 - Client-facing errors carry an `RZ-<AREA>-<NNN>` code registered in `internal/errcode`.
 - The JSON Schema under `api/schema/` is generated from the Go types in `pkg/config/v1alpha1`: change the types and their `+ruralz:` markers, run `make generate`, and commit both.
 - No `init()`, no mutable package-level variables, no `import "C"`, and no `fmt.Print*` outside `internal/cli`.

@@ -1,0 +1,137 @@
+syntax = "proto3";
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+// Package ruralz.plugin.v1 describes Plugin ABI v1: its numeric constants,
+// as the enums below, from which every PDK generates its own, and the
+// artifact config message (docs/architecture/05-wasm-plugin-system.md
+// "Contract", ADR-0005). The WASM import module of the same name is the ABI
+// itself; no message of this package crosses it, which passes raw buffers
+// and canonical JSON. The numbers are the frozen ABI's, so 0 is debug for
+// Level, method for RequestInfoField, name for ConsumerInfoField and client
+// to Upstream for Direction.
+
+package ruralz.plugin.v1;
+
+option go_package = "github.com/ravindu-rev/ruralz/internal/gen/proto/ruralz/plugin/v1;pluginv1";
+
+// Err is the error results of Host Functions, the negative i32 values; a
+// Host Function returns 0 or a positive number otherwise. After an advisory
+// error the guest may continue; after a sticky one the Phase call fails with
+// RZ-PLG-006 whatever the guest returns.
+enum Err {
+  // Not an error: the zero value every enum needs.
+  ERR_UNSPECIFIED = 0;
+
+  // Advisory: the value is absent, such as a missing header, or
+  // consumer_info without a Consumer.
+  ERR_ABSENT = -1;
+
+  // Sticky: the Host Function is not valid in the current Phase.
+  ERR_PHASE = -2;
+
+  // Sticky: the call exhausted a budget, such as the Host Function call
+  // budget of a Phase call or the one blocking State Store call per
+  // Plugin Policy per request.
+  ERR_BUDGET = -3;
+
+  // Advisory: a limit refused the call, such as a State Store key limit,
+  // the per-request context limit, a metric name limit or the parked bound.
+  ERR_LIMIT = -4;
+
+  // Advisory: the State Store call failed or timed out, or an open State
+  // client breaker skipped it.
+  ERR_UNAVAILABLE = -5;
+
+  // Advisory: an argument is invalid, such as a header name that is not an
+  // RFC 9110 token, or a signature crypto_key_verify does not accept.
+  ERR_INVALID = -6;
+
+  // Sticky: the Plugin is not granted the Capability the Host Function
+  // requires.
+  ERR_DENIED = -7;
+}
+
+// Level is the level argument of the log Host Function.
+enum Level {
+  // Debug.
+  LEVEL_DEBUG = 0;
+
+  // Info.
+  LEVEL_INFO = 1;
+
+  // Warn.
+  LEVEL_WARN = 2;
+
+  // Error.
+  LEVEL_ERROR = 3;
+}
+
+// Alg is the alg argument of the crypto_digest and crypto_hmac Host
+// Functions.
+enum Alg {
+  // No algorithm: the zero value every enum needs.
+  ALG_UNSPECIFIED = 0;
+
+  // SHA-256.
+  ALG_SHA_256 = 1;
+
+  // SHA-384.
+  ALG_SHA_384 = 2;
+
+  // SHA-512.
+  ALG_SHA_512 = 3;
+}
+
+// RequestInfoField is the field argument of the request_info Host Function.
+enum RequestInfoField {
+  // The request method.
+  REQUEST_INFO_FIELD_METHOD = 0;
+
+  // The request scheme.
+  REQUEST_INFO_FIELD_SCHEME = 1;
+
+  // The request host.
+  REQUEST_INFO_FIELD_HOST = 2;
+
+  // The request path.
+  REQUEST_INFO_FIELD_PATH = 3;
+
+  // The request query.
+  REQUEST_INFO_FIELD_QUERY = 4;
+
+  // The client's source address.
+  REQUEST_INFO_FIELD_SOURCE_ADDRESS = 5;
+
+  // The name of the Route the request matched.
+  REQUEST_INFO_FIELD_ROUTE = 6;
+}
+
+// ConsumerInfoField is the field argument of the consumer_info Host
+// Function, which returns ERR_ABSENT without a Consumer.
+enum ConsumerInfoField {
+  // The Consumer's name.
+  CONSUMER_INFO_FIELD_NAME = 0;
+
+  // The Consumer's Tier.
+  CONSUMER_INFO_FIELD_TIER = 1;
+
+  // The Consumer's tags, as a JSON array.
+  CONSUMER_INFO_FIELD_TAGS = 2;
+
+  // The method that authenticated the Consumer.
+  CONSUMER_INFO_FIELD_AUTH_METHOD = 3;
+
+  // The Consumer's claims, as a JSON object.
+  CONSUMER_INFO_FIELD_CLAIMS = 4;
+}
+
+// Direction is the direction the chunk_read Host Function writes at its out
+// pointer.
+enum Direction {
+  // From the client to the Upstream.
+  DIRECTION_CLIENT_TO_UPSTREAM = 0;
+
+  // From the Upstream to the client.
+  DIRECTION_UPSTREAM_TO_CLIENT = 1;
+}

@@ -1,0 +1,37 @@
+syntax = "proto3";
+// Copyright 2026 Revington
+// SPDX-License-Identifier: Apache-2.0
+
+// Package ruralz.plugin.v1 holds the artifact config message of a Plugin's
+// OCI artifact (docs/architecture/05-wasm-plugin-system.md "OCI artifact").
+
+package ruralz.plugin.v1;
+
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/ravindu-rev/ruralz/internal/gen/proto/ruralz/plugin/v1;pluginv1";
+
+// ArtifactConfig is the config blob of a Plugin's OCI artifact, media type
+// application/vnd.ruralz.plugin.config.v1+json, in its JSON encoding. The
+// inline Plugin.spec stays authoritative over it: the online stage checks
+// the artifact against Plugin.spec.
+message ArtifactConfig {
+  // The Plugin ABI the guest targets, ruralz.plugin.v1, the value
+  // Plugin.spec.abi takes.
+  string abi = 1;
+
+  // The Phases the guest exports, by name, such as onRequestHeaders, the
+  // values Plugin.spec.phases takes.
+  repeated string phases = 2;
+
+  // The Capabilities the guest's imports need, by identifier, such as
+  // request.headers.read, the values Plugin.spec.capabilities takes.
+  repeated string capabilities = 3;
+
+  // The JSON Schema of the config of plugin Policies using the Plugin, as
+  // Plugin.spec.configSchema holds it.
+  google.protobuf.Struct config_schema = 4;
+
+  // The version of the PDK that built the guest.
+  string pdk_version = 5;
+}
