@@ -282,10 +282,12 @@ func (b *build) forwarderOf(rt *v1alpha1.Route, res *hub.Resource) (snapshot.For
 // limits"). The request body is gated when a client Policy gates it (one
 // that runs in onRequestBody, a transform.request whose config needs the
 // body), when an Upstream-scope transform.request needs it, as each of its
-// attempts reads the same buffered input, or when the composition does
-// (compGate). The client response is gated for a client transform.response
-// whose config or when reads the body, and for an auth.jwt-sign Policy,
-// which signs into it. It is teed for a cache Policy's store.
+// attempts reads the same buffered input, when an auth.upstream-sigv4 of
+// an Upstream signs its payload, as each attempt signs the SHA-256 of the
+// body it sends, or when the composition does (compGate). The client
+// response is gated for a client transform.response whose config or when
+// reads the body, and for an auth.jwt-sign Policy, which signs into it.
+// It is teed for a cache Policy's store.
 func (b *build) bodyNeeds(ch *hub.Chain, compGate bool) snapshot.BodyNeeds {
 	n := snapshot.BodyNeeds{RequestGate: compGate}
 	if ch == nil {

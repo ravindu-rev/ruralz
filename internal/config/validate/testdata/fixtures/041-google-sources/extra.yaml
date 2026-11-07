@@ -1,0 +1,58 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-wif
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: token-exchange
+    tokenUrl: https://sts.googleapis.com/v1/token
+    subjectToken: {secretRef: {provider: file, name: /var/run/secrets/tokens/gcp}}
+    workloadIdentityProvider: //iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/shop/providers/edge
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-wif-id
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: token-exchange
+    tokenUrl: HTTPS://STS.googleapis.com:443/v1/token
+    subjectToken: {secretRef: {provider: file, name: /var/run/secrets/tokens/gcp}}
+    workloadIdentityProvider: //iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/shop/providers/edge
+    serviceAccount: orders@shop.iam.gserviceaccount.com
+    audience: https://orders.shop.example
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-key
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: jwt-bearer
+    tokenUrl: https://oauth2.googleapis.com/token
+    serviceAccountKey: {secretRef: {provider: file, name: /etc/ruralz/gcp/key.json}}
+    scopes: [https://www.googleapis.com/auth/cloud-platform]
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-key-billing
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: jwt-bearer
+    tokenUrl: https://oauth2.googleapis.com/token
+    serviceAccountKey: {secretRef: {provider: file, name: /etc/ruralz/gcp/key.json}}
+    audience: https://billing.shop.example
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-metadata
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: metadata-server

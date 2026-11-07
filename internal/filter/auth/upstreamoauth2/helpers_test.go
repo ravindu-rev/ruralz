@@ -122,7 +122,9 @@ func (b *syncBuffer) Bytes() []byte {
 type tokenRequest struct {
 	method, path, rawQuery string
 	header                 http.Header
-	form                   url.Values
+	// body is the request body as sent; form its form decoding.
+	body []byte
+	form url.Values
 	// basic reports Basic credentials; rawUser and rawPass are them as
 	// sent, user and pass form-decoded (RFC 6749 section 2.3.1).
 	basic            bool
@@ -157,7 +159,7 @@ func (ts *tokenServer) setResponder(r responder) { ts.respond.Store(&r) }
 func (ts *tokenServer) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	form, _ := url.ParseQuery(string(body))
-	rec := tokenRequest{method: r.Method, path: r.URL.Path, rawQuery: r.URL.RawQuery, header: r.Header.Clone(), form: form}
+	rec := tokenRequest{method: r.Method, path: r.URL.Path, rawQuery: r.URL.RawQuery, header: r.Header.Clone(), body: body, form: form}
 	if u, p, ok := r.BasicAuth(); ok {
 		rec.basic, rec.rawUser, rec.rawPass = true, u, p
 		rec.user, _ = url.QueryUnescape(u)
@@ -395,9 +397,9 @@ func (h *harness) waitFetches(n int64) {
 // config returns a valid config for the token server, changed by mods.
 func (h *harness) config(mods ...func(*v1alpha1.AuthUpstreamOAuth2Config)) *v1alpha1.AuthUpstreamOAuth2Config {
 	cfg := &v1alpha1.AuthUpstreamOAuth2Config{
-		TokenURL:     h.ts.url(),
-		ClientID:     testClientID,
-		ClientSecret: v1alpha1.SecretValue{SecretRef: testRef()},
+		TokenURL:     strPtr(h.ts.url()),
+		ClientID:     strPtr(testClientID),
+		ClientSecret: &v1alpha1.SecretValue{SecretRef: testRef()},
 		Scopes:       []string{"orders.read", "orders.write"},
 	}
 	for _, m := range mods {

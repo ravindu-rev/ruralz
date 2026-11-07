@@ -66,7 +66,11 @@
 // queue is RZ-UP-006; a waiter is bounded by its attempt context), picks an
 // Endpoint (ring-hash by the leg's hashKey; tried, suspect, stalled and
 // capped Endpoints avoided while another remains; ejected and unhealthy
-// ones only in panic mode), runs onUpstreamRequest, and sends the client
+// ones only in panic mode), runs onUpstreamRequest, then the
+// transport-time signing hook (snapshot.LegRun.Sign: foundation pack
+// section 8.12 rule 6), the last step before the round trip, so a
+// request-signing Policy signs the request exactly as it is sent and a
+// signing failure ends the leg without retry, and sends the client
 // request through the copy-free forwarding writer: the client's fields
 // share their values with the outgoing request's pooled header, capped so
 // an append reallocates (a Filter replaces or appends values, never writes

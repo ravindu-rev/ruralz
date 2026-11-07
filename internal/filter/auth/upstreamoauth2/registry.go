@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"maps"
+	"net/http"
 	"slices"
 	"sync"
 	"sync/atomic"
@@ -76,6 +77,12 @@ type Registry struct {
 	mu      sync.Mutex // guards entries; taken before any entry.mu
 	entries map[entryKey]*entry
 
+	// metadataURL and iamURL are the metadata server's and the IAM
+	// Service Account Credentials API's addresses: MetadataServerURL and
+	// IAMCredentialsURL, which in-package tests replace with mock servers
+	// before the first Build.
+	metadataURL, iamURL string
+
 	// fetchHook, set by in-package tests before Run, is called after
 	// every fetch published its result.
 	fetchHook func()
@@ -86,12 +93,14 @@ var _ filter.Component = (*Registry)(nil)
 // NewRegistry returns an idle Registry; the supervisor runs it (Run).
 func NewRegistry(o Options) *Registry {
 	r := &Registry{
-		guard:   o.Guard,
-		tls:     o.TLS,
-		clock:   o.Clock,
-		log:     o.Logger,
-		wake:    make(chan struct{}, 1),
-		entries: map[entryKey]*entry{},
+		guard:       o.Guard,
+		tls:         o.TLS,
+		clock:       o.Clock,
+		log:         o.Logger,
+		wake:        make(chan struct{}, 1),
+		entries:     map[entryKey]*entry{},
+		metadataURL: MetadataServerURL,
+		iamURL:      IAMCredentialsURL,
 	}
 	if r.tls == nil {
 		r.tls = tlsconf.IdentityProvider()
@@ -107,6 +116,19 @@ func NewRegistry(o Options) *Registry {
 
 // Name implements filter.Component.
 func (*Registry) Name() string { return ComponentName }
+
+// client returns a guarded client for the fetches of k, bound to the
+// origin destination (egress.ClientOptions.Destination); cleartext lets
+// it fetch that origin over http, for the metadata server.
+func (r *Registry) client(k entryKey, destination string, cleartext bool) *http.Client {
+	return r.guard.Client(egress.ClientOptions{
+		TLS:          r.tls,
+		Destination:  destination,
+		Cleartext:    cleartext,
+		DialTimeout:  min(k.timeout, egress.DefaultDialTimeout),
+		MaxBodyBytes: MaxResponseBytes,
+	})
+}
 
 // Run starts the fetches the entries need, a miss's at once and a refresh
 // at its time, each on a goroutine it owns, until ctx is done. It then
@@ -219,6 +241,6 @@ func (r *Registry) release(e *entry, h *holder) {
 	}
 	r.mu.Unlock()
 	if last {
-		e.client.CloseIdleConnections()
+		e.closeIdle()
 	}
 }

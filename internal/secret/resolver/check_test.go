@@ -10,21 +10,23 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"strings"
 	"testing"
 
 	"github.com/ravindu-rev/ruralz/internal/secret"
+	"github.com/ravindu-rev/ruralz/internal/serviceaccount"
 )
 
 // Tests for the per-kind checks and size caps (secret.Kind): PEM
 // certificate, key, CA bundle and CRL parsing, API key length after
-// trimming, each an RZ-CFG-026 at activation, and the State Store URL
-// credentials rule, an RZ-CFG-042.
+// trimming, service-account JSON keys, each an RZ-CFG-026 at activation,
+// and the State Store URL credentials rule, an RZ-CFG-042.
 
 func TestSizeCap(t *testing.T) {
-	for k := secret.KindOpaque; k <= secret.KindStateStoreURL+1; k++ {
+	for k := secret.KindOpaque; k <= secret.KindServiceAccountKey+1; k++ {
 		want := int64(MaxValueBytes)
 		if k == secret.KindPEMCRL {
 			want = MaxCRLBytes
@@ -60,6 +62,23 @@ func TestCheckKind(t *testing.T) {
 	garbled := func(typ string) string {
 		return string(pem.EncodeToMemory(&pem.Block{Type: typ, Bytes: []byte("garbage")}))
 	}
+	// saKey returns a service-account JSON key of type typ for email
+	// holding the PEM private key pemKey.
+	saKey := func(typ, email, pemKey string) string {
+		b, err := json.Marshal(map[string]string{ //nolint:gosec // G101: a test key built from a generated private key, not a credential
+			"type": typ, "project_id": "shop", "private_key_id": "k1", "private_key": pemKey,
+			"client_email": email, "token_uri": "https://oauth2.googleapis.com/token",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	small, err := rsa.GenerateKey(rand.Reader, 1024) //nolint:gosec // G403: a key below the floor, for the floor check
+	if err != nil {
+		t.Fatal(err)
+	}
+	const sa = "orders@shop.iam.gserviceaccount.com"
 	tests := []struct {
 		name  string
 		kind  secret.Kind
@@ -113,7 +132,16 @@ func TestCheckKind(t *testing.T) {
 		{"url unparsable", secret.KindStateStoreURL, "redis://[::1", errBadURL},
 		{"url no scheme", secret.KindStateStoreURL, "cache.internal:6379", errBadURL},
 		{"url relative", secret.KindStateStoreURL, "/path", errBadURL},
-		{"unknown kind", secret.KindStateStoreURL + 1, "x", errUnknownKind},
+		{"service account PKCS #8", secret.KindServiceAccountKey, saKey("service_account", sa, pkcs8(rsaKey)), nil},
+		{"service account PKCS #1", secret.KindServiceAccountKey, saKey("service_account", sa, pkcs1), nil},
+		{"service account not JSON", secret.KindServiceAccountKey, pkcs8(rsaKey), serviceaccount.ErrNotJSON},
+		{"service account other type", secret.KindServiceAccountKey, saKey("authorized_user", sa, pkcs8(rsaKey)), serviceaccount.ErrType},
+		{"service account without email", secret.KindServiceAccountKey, saKey("service_account", "", pkcs8(rsaKey)), serviceaccount.ErrNoEmail},
+		{"service account without PEM", secret.KindServiceAccountKey, saKey("service_account", sa, "not a key"), serviceaccount.ErrNoKey},
+		{"service account garbled key", secret.KindServiceAccountKey, saKey("service_account", sa, garbled("PRIVATE KEY")), serviceaccount.ErrKeyEncoding},
+		{"service account EC key", secret.KindServiceAccountKey, saKey("service_account", sa, pkcs8(ec)), serviceaccount.ErrNotRSA},
+		{"service account short RSA key", secret.KindServiceAccountKey, saKey("service_account", sa, pkcs8(small)), serviceaccount.ErrKeySize},
+		{"unknown kind", secret.KindServiceAccountKey + 1, "x", errUnknownKind},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -168,7 +196,7 @@ func TestLeaks(t *testing.T) {
 // also the fuzz target of the resolver's PEM bundle and CRL parsing.
 func FuzzKindChecks(f *testing.F) {
 	p := newPEM(f)
-	for k := range secret.KindStateStoreURL + 2 {
+	for k := range secret.KindServiceAccountKey + 2 {
 		f.Add(uint8(k), []byte(""))
 		f.Add(uint8(k), []byte(p.cert+p.key+p.crl))
 	}
@@ -179,6 +207,9 @@ func FuzzKindChecks(f *testing.F) {
 		errNoCertificate: true, errBadCertificate: true, errNoPoolCert: true, errNoPrivateKey: true,
 		errBadPrivateKey: true, errNoCRL: true, errBadCRL: true, errShortAPIKey: true, errBadURL: true,
 		errURLNoCredentials: true, errUnknownKind: true,
+		serviceaccount.ErrNotJSON: true, serviceaccount.ErrType: true, serviceaccount.ErrNoEmail: true,
+		serviceaccount.ErrNoKey: true, serviceaccount.ErrKeyEncoding: true, serviceaccount.ErrNotRSA: true,
+		serviceaccount.ErrKeySize: true,
 	}
 	f.Fuzz(func(t *testing.T, kind uint8, value []byte) {
 		err := checkKind(secret.Kind(kind), value)

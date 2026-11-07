@@ -2,13 +2,18 @@
 # Copyright 2026 Revington
 # SPDX-License-Identifier: Apache-2.0
 #
-# Refreshes the vendored upstream conformance suites that the integration
-# tests run at their pinned versions (ADR-0003 "Confirmation" upstream
-# suites), and the SM-8 OpenAPI corpus (docs/vision/01-vision-and-
-# positioning.md "Success metrics") that ruralz bundle import openapi runs:
+# Refreshes the vendored upstream conformance suites that the tests run at
+# their pinned versions: the integration tests' YAML Test Suite and
+# JSON-Schema-Test-Suite (ADR-0003 "Confirmation" upstream suites), the
+# SM-8 OpenAPI corpus (docs/vision/01-vision-and-positioning.md "Success
+# metrics") that ruralz bundle import openapi runs, and the AWS signing
+# test suite that the auth.upstream-sigv4 unit tests sign
+# (docs/engineering/03-testing-and-quality-strategy.md "Conformance
+# suites"):
 #
-#   scripts/update-test-suites.sh [yaml] [json-schema] [openapi]   (default: all)
-#   scripts/update-test-suites.sh --digest URL COMMIT    (prints a new pin)
+#   scripts/update-test-suites.sh [yaml] [json-schema] [openapi] [aws-signing]
+#                                                      (default: all four)
+#   scripts/update-test-suites.sh --digest URL COMMIT  (prints a new pin)
 #
 # Layout (FIXTURES_ROOT overrides test/fixtures):
 #
@@ -38,11 +43,29 @@
 # with that file's SHA-256, and, for a work with a NOTICE, the notice's
 # path and SHA-256, so adding an entry is adding its SOURCE.
 #
-# Integrity: the YAML and JSON Schema suites are pinned by commit and by the
-# SHA-256 of `git archive --format=tar <commit>`, which is deterministic for
-# a commit (GitHub's compressed archive downloads are not guaranteed
-# byte-stable). The script fetches the pinned commit with git, rebuilds that
-# tarball, checks its digest, then extracts it. To move a pin, print the new
+# The AWS signing test suite (aws-c-auth, Apache-2.0) lands beside its
+# tests, in internal/filter/auth/upstreamsigv4/testdata/aws-signing-test-suite:
+#
+#   v4/<case>/                 context.json, request.txt,
+#                              header-canonical-request.txt and
+#                              header-signed-request.txt of every
+#                              Signature Version 4 case but the
+#                              -unnormalized ones and post-sts-header-after,
+#                              which sign in modes no Ruralz service uses
+#                              (vectors_test.go says why); the query-signing
+#                              files are left out
+#   LICENSE, NOTICE, SOURCE    the license and notice of the same commit
+#
+# v4/, LICENSE, NOTICE and SOURCE are replaced.
+#
+# Integrity: the YAML and JSON Schema suites and the AWS signing test suite
+# are pinned by commit and by the SHA-256 of `git archive --format=tar
+# <commit>` with no line-ending conversion (core.autocrlf=false,
+# core.eol=lf), which is deterministic for a commit on every OS (GitHub's
+# compressed archive downloads are not guaranteed byte-stable, and a
+# checkout's core.autocrlf would rewrite the text files of the tarball).
+# The script fetches the pinned commit with git, rebuilds that tarball,
+# checks its digest, then extracts it. To move a pin, print the new
 # digest with --digest, then update the *_COMMIT and *_SHA256 lines below and
 # rerun the script. The OpenAPI corpus pins each file instead, since its
 # entries come from many repositories, some of them large: each file and
@@ -70,6 +93,17 @@ JSON_COMMIT=5b0ee1613e45fcc2bddac00e07c19cd49b00d8a8
 JSON_SHA256=5477d894cb15fc844862d0baf5d0dfbd26b5a5f112087350a6802289b089c3b1
 JSON_LICENSE_PATH=LICENSE
 
+AWS_NAME="AWS signing test suite, Signature Version 4 cases"
+AWS_URL=https://github.com/awslabs/aws-c-auth
+AWS_REF=v1.0.3
+AWS_COMMIT=6f9496f2f355bf7f53083ea759ae17d5fdd366b2
+AWS_SHA256=ee570550905ec3cce5dcd20d5eff333285f2c199fff7373f466d3db79af896e8
+AWS_PATH=tests/aws-signing-test-suite/v4
+# The files of each kept case, and the cases left out.
+AWS_FILES=(context.json request.txt header-canonical-request.txt header-signed-request.txt)
+AWS_SKIP_SUFFIX=-unnormalized
+AWS_SKIP_CASES=(post-sts-header-after)
+
 root=$(cd "$(dirname "$0")/.." && pwd)
 fixtures=${FIXTURES_ROOT:-$root/test/fixtures}
 work=$(mktemp -d)
@@ -96,9 +130,10 @@ fetch() {
   git -C "$dir" fetch --quiet --depth 1 "$url.git" "$@"
 }
 
-# archive <dir> <commit> <out> writes the commit's tarball.
+# archive <dir> <commit> <out> writes the commit's tarball, its text files
+# exactly as committed whatever the OS and the user's git configuration.
 archive() {
-  git -C "$1" archive --format=tar -o "$3" "$2"
+  git -C "$1" -c core.autocrlf=false -c core.eol=lf archive --format=tar -o "$3" "$2"
 }
 
 # write_source <dest> <name> <url> <ref> <commit> <sha256> <license note>
@@ -109,7 +144,7 @@ url: $3
 ref: $4
 commit: $5
 sha256: $6
-sha256-of: git archive --format=tar $5
+sha256-of: git -c core.autocrlf=false -c core.eol=lf archive --format=tar $5
 license: MIT ($7)
 updated-by: scripts/update-test-suites.sh
 EOF
@@ -152,6 +187,48 @@ vendor_json_schema() {
   write_source "$dest" "$JSON_NAME" "$JSON_URL" "$JSON_REF" "$JSON_COMMIT" "$JSON_SHA256" \
     "$JSON_LICENSE_PATH of the same commit"
   echo "vendored $JSON_NAME $JSON_COMMIT into ${dest#"$root"/}"
+}
+
+vendor_aws_signing() {
+  local dest="$root/internal/filter/auth/upstreamsigv4/testdata/aws-signing-test-suite"
+  local repo="$work/aws" tar="$work/aws.tar" stage="$work/aws-data" cases="$work/aws-v4"
+  fetch "$AWS_URL" "$repo" "$AWS_COMMIT"
+  archive "$repo" "$AWS_COMMIT" "$tar"
+  check "$tar" "$AWS_SHA256" "$AWS_NAME $AWS_REF"
+  mkdir -p "$stage" "$cases"
+  tar -xf "$tar" -C "$stage" "$AWS_PATH" LICENSE NOTICE
+  local dir name skip file
+  for dir in "$stage/$AWS_PATH"/*/; do
+    name=$(basename "$dir")
+    [[ "$name" == *"$AWS_SKIP_SUFFIX" ]] && continue
+    skip=false
+    for file in "${AWS_SKIP_CASES[@]}"; do
+      [[ "$name" == "$file" ]] && skip=true
+    done
+    $skip && continue
+    mkdir "$cases/$name"
+    for file in "${AWS_FILES[@]}"; do
+      cp "$dir/$file" "$cases/$name/$file"
+    done
+  done
+  mkdir -p "$dest"
+  rm -rf "$dest/v4"
+  mv "$cases" "$dest/v4"
+  cp "$stage/LICENSE" "$dest/LICENSE"
+  cp "$stage/NOTICE" "$dest/NOTICE"
+  cat >"$dest/SOURCE" <<EOF
+name: $AWS_NAME
+url: $AWS_URL
+ref: $AWS_REF
+commit: $AWS_COMMIT
+path: $AWS_PATH
+sha256: $AWS_SHA256
+sha256-of: git -c core.autocrlf=false -c core.eol=lf archive --format=tar $AWS_COMMIT
+license: Apache-2.0 (LICENSE and NOTICE of the same commit)
+kept: ${AWS_FILES[*]} of every case but the query-signing files, the unnormalized cases and ${AWS_SKIP_CASES[*]} (vectors_test.go says why)
+updated-by: scripts/update-test-suites.sh
+EOF
+  echo "vendored $AWS_NAME $AWS_REF into ${dest#"$root"/}"
 }
 
 OPENAPI_RAW=https://raw.githubusercontent.com
@@ -264,19 +341,20 @@ if [[ "${1:-}" == --digest ]]; then
   fi
   fetch "${2%.git}" "$work/digest" "$3"
   archive "$work/digest" "$3" "$work/digest.tar"
-  echo "$(sha256 "$work/digest.tar")  git archive --format=tar $3"
+  echo "$(sha256 "$work/digest.tar")  git -c core.autocrlf=false -c core.eol=lf archive --format=tar $3"
   exit 0
 fi
 
 suites=("$@")
-((${#suites[@]})) || suites=(yaml json-schema openapi)
+((${#suites[@]})) || suites=(yaml json-schema openapi aws-signing)
 for suite in "${suites[@]}"; do
   case "$suite" in
     yaml) vendor_yaml ;;
     json-schema) vendor_json_schema ;;
     openapi) vendor_openapi ;;
+    aws-signing) vendor_aws_signing ;;
     *)
-      echo "update-test-suites: unknown suite $suite (want yaml, json-schema or openapi)" >&2
+      echo "update-test-suites: unknown suite $suite (want yaml, json-schema, openapi or aws-signing)" >&2
       exit 2
       ;;
   esac

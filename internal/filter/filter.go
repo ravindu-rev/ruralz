@@ -596,6 +596,27 @@ type Filter interface {
 	Handle(ctx context.Context, p phase.Phase, x Exchange) Result
 }
 
+// Signer is implemented by request-signing Filters (foundation pack
+// section 8.12 rule 6; docs/architecture/03-data-plane.md "Upstream
+// layer"): such a Filter records its signing parameters in
+// onUpstreamRequest, and the Node calls Sign at the transport-time signing
+// hook of every attempt, after the attempt's last onUpstreamRequest Filter
+// or Plugin, as the last step before the request is sent. x is the
+// attempt's leg view: Leg().Request is the outgoing request as it will be
+// sent, which Sign signs in place, so every header and body transform of
+// the attempt is covered and nothing changes the request once it is
+// signed. The executor calls Sign, entered for the Policy and onUpstreamRequest
+// like Handle, only for a Policy that runs on the leg (its spec.when let it
+// run, it did not fail open) and only when the attempt reached the hook: a
+// short-circuit or closed failure of the attempt's onUpstreamRequest ends
+// the leg first. Sign returns Continue, or CannotDecide with its code,
+// which the Policy's failureMode answers as a failure in onUpstreamRequest;
+// any other outcome is the executor's invalid result.
+type Signer interface {
+	Filter
+	Sign(ctx context.Context, x Exchange) Result
+}
+
 // Finisher is implemented by Filters that act once the request is over:
 // the Response Cache stores the teed body and releases a hit's buffer
 // reservation (its unsafe-method invalidation is an Invalidator's);

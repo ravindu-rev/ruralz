@@ -29,7 +29,9 @@ const MaxResponseBytes = 64 << 10
 // DefaultLifetime is the lifetime of a token whose response carries no
 // expires_in: 5 minutes. RFC 6749 leaves it to the server, so
 // it is short: an unknown lifetime is refreshed after 3 m 20 s, which
-// bounds how long an expired token could be sent.
+// bounds how long an expired token could be sent. Every ID token, and an
+// impersonated access token, whose responses state no expires_in, lives
+// this long.
 const DefaultLifetime = 5 * time.Minute
 
 // maxLifetimeSeconds is the largest expires_in a time.Duration holds;
@@ -38,19 +40,19 @@ const maxLifetimeSeconds = math.MaxInt64 / int64(time.Second)
 
 // Protocol values.
 const (
-	grantClientCredentials = "client_credentials"
-	headerAuthorization    = "Authorization"
-	bearerPrefix           = "Bearer "
-	typeBearer             = "bearer"
-	contentTypeForm        = "application/x-www-form-urlencoded"
-	mediaJSON              = "application/json"
+	grantTypeClientCredentials = "client_credentials"
+	headerAuthorization        = "Authorization"
+	bearerPrefix               = "Bearer "
+	typeBearer                 = "bearer"
+	contentTypeForm            = "application/x-www-form-urlencoded"
+	mediaJSON                  = "application/json"
 )
 
 // Fetch failures. Their messages are fixed: a token response is never
-// echoed, since it may carry the token, and the secret is never part of
+// echoed, since it may carry the token, and a secret is never part of
 // one.
 var (
-	errNoSecret      = errors.New("config.clientSecret has no resolved value")
+	errNoSecret      = errors.New("the credential secret has no resolved value")
 	errMalformed     = errors.New("token response is not a JSON object")
 	errNoAccessToken = errors.New("token response has no access_token")
 	errTokenChars    = errors.New("token response access_token is not visible ASCII")
@@ -60,9 +62,9 @@ var (
 	errPanic         = errors.New("token fetch panicked")
 )
 
-// token is an obtained access token. It never prints its value.
+// token is an obtained access or ID token. It never prints its value.
 type token struct {
-	// header is the Authorization field value, "Bearer <access_token>".
+	// header is the Authorization field value, "Bearer <token>".
 	header string
 	// obtained is when the token request was sent; expires is obtained
 	// plus the lifetime.
@@ -105,15 +107,15 @@ func knownErrorCodes() []string {
 	}
 }
 
-// fetch runs one client credentials grant for e with the secret table of
-// h; start is the Registry clock's time of sending, the start of the
-// token's lifetime. A grant that fails once ctx ended (the end of Run, the
-// last Close, config.timeout) fails with ctx's cause, whatever the token
-// endpoint answered: the transport hands back an answer that races the end
-// of ctx, and the endpoint may have written it in reply to the connection
-// teardown instead of to the grant, such as the empty 200 of a server
-// whose handler returns when its client goes away. An error that carries
-// the cause already, the transport's own, is kept.
+// fetch runs one grant for e with the secret table of h; start is the
+// Registry clock's time of sending, the start of the token's lifetime. A
+// grant that fails once ctx ended (the end of Run, the last Close,
+// config.timeout) fails with ctx's cause, whatever the token endpoint
+// answered: the transport hands back an answer that races the end of ctx,
+// and the endpoint may have written it in reply to the connection teardown
+// instead of to the grant, such as the empty 200 of a server whose handler
+// returns when its client goes away. An error that carries the cause
+// already, the transport's own, is kept.
 func (e *entry) fetch(ctx context.Context, h *holder, start time.Time) (*token, error) {
 	tok, err := e.grant(ctx, h, start)
 	if err != nil && ctx.Err() != nil && !errors.Is(err, context.Cause(ctx)) {
@@ -122,13 +124,41 @@ func (e *entry) fetch(ctx context.Context, h *holder, start time.Time) (*token, 
 	return tok, err
 }
 
-// grant sends the token request of e with the secret of h and turns the
-// answer into a token whose lifetime starts at start.
+// grant obtains the token of e's grant type with the secret of h, its
+// lifetime starting at start.
 func (e *entry) grant(ctx context.Context, h *holder, start time.Time) (*token, error) {
+	switch e.key.grant {
+	case grantClientCredentials:
+		return e.clientCredentials(ctx, h, start)
+	case grantJWTBearer:
+		return e.jwtBearer(ctx, h, start)
+	case grantMetadataServer:
+		return e.metadataServer(ctx, start)
+	case grantTokenExchange:
+		return e.tokenExchange(ctx, h, start)
+	default:
+		return nil, errGrant
+	}
+}
+
+// credential returns the resolved value of the entry's credential secret
+// in the secret table of h; the caller clears it.
+func (e *entry) credential(h *holder) ([]byte, error) {
 	v, ok := h.secrets.Get(e.key.ref)
 	if !ok {
 		return nil, errNoSecret
 	}
+	return v.Reveal(), nil
+}
+
+// clientCredentials runs the client credentials grant (RFC 6749 section
+// 4.4) with client_secret_basic.
+func (e *entry) clientCredentials(ctx context.Context, h *holder, start time.Time) (*token, error) {
+	v, err := e.credential(h)
+	if err != nil {
+		return nil, err
+	}
+	defer clear(v)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, e.key.endpoint, strings.NewReader(e.form))
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
@@ -136,7 +166,17 @@ func (e *entry) grant(ctx context.Context, h *holder, start time.Time) (*token, 
 	req.Header.Set("Content-Type", contentTypeForm)
 	req.Header.Set("Accept", mediaJSON)
 	req.Header.Set(headerAuthorization, basicCredentials(e.key.clientID, v))
-	resp, err := e.client.Do(req)
+	body, err := roundTrip(e.client, req)
+	if err != nil {
+		return nil, err
+	}
+	return parseToken(body, start)
+}
+
+// roundTrip sends req on c and returns the body of a 200 answer; any other
+// status is a statusError naming at most a known RFC 6749 error code.
+func roundTrip(c *http.Client, req *http.Request) ([]byte, error) {
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("token request: %w", err)
 	}
@@ -148,25 +188,24 @@ func (e *entry) grant(ctx context.Context, h *holder, start time.Time) (*token, 
 	if resp.StatusCode != http.StatusOK {
 		return nil, &statusError{status: resp.StatusCode, code: errorCodeOf(body)}
 	}
-	return parseToken(body, start)
+	return body, nil
 }
 
 // basicCredentials returns the client_secret_basic Authorization value:
 // clientId and the secret each form-encoded (RFC 6749 section 2.3.1),
 // joined by a colon, in base64.
-func basicCredentials(clientID string, v secret.Value) string {
-	b := v.Reveal()
-	defer clear(b)
-	pair := url.QueryEscape(clientID) + ":" + url.QueryEscape(string(b))
+func basicCredentials(clientID string, secretBytes []byte) string {
+	pair := url.QueryEscape(clientID) + ":" + url.QueryEscape(string(secretBytes))
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(pair))
 }
 
-// tokenResponse is the part of an RFC 6749 section 5.1 response the
-// Filter uses.
+// tokenResponse is the part of an RFC 6749 section 5.1 (and RFC 8693
+// section 2.2.1) response the Filter uses.
 type tokenResponse struct {
-	AccessToken string          `json:"access_token"`
-	TokenType   string          `json:"token_type"`
-	ExpiresIn   json.RawMessage `json:"expires_in"`
+	AccessToken     string          `json:"access_token"`
+	TokenType       string          `json:"token_type"`
+	ExpiresIn       json.RawMessage `json:"expires_in"`
+	IssuedTokenType string          `json:"issued_token_type"`
 }
 
 // parseToken decodes a 200 response body into a token whose lifetime
@@ -176,6 +215,11 @@ func parseToken(body []byte, start time.Time) (*token, error) {
 	if err := json.Unmarshal(body, &r); err != nil {
 		return nil, errMalformed
 	}
+	return accessToken(r, start)
+}
+
+// accessToken returns the token of a decoded response.
+func accessToken(r tokenResponse, start time.Time) (*token, error) {
 	switch {
 	case r.AccessToken == "":
 		return nil, errNoAccessToken

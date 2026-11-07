@@ -21,9 +21,9 @@ import (
 // validConfig returns a config that passes every check.
 func validConfig(tokenURL string) *v1alpha1.AuthUpstreamOAuth2Config {
 	return &v1alpha1.AuthUpstreamOAuth2Config{
-		TokenURL:     tokenURL,
-		ClientID:     testClientID,
-		ClientSecret: v1alpha1.SecretValue{SecretRef: testRef()},
+		TokenURL:     strPtr(tokenURL),
+		ClientID:     strPtr(testClientID),
+		ClientSecret: &v1alpha1.SecretValue{SecretRef: testRef()},
 	}
 }
 
@@ -43,6 +43,9 @@ func runCheck(cfg any) diag.List {
 	Check(policyResource(cfg), fakeLocation, func(d diag.Diagnostic) { out = append(out, d) })
 	return out
 }
+
+// strPtr returns a pointer to s.
+func strPtr(s string) *string { return &s }
 
 func duration(d time.Duration) *v1alpha1.Duration {
 	v := v1alpha1.Duration(d)
@@ -164,6 +167,7 @@ func TestSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := settings{
+		grant:    grantClientCredentials,
 		endpoint: "https://Auth.Shop.Example/oauth2/token",
 		origin:   "https://auth.shop.example:443",
 		clientID: testClientID,

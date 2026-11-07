@@ -550,23 +550,71 @@ type Replace struct {
 	Literal *bool `json:"literal,omitempty"`
 }
 
+// OAuth2GrantType is how an auth.upstream-oauth2 Policy obtains its token.
+type OAuth2GrantType string
+
+// OAuth2 grant types.
+const (
+	// OAuth2GrantClientCredentials is the client credentials grant (RFC 6749) with clientId and clientSecret.
+	OAuth2GrantClientCredentials OAuth2GrantType = "client-credentials"
+	// OAuth2GrantJWTBearer is the JWT bearer grant (RFC 7523): an assertion signed with serviceAccountKey.
+	OAuth2GrantJWTBearer OAuth2GrantType = "jwt-bearer"
+	// OAuth2GrantMetadataServer asks the Compute Engine or GKE metadata server for a token of the workload's service account.
+	OAuth2GrantMetadataServer OAuth2GrantType = "metadata-server"
+	// OAuth2GrantTokenExchange exchanges subjectToken at a Security Token Service (RFC 8693).
+	OAuth2GrantTokenExchange OAuth2GrantType = "token-exchange"
+)
+
 // AuthUpstreamOAuth2Config is the config of an auth.upstream-oauth2 Policy.
+// The fields each grantType takes, which the type's check holds it to
+// (RZ-CFG-005), are those its field descriptions name.
 // +ruralz:policyType=auth.upstream-oauth2
-// +ruralz:open
+// +ruralz:requiredIf=tokenUrl,grantType=jwt-bearer
+// +ruralz:requiredIf=serviceAccountKey,grantType=jwt-bearer
+// +ruralz:requiredIf=tokenUrl,grantType=token-exchange
+// +ruralz:requiredIf=subjectToken,grantType=token-exchange
+// +ruralz:requiredIf=workloadIdentityProvider,grantType=token-exchange
 type AuthUpstreamOAuth2Config struct {
-	// TokenURL is the token endpoint and the only destination of clientSecret; it MUST be https (RZ-CFG-037).
-	// +ruralz:required
+	// GrantType is how the token is obtained: client-credentials, jwt-bearer, metadata-server or token-exchange.
+	// +ruralz:since=1
+	// +ruralz:default=client-credentials
 	// +ruralz:impact=security
-	TokenURL string `json:"tokenUrl"`
-	// ClientID is the OAuth2 client identifier.
-	// +ruralz:required
-	ClientID string `json:"clientId"`
-	// ClientSecret is the OAuth2 client secret.
-	// +ruralz:required
+	GrantType *OAuth2GrantType `json:"grantType,omitempty"`
+	// TokenURL is the token endpoint and the only destination of clientSecret and subjectToken; it MUST be https (RZ-CFG-037). Required by every grantType but metadata-server, which takes none.
+	// +ruralz:impact=security
+	TokenURL *string `json:"tokenUrl,omitempty"`
+	// ClientID is the OAuth2 client identifier; client-credentials only, and required there.
+	ClientID *string `json:"clientId,omitempty"`
+	// ClientSecret is the OAuth2 client secret; client-credentials only, and required there.
 	// +ruralz:secret
 	// +ruralz:impact=security
-	ClientSecret SecretValue `json:"clientSecret"`
-	// Scopes are the requested scopes.
+	ClientSecret *SecretValue `json:"clientSecret,omitempty"`
+	// ServiceAccountKey is a service-account JSON key, which signs the jwt-bearer assertion and never leaves the Node; jwt-bearer only, and required there.
+	// +ruralz:since=1
+	// +ruralz:secret
+	// +ruralz:impact=security
+	ServiceAccountKey *SecretValue `json:"serviceAccountKey,omitempty"`
+	// SubjectToken is the token token-exchange exchanges, such as a projected Kubernetes service account token, sent only to the origin of tokenUrl; token-exchange only, and required there.
+	// +ruralz:since=1
+	// +ruralz:secret
+	// +ruralz:impact=security
+	SubjectToken *SecretValue `json:"subjectToken,omitempty"`
+	// SubjectTokenType is the RFC 8693 type of subjectToken; token-exchange only.
+	// +ruralz:since=1
+	// +ruralz:default=urn:ietf:params:oauth:token-type:jwt
+	SubjectTokenType *string `json:"subjectTokenType,omitempty"`
+	// WorkloadIdentityProvider is the full resource name of the workload identity provider, sent as the exchange's audience; token-exchange only, and required there.
+	// +ruralz:since=1
+	// +ruralz:impact=security
+	WorkloadIdentityProvider string `json:"workloadIdentityProvider,omitempty"`
+	// ServiceAccount is the email of the service account token-exchange impersonates for its access token, or for an ID token; token-exchange only.
+	// +ruralz:since=1
+	// +ruralz:impact=security
+	ServiceAccount string `json:"serviceAccount,omitempty"`
+	// Audience requests an ID token for this audience instead of an access token for scopes; jwt-bearer, metadata-server, and token-exchange with serviceAccount.
+	// +ruralz:since=1
+	Audience string `json:"audience,omitempty"`
+	// Scopes are the requested scopes of an access token; not with audience.
 	// +ruralz:list=set
 	Scopes []string `json:"scopes,omitempty"`
 	// Timeout bounds a token fetch.

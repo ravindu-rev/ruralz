@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-key
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: jwt-bearer
+    tokenUrl: https://oauth2.googleapis.com/token
+    serviceAccountKey: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}
+    scopes: [https://www.googleapis.com/auth/cloud-platform]

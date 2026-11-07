@@ -113,7 +113,8 @@ const (
 // attempt takes a bulkhead slot (waiting in the pending queue within its
 // attempt context; a full queue is RZ-UP-006), picks an Endpoint
 // (ring-hash by hashKey, avoiding the Endpoints this leg tried), runs
-// onUpstreamRequest and sends the request on the Endpoint's pool. After
+// onUpstreamRequest and the transport-time signing hook
+// (snapshot.LegRun.Sign) and sends the request on the Endpoint's pool. After
 // the attempt, failureWhen feeds passive ejection, then
 // onUpstreamResponseHeaders (with the response, or without one and the
 // attempt's error kind) and retryOn (or a Filter's retry) decide on a
@@ -444,6 +445,19 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 			if req.Context() != rctx {
 				req = req.WithContext(rctx)
 			}
+		}
+		// The transport-time signing hook (foundation pack section 8.12
+		// rule 6) is the last step before the round trip: every signing
+		// Policy signs the very request the transport sends, after every
+		// onUpstreamRequest Filter of the attempt changed it, so nothing
+		// changes it once signed.
+		ls.fleg.Request = req
+		if gen := ls.hooks.Sign(sctx, &ls.fleg); gen != nil {
+			closeBody(req)
+			end.status = gen.Status
+			end.finish()
+			ls.leg.AbandonAttempt(resilience.GateNone)
+			return stepDone, ls.generated(ctx, gen, resilience.LegNotCounted), nil
 		}
 	}
 	if !ls.mirrored && ls.t.Step == "" && ls.o.Mirror != nil {

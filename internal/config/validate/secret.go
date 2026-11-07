@@ -29,8 +29,8 @@ const (
 	// destStateStore is a State Store URL, sent only to the State Store it
 	// names.
 	destStateStore
-	// destTokenURL is an auth.upstream-oauth2 clientSecret, sent only to
-	// the origin of its Policy's tokenUrl.
+	// destTokenURL is an auth.upstream-oauth2 clientSecret or
+	// subjectToken, sent only to the origin of its Policy's tokenUrl.
 	destTokenURL
 )
 
@@ -73,10 +73,15 @@ func classify(key string) (secretClass, bool) {
 		return secretClass{kind: secret.KindPEMCRL, dest: destLocal}, true
 	case "Gateway||spec.stateStore.url", "Gateway||spec.stateStore.cache.url":
 		return secretClass{kind: secret.KindStateStoreURL, dest: destStateStore}, true
-	case "Policy|auth.upstream-oauth2|spec.config.clientSecret":
+	case "Policy|auth.upstream-oauth2|spec.config.clientSecret",
+		"Policy|auth.upstream-oauth2|spec.config.subjectToken":
 		return secretClass{kind: secret.KindOpaque, dest: destTokenURL}, true
 	case "Policy|auth.jwt-sign|spec.config.signingKey":
 		return secretClass{kind: secret.KindOpaque, dest: destLocal}, true
+	case "Policy|auth.upstream-oauth2|spec.config.serviceAccountKey":
+		// The key signs jwt-bearer assertions on the Node; the assertion,
+		// never the key, goes to the tokenUrl.
+		return secretClass{kind: secret.KindServiceAccountKey, dest: destLocal}, true
 	case "Consumer||spec.credentials.apiKeys[].secretRef":
 		return secretClass{kind: secret.KindAPIKey, dest: destLocal}, true
 	case "AIProvider||spec.credentials.apiKey":
@@ -151,8 +156,8 @@ func (u *unit) destination(cls secretClass) string {
 		return hub.DestinationStateStore
 	case destTokenURL:
 		raw := ""
-		if cfg, ok := u.r.Config.(*v1alpha1.AuthUpstreamOAuth2Config); ok && cfg != nil {
-			raw = cfg.TokenURL
+		if cfg, ok := u.r.Config.(*v1alpha1.AuthUpstreamOAuth2Config); ok && cfg != nil && cfg.TokenURL != nil {
+			raw = *cfg.TokenURL
 		} else if n := u.f.node(specPath(diag.Field("config"), diag.Field("tokenUrl"))); n != nil {
 			raw = n.Text
 		}

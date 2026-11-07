@@ -14,7 +14,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
+	mrand "math/rand/v2"
 	"strings"
 	"sync"
 	"testing"
@@ -84,10 +84,13 @@ type harness struct {
 	keys    *signingKeys
 }
 
-// signingKeys are the PEM private keys an auth.jwt-sign reference of the
-// cases resolves to (jwtSignRSA, jwtSignEd25519; jwtSignP256 is the CA
-// key), made once per test binary.
-type signingKeys struct{ rsa, ed []byte }
+// signingKeys are the private keys the cases' secret references resolve
+// to, made once per test binary, as an RSA key takes a while to generate:
+// the PEM keys an auth.jwt-sign reference names (jwtSignRSA,
+// jwtSignEd25519; jwtSignP256 is the CA key) and the service-account JSON
+// key of an auth.upstream-oauth2 serviceAccountKey, which holds the RSA
+// key.
+type signingKeys struct{ rsa, ed, serviceAccount []byte }
 
 // sharedSigningKeys holds the cases' signing keys; test-only package
 // state.
@@ -104,9 +107,19 @@ var sharedSigningKeys = sync.OnceValues(func() (*signingKeys, error) {
 	if err != nil {
 		return nil, err
 	}
+	rsaPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: rsaDER})
+	sa, err := json.Marshal(map[string]string{
+		"type": "service_account", "private_key_id": "harness",
+		"private_key":  string(rsaPEM),
+		"client_email": "harness@shop.iam.gserviceaccount.com",
+	})
+	if err != nil {
+		return nil, err
+	}
 	return &signingKeys{
-		rsa: pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: rsaDER}),
-		ed:  pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: edDER}),
+		rsa:            rsaPEM,
+		ed:             pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: edDER}),
+		serviceAccount: sa,
 	}, nil
 })
 
@@ -118,7 +131,7 @@ func newHarness(tb testing.TB) *harness {
 		tb.Fatal(err)
 	}
 	clk := clocktest.New(t0)
-	filters, err := New(Options{Clock: clk, Entropy: zeros{}, Rand: rand.NewPCG(1, 2)})
+	filters, err := New(Options{Clock: clk, Entropy: zeros{}, Rand: mrand.NewPCG(1, 2)})
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -403,10 +416,10 @@ func (h *harness) build(t *testing.T, env filter.BuildEnv) error {
 }
 
 // secrets resolves every secretRef use with a value of the kind its use
-// checks: the harness CA for a CA bundle, its CRL for a CRL, the private
-// key of the family an auth.jwt-sign reference of the cases names, an
-// opaque value otherwise, as a Node's resolver would for a Bundle whose
-// secrets exist.
+// checks: the harness CA for a CA bundle, its CRL for a CRL, the shared
+// service-account key for a serviceAccountKey, the private key of the
+// family an auth.jwt-sign reference of the cases names, an opaque value
+// otherwise, as a Node's resolver would for a Bundle whose secrets exist.
 func (h *harness) secrets(uses []hub.SecretUse) mapStore {
 	m := mapStore{}
 	for _, u := range uses {
@@ -426,6 +439,8 @@ func (h *harness) secrets(uses []hub.SecretUse) mapStore {
 			v = []byte(strings.Repeat("k", 32))
 		case secret.KindStateStoreURL:
 			v = []byte("redis://127.0.0.1:6379")
+		case secret.KindServiceAccountKey:
+			v = h.keys.serviceAccount
 		default:
 			switch r.Name {
 			case jwtSignRSA:

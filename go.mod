@@ -7,6 +7,7 @@ toolchain go1.27.3
 require (
 	cel.dev/cel-go v0.33.1
 	connectrpc.com/connect v1.21.1
+	github.com/aws/aws-sdk-go-v2 v1.47.8
 	github.com/hashicorp/go-hclog v1.6.3
 	github.com/hashicorp/go-metrics v0.7.0
 	github.com/hashicorp/raft v1.8.0
@@ -56,6 +57,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
+	github.com/aws/smithy-go v1.28.8 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/blang/semver v3.5.1+incompatible // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect

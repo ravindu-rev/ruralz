@@ -128,7 +128,7 @@ OQ-data-plane-10: a fixed 60 s inter-chunk idle limit is recommended (target).
 3. A breaker not open, and retry budget room.
 4. Any Upstream `Retry-After` at most 10 s (target) and ending before the leg deadline.
 
-Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `Retry-After`; each retry reruns `onUpstreamRequest`. A retried response gives back its in-flight slot when the retry is decided and is drained (up to 64 KiB, within the leg deadline) when the retry attempt runs; if that attempt cannot start, the leg returns it unchanged. A leg whose last attempt got a response returns it unchanged, else the [code selection rule](#error-codes-this-document-owns) applies.
+Backoff is full-jitter exponential from 25 ms to 250 ms (target), or a longer `Retry-After`; each retry reruns `onUpstreamRequest` and the transport-time signing hook, so a request-signing Policy signs every retry anew at its own time ([Upstream authentication](08-security-and-identity.md#upstream-authentication)). A retried response gives back its in-flight slot when the retry is decided and is drained (up to 64 KiB, within the leg deadline) when the retry attempt runs; if that attempt cannot start, the leg returns it unchanged. A leg whose last attempt got a response returns it unchanged, else the [code selection rule](#error-codes-this-document-owns) applies.
 
 ### Retry budget
 

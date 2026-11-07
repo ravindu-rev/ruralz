@@ -55,6 +55,7 @@ linters:
             # M2 Control Store modules (catalog row "Control Store"),
             # M2 modules; each has a Tech stack catalog row.
             - connectrpc.com/connect
+            - github.com/aws/aws-sdk-go-v2/aws
             - github.com/hashicorp/go-hclog
             - github.com/hashicorp/go-metrics
             - github.com/hashicorp/raft
@@ -142,6 +143,22 @@ linters:
           deny:
             - pkg: github.com/oschwald/maxminddb-golang
               desc: the MaxMind DB reader is confined to the authz.geoip Filter, which only ruralzd links; its check lives apart
+        awssigner:
+          files: ["$all", "!**/internal/filter/auth/upstreamsigv4/**"]
+          deny:
+            - pkg: github.com/aws
+              desc: the SigV4 signer of aws-sdk-go-v2 is confined to the auth.upstream-sigv4 Filter, which only ruralzd links
+        # The Filter imports the signer and its credential type alone, so
+        # aws-sdk-go-v2 links no service client, credential chain or
+        # smithy-go package beyond the signer's own.
+        awspackages:
+          list-mode: strict
+          files: ["**/internal/filter/auth/upstreamsigv4/**"]
+          allow:
+            - $gostd
+            - github.com/ravindu-rev/ruralz
+            - github.com/aws/aws-sdk-go-v2/aws$
+            - github.com/aws/aws-sdk-go-v2/aws/signer/v4$
         jwxpackages:
           files: ["$all"]
           deny:

@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/secret"
+	"github.com/ravindu-rev/ruralz/internal/serviceaccount"
 )
 
 // Fixed reasons of the kind checks. None repeats any part of the value.
@@ -107,6 +108,11 @@ func checkKind(k secret.Kind, b []byte) error {
 		return nil
 	case secret.KindStateStoreURL:
 		return checkStateStoreURL(b)
+	case secret.KindServiceAccountKey:
+		// serviceaccount's errors are fixed reasons that repeat no part of
+		// the key.
+		_, err := serviceaccount.Parse(b)
+		return err
 	default:
 		return errUnknownKind
 	}

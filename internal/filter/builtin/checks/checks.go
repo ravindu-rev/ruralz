@@ -59,7 +59,9 @@ import (
 //   - cors: origins, tokens and the credentials wildcards (RZ-CFG-005);
 //   - headers, transform.request and transform.response: names, values,
 //     paths, patterns and the entry limit (RZ-CFG-005);
-//   - auth.upstream-oauth2: an https tokenUrl (RZ-CFG-037), a positive
+//   - auth.upstream-oauth2: an https tokenUrl (RZ-CFG-037), the fields
+//     each grantType takes and requires, an audience neither beside scopes
+//     nor under token-exchange without serviceAccount, and a positive
 //     timeout (RZ-CFG-005).
 //
 // The other types have no check: auth.basic and auth.upstream-sigv4 are

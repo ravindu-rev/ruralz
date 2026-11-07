@@ -74,6 +74,51 @@ func (l *legRun) OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter
 	return nil
 }
 
+// Sign runs the transport-time signing hook of one attempt (foundation pack
+// section 8.12 rule 6), which the Upstream layer calls once
+// OnUpstreamRequest returned without a response, as the last step before
+// leg.Request is sent. Every onUpstreamRequest Policy of the leg whose
+// Filter is a filter.Signer and that runs on the leg (its spec.when let it
+// run and it did not fail open) signs leg.Request in place, in chain
+// order, as one more call of the Policy in onUpstreamRequest: entered for
+// it, under a ruralz.filter.<name> span of its own, timed and recovered
+// from a panic like Handle. Its Continue lets the next signer run; its
+// cannot decide applies the Policy's failureMode as a failure in
+// onUpstreamRequest, so a closed upstream-auth Policy ends the leg with
+// 401 RZ-AUTH-020; any other outcome is ErrInvalidResult.
+func (l *legRun) Sign(ctx context.Context, leg *filter.Leg) *filter.Response {
+	const ph = phase.OnUpstreamRequest
+	l.rs.SetLeg(leg)
+	for _, p := range l.chain.Phases[ph] {
+		s, ok := p.Filter.(filter.Signer)
+		if !ok {
+			continue
+		}
+		if decided, skip := l.rs.When(p); !decided || skip || (len(l.failed) > 0 && l.isFailed(p)) {
+			continue
+		}
+		if v, resp := l.sign(ctx, p, s); v == respond {
+			return resp
+		}
+	}
+	return nil
+}
+
+// sign runs one signing Policy's Sign for the attempt and settles its
+// Result as a call in onUpstreamRequest. A Result other than Continue or
+// cannot decide is ErrInvalidResult: the hook signs, it never responds.
+func (l *legRun) sign(ctx context.Context, p *snapshot.Policy, s filter.Signer) (verdict, *filter.Response) {
+	const ph = phase.OnUpstreamRequest
+	sctx, span := l.e.startSpan(ctx, p, ph)
+	l.rs.Enter(p, ph, span)
+	t0 := l.e.clock.Now()
+	r := l.e.signCall(sctx, p, s, l.x)
+	if r.Outcome != filter.Continue && r.Outcome != filter.CannotDecide {
+		r = filter.Undecided(r.Code, ErrInvalidResult)
+	}
+	return l.settle(ctx, p, ph, r, span, l.e.clock.Since(t0), false, "")
+}
+
 // OnUpstreamResponseHeaders runs onUpstreamResponseHeaders for one attempt,
 // in the compiled (reverse) order. A Filter's Retry skips the rest of the
 // Phase for this attempt and returns retry true; the Upstream layer still
@@ -151,6 +196,9 @@ type noLeg struct{}
 
 // OnUpstreamRequest does nothing.
 func (noLeg) OnUpstreamRequest(context.Context, *filter.Leg) *filter.Response { return nil }
+
+// Sign does nothing: no Policy signs.
+func (noLeg) Sign(context.Context, *filter.Leg) *filter.Response { return nil }
 
 // OnUpstreamResponseHeaders does nothing.
 func (noLeg) OnUpstreamResponseHeaders(context.Context, *filter.Leg) (bool, *filter.Response) {

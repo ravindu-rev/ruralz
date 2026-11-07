@@ -64,6 +64,11 @@ type ClientOptions struct {
 	// 3xx response fails with ErrRedirect), and a request to any other
 	// origin fails with ErrDestination before a connection is made.
 	Destination string
+	// Cleartext lets a client bound to an http Destination request it:
+	// the metadata server's fixed link-local address, which serves no
+	// TLS. It applies to that origin only, so every other request still
+	// needs https, and it is ignored without a Destination.
+	Cleartext bool
 	// Timeout bounds one fetch, redirects and body read included (5 s for
 	// JWKS); 0 leaves the bound to the request context.
 	Timeout time.Duration
@@ -81,7 +86,8 @@ type ClientOptions struct {
 //
 //   - connections go through Dialer, so each connect, redirect hops and
 //     proxy connections included, is checked after DNS resolution;
-//   - only https URLs are requested, and https to http is never followed;
+//   - only https URLs are requested, and https to http is never followed,
+//     except the http Destination of a Cleartext client;
 //   - redirects follow ClientOptions.MaxRedirects, and a hop to a denied
 //     IP literal fails before dialing; a destination-bound client or one
 //     with MaxRedirects 0 fails every 3xx response with ErrRedirect;
@@ -127,8 +133,9 @@ func (g *Guard) Client(o ClientOptions) *http.Client {
 			dest = Origin(u)
 		}
 	}
+	cleartext := dest != "" && o.Cleartext && strings.HasPrefix(dest, "http://")
 	return &http.Client{
-		Transport: &transport{guard: g, base: tr, destination: dest, maxBody: maxBody, noRedirect: maxRedirects <= 0},
+		Transport: &transport{guard: g, base: tr, destination: dest, cleartext: cleartext, maxBody: maxBody, noRedirect: maxRedirects <= 0},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return g.checkRedirect(req, via, maxRedirects)
 		},
@@ -179,17 +186,20 @@ type transport struct {
 	guard       *Guard
 	base        *http.Transport
 	destination string
-	maxBody     int64
-	noRedirect  bool // every 3xx fails with ErrRedirect
+	// cleartext admits http requests to destination, an http origin
+	// (ClientOptions.Cleartext).
+	cleartext  bool
+	maxBody    int64
+	noRedirect bool // every 3xx fails with ErrRedirect
 }
 
-// RoundTrip refuses non-https URLs, other origins of a destination-bound
-// client and denied IP literals before any connection, refuses every 3xx
-// response of a client that follows no redirect (http.Client consults
-// CheckRedirect only for the redirects it would follow), then caps the
-// response body.
+// RoundTrip refuses non-https URLs but a Cleartext client's http
+// destination, other origins of a destination-bound client and denied IP
+// literals before any connection, refuses every 3xx response of a client
+// that follows no redirect (http.Client consults CheckRedirect only for the
+// redirects it would follow), then caps the response body.
 func (t *transport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if !strings.EqualFold(req.URL.Scheme, "https") {
+	if !strings.EqualFold(req.URL.Scheme, "https") && (!t.cleartext || Origin(req.URL) != t.destination) {
 		closeRequestBody(req)
 		return nil, fmt.Errorf("%w: %s", ErrScheme, req.URL.Scheme)
 	}

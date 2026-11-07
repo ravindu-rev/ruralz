@@ -693,22 +693,124 @@
       "type": "object"
     },
     "AuthUpstreamOAuth2Config": {
-      "description": "AuthUpstreamOAuth2Config is the config of an auth.upstream-oauth2 Policy.",
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "grantType": {
+                "const": "jwt-bearer"
+              }
+            },
+            "required": [
+              "grantType"
+            ]
+          },
+          "then": {
+            "required": [
+              "tokenUrl"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "grantType": {
+                "const": "jwt-bearer"
+              }
+            },
+            "required": [
+              "grantType"
+            ]
+          },
+          "then": {
+            "required": [
+              "serviceAccountKey"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "grantType": {
+                "const": "token-exchange"
+              }
+            },
+            "required": [
+              "grantType"
+            ]
+          },
+          "then": {
+            "required": [
+              "tokenUrl"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "grantType": {
+                "const": "token-exchange"
+              }
+            },
+            "required": [
+              "grantType"
+            ]
+          },
+          "then": {
+            "required": [
+              "subjectToken"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "grantType": {
+                "const": "token-exchange"
+              }
+            },
+            "required": [
+              "grantType"
+            ]
+          },
+          "then": {
+            "required": [
+              "workloadIdentityProvider"
+            ]
+          }
+        }
+      ],
+      "description": "AuthUpstreamOAuth2Config is the config of an auth.upstream-oauth2 Policy. The fields each grantType takes, which the type's check holds it to (RZ-CFG-005), are those its field descriptions name.",
       "properties": {
+        "audience": {
+          "description": "Audience requests an ID token for this audience instead of an access token for scopes; jwt-bearer, metadata-server, and token-exchange with serviceAccount.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
         "clientId": {
-          "description": "ClientID is the OAuth2 client identifier.",
+          "description": "ClientID is the OAuth2 client identifier; client-credentials only, and required there.",
           "type": "string"
         },
         "clientSecret": {
           "$ref": "#/$defs/SecretValue",
-          "description": "ClientSecret is the OAuth2 client secret.",
+          "description": "ClientSecret is the OAuth2 client secret; client-credentials only, and required there.",
           "x-ruralz-impact": [
             "security"
           ],
           "x-ruralz-secret": true
         },
+        "grantType": {
+          "$ref": "#/$defs/OAuth2GrantType",
+          "default": "client-credentials",
+          "description": "GrantType is how the token is obtained: client-credentials, jwt-bearer, metadata-server or token-exchange.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-since": 1
+        },
         "scopes": {
-          "description": "Scopes are the requested scopes.",
+          "description": "Scopes are the requested scopes of an access token; not with audience.",
           "items": {
             "type": "string"
           },
@@ -717,24 +819,59 @@
             "type": "set"
           }
         },
+        "serviceAccount": {
+          "description": "ServiceAccount is the email of the service account token-exchange impersonates for its access token, or for an ID token; token-exchange only.",
+          "type": "string",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-since": 1
+        },
+        "serviceAccountKey": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "ServiceAccountKey is a service-account JSON key, which signs the jwt-bearer assertion and never leaves the Node; jwt-bearer only, and required there.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true,
+          "x-ruralz-since": 1
+        },
+        "subjectToken": {
+          "$ref": "#/$defs/SecretValue",
+          "description": "SubjectToken is the token token-exchange exchanges, such as a projected Kubernetes service account token, sent only to the origin of tokenUrl; token-exchange only, and required there.",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-secret": true,
+          "x-ruralz-since": 1
+        },
+        "subjectTokenType": {
+          "default": "urn:ietf:params:oauth:token-type:jwt",
+          "description": "SubjectTokenType is the RFC 8693 type of subjectToken; token-exchange only.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
         "timeout": {
           "$ref": "#/$defs/Duration",
           "default": "2s",
           "description": "Timeout bounds a token fetch."
         },
         "tokenUrl": {
-          "description": "TokenURL is the token endpoint and the only destination of clientSecret; it MUST be https (RZ-CFG-037).",
+          "description": "TokenURL is the token endpoint and the only destination of clientSecret and subjectToken; it MUST be https (RZ-CFG-037). Required by every grantType but metadata-server, which takes none.",
           "type": "string",
           "x-ruralz-impact": [
             "security"
           ]
+        },
+        "workloadIdentityProvider": {
+          "description": "WorkloadIdentityProvider is the full resource name of the workload identity provider, sent as the exchange's audience; token-exchange only, and required there.",
+          "type": "string",
+          "x-ruralz-impact": [
+            "security"
+          ],
+          "x-ruralz-since": 1
         }
       },
-      "required": [
-        "tokenUrl",
-        "clientId",
-        "clientSecret"
-      ],
       "type": "object"
     },
     "AuthUpstreamSigV4Config": {
@@ -2440,6 +2577,16 @@
         "model"
       ],
       "type": "object"
+    },
+    "OAuth2GrantType": {
+      "description": "OAuth2GrantType is how an auth.upstream-oauth2 Policy obtains its token.",
+      "enum": [
+        "client-credentials",
+        "jwt-bearer",
+        "metadata-server",
+        "token-exchange"
+      ],
+      "type": "string"
     },
     "OAuthClient": {
       "additionalProperties": false,
