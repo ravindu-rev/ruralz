@@ -112,12 +112,12 @@ func TestChunkCount(t *testing.T) {
 func TestEncodeWorkersClamped(t *testing.T) {
 	b := largeBundle(t, 30)
 	enc := NewEncoder(hubIndex(t))
-	one, err := enc.Encode(context.Background(), b, Options{Workers: 1})
+	one, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: 1}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, w := range []int{maxWorkers, maxWorkers + 1, 1 << 62, math.MaxInt/4*3 + 1, math.MaxInt} {
-		got, err := enc.Encode(context.Background(), b, Options{Workers: w})
+		got, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: w}))
 		if err != nil {
 			t.Fatalf("workers %d: %v", w, err)
 		}

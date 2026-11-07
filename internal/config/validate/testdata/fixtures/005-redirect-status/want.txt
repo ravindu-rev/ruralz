@@ -1,0 +1,3 @@
+extra.yaml:8:22 error RZ-CFG-005 Route/see-other spec.redirect.status: redirect status 303 is not 301, 302, 307 or 308
+extra.yaml:17:22 error RZ-CFG-005 Route/not-modified spec.redirect.status: redirect status 304 is not 301, 302, 307 or 308
+extra.yaml:26:22 error RZ-CFG-005 Route/unused spec.redirect.status: redirect status 306 is not 301, 302, 307 or 308

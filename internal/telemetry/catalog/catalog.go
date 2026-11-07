@@ -136,6 +136,7 @@ const (
 	UpstreamDegradedInfo                = "ruralz_upstream_degraded_info"
 	UpstreamCELErrorsTotal              = "ruralz_upstream_cel_errors_total"
 	UpstreamPoolConnections             = "ruralz_upstream_pool_connections"
+	UpstreamMirrorsTotal                = "ruralz_upstream_mirrors_total"
 	StateCallDurationSeconds            = "ruralz_state_call_duration_seconds"
 	StateCallsTotal                     = "ruralz_state_calls_total"
 	StateOpsTotal                       = "ruralz_state_ops_total"
@@ -209,6 +210,14 @@ func CacheResults() []string {
 // failed, or the lease no longer held the job's token).
 func CacheRevalidationResults() []string { return []string{"refreshed", "ended", "kept", "skipped"} }
 
+// MirrorResults returns the result values of ruralz_upstream_mirrors_total
+// in label order: a mirror leg got a response, which it discarded; was
+// dropped before it was sent, past its maxInFlight, for a copy of the body
+// the buffer budget or the attempt could not complete, or for a snapshot
+// no longer active; or was sent and ended without a response
+// (docs/architecture/09-traffic-management-and-resilience.md "Mirroring").
+func MirrorResults() []string { return []string{"sent", "dropped", "failed"} }
+
 // LogSinks returns the sink values of ruralz_telemetry_logs_dropped_total
 // in label order: a log record reaches stdout and the OTLP log queue
 // independently, and each sink counts a record it loses once, so a record
@@ -278,6 +287,7 @@ func Families() []Family {
 		{UpstreamDegradedInfo, Gauge, BoundsNone, "1", []Label{up, {Name: "reason", Values: []string{"panic", "discovery_stale", "balancer_budget"}}}, ClassUpstream, false},
 		{UpstreamCELErrorsTotal, Counter, BoundsNone, "{errors}", []Label{up, {Name: "field", Values: []string{"hashKey", "retryOn", "failureWhen"}}}, ClassUpstream, false},
 		{UpstreamPoolConnections, Gauge, BoundsNone, "{connections}", []Label{up, {Name: "state", Values: []string{"idle", "active"}}}, ClassUpstream, false},
+		{UpstreamMirrorsTotal, Counter, BoundsNone, "{mirrors}", []Label{route, up, {Name: "result", Values: MirrorResults()}}, ClassRoute, false},
 		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []Label{{Name: "op", Values: Ops()}, {Name: "zone", Values: Zones()}}, ClassListener, true},
 		{StateCallsTotal, Counter, BoundsNone, "{calls}", []Label{{Name: "op", Values: Ops()}, {Name: "result", Values: []string{"ok", "error", "timeout", "skipped"}}}, ClassListener, true},
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []Label{{Name: "kind", Values: Ops()}}, ClassListener, true},

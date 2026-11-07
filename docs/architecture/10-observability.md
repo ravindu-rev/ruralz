@@ -126,7 +126,7 @@ ratio:   [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5]
 
 ### Ruralz Gateway metrics
 
-`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total` are Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
+`ruralz_plugin_*`, `ruralz_node_detached_seconds`, `ruralz_node_revocation_mark_age_seconds` and `ruralz_node_control_stream_reconnects_total` and `ruralz_upstream_mirrors_total` are Planned (M2); `ruralz_http_session_duration_seconds` and `ruralz_sse_buffered_total`, Planned (M3); and `ruralz_ingress_paused_partitions` and `ruralz_ingress_hold_expiries_total`, Planned (M4). A CI check fails when a `ruralz_*` name or a `ruralz_node_degraded_info` reason under `docs/architecture/` is missing from this catalog.
 
 | Metric | Type | Unit | Labels | Meaning or values |
 |---|---|---|---|---|
@@ -167,6 +167,7 @@ ratio:   [0.5, 0.75, 0.9, 0.95, 0.98, 0.99, 1, 1.01, 1.02, 1.05, 1.1, 1.25, 1.5]
 | `ruralz_upstream_degraded_info` | Gauge | info | `upstream`, `reason` | panic, discovery_stale, balancer_budget |
 | `ruralz_upstream_cel_errors_total` | Counter | errors | `upstream`, `field` | hashKey, retryOn, failureWhen |
 | `ruralz_upstream_pool_connections` | Gauge | connections | `upstream`, `state` | idle, active |
+| `ruralz_upstream_mirrors_total` | Counter | mirrors | `route`, `upstream`, `result` | sent, dropped, failed: each sampled copy of a Route's request to a mirror Upstream ([Mirroring](09-traffic-management-and-resilience.md#mirroring)) |
 | `ruralz_state_call_duration_seconds` | Histogram, fast | seconds | `op`, `zone` | SLI of SLO-GW-5, `zone="same"` calls only |
 | `ruralz_state_calls_total` | Counter | calls | `op`, `result` | ok, error, timeout, skipped |
 | `ruralz_state_ops_total`, `ruralz_state_writes_dropped_total` | Counter | operations, writes | `kind` | In round trips; post-commit writes dropped: a full class, an open breaker, a failed invalidation retry, the Drain flush |
@@ -279,6 +280,7 @@ A sampled request has a server span `<method> <route>` (`_OTHER` for methods out
 - `headers` and `transform` run, and create spans, only in the Phases their config uses ([Configuration model](02-configuration-model.md#worked-example)).
 - `onChunk` creates one span per subscribed Policy per stream, with chunk count and time; a `failureMode: closed` ending adds a span event.
 - `onLog` creates no span.
+- A mirror leg (Planned (M2)) creates no span: its copy carries the trace context fields the primary attempt sent, so the mirror Upstream's spans join the trace under that attempt's `ruralz.upstream.<name>` span.
 - State Store calls are attributes of the calling Filter's span; a shared round trip is recorded on the first Filter's span and named by the others in `ruralz.state.batch`.
 
 *Figure 2: the 15 Ruralz spans of one sampled request to the Configuration model's `orders-summary` Route, which aggregates two Upstreams.*
@@ -403,7 +405,7 @@ Ruralz ships Grafana dashboards as Apache-2.0 JSON in the monorepo and in the He
 | Ruralz Gateway overview | Rate, errors by origin, gateway-added latency, degraded states |
 | Route detail | Per-Route rate, errors, duration, exemplars; Response Cache results, revalidations, hit ratio (`hit` and `stale`) and origin offload (`hit`, `stale` and `coalesced`), each over every result but `bypass` |
 | Policies and Filter Chain | Duration, short-circuits, failures, auth |
-| Upstreams and resilience | Attempts, retries, breakers, Endpoints, ejections, pools |
+| Upstreams and resilience | Attempts, retries, breakers, Endpoints, ejections, pools, mirrors by result |
 | State Store, Rate Limits and Quotas | Round trips, breaker, fail-open, dropped writes, dropped Response Cache revalidations |
 | Node runtime and configuration | Runtime, buffers, activations, snapshots, cleartext hops |
 | Telemetry health | Drops, capped traces, folded and retiring series |
@@ -574,7 +576,7 @@ The metrics memory estimate assumes 120 bytes per counter or gauge series and 30
 
 ### Cardinality budget
 
-Under O5 the compiler admits label sets in deterministic order (kind, then `metadata.name` bytes) within admission limits (target) of 6,000 per counter or gauge family, 2,000 per histogram family and 100,000 series per Revision; the rest fold into `_overflow`, identically on every Node. Listener and enumeration families are admitted first and never fold; they carry the SLIs of SLO-GW-1 to SLO-GW-3 and SLO-GW-5 to SLO-GW-7. The SLIs of SLO-GW-4 (`policy`, `phase`) and SLO-AI-1 (`provider`, `model`) can fold, and their sums stay exact because folding moves only later records. The compiler reserves 16 `ruralz_plugin_guest_events_total` series per Plugin Policy; names bind first come at runtime, may differ between Nodes and never fold further, since the Plugin ABI refuses a 17th.
+Under O5 the compiler admits label sets in deterministic order (kind, then `metadata.name` bytes) within admission limits (target) of 6,000 per counter or gauge family, 2,000 per histogram family and 100,000 series per Revision; the rest fold into `_overflow`, identically on every Node. The three `ruralz_upstream_mirrors_total` label sets of each Route mirror (Planned (M2)) are admitted after every Route's own, in Route and mirror Upstream name order, and are never sharded. Listener and enumeration families are admitted first and never fold; they carry the SLIs of SLO-GW-1 to SLO-GW-3 and SLO-GW-5 to SLO-GW-7. The SLIs of SLO-GW-4 (`policy`, `phase`) and SLO-AI-1 (`provider`, `model`) can fold, and their sums stay exact because folding moves only later records. The compiler reserves 16 `ruralz_plugin_guest_events_total` series per Plugin Policy; names bind first come at runtime, may differ between Nodes and never fold further, since the Plugin ABI refuses a 17th.
 
 A label set only retired or closing snapshots reference is retiring; with K = 2 retired plus one closing snapshot ([Data plane](03-data-plane.md#configuration-snapshots-and-hot-reload)), streams can pin four disjoint Route name sets for hours. A Node-wide ceiling of 25,000 retiring series (target) caps a Node at 125,000 series: beyond it the oldest retiring sets fold; per-Revision admission ignores retiring sets, so live folding stays identical on every Node. A retiring set is released when its last snapshot is freed; a returning name restarts from 0.
 

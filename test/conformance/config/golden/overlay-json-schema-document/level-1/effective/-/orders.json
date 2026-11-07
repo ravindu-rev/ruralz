@@ -1,0 +1,12 @@
+[
+  {
+    "phase": "onRequestBody",
+    "leg": "client",
+    "policy": "order-shape",
+    "type": "validation.json-schema",
+    "filterClass": "validation",
+    "slot": "validation",
+    "from": "Route",
+    "reason": "slot validation"
+  }
+]

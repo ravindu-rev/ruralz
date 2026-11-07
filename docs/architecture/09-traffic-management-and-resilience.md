@@ -6,7 +6,7 @@ This document fixes how a Ruralz Gateway Node selects and ejects Endpoints, boun
 
 ## Scope and non-goals
 
-In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams`, `Route.spec.mirror`, `Route.spec.redirect` and IETF RateLimit headers. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section.
+In scope: the Summary's subjects and Policy `config` ([Configuration model](02-configuration-model.md#policy)), `Route.spec.timeout`, weighted `upstreams`, `Route.spec.mirrors`, `Route.spec.redirect` and IETF RateLimit headers. "Pack 8.8" is a [foundation pack](../_meta/foundation-pack.md) section.
 
 Non-goals, with owners: kinds and fields ([Configuration model](02-configuration-model.md)); precedence, error format, buffer budgets ([Data plane](03-data-plane.md)); accuracy bounds, State Store sizing, Cells ([Scalability](11-scalability-and-distributed-state.md)); Token Budgets ([ADR-0014](../adr/0014-ai-api-surface.md)), Provider Fallback ([AI/LLM gateway](06-ai-llm-gateway.md)); `authz.ip`, `authz.geoip`, pre-authentication limits ([Security](08-security-and-identity.md)); streams ([Multi-protocol](07-multi-protocol.md)).
 
@@ -486,7 +486,7 @@ sequenceDiagram
 
 ## Traffic shaping
 
-Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`. Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring is `Route.spec.mirror`, Planned (M2) ([Mirroring](#mirroring)).
+Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`. Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring is `Route.spec.mirrors`, Planned (M2) ([Mirroring](#mirroring)).
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -506,11 +506,41 @@ Routing features build on Route matching and composition, all free. A catch-all 
 
 ### Mirroring
 
-`Route.spec.mirror`, Planned (M2), sends a copy of a sampled percentage of a Route's requests to a target Upstream and discards the mirror's responses. Mirroring never delays or fails the primary request: a failed, slow or dropped mirror changes neither the primary's timing nor its response. In-flight mirrors are bounded, so a mirror past the bound, or whose copy of the request body would pass `limits.maxBufferedBytes`, is dropped and counted ([Bounded resources](03-data-plane.md#bounded-resources)). Metrics count sent, dropped and failed mirrors ([Observability](10-observability.md)). Subfields, the bound and metric names: OQ-traffic-management-and-resilience-24.
+`Route.spec.mirrors`, Planned (M2), copies a sampled share of a Route's requests to other Upstreams and discards their responses. It is a `map` keyed by `upstream`, valid only beside `upstreams` (RZ-CFG-005 beside `composition` or `redirect`), and each entry has these fields:
+
+| Field | Meaning |
+|---|---|
+| `upstream` | Required: the mirror Upstream, RZ-CFG-009 when no Upstream has that name |
+| `percent` | 0 to 100, default 100: the share of the Route's requests copied, drawn for each request on its own |
+| `maxInFlight` | At least 1, default 1,000 (target): the mirror's copies in flight on one Node, counted across Hot Reloads |
+
+A mirror copies what the first attempt the primary leg sends carries after its `onUpstreamRequest` Policies: the method, path, query, header fields as sent (forwarding, `Via` and trace context fields, and credentials an Upstream-scope Policy set), body and trailer section. A retry, a composition step, and an attempt an `onUpstreamRequest` Policy answered are never copied. The copy goes to an Endpoint of the mirror Upstream, with that Endpoint's authority as `Host`, as one attempt through the mirror Upstream's balancing (its `hashKey` over the request), pools, health tracking, circuit breaker and timeouts. It runs no Policy and no retry, spends no retry budget and no Node in-flight unit, starts no span, and takes a `circuitBreaker.maxConnections` slot only when one is free and no attempt of that Upstream waits for one. The Route `timeout` bounds it as it bounds the primary.
+
+Mirroring never delays or fails the primary request. The request goroutine only offers the attempt and goes on, each copy runs on a goroutine of its own, and its outcome never reaches the primary's response, timing or access record. A buffered body is copied at once, and a streamed body as the primary attempt sends it, the copy leaving once it is complete. A copy past `maxInFlight`, one whose body `limits.maxBufferedBytes` cannot hold, one whose streamed body the primary did not send to its end, and one that would start past the Drain deadline is dropped ([Bounded resources](03-data-plane.md#bounded-resources)).
+
+`ruralz_upstream_mirrors_total` counts each sampled copy once by Route, mirror Upstream and result ([Observability](10-observability.md#ruralz-gateway-metrics)): `sent` once the mirror Upstream answered with response headers, whatever their status; `dropped` when the copy never reached it; `failed` when it gave no response. A copy's attempt counts in the mirror Upstream's attempt metrics, passive health and breaker like any attempt of that Upstream.
 
 ### Redirects
 
-`Route.spec.redirect`, Planned (M2), makes a Route answer with a redirect instead of forwarding to an Upstream: status 301, 302, 307 or 308, and a `Location` built from the request URL with its scheme, host, and path or matched path prefix rewritten, and its query handled, as the Route sets them. Upstream 3xx responses pass through unchanged. Subfields, defaults and how a redirect combines with `upstreams` and Policies: OQ-traffic-management-and-resilience-25.
+`Route.spec.redirect`, Planned (M2), makes a Route answer with a redirect instead of forwarding. A Route has exactly one of `upstreams`, `composition` and `redirect` (RZ-CFG-005).
+
+| Field | Meaning |
+|---|---|
+| `status` | 301, 302, 307 or 308, default 302 |
+| `scheme` | `http` or `https`; default the request's |
+| `host` | A DNS name or IP address, IPv6 in brackets, with an optional port from 1 to 65535; default the request's `Host` field |
+| `path` | Replaces the path |
+| `prefix` | Replaces the `match.path` `prefix` the request matched; valid only on a prefix Route, and at most one of `path` and `prefix` |
+| `query` | `keep` (default) or `drop` |
+| `locationExpression` | CEL building the whole `Location`, instead of `scheme`, `host`, `path`, `prefix` and `query`; Planned (M2) |
+
+The redirect answers after the `onRequestHeaders` Policies, so authentication and Rate Limits apply first. It reads no body, and neither `onRequestBody`, `onRoute` nor the Upstream layer runs; `onResponse` and `onLog` run on it as on any generated response, so CORS and security headers reach it. The response carries the status, `Location` and no content.
+
+`Location` is the request URL with the redirect's fields applied. Its scheme is `scheme`, else the request's. Its authority is `host`, else the request's `Host` field, which loses its port when `scheme` changes the request's scheme. Its path is `path`, else, with `prefix`, the request's normalized path with the matched prefix replaced, a trailing `/` of either ignored so the two join with one `/`, and `prefix: /` removing the matched prefix; else the request's normalized path. Its query is the request's raw query unless `query` is `drop`.
+
+`path` and `prefix` are written normalized, start with `/` and hold no `?` or `#`, nor anything a literal composition step `path` refuses (RZ-CFG-005). With an authority, `Location` is absolute; a request without a `Host` field to a redirect without `host` gets an absolute-path reference, written with a leading `/.` when its path starts with `//`, so it never reads as a network-path reference.
+
+`locationExpression` reads the Base variables and yields a URI reference under the computed header value rule: spaces and tabs around it trimmed, at most 8 KiB (target), and only URI characters. It compiles and is costed as every CEL place is (RZ-CFG-014, RZ-CFG-015); what the redirect answers when it fails at runtime or yields an invalid `Location` is OQ-traffic-management-and-resilience-26, and until that is answered the serve check refuses the field (RZ-CFG-040). Upstream 3xx responses pass through unchanged.
 
 ## Overload protection
 
@@ -599,5 +629,4 @@ An attempt that ends because the client's streamed body passed `limits.maxReques
 | OQ-traffic-management-and-resilience-17 | How is a percentage-sticky split declared? | (a) A hash key on `upstreams`; (b) a CEL hash; (c) a cookie-setting Plugin | configuration-model | No |
 | OQ-traffic-management-and-resilience-22 | Should the upgrade handover also pass the rate-limit key table, beside the Node count pack 8.8 hands over? | (a) Yes; (b) the count only (current) | zero-downtime-upgrades-and-hot-reload | No |
 | OQ-traffic-management-and-resilience-23 | How is the 256 MiB balancer budget (target) reported and sized? | (a) A warning and a new `RZ-CFG` code when static Endpoints exceed half; (b) a warning; any with (c) a Gateway `limits` field in Data plane's Node memory sum | data-plane | No |
-| OQ-traffic-management-and-resilience-24 | Which subfields does `Route.spec.mirror` take, what does a mirror copy, and which bound and metrics does mirroring use? | (a) `mirror: {upstream, percent}`, `upstream` a required Upstream name and `percent` 0 to 100, default 100, valid only beside `upstreams`; a mirror copies what the primary leg's first attempt sends, after its `onUpstreamRequest` Policies, runs no Policy or retry of its own and holds no in-flight unit; at most 1,000 in-flight mirrors per Node (target); one counter by Route and outcome (sent, dropped, failed) (proposed); (b) `mirrors[]`, a list of `{upstream, percent}` entries, each with a `maxInFlight` field | configuration-model | Yes, for `Route` mirroring, Planned (M2) |
-| OQ-traffic-management-and-resilience-25 | Which subfields does `Route.spec.redirect` take, which defaults apply, and how does it combine with `upstreams` and Policies? | (a) `redirect: {status, scheme, host, path, prefix, query}`: `status` 301, 302, 307 or 308, default 302; `scheme` and `host` default to the request's; at most one of `path`, replacing the path, and `prefix`, replacing the matched `match.path` prefix and valid only on a prefix Route; `query` `keep` (default) or `drop`; exactly one of `upstreams`, `composition` and `redirect` per Route; the redirect is a short-circuit after the `onRequestHeaders` Policies, so authentication and Rate Limits still apply (proposed); (b) `status` with a CEL `locationExpression` that builds the whole `Location` | configuration-model | Yes, for built-in redirects, Planned (M2) |
+| OQ-traffic-management-and-resilience-26 | What does a redirect answer when its `locationExpression` fails at runtime or yields an invalid `Location`? | (a) 500 with a new `RZ-RT` code for a redirect without a `Location` (proposed); (b) 500 `RZ-RT-025`, the internal fault | data-plane | Yes, for `redirect.locationExpression`, Planned (M2) |

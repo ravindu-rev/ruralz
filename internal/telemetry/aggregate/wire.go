@@ -56,6 +56,14 @@ func wireRoute(m *emit.RouteMetrics, name string, hs handleSet) {
 	}
 }
 
+func wireMirror(m *emit.MirrorMetrics, name string, hs handleSet) {
+	if name == catalog.UpstreamMirrorsTotal {
+		for i := range m.Results {
+			m.Results[i] = hs.counter(i)
+		}
+	}
+}
+
 func wireUpstream(m *emit.UpstreamMetrics, name string, hs handleSet) {
 	switch name {
 	case catalog.UpstreamAttemptsTotal:

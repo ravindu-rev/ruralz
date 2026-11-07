@@ -1,0 +1,44 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: hosts
+spec:
+  match:
+    path: {exact: /hosts}
+  redirect: {host: "www.shop.example:0"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: user-info
+spec:
+  match:
+    path: {exact: /user-info}
+  redirect: {host: "attacker@shop.example"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: bare-ipv6
+spec:
+  match:
+    path: {exact: /bare-ipv6}
+  redirect: {host: "2001:db8::1"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: host-path
+spec:
+  match:
+    path: {exact: /host-path}
+  redirect: {host: "shop.example/elsewhere"}
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: empty-host
+spec:
+  match:
+    path: {exact: /empty-host}
+  redirect: {host: ""}

@@ -4,18 +4,21 @@
 package validate
 
 import (
+	"slices"
 	"strconv"
 
 	"github.com/ravindu-rev/ruralz/internal/config/diag"
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
+	"github.com/ravindu-rev/ruralz/internal/netaddr"
 	"github.com/ravindu-rev/ruralz/internal/routematch"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
 // route checks a Route: its listeners name Gateway listeners
 // (RZ-CFG-009), its match criteria compile as the Router compiles them
-// (RZ-CFG-005), and its composition fits the Gateway limits (RZ-CFG-031,
-// RZ-CFG-032).
+// (RZ-CFG-005), its composition fits the Gateway limits (RZ-CFG-031,
+// RZ-CFG-032), its redirect builds a Location (RZ-CFG-005) and its mirrors
+// copy an upstreams leg (RZ-CFG-005).
 func (u *unit) route() {
 	rt, ok := hub.Object[v1alpha1.Route](u.r)
 	if !ok || rt == nil {
@@ -39,6 +42,63 @@ func (u *unit) route() {
 	}
 	if c := rt.Spec.Composition; c != nil {
 		u.composition(c)
+	}
+	if r := rt.Spec.Redirect; r != nil {
+		u.redirect(r, &rt.Spec.Match)
+	}
+	if len(rt.Spec.Mirrors) > 0 && len(rt.Spec.Upstreams) == 0 {
+		// The schema holds exactly one of upstreams, composition and
+		// redirect: without upstreams there is no leg whose first attempt a
+		// mirror copies.
+		other := "composition"
+		if rt.Spec.Redirect != nil {
+			other = "redirect"
+		}
+		u.report(CodeSchema, specPath(diag.Field("mirrors")),
+			"mirrors copy the first attempt of the upstreams leg, and this Route sets "+other+" instead",
+			"remove mirrors, or forward the Route with upstreams", nil)
+	}
+}
+
+// redirectStatuses are the statuses a redirect answers with
+// (docs/architecture/09-traffic-management-and-resilience.md "Redirects");
+// the schema bounds status to 301 to 308.
+func redirectStatuses() []int32 { return []int32{301, 302, 307, 308} }
+
+// redirect checks a Route's redirect, each failure RZ-CFG-005 at its field,
+// so the Node builds every Location validation passed: a status of 301,
+// 302, 307 or 308; a host that is a URL authority without user information
+// (netaddr.CheckAuthority); a path and a prefix that may replace the
+// client's in a Location (routematch.CheckRedirectPath); and a prefix only
+// on a Route whose match.path is a prefix, the prefix it replaces. The
+// schema states the rest: at most one of path and prefix, and
+// locationExpression without scheme, host, path, prefix or query.
+func (u *unit) redirect(r *v1alpha1.RouteRedirect, m *v1alpha1.RouteMatch) {
+	u.w.charge(1)
+	base := specPath(diag.Field("redirect"))
+	if s := r.Status; s != nil && !slices.Contains(redirectStatuses(), *s) {
+		u.report(CodeSchema, base.Append(diag.Field("status")),
+			"redirect status "+strconv.Itoa(int(*s))+" is not 301, 302, 307 or 308", "", nil)
+	}
+	if p := base.Append(diag.Field("host")); r.Host != "" || u.f.node(p) != nil {
+		if err := netaddr.CheckAuthority(r.Host); err != nil {
+			u.report(CodeSchema, p, "redirect host "+quote(r.Host)+" is not a host with an optional port ("+err.Error()+")",
+				"write a DNS name or an IP address, IPv6 in brackets, and optionally :port", nil)
+		}
+	}
+	for _, f := range []struct{ name, value string }{{"path", r.Path}, {"prefix", r.Prefix}} {
+		p := base.Append(diag.Field(f.name))
+		if f.value == "" && u.f.node(p) == nil {
+			continue
+		}
+		if err := routematch.CheckRedirectPath(f.value); err != nil {
+			u.report(CodeSchema, p, "redirect "+f.name+" "+quote(f.value)+" is not a valid path ("+pathReason(err)+")",
+				"start it with /, and keep ? and # out of it: query names what the redirect does with the query", nil)
+		}
+	}
+	if p := base.Append(diag.Field("prefix")); (r.Prefix != "" || u.f.node(p) != nil) && (m.Path == nil || m.Path.Prefix == "") {
+		u.report(CodeSchema, p, "redirect prefix replaces the matched match.path.prefix, and this Route's match.path is not a prefix",
+			"use path to replace the whole path, or match the Route with a path prefix", nil)
 	}
 }
 

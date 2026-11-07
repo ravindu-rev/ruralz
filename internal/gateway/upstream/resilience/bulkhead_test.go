@@ -269,3 +269,45 @@ func TestEndpointCap(t *testing.T) {
 		}
 	}
 }
+
+// TestBulkheadTryAcquire: a mirror leg's slot comes only from a free slot
+// while no attempt waits; it never queues or takes the pending room, it
+// counts in InFlight as any slot and its Release grants the first waiter.
+func TestBulkheadTryAcquire(t *testing.T) {
+	ctx := context.Background()
+	var b Bulkhead
+	cfg := BulkheadConfig{MaxConnections: 2, MaxPendingRequests: 1}
+	if !b.TryAcquire(&cfg) {
+		t.Fatal("TryAcquire with two free slots = false")
+	}
+	if err := b.Acquire(ctx, &cfg); err != nil {
+		t.Fatalf("Acquire beside it: %v", err)
+	}
+	if b.TryAcquire(&cfg) {
+		t.Fatal("TryAcquire with every slot held = true")
+	}
+	if b.Pending() != 0 || b.InFlight() != 2 {
+		t.Fatalf("a refused TryAcquire queued: Pending() = %d, InFlight() = %d", b.Pending(), b.InFlight())
+	}
+	got := make(chan error, 1)
+	go func() { got <- b.Acquire(ctx, &cfg) }()
+	waitPending(t, &b, 1)
+	b.Release()
+	if err := <-got; err != nil {
+		t.Fatalf("the waiter after a release: %v", err)
+	}
+	// A slot a Hot Reload frees by raising the ceiling goes to the queued
+	// attempt first, not to the mirror leg that raised it.
+	waiting := make(chan error, 1)
+	go func() { waiting <- b.Acquire(ctx, &cfg) }()
+	waitPending(t, &b, 1)
+	if b.TryAcquire(&BulkheadConfig{MaxConnections: 3, MaxPendingRequests: 1}) {
+		t.Fatal("TryAcquire took the slot a queued attempt waits for")
+	}
+	if err := <-waiting; err != nil {
+		t.Fatalf("the queued attempt after the ceiling rose: %v", err)
+	}
+	if b.InFlight() != 3 {
+		t.Fatalf("InFlight() = %d, want 3", b.InFlight())
+	}
+}

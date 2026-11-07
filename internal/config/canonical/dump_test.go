@@ -34,7 +34,7 @@ func dumpOf(t testing.TB, dst []byte, active revision.Revision, lkg revision.Dig
 // activeRevision returns a Revision with CEL text.
 func activeRevision(t *testing.T) revision.Revision {
 	t.Helper()
-	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, gatewayDoc, celRoute, routeDoc), Options{})
+	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, gatewayDoc, celRoute, routeDoc), hubOptions(t, Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/gateway/tap"
 	"github.com/ravindu-rev/ruralz/internal/gateway/upstream"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/mirror"
 	"github.com/ravindu-rev/ruralz/internal/httpfield"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/routematch"
@@ -94,6 +95,12 @@ type state struct {
 	// admission strip removes them: they name hop-by-hop fields of the
 	// request's trailer section too.
 	connOpts []string
+	// redirect and locHdr hold a redirect Route's answer (st.redirectTo);
+	// offer is the offer of the request's first attempt to its Route's
+	// mirrors (MirrorAttempt).
+	redirect snapshot.RedirectRequest
+	locHdr   http.Header
+	offer    mirror.Offer
 
 	// The outcome the commit and the copy leave for finish.
 	status       int
@@ -143,6 +150,8 @@ func (st *state) reset() {
 	st.snap, st.view, st.lis, st.lm, st.x, st.run, st.route = nil, nil, nil, nil, nil, nil, nil
 	st.decision, st.span, st.spanEnded, st.tls, st.src, st.resp = emit.Decision{}, nil, false, filter.ConnTLS{}, filter.Source{}, filter.Response{}
 	st.deadline, st.listenerName, st.scheme, st.path, st.pathCode, st.hints, st.connOpts = time.Time{}, "", "", "", "", false, nil
+	st.redirect, st.offer = snapshot.RedirectRequest{}, mirror.Offer{}
+	clear(st.locHdr)
 	st.status, st.code, st.generated, st.fromUpstream, st.abort, st.respBytes = 0, "", false, false, false, 0
 	st.upstream, st.endpoint, st.attempts, st.gwEnd, st.stream, st.upTrailer = "", "", 0, time.Time{}, nil, nil
 	clear(st.trailerKeys)
@@ -512,16 +521,7 @@ func (st *state) proxy(ctx context.Context, rt *snapshot.Route) {
 		// after the match").
 		gen = st.nodeResponse(codeWebSocket)
 	default:
-		gen = st.run.Request(ctx, phase.OnRequestHeaders)
-		if gen == nil {
-			gen = st.prepareBody(ctx)
-		}
-		if gen == nil && !st.abort {
-			gen = st.run.Request(ctx, phase.OnRequestBody)
-		}
-		if gen == nil && !st.abort {
-			gen = st.run.Request(ctx, phase.OnRoute)
-		}
+		gen = st.requestPhases(ctx, rt)
 	}
 	kind := executor.ResponseGenerated
 	switch {
@@ -539,6 +539,29 @@ func (st *state) proxy(ctx context.Context, rt *snapshot.Route) {
 	if st.abort {
 		panic(http.ErrAbortHandler)
 	}
+}
+
+// requestPhases runs the request Phases of a matched Route and returns the
+// response one of them generated, nil to forward: onRequestHeaders, then,
+// on a redirect Route, the redirect, which answers there, so
+// authentication and Rate Limits still apply and no body is read
+// (docs/architecture/09-traffic-management-and-resilience.md "Redirects");
+// otherwise the request body, onRequestBody and onRoute, unless the
+// request aborted.
+func (st *state) requestPhases(ctx context.Context, rt *snapshot.Route) *filter.Response {
+	if gen := st.run.Request(ctx, phase.OnRequestHeaders); gen != nil {
+		return gen
+	}
+	if rt.Redirect != nil {
+		return st.redirectTo(rt.Redirect)
+	}
+	if gen := st.prepareBody(ctx); gen != nil || st.abort {
+		return gen
+	}
+	if gen := st.run.Request(ctx, phase.OnRequestBody); gen != nil || st.abort {
+		return gen
+	}
+	return st.run.Request(ctx, phase.OnRoute)
 }
 
 // respondEnded answers a matched request the ending protocol ended before
@@ -644,6 +667,9 @@ func (st *state) forward(ctx context.Context, rt *snapshot.Route) executor.Respo
 		// not.
 		o.Hints = st
 	}
+	if len(rt.Mirrors) > 0 && st.h.mirror != nil {
+		o.Mirror = st
+	}
 	u, err := rt.Forward.Forward(ctx, o)
 	if u != nil {
 		st.upstream, st.endpoint, st.attempts = u.Upstream, u.Endpoint, u.Attempts
@@ -703,6 +729,47 @@ func (st *state) forward(ctx context.Context, rt *snapshot.Route) executor.Respo
 		}
 	}
 	return executor.ResponseUpstream
+}
+
+// redirectTo returns a redirect Route's answer, the response onResponse
+// runs on: the redirect status with the Location r builds from the
+// request (docs/architecture/09-traffic-management-and-resilience.md
+// "Redirects") and no content. A Location r cannot build comes only from a
+// locationExpression, which the serve check refuses (RZ-CFG-040) until its
+// runtime-error rule, OQ-traffic-management-and-resilience-26, is
+// answered, so a snapshot that holds one is a fault of the release: 500
+// RZ-RT-025.
+func (st *state) redirectTo(r snapshot.Redirector) *filter.Response {
+	st.redirect = snapshot.RedirectRequest{
+		Scheme: st.scheme, Host: st.r.Host, Path: st.path, RawQuery: st.r.URL.RawQuery, Vars: st.x.Exchange().Vars(),
+	}
+	loc, err := r.Location(&st.redirect)
+	if err != nil {
+		return st.nodeResponse(codeFault)
+	}
+	if st.locHdr == nil {
+		st.locHdr = make(http.Header, 1)
+	}
+	// The value slice is the response's own: the client header section
+	// and the exchange keep it past this request's state.
+	st.locHdr[headerLocation] = []string{loc}
+	st.resp = filter.Response{Status: r.Status(), Header: st.locHdr, Body: []byte{}}
+	return &st.resp
+}
+
+// MirrorAttempt implements snapshot.MirrorSink: the first attempt of the
+// Route's upstreams leg, after its onUpstreamRequest Policies, goes to the
+// Node's mirror Runner with the request's snapshot, Base variables, Route
+// deadline and stripe, on the request's goroutine; the Runner never blocks
+// on a mirror (docs/architecture/09-traffic-management-and-resilience.md
+// "Mirroring").
+func (st *state) MirrorAttempt(r *http.Request) {
+	st.offer = mirror.Offer{
+		Snapshot: st.snap, Mirrors: st.route.Mirrors, Request: r, Vars: st.x.Exchange().Vars(),
+		Deadline: st.deadline, Stripe: st.stripe,
+	}
+	st.h.mirror.Offer(&st.offer)
+	st.offer = mirror.Offer{}
 }
 
 // legOf records the Upstream, last Endpoint and attempts a failed leg's

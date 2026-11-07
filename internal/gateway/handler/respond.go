@@ -28,6 +28,7 @@ const (
 	headerCacheControl  = "Cache-Control"
 	headerDate          = "Date"
 	headerTrailer       = "Trailer"
+	headerLocation      = "Location"
 	noStore             = "no-store"
 	eventStream         = "text/event-stream"
 )

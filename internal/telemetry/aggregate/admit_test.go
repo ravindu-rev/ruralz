@@ -380,6 +380,89 @@ func TestCachedRoutes(t *testing.T) {
 	}
 }
 
+// TestRouteMirrors: ruralz_upstream_mirrors_total has one label set per
+// result for each Route mirror the Shape names, keyed by the Route and the
+// mirror's Upstream, admitted after the Routes' own families in (Route,
+// Upstream) order and folded into the _overflow set whose route and
+// upstream are both _overflow, exported at 0 from its first admission; a
+// Route without mirrors gets none, and a mirror of a Route the Shape does
+// not hold, an empty or reserved Upstream name and a repeated mirror are
+// refused (docs/architecture/10-observability.md "Cardinality budget").
+func TestRouteMirrors(t *testing.T) {
+	// The family fits two mirrors: a/x and a/y come first, b/x folds.
+	r, clk := newTestRegistry(t, func(o *Options) { o.Limits = Limits{CounterFamily: 2 * emit.NumMirrorResults} })
+	pl, bind := admitBind(t, r, emit.Shape{
+		Routes: []string{"b", "a", "c"},
+		Mirrors: []emit.MirrorShape{
+			{Route: "b", Upstream: "x"}, {Route: "a", Upstream: "y"}, {Route: "a", Upstream: "x"},
+		},
+	})
+	defer bind.Release()
+	if got := pl.Folded(catalog.UpstreamMirrorsTotal); got != emit.NumMirrorResults {
+		t.Errorf("folded = %d, want %d (the label sets of b/x)", got, emit.NumMirrorResults)
+	}
+	pl.Mirror("a", "x").Results[emit.MirrorSent].Add(0, 2)
+	pl.Mirror("a", "y").Results[emit.MirrorDropped].Add(1, 1)
+	pl.Mirror("b", "x").Results[emit.MirrorFailed].Add(0, 3)
+	// A mirror the Shape does not name records nothing.
+	pl.Mirror("c", "x").Results[emit.MirrorSent].Add(0, 5)
+	pl.Mirror("a", "z").Results[emit.MirrorSent].Add(0, 5)
+	pts := collectNow(t, r, clk)
+	got := familySeries(pts, catalog.UpstreamMirrorsTotal)
+	if want := 3 * len(catalog.MirrorResults()); len(got) != want {
+		t.Errorf("label sets = %d, want %d for a/x, a/y and _overflow: %v", len(got), want, got)
+	}
+	for _, tc := range []struct {
+		route, upstream, result string
+		want                    float64
+	}{
+		{"a", "x", "sent", 2},
+		{"a", "x", "dropped", 0},
+		{"a", "x", "failed", 0},
+		{"a", "y", "sent", 0},
+		{"a", "y", "dropped", 1},
+		{"a", "y", "failed", 0},
+		{Overflow, Overflow, "sent", 0},
+		{Overflow, Overflow, "dropped", 0},
+		{Overflow, Overflow, "failed", 3},
+	} {
+		key := fmt.Sprintf(`%s{result=%q,route=%q,upstream=%q}`, catalog.UpstreamMirrorsTotal, tc.result, tc.route, tc.upstream)
+		if v := mustGet(t, pts, key).value; v != tc.want {
+			t.Errorf("%s = %v, want %v", key, v, tc.want)
+		}
+	}
+	// A Route's own families never key by a mirror Upstream, and a Route
+	// without mirrors has no mirror label set.
+	for k := range pts {
+		if strings.Contains(k, `route="c"`) && strings.Contains(k, catalog.UpstreamMirrorsTotal) {
+			t.Errorf("Route c without mirrors exports %s", k)
+		}
+	}
+	units := decideShape(t, r, emit.Shape{
+		Routes:  []string{"b", "a"},
+		Mirrors: []emit.MirrorShape{{Route: "b", Upstream: "x"}, {Route: "a", Upstream: "y"}, {Route: "a", Upstream: "x"}},
+	})
+	var order []string
+	for _, u := range units {
+		if u.fam.cat.Name == catalog.UpstreamMirrorsTotal {
+			order = append(order, u.res+"/"+u.sub)
+		}
+	}
+	if want := []string{"a/x", "a/y", "b/x"}; !slices.Equal(order, want) {
+		t.Errorf("mirror admission order = %v, want %v", order, want)
+	}
+	for _, s := range []emit.Shape{
+		{Routes: []string{"a"}, Mirrors: []emit.MirrorShape{{Route: "b", Upstream: "x"}}},
+		{Routes: []string{"a"}, Mirrors: []emit.MirrorShape{{Route: "a", Upstream: ""}}},
+		{Routes: []string{"a"}, Mirrors: []emit.MirrorShape{{Route: "a", Upstream: "_overflow"}}},
+		{Routes: []string{"a"}, Mirrors: []emit.MirrorShape{{Route: "a", Upstream: "x"}, {Route: "a", Upstream: "x"}}},
+	} {
+		if _, err := r.Admit(s); !errors.Is(err, ErrShape) {
+			t.Errorf("Admit(%+v) err = %v, want ErrShape", s, err)
+		}
+	}
+}
+
 // Unknown names record nothing; reserved, empty and duplicate names are
 // rejected.
 func TestAdmitNamesAndErrors(t *testing.T) {
@@ -558,6 +641,9 @@ func randomShape(rng *rand.Rand, n int) emit.Shape {
 		if rng.IntN(2) == 0 {
 			s.CachedRoutes = append(s.CachedRoutes, name)
 		}
+		for _, up := range names("m", rng.IntN(3)) {
+			s.Mirrors = append(s.Mirrors, emit.MirrorShape{Route: name, Upstream: up})
+		}
 	}
 	for _, name := range names("p", rng.IntN(n+1)) {
 		p := emit.PolicyShape{
@@ -589,8 +675,9 @@ func permute(rng *rand.Rand, s emit.Shape) emit.Shape {
 	}
 	o := emit.Shape{
 		Listeners: shuffle(s.Listeners), Routes: shuffle(s.Routes), Upstreams: shuffle(s.Upstreams),
-		CachedRoutes: shuffle(s.CachedRoutes),
+		CachedRoutes: shuffle(s.CachedRoutes), Mirrors: slices.Clone(s.Mirrors),
 	}
+	rng.Shuffle(len(o.Mirrors), func(i, j int) { o.Mirrors[i], o.Mirrors[j] = o.Mirrors[j], o.Mirrors[i] })
 	for _, p := range s.Policies {
 		p.Codes = shuffle(p.Codes)
 		o.Policies = append(o.Policies, p)
@@ -613,7 +700,7 @@ func decideShape(t testing.TB, r *Registry, s emit.Shape) []unit {
 func decisionString(units []unit) string {
 	var b strings.Builder
 	for _, u := range units {
-		fmt.Fprintf(&b, "%s|%s|%v|%v|%v|%d\n", u.fam.cat.Name, u.res, u.phases, u.admitted, u.striped, u.fan)
+		fmt.Fprintf(&b, "%s|%s|%s|%v|%v|%v|%d\n", u.fam.cat.Name, u.res, u.sub, u.phases, u.admitted, u.striped, u.fan)
 	}
 	return b.String()
 }
@@ -623,7 +710,7 @@ func decisionString(units []unit) string {
 func planSignature(p *Plan) string {
 	var b strings.Builder
 	for _, e := range p.entries {
-		fmt.Fprintf(&b, "%s|%s|%d\n", e.g.fam.cat.Name, e.g.key.res, e.g.key.phase)
+		fmt.Fprintf(&b, "%s|%s|%s|%d\n", e.g.fam.cat.Name, e.g.key.res, e.g.key.sub, e.g.key.phase)
 	}
 	for i, n := range p.folded {
 		if n > 0 {

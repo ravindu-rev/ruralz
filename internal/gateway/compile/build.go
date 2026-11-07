@@ -136,7 +136,7 @@ func (c *Compiler) newBuild(in Input) (*build, error) {
 
 // collect finds what some Route reaches: the attachment of each Policy an
 // effective chain runs, client and upstream legs alike, and the Upstreams
-// the Routes name in upstreams or a composition step.
+// the Routes name in upstreams, a composition step or a mirror.
 func (b *build) collect() {
 	b.byKey = map[attachKey]*attachment{}
 	ups := map[string]bool{}
@@ -147,6 +147,11 @@ func (b *build) collect() {
 		if comp := rt.Spec.Composition; comp != nil {
 			for _, s := range comp.Steps {
 				ups[s.Upstream] = true
+			}
+		}
+		if len(rt.Spec.Upstreams) > 0 {
+			for _, m := range rt.Spec.Mirrors {
+				ups[m.Upstream] = true
 			}
 		}
 		ch := b.v.Chains[rt.Metadata.Name]
@@ -200,7 +205,8 @@ func (b *build) attach(e hub.Entry) {
 // shape returns what metric admission needs from the Revision: every
 // listener and Route, and only the Upstreams and Policies some Route
 // reaches, each Policy with the scopes and Phases it runs in; a Route
-// whose chain holds a cache Policy gets the Response Cache label sets.
+// whose chain holds a cache Policy gets the Response Cache label sets, and
+// each mirror of a Route with upstreams the mirror label sets.
 func (b *build) shape() emit.Shape {
 	s := emit.Shape{Upstreams: slices.Clone(b.upstreams)}
 	for _, l := range b.gw.Spec.Listeners {
@@ -210,6 +216,11 @@ func (b *build) shape() emit.Shape {
 		s.Routes = append(s.Routes, rt.Metadata.Name)
 		if ch := b.v.Chains[rt.Metadata.Name]; ch != nil && holdsCache(ch) {
 			s.CachedRoutes = append(s.CachedRoutes, rt.Metadata.Name)
+		}
+		if len(rt.Spec.Upstreams) > 0 {
+			for _, m := range rt.Spec.Mirrors {
+				s.Mirrors = append(s.Mirrors, emit.MirrorShape{Route: rt.Metadata.Name, Upstream: m.Upstream})
+			}
 		}
 	}
 	byName := map[string]*emit.PolicyShape{}

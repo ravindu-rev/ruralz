@@ -1,0 +1,10 @@
+PHASE              LEG     POLICY            FROM             REASON
+onRequestHeaders   client  apikey-partner    Route            slot auth, replaces jwt-default
+onRequestHeaders   client  ratelimit-global  Gateway          own slot, not overridable
+onRequestHeaders   client  quota-partner     Route            own slot
+onUpstreamRequest  orders  upstream-oauth    Upstream orders  leg orders only
+onUpstreamRequest  orders  headers-internal  Upstream orders  leg orders only
+onResponse         client  headers-security  Gateway          own slot, not overridable
+onLog              client  quota-partner     Route            own slot
+none               none    jwt-default       Gateway          replaced in slot auth by apikey-partner
+none               none    cors-default      Gateway          excluded by Route

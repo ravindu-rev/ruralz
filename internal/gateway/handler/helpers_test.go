@@ -27,6 +27,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/retire"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 	"github.com/ravindu-rev/ruralz/internal/gateway/tap"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/mirror"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/internal/problem"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
@@ -51,7 +52,9 @@ type kit struct {
 	conn   *handlertest.Conn
 	tap    *tap.Hub
 	logs   *logCapture
-	h      *Handler
+	// mirrors is the Node's mirror Runner when kitOptions.mirrors is set.
+	mirrors *mirror.Runner
+	h       *Handler
 }
 
 // kitOptions changes a kit before its Handler is built.
@@ -60,6 +63,8 @@ type kitOptions struct {
 	preRouting int64
 	start      time.Time
 	noConn     bool
+	// mirrors runs the Node's mirror Runner, on the kit's clock.
+	mirrors bool
 	// wall, when set, is the handler's wall clock, apart from its clock.
 	wall *clocktest.Fake
 }
@@ -92,6 +97,13 @@ func newKit(t *testing.T, mods ...func(*kitOptions)) *kit {
 	if o.wall != nil {
 		d.Wall = o.wall
 	}
+	if o.mirrors {
+		r, err := mirror.New(mirror.Deps{Snapshots: k.holder, Budget: k.budget, Clock: k.clk, Logger: slog.New(k.logs)})
+		if err != nil {
+			t.Fatalf("mirror.New: %v", err)
+		}
+		k.mirrors, d.Mirrors = r, r
+	}
 	if !o.noConn {
 		c := k.conn
 		d.Conn = func(context.Context) Conn { return c }
@@ -108,6 +120,19 @@ func newKit(t *testing.T, mods ...func(*kitOptions)) *kit {
 		defer cancel()
 		_ = k.holder.Close(ctx)
 	})
+	if k.mirrors != nil {
+		// Registered after the Holder's Close, so it runs first: every leg
+		// unpins before the Holder closes.
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan error, 1)
+		go func() { done <- k.mirrors.Run(ctx) }()
+		t.Cleanup(func() {
+			cancel()
+			if err := <-done; err != nil {
+				t.Errorf("mirror Run: %v", err)
+			}
+		})
+	}
 	return k
 }
 

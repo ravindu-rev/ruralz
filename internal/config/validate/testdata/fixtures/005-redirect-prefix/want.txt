@@ -1,0 +1,3 @@
+extra.yaml:8:22 error RZ-CFG-005 Route/prefix-on-exact spec.redirect.prefix: redirect prefix replaces the matched match.path.prefix, and this Route's match.path is not a prefix (use path to replace the whole path, or match the Route with a path prefix)
+extra.yaml:17:22 error RZ-CFG-005 Route/prefix-on-template spec.redirect.prefix: redirect prefix replaces the matched match.path.prefix, and this Route's match.path is not a prefix (use path to replace the whole path, or match the Route with a path prefix)
+extra.yaml:26:22 error RZ-CFG-005 Route/prefix-without-path spec.redirect.prefix: redirect prefix replaces the matched match.path.prefix, and this Route's match.path is not a prefix (use path to replace the whole path, or match the Route with a path prefix)

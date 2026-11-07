@@ -137,14 +137,16 @@ func (b *build) legChain(leg *hub.Leg) *snapshot.LegChain {
 }
 
 // compileRoutes compiles every Route, in name order, which Index follows:
-// its match.when, chain, forwarder, body needs, timeout and State Store
-// bound, recording each refusal. Without an Upstream set (an Upstream was
-// refused) forwarders are left out. It returns the compiled match.when of
-// each Route by name, for the Routers, or ctx's error.
+// its match.when, chain, forwarder and mirrors or redirect, body needs,
+// timeout and State Store bound, recording each refusal. Without an
+// Upstream set (an Upstream was refused) forwarders and mirrors are left
+// out. It returns the compiled match.when of each Route by name, for the
+// Routers, or ctx's error.
 func (b *build) compileRoutes(ctx context.Context) (map[string]expr.Program, error) {
 	routes := b.b.Routes()
 	whens := make(map[string]expr.Program, len(routes))
 	b.routes = make([]*snapshot.Route, len(routes))
+	inFlight := inFlightOf(b.in.Previous)
 	// index counts Routes as Route.Index, an int32 a Revision's resource
 	// limit keeps far from overflowing.
 	var index int32
@@ -171,7 +173,18 @@ func (b *build) compileRoutes(ctx context.Context) (map[string]expr.Program, err
 			Protocol: b.protocolOf(rt), Timeout: routeTimeout(rt), Chain: b.chainOf(ch), Metrics: b.plan.Route(name),
 		}
 		compGate := false
-		if b.set != nil {
+		switch {
+		case rt.Spec.Redirect != nil:
+			// A redirect Route answers after onRequestHeaders: no forwarder,
+			// and no body to gate or tee.
+			rd, err := b.redirectOf(rt)
+			if err != nil {
+				if err := b.refuse(refusal{res: res, path: specPath("redirect"), err: err}); err != nil {
+					return nil, err
+				}
+			}
+			out.Redirect = rd
+		case b.set != nil:
 			fwd, gate, r := b.forwarderOf(rt, res)
 			if r != nil {
 				if err := b.refuse(*r); err != nil {
@@ -179,8 +192,13 @@ func (b *build) compileRoutes(ctx context.Context) (map[string]expr.Program, err
 				}
 			}
 			out.Forward, compGate = fwd, gate
+			if rt.Spec.Composition == nil {
+				out.Mirrors = b.mirrorsOf(rt, inFlight)
+			}
 		}
-		out.Body = b.bodyNeeds(ch, compGate)
+		if out.Redirect == nil {
+			out.Body = b.bodyNeeds(ch, compGate)
+		}
 		out.StateStoreMax = stateStoreMax(out.Chain.Policies)
 		b.routes[i] = out
 		index++

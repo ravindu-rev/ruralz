@@ -95,6 +95,7 @@ func m1Families() []family {
 		{UpstreamDegradedInfo, Gauge, BoundsNone, "1", []string{"upstream", "reason=panic|discovery_stale|balancer_budget"}, U, false},
 		{UpstreamCELErrorsTotal, Counter, BoundsNone, "{errors}", []string{"upstream", "field=hashKey|retryOn|failureWhen"}, U, false},
 		{UpstreamPoolConnections, Gauge, BoundsNone, "{connections}", []string{"upstream", "state=idle|active"}, U, false},
+		{UpstreamMirrorsTotal, Counter, BoundsNone, "{mirrors}", []string{"route", "upstream", "result=sent|dropped|failed"}, R, false},
 		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []string{"op=" + ops, "zone=same|cross|unknown"}, L, true},
 		{StateCallsTotal, Counter, BoundsNone, "{calls}", []string{"op=" + ops, "result=ok|error|timeout|skipped"}, L, true},
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []string{"kind=" + singleOps}, L, true},

@@ -18,6 +18,7 @@ import (
 func schemaPlace() map[string]expr.PlaceID {
 	return map[string]expr.PlaceID{
 		"RouteMatch.when":                      expr.PlaceRouteMatchWhen,
+		"RouteRedirect.locationExpression":     expr.PlaceRedirectLocation,
 		"PolicySpec.when":                      expr.PlacePolicyWhen,
 		"CompositionStep.pathExpression":       expr.PlaceStepPathExpression,
 		"CompositionStep.when":                 expr.PlaceStepWhen,

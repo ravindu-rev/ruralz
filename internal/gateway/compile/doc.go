@@ -38,8 +38,8 @@
 // Filters, Upstream runtimes and metric label sets are built only for
 // what some Route reaches: a Policy that some Route's effective Filter
 // Chain runs, built once per attachment, its (Policy, scope, Phase set),
-// never per Route; an Upstream that some Route names in upstreams or a
-// composition step. The Filters come from the injected Filter tables
+// never per Route; an Upstream that some Route names in upstreams, a
+// composition step or a mirror. The Filters come from the injected Filter tables
 // (filter.Registry), each with the attachment's filter.BuildEnv: its
 // CEL sites (pipeline.Pipeline.PolicySite, the sites stage J checked),
 // the resolved secrets, the State Store handles, its metric handles and
@@ -52,8 +52,14 @@
 // effective chain (hub.Chain) so render --effective and the runtime order
 // cannot diverge, with one shared LegChain per Upstream; its forwarder
 // (upstream/forward.New for upstreams, the composition engine for
-// composition); its Route timeout (15 s); the largest stateStoreTimeout
-// of its State Store Policies; and its body needs: the request body is
+// composition), or, for a redirect Route, its redirect (internal/gateway/redirect,
+// with no forwarder and no body need); the mirrors of a Route with
+// upstreams, in Upstream name order, each with the in-flight counter of
+// the previous snapshot's mirror of the same Route and Upstream, so
+// maxInFlight bounds the Node across Hot Reloads, and its
+// ruralz_upstream_mirrors_total handles; its Route timeout (15 s); the
+// largest stateStoreTimeout of its State Store Policies; and its body
+// needs: the request body is
 // gated when a client Policy gates it (an onRequestBody Policy, a
 // transform.request whose config needs the body), when an Upstream-scope
 // transform.request needs it, or when its composition does; the client

@@ -1,0 +1,39 @@
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: mirrored-composition
+spec:
+  match:
+    path: {prefix: /mirrored-composition}
+  composition:
+    mode: sequential
+    steps:
+      - name: order
+        upstream: orders
+        path: /orders/latest
+  mirrors:
+    - upstream: inventory
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: mirrored-redirect
+spec:
+  match:
+    path: {prefix: /mirrored-redirect}
+  redirect: {path: /new}
+  mirrors:
+    - upstream: inventory
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: mirrored-upstreams
+spec:
+  match:
+    path: {prefix: /mirrored-upstreams}
+  upstreams:
+    - name: orders
+  mirrors:
+    - {upstream: inventory, percent: 0, maxInFlight: 1}
+    - {upstream: orders}

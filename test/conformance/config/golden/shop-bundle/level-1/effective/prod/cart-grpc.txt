@@ -1,0 +1,6 @@
+PHASE             LEG     POLICY             FROM     REASON
+onRequestHeaders  client  jwt-default        Gateway  slot auth, inherited
+onRequestHeaders  client  geo-block-default  Gateway  own slot
+onRequestHeaders  client  ratelimit-global   Gateway  own slot, not overridable
+onResponse        client  headers-security   Gateway  own slot, not overridable
+none              none    cors-default       Gateway  excluded by Route

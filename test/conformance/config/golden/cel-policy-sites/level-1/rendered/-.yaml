@@ -1,0 +1,41 @@
+apiVersion: ruralz/v1alpha1
+kind: Gateway
+metadata:
+  name: edge
+spec:
+  listeners:
+    - name: http
+      protocol: http
+      port: 8080
+---
+apiVersion: ruralz/v1alpha1
+kind: Upstream
+metadata:
+  name: orders
+spec:
+  protocol: http
+  endpoints:
+    - address: "orders.shop.svc:8080"
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: stamp-upstream
+spec:
+  type: transform.request
+  config:
+    set:
+      - target: header
+        name: x-upstream
+        valueExpression: upstream.name
+---
+apiVersion: ruralz/v1alpha1
+kind: Route
+metadata:
+  name: orders
+spec:
+  match:
+    path:
+      prefix: /orders
+  upstreams:
+    - name: orders

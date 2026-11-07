@@ -22,6 +22,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/cli/command"
 	"github.com/ravindu-rev/ruralz/internal/cli/completion"
 	"github.com/ravindu-rev/ruralz/internal/clock/clocktest"
+	"github.com/ravindu-rev/ruralz/internal/config/schemaidx"
 )
 
 // Tests for the root: the command table against the CLI command registry
@@ -524,6 +525,21 @@ func TestPlatformGates(t *testing.T) {
 	}
 }
 
+// servedLevel returns the schema level of ruralz/v1alpha1 the embedded
+// schema serves, its maximum x-ruralz-since.
+func servedLevel(t *testing.T) int {
+	t.Helper()
+	set, err := schemaidx.Embedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, ok := set.Index("ruralz/v1alpha1")
+	if !ok {
+		t.Fatal("the embedded schemas serve no ruralz/v1alpha1")
+	}
+	return idx.Level()
+}
+
 // TestVersionText checks the text form: aligned lines, the Version option
 // replacing the build version, and the schema levels as
 // <apiVersion>=<level>.
@@ -534,7 +550,7 @@ func TestVersionText(t *testing.T) {
 		"commit:       " + bi.Commit + "\n" +
 		"flavor:       " + bi.Flavor + "\n" +
 		"apiVersions:  ruralz/v1alpha1\n" +
-		"schemaLevels: ruralz/v1alpha1=0\n"
+		fmt.Sprintf("schemaLevels: ruralz/v1alpha1=%d\n", servedLevel(t))
 	if r.code != ExitOK || r.stdout != want || r.stderr != "" {
 		t.Fatalf("version = exit %d\n%s\nstderr %q\nwant\n%s", r.code, r.stdout, r.stderr, want)
 	}
@@ -556,8 +572,8 @@ func TestVersionJSON(t *testing.T) {
 		t.Errorf("version = %s, apiVersions = %s", got["version"], got["apiVersions"])
 	}
 	var levels map[string]int
-	if err := json.Unmarshal(got["schemaLevels"], &levels); err != nil || len(levels) != 1 || levels["ruralz/v1alpha1"] != 0 {
-		t.Errorf("schemaLevels = %s, %v; want {\"ruralz/v1alpha1\": 0}", got["schemaLevels"], err)
+	if want := servedLevel(t); json.Unmarshal(got["schemaLevels"], &levels) != nil || len(levels) != 1 || levels["ruralz/v1alpha1"] != want {
+		t.Errorf("schemaLevels = %s; want {\"ruralz/v1alpha1\": %d}", got["schemaLevels"], want)
 	}
 	for _, absent := range []string{"pluginAbi", "controlStream"} {
 		if _, ok := got[absent]; ok {

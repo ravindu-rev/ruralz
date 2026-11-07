@@ -187,7 +187,10 @@ type legState struct {
 	// broken is set when reading the client body failed during an
 	// attempt.
 	broken bool
-	delay  time.Duration
+	// mirrored is set once the leg's first sent attempt was offered to the
+	// Route's mirrors (snapshot.Outbound.Mirror).
+	mirrored bool
+	delay    time.Duration
 	// park holds a response the leg decided to retry, kept until the retry
 	// attempt runs: when the retry cannot start, the leg returns it.
 	park parked
@@ -228,7 +231,7 @@ func (m *Manager) putLeg(ls *legState) {
 	ls.conn.Store(nil)
 	ls.armed.Store(nil)
 	ls.endpoint, ls.kind, ls.failed, ls.responded = "", resilience.KindNone, false, false
-	ls.cause, ls.canceled, ls.over, ls.broken, ls.delay = nil, false, false, false, 0
+	ls.cause, ls.canceled, ls.over, ls.broken, ls.mirrored, ls.delay = nil, false, false, false, false, 0
 	ls.park = parked{}
 	m.legs.Put(ls)
 }
@@ -442,6 +445,14 @@ func (ls *legState) attempt(ctx context.Context, a *resilience.Attempt) (step, *
 				req = req.WithContext(rctx)
 			}
 		}
+	}
+	if !ls.mirrored && ls.t.Step == "" && ls.o.Mirror != nil {
+		// The Route's mirrors copy what the first attempt of its upstreams
+		// leg sends, after the attempt's onUpstreamRequest Policies, never
+		// a retry (docs/architecture/09-traffic-management-and-resilience.md
+		// "Mirroring"); the sink never blocks on a mirror.
+		ls.mirrored = true
+		ls.o.Mirror.MirrorAttempt(req)
 	}
 	if a.Number > 1 {
 		u.metrics.Retries.Add(ls.o.Stripe, 1)

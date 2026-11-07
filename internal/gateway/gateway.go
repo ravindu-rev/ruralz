@@ -155,8 +155,8 @@ type process struct {
 	libraryErrors bool
 	// fileLimit returns the soft RLIMIT_NOFILE; nil reads the process's.
 	fileLimit func() (uint64, bool)
-	// rand draws the Drain jitter and the retry backoffs; nil means the
-	// math/rand/v2 runtime generator.
+	// rand draws the Drain jitter, the retry backoffs and the sampling of
+	// the Routes' mirrors; nil means the math/rand/v2 runtime generator.
 	rand rand.Source
 	// start is when the process started: a handover successor's gate
 	// counts from it. Zero means the process clock's reading at start.

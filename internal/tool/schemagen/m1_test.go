@@ -102,6 +102,10 @@ func TestDefaults(t *testing.T) {
 		"RateLimitConfig.localOnly":            `false`,
 		"RateLimitConfig.responseHeaders":      `"ietf"`,
 		"Retries.attempts":                     `1`,
+		"RouteMirror.maxInFlight":              `1000`,
+		"RouteMirror.percent":                  `100`,
+		"RouteRedirect.query":                  `"keep"`,
+		"RouteRedirect.status":                 `302`,
 		"RouteUpstream.weight":                 `1`,
 		"StateStore.driver":                    `"memory"`,
 		"StateStore.timeout":                   `"50ms"`,
@@ -270,6 +274,8 @@ func TestImpactClasses(t *testing.T) {
 		"PolicySpec.overridable":                "security",
 		"RouteSpec.composition":                 "routing",
 		"RouteSpec.match":                       "routing",
+		"RouteSpec.mirrors":                     "routing,traffic",
+		"RouteSpec.redirect":                    "routing",
 		"RouteSpec.timeout":                     "traffic",
 		"RouteSpec.upstreams":                   "routing",
 		"StateStore.tls":                        "security",
@@ -340,22 +346,34 @@ func TestSecretFieldsCarrySecurity(t *testing.T) {
 	}
 }
 
-// TestSchemaLevelZero checks that the served schema level of
-// ruralz/v1alpha1 is the maximum x-ruralz-since, 0 in M1, so no field
-// carries the keyword (fields added before 0.1.0 are level 0, whose
-// x-ruralz-since docs/architecture/02-configuration-model.md "Schema
-// keywords that drive tooling" omits).
-func TestSchemaLevelZero(t *testing.T) {
+// nextLevel is the schema level of the fields added since 0.1.0, whose
+// fields are level 0: every field added before the next release shares the
+// level after the last released one (docs/architecture/02-configuration-model.md
+// "Version skew").
+const nextLevel = 1
+
+// TestSchemaLevel checks the served schema level of ruralz/v1alpha1, the
+// maximum x-ruralz-since: the fields of 0.1.0 carry no keyword (level 0,
+// which docs/architecture/02-configuration-model.md "Schema keywords that
+// drive tooling" omits) and every field added since carries nextLevel, so
+// no field claims a level a release has shipped or one beyond the next.
+func TestSchemaLevel(t *testing.T) {
 	for _, v := range []view{authoring, rendered} {
 		out, err := generate(realInput(t), v)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(out), "x-ruralz-since") {
-			t.Errorf("%s view carries x-ruralz-since; M1 is schema level 0", v)
+		levels := propertyKeyword(t, decode(t, out), "x-ruralz-since")
+		if len(levels) == 0 {
+			t.Errorf("%s view carries no x-ruralz-since; the fields added since 0.1.0 are level %d", v, nextLevel)
+		}
+		for _, k := range slices.Sorted(maps.Keys(levels)) {
+			if n, ok := levels[k].(float64); !ok || n != nextLevel {
+				t.Errorf("%s view: %s has x-ruralz-since %v, want %d", v, k, levels[k], nextLevel)
+			}
 		}
 		if strings.Contains(string(out), `"deprecated"`) {
-			t.Errorf("%s view marks a deprecated field; the M1 lifecycle table is empty", v)
+			t.Errorf("%s view marks a deprecated field; the lifecycle table is empty", v)
 		}
 	}
 }

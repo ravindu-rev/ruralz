@@ -21,6 +21,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/gateway/listener"
 	"github.com/ravindu-rev/ruralz/internal/gateway/retire"
 	"github.com/ravindu-rev/ruralz/internal/gateway/tap"
+	"github.com/ravindu-rev/ruralz/internal/gateway/upstream/mirror"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 )
 
@@ -97,6 +98,9 @@ type Deps struct {
 	// Tap receives the finished exchanges /tap subscribers sample; nil
 	// publishes none.
 	Tap *tap.Hub
+	// Mirrors runs the mirror legs of the Routes with mirrors; nil mirrors
+	// nothing.
+	Mirrors *mirror.Runner
 	// Clock times requests: the request start every Phase and CEL now
 	// see, the Route deadline the Upstream layer checks and the timer that
 	// ends it, durations and the Date field. ruralzd passes the process
@@ -130,6 +134,7 @@ type Handler struct {
 	alog   emit.AccessLog
 	node   *emit.NodeMetrics
 	tap    *tap.Hub
+	mirror *mirror.Runner
 	clk    clock.Clock
 	wall   clock.Clock // dates the socket deadlines
 	log    *slog.Logger
@@ -162,7 +167,7 @@ func New(d Deps) (*Handler, error) {
 	}
 	h := &Handler{
 		snaps: d.Snapshots, units: d.Units, pre: d.PreRouting, pool: d.Exchanges, exec: d.Executor,
-		tracer: d.Tracer, alog: d.AccessLog, node: d.Node, tap: d.Tap, clk: d.Clock, wall: d.Wall, log: d.Logger, connOf: d.Conn,
+		tracer: d.Tracer, alog: d.AccessLog, node: d.Node, tap: d.Tap, mirror: d.Mirrors, clk: d.Clock, wall: d.Wall, log: d.Logger, connOf: d.Conn,
 		statuses: statusTable(),
 	}
 	if h.clk == nil {

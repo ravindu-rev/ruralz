@@ -31,9 +31,11 @@ const (
 )
 
 // groupKey identifies a group within its family: the resource (or
-// listener) name, and the Phase for per-Phase Policy families (-1 else).
+// listener) name, the mirror Upstream of a Route mirror family ("" else),
+// and the Phase for per-Phase Policy families (-1 else).
 type groupKey struct {
 	res   string
+	sub   string
 	phase int8
 }
 
@@ -109,12 +111,9 @@ type codeGroup struct {
 }
 
 // compareGroups orders a family's groups for export: by resource name,
-// then Phase.
+// then mirror Upstream, then Phase.
 func compareGroups(a, b *group) int {
-	if c := cmp.Compare(a.key.res, b.key.res); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.key.phase, b.key.phase)
+	return cmp.Or(cmp.Compare(a.key.res, b.key.res), cmp.Compare(a.key.sub, b.key.sub), cmp.Compare(a.key.phase, b.key.phase))
 }
 
 // groupSpec is what a new group needs besides its family.
@@ -141,6 +140,9 @@ func (r *Registry) newGroup(f *family, s groupSpec) *group {
 	base := make([]attribute.KeyValue, 0, 4)
 	if f.resLabel != "" {
 		base = append(base, attribute.String(f.resLabel, s.key.res))
+	}
+	if f.subLabel != "" {
+		base = append(base, attribute.String(f.subLabel, s.key.sub))
 	}
 	if s.key.phase >= 0 {
 		base = append(base, attribute.String(labelPhase, f.phase[s.key.phase]))

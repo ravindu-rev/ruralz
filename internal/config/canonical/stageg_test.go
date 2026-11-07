@@ -48,7 +48,7 @@ func TestStageGRoundTrip(t *testing.T) {
 		if err != nil || len(ds) > 0 {
 			t.Fatalf("%s: stage G: %v, %v", dir, ds, err)
 		}
-		rev, err := enc.Encode(ctx, b, Options{Workers: 3})
+		rev, err := enc.Encode(ctx, b, hubOptions(t, Options{Workers: 3}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -59,7 +59,7 @@ func TestStageGRoundTrip(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s, workers %d: Verify: %v", dir, w, err)
 			}
-			again, err := enc.EncodeResources(ctx, rs, Options{Workers: w})
+			again, err := enc.EncodeResources(ctx, rs, hubOptions(t, Options{Workers: w}))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -80,7 +80,7 @@ func TestStageGRoundTrip(t *testing.T) {
 					t.Errorf("%s, workers %d: %s has source file %q, want none for canonical content", dir, w, r.ID, r.Source.File)
 				}
 			}
-			rev2, err := enc.Encode(ctx, b2, Options{Workers: w})
+			rev2, err := enc.Encode(ctx, b2, hubOptions(t, Options{Workers: w}))
 			if err != nil {
 				t.Fatal(err)
 			}

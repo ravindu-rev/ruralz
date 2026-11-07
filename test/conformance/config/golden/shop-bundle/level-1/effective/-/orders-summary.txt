@@ -1,0 +1,13 @@
+PHASE              LEG        POLICY             FROM                REASON
+onRequestHeaders   client     cors-partner       Route               slot cors, replaces cors-default
+onRequestHeaders   client     jwt-default        Gateway             slot auth, inherited
+onRequestHeaders   client     geo-block-default  Gateway             own slot
+onRequestHeaders   client     authz-orders       Route               own slot
+onRequestHeaders   client     ratelimit-global   Gateway             own slot, not overridable
+onRequestHeaders   client     ratelimit-orders   Route               own slot
+onUpstreamRequest  orders     upstream-oauth     Upstream orders     leg orders only
+onUpstreamRequest  orders     headers-internal   Upstream orders     leg orders only
+onUpstreamRequest  inventory  headers-internal   Upstream inventory  leg inventory only
+onResponse         client     headers-security   Gateway             own slot, not overridable
+onResponse         client     cors-partner       Route               slot cors, replaces cors-default
+none               none       cors-default       Gateway             replaced in slot cors by cors-partner

@@ -1,0 +1,2 @@
+extra.yaml:11:17 error RZ-CFG-009 Route/mirrored spec.mirrors[upstream=ordrs].upstream: Upstream "ordrs" not found (did you mean "orders"?)
+extra.yaml:12:17 error RZ-CFG-009 Route/mirrored spec.mirrors[upstream=quota-daily].upstream: Upstream "quota-daily" not found ("quota-daily" is a Policy, not an Upstream) (declared in policies.yaml:12:1)

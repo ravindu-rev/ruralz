@@ -1,0 +1,2 @@
+extra.yaml:15:5 error RZ-CFG-005 Route/mirrored-composition spec.mirrors: mirrors copy the first attempt of the upstreams leg, and this Route sets composition instead (remove mirrors, or forward the Route with upstreams)
+extra.yaml:26:5 error RZ-CFG-005 Route/mirrored-redirect spec.mirrors: mirrors copy the first attempt of the upstreams leg, and this Route sets redirect instead (remove mirrors, or forward the Route with upstreams)

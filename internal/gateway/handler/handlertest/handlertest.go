@@ -55,6 +55,11 @@ type Route struct {
 	Listeners []string
 	// Forward answers the requests that reach the Upstream layer.
 	Forward snapshot.Forwarder
+	// Redirect answers a redirect Route's requests after onRequestHeaders;
+	// nil for a Route that forwards.
+	Redirect snapshot.Redirector
+	// Mirrors are the Route's mirrors.
+	Mirrors []*snapshot.Mirror
 	// Policies are the client Policies in request order (class, scope,
 	// position), each with its Phases.
 	Policies []*snapshot.Policy
@@ -99,6 +104,8 @@ type Spec struct {
 	Validated *hub.Validated
 	// Legs runs replayed legs to named Upstreams; nil has none.
 	Legs snapshot.LegRunner
+	// MirrorLegs sends the Routes' mirror legs; nil has none.
+	MirrorLegs snapshot.MirrorLegs
 }
 
 // DefaultLimits returns the limits of a Spec that sets none.
@@ -155,13 +162,14 @@ func Snapshot(t testing.TB, s Spec) *snapshot.Snapshot {
 	if s.StateStore != nil {
 		snap.StateStore = s.StateStore
 	}
-	snap.Validated, snap.Legs = s.Validated, s.Legs
+	snap.Validated, snap.Legs, snap.MirrorLegs = s.Validated, s.Legs, s.MirrorLegs
 	bound := map[string][]router.Route{}
 	for i := range s.Routes {
 		r := &s.Routes[i]
 		rt := &snapshot.Route{
 			Index: int32(i), Name: r.Name, View: &expr.Route{Name: r.Name}, Listeners: r.Listeners,
-			Protocol: r.Protocol, Timeout: r.Timeout, Forward: r.Forward, Body: r.Body, Metrics: r.Metrics,
+			Protocol: r.Protocol, Timeout: r.Timeout, Forward: r.Forward, Redirect: r.Redirect, Mirrors: r.Mirrors,
+			Body: r.Body, Metrics: r.Metrics,
 		}
 		if rt.Protocol == "" {
 			rt.Protocol = v1alpha1.UpstreamProtocolHTTP

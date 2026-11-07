@@ -3534,6 +3534,22 @@
       ],
       "type": "string"
     },
+    "RedirectQuery": {
+      "description": "RedirectQuery is what a redirect does with the request's query.",
+      "enum": [
+        "keep",
+        "drop"
+      ],
+      "type": "string"
+    },
+    "RedirectScheme": {
+      "description": "RedirectScheme is the scheme of a redirect's Location.",
+      "enum": [
+        "http",
+        "https"
+      ],
+      "type": "string"
+    },
     "Replace": {
       "additionalProperties": false,
       "description": "Replace rewrites matches in the strings at a body path, or in the raw body. A pattern over 1 KiB, or one that is not valid RE2 unless literal is true, is RZ-CFG-005.",
@@ -3694,6 +3710,145 @@
       },
       "type": "object"
     },
+    "RouteMirror": {
+      "additionalProperties": false,
+      "description": "RouteMirror sends a copy of a sampled share of a Route's requests to one Upstream: what the upstreams leg's first attempt sends after its onUpstreamRequest Policies, with no Policy or retry of its own, its response discarded. A mirror never delays or fails the request it copies.",
+      "properties": {
+        "maxInFlight": {
+          "default": 1000,
+          "description": "MaxInFlight bounds the copies in flight to this Upstream on each Node; a copy past it is dropped.",
+          "minimum": 1,
+          "type": "integer",
+          "x-ruralz-since": 1
+        },
+        "percent": {
+          "default": 100,
+          "description": "Percent is the share of the Route's requests copied, from 0 to 100.",
+          "maximum": 100,
+          "minimum": 0,
+          "type": "integer",
+          "x-ruralz-since": 1
+        },
+        "upstream": {
+          "description": "Upstream is the metadata.name of the Upstream the copies go to.",
+          "type": "string",
+          "x-ruralz-ref": "Upstream",
+          "x-ruralz-since": 1
+        }
+      },
+      "required": [
+        "upstream"
+      ],
+      "type": "object"
+    },
+    "RouteRedirect": {
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "not": {
+            "required": [
+              "path",
+              "prefix"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "locationExpression",
+              "scheme"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "locationExpression",
+              "host"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "locationExpression",
+              "path"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "locationExpression",
+              "prefix"
+            ]
+          }
+        },
+        {
+          "not": {
+            "required": [
+              "locationExpression",
+              "query"
+            ]
+          }
+        }
+      ],
+      "description": "RouteRedirect answers a Route's requests with a redirect. Its Location is the request URL with scheme, host, path or prefix and query applied, or the URI locationExpression builds, which excludes those fields.",
+      "properties": {
+        "host": {
+          "description": "Host replaces the request's host and port: a DNS name or an IP address, IPv6 in brackets, with an optional port; default the request's host.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
+        "locationExpression": {
+          "description": "LocationExpression builds the whole Location; it excludes scheme, host, path, prefix and query. Planned (M2): its runtime-error rule is OQ-traffic-management-and-resilience-26.",
+          "minLength": 1,
+          "type": "string",
+          "x-ruralz-cel": {
+            "result": "string",
+            "variables": [
+              "request",
+              "source",
+              "route",
+              "consumer",
+              "auth",
+              "now"
+            ]
+          },
+          "x-ruralz-since": 1
+        },
+        "path": {
+          "description": "Path replaces the request's path: it starts with /, holds no ? or #, and passes the hardening of the client path with no . or .. segment.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
+        "prefix": {
+          "description": "Prefix replaces the match.path.prefix the request matched, under the rules of path; only on a Route whose match.path is a prefix.",
+          "type": "string",
+          "x-ruralz-since": 1
+        },
+        "query": {
+          "$ref": "#/$defs/RedirectQuery",
+          "default": "keep",
+          "description": "Query keeps or drops the request's query.",
+          "x-ruralz-since": 1
+        },
+        "scheme": {
+          "$ref": "#/$defs/RedirectScheme",
+          "description": "Scheme replaces the request's scheme; default the request's.",
+          "x-ruralz-since": 1
+        },
+        "status": {
+          "default": 302,
+          "description": "Status is the redirect status: 301, 302, 307 or 308.",
+          "maximum": 308,
+          "minimum": 301,
+          "type": "integer",
+          "x-ruralz-since": 1
+        }
+      },
+      "type": "object"
+    },
     "RouteSpec": {
       "additionalProperties": false,
       "allOf": [
@@ -3708,15 +3863,20 @@
               "required": [
                 "composition"
               ]
+            },
+            {
+              "required": [
+                "redirect"
+              ]
             }
           ]
         }
       ],
-      "description": "RouteSpec is the spec of a Route.",
+      "description": "RouteSpec is the spec of a Route. It sets exactly one of upstreams, composition and redirect.",
       "properties": {
         "composition": {
           "$ref": "#/$defs/Composition",
-          "description": "Composition calls several Upstreams per request; mutually exclusive with upstreams.",
+          "description": "Composition calls several Upstreams per request; exactly one of upstreams, composition and redirect is set.",
           "x-ruralz-impact": [
             "routing"
           ]
@@ -3749,6 +3909,22 @@
             "routing"
           ]
         },
+        "mirrors": {
+          "description": "Mirrors send a copy of a sampled share of the requests to other Upstreams and discard their responses; valid only beside upstreams.",
+          "items": {
+            "$ref": "#/$defs/RouteMirror"
+          },
+          "type": "array",
+          "x-ruralz-impact": [
+            "routing",
+            "traffic"
+          ],
+          "x-ruralz-list": {
+            "key": "upstream",
+            "type": "map"
+          },
+          "x-ruralz-since": 1
+        },
         "policies": {
           "description": "Policies attaches Route-scoped Policies in authored order.",
           "items": {
@@ -3760,6 +3936,14 @@
             "type": "orderedMap"
           }
         },
+        "redirect": {
+          "$ref": "#/$defs/RouteRedirect",
+          "description": "Redirect answers every request with a redirect after the onRequestHeaders Policies, instead of forwarding it; exactly one of upstreams, composition and redirect is set.",
+          "x-ruralz-impact": [
+            "routing"
+          ],
+          "x-ruralz-since": 1
+        },
         "timeout": {
           "$ref": "#/$defs/Duration",
           "description": "Timeout is the whole-request deadline.",
@@ -3768,7 +3952,7 @@
           ]
         },
         "upstreams": {
-          "description": "Upstreams are weighted legs; required unless composition is set.",
+          "description": "Upstreams are weighted legs; exactly one of upstreams, composition and redirect is set.",
           "items": {
             "$ref": "#/$defs/RouteUpstream"
           },

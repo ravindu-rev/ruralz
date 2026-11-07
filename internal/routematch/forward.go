@@ -43,6 +43,21 @@ func CheckForwardPath(p string) error {
 	return nil
 }
 
+// CheckRedirectPath reports whether p, a Route's redirect.path or
+// redirect.prefix, may replace the client's path in a redirect's Location
+// (docs/architecture/09-traffic-management-and-resilience.md "Redirects"):
+// it holds no "?" or "#", which would start the Location's query or
+// fragment, and passes [CheckForwardPath], so it starts with "/", holds no
+// "." or ".." segment in any spelling and passes the hardening of the
+// client path. The Location carries it as [NormalizePath] writes it. The
+// error is a [*PathError] without a code; validation wraps RZ-CFG-005.
+func CheckRedirectPath(p string) error {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
+		return &PathError{Reason: RejectQueryOrFragment, Offset: i}
+	}
+	return CheckForwardPath(p)
+}
+
 // CheckForwardQuery reports whether q, the raw query a composition step
 // sends after the first "?" of its path, can go on a request line: it
 // holds no raw control byte (below 0x20, or 0x7F), which net/http refuses

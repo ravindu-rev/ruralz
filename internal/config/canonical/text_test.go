@@ -159,12 +159,12 @@ func TestEncodeErrorBounded(t *testing.T) {
 	enc := NewEncoder(hubIndex(t))
 	for _, depth := range []int{1, 2} {
 		root := jsonTree(t, `{"kind":"Plugin","metadata":{"name":"p"},"spec":{"configSchema":`+nest(depth)+`}}`)
-		_, encErr := enc.Encode(context.Background(), hub.NewBundle([]*hub.Resource{resourceOf(t, root)}), Options{})
-		_, resErr := enc.EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindPlugin, Name: "p"}, Root: root}}, Options{})
+		_, encErr := enc.Encode(context.Background(), hub.NewBundle([]*hub.Resource{resourceOf(t, root)}), hubOptions(t, Options{}))
+		_, resErr := enc.EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindPlugin, Name: "p"}, Root: root}}, hubOptions(t, Options{}))
 		_, nodeErr := AppendNode(nil, jsonTree(t, nest(depth)))
 		// A member name at the resource root has no place there.
 		top := jsonTree(t, `{"kind":"Plugin","metadata":{"name":"p"},"`+k+`":1}`)
-		_, topErr := enc.EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindPlugin, Name: "p"}, Root: top}}, Options{})
+		_, topErr := enc.EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindPlugin, Name: "p"}, Root: top}}, hubOptions(t, Options{}))
 		for name, err := range map[string]error{"Encode": encErr, "EncodeResources": resErr, "AppendNode": nodeErr, "EncodeResources member": topErr} {
 			if !errors.Is(err, ErrEncode) || len(err.Error()) > 512 || !strings.Contains(err.Error(), "...") {
 				t.Errorf("%s, depth %d: %d-byte error %.200q", name, depth, len(err.Error()), err)
@@ -351,7 +351,7 @@ func TestContentTextEscaped(t *testing.T) {
 		t.Errorf("clipped format: %v", ds)
 	}
 	// Encoder errors show identities the same way.
-	_, err = NewEncoder(hubIndex(t)).EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindRoute, Name: evil}, Root: jsonTree(t, `{"kind": "Route", "metadata": {"name": "x"}}`)}}, Options{})
+	_, err = NewEncoder(hubIndex(t)).EncodeResources(context.Background(), []tree.Resource{{ID: tree.ID{Kind: v1alpha1.KindRoute, Name: evil}, Root: jsonTree(t, `{"kind": "Route", "metadata": {"name": "x"}}`)}}, hubOptions(t, Options{}))
 	if !errors.Is(err, ErrEncode) || strings.ContainsAny(err.Error(), "\x1b\n") || !strings.Contains(err.Error(), "Route/"+quoted) {
 		t.Errorf("encoder error = %q", err)
 	}

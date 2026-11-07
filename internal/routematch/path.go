@@ -58,6 +58,10 @@ const (
 	// Ruralz sends in place of the client's ([CheckForwardPath]); a client
 	// path loses its dot segments to normalization instead.
 	RejectDotSegment
+	// RejectQueryOrFragment is a "?" or "#" in a path that replaces the
+	// client's in a redirect's Location ([CheckRedirectPath]), where it would
+	// start a query or a fragment.
+	RejectQueryOrFragment
 )
 
 // String returns a short description of the reason.
@@ -79,6 +83,8 @@ func (r RejectReason) String() string {
 		return "path does not start with /"
 	case RejectDotSegment:
 		return "dot segment"
+	case RejectQueryOrFragment:
+		return "? or #"
 	default:
 		return "reason " + strconv.Itoa(int(r))
 	}
