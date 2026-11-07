@@ -84,7 +84,7 @@ func TestBadRepo(t *testing.T) {
 		`docs/architecture/10-observability.md:15: ruralz_fixture_d_items is a gauge in the catalog, "counter" here`,
 		`docs/architecture/10-observability.md:16: the Unit cell "items, cycles, bytes" gives neither one value per name`,
 		`docs/architecture/10-observability.md:22: catalog family ruralz_fixture_ai_total is listed under "AI metrics", not in the "Ruralz Gateway metrics" table`,
-		"docs/architecture/10-observability.md:29: degraded reason fixture_later is registered in M1 but tagged Planned (M2) here",
+		"docs/architecture/10-observability.md:29: degraded reason fixture_later is registered in the catalog but tagged Planned (M2) here, while none is in progress",
 		"docs/architecture/10-observability.md: degraded reason fixture_missing is missing from the degraded states table",
 		"docs/architecture/10-observability.md: degraded reason fixture_elsewhere is missing from the degraded states table",
 		// The doc gate.

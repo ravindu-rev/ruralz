@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"go/parser"
 	"go/token"
 	"os"
@@ -225,7 +226,7 @@ func TestCodeGateSeveralTypes(t *testing.T) {
 	if len(cv.families) != len(names) {
 		t.Fatalf("catalog families = %v, want %v", cv.families, names)
 	}
-	got := codeGate(obs, cv)
+	got := codeGate(obs, cv, 2)
 	n := 0
 	for _, f := range got {
 		if strings.Contains(f.msg, "names several types") {
@@ -361,5 +362,35 @@ func TestObservabilityDocStructure(t *testing.T) {
 	_, findings = parseObsCatalog([]string{"no tables"})
 	if len(findings) != 2 {
 		t.Errorf("empty document: %v", findings)
+	}
+}
+
+// TestCodeGateMilestoneInProgress: a registered degraded reason may carry
+// the tag of the milestone in progress, which stays until that milestone
+// exits, but not the tag of a later milestone.
+func TestCodeGateMilestoneInProgress(t *testing.T) {
+	obs := obsCatalog{reasons: map[string]obsReason{
+		"current_reason": {line: 3, row: "| `current_reason` | Planned (M2) |"},
+		"later_reason":   {line: 4, row: "| `later_reason` | Planned (M3) |"},
+		"mixed_reason":   {line: 5, row: "| `mixed_reason` | Planned (M2); relay Planned (M4) |"},
+		"shipped_reason": {line: 6, row: "| `shipped_reason` | |"},
+	}}
+	cv := catalogView{reasons: []string{"current_reason", "later_reason", "mixed_reason", "shipped_reason"}}
+	var got []string
+	for _, f := range codeGate(obs, cv, 2) {
+		got = append(got, fmt.Sprintf("%d: %s", f.line, f.msg))
+	}
+	want := []string{
+		"4: degraded reason later_reason is registered in the catalog but tagged Planned (M3) here, while M2 is in progress",
+		"5: degraded reason mixed_reason is registered in the catalog but tagged Planned (M4) here, while M2 is in progress",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("codeGate = %q, want %q", got, want)
+	}
+	if got := milestoneInProgress("# Roadmap\n\n## M2 WASM and Control\n\n## M3 AI\n"); got != 2 {
+		t.Errorf("milestoneInProgress = %d, want 2", got)
+	}
+	if got := milestoneInProgress("# Roadmap\n"); got != 0 {
+		t.Errorf("milestoneInProgress of a roadmap without milestones = %d, want 0", got)
 	}
 }

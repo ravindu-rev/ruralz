@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/ravindu-rev/ruralz/internal/telemetry/catalog"
@@ -288,8 +289,27 @@ func docUnit(f catalog.Family) string {
 	}
 }
 
-// laterMilestone matches an availability tag after M1.
-func laterMilestone() *regexp.Regexp { return regexp.MustCompile(`Planned \(M[2-5]\)`) }
+// plannedTag matches an availability tag and captures its milestone
+// number.
+func plannedTag() *regexp.Regexp { return regexp.MustCompile(`Planned \(M([0-9])\)`) }
+
+// roadmapDoc holds the milestones not yet exited, the one in progress
+// first.
+const roadmapDoc = "docs/roadmap/01-roadmap-and-milestones.md"
+
+// milestoneInProgress returns n of the roadmap's first "## Mn " heading,
+// the milestone in progress, or 0 when the roadmap holds none.
+func milestoneInProgress(doc string) int {
+	m := regexp.MustCompile(`(?m)^## M([0-9]+) `).FindStringSubmatch(doc)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	return n
+}
 
 // checkObservabilityDoc runs the catalog gates over the documents: the
 // code gate compares every catalog family and degraded reason with its
@@ -305,7 +325,15 @@ func checkObservabilityDoc(r *repo, cv catalogView) ([]finding, error) {
 		return nil, err
 	}
 	obs, out := parseObsCatalog(strings.Split(string(data), "\n"))
-	out = append(out, codeGate(obs, cv)...)
+	current := 0
+	if slices.Contains(r.files, roadmapDoc) {
+		roadmap, err := r.read(roadmapDoc)
+		if err != nil {
+			return nil, err
+		}
+		current = milestoneInProgress(string(roadmap))
+	}
+	out = append(out, codeGate(obs, cv, current)...)
 	for _, rel := range r.files {
 		if !strings.HasPrefix(rel, archDir) || !strings.HasSuffix(rel, ".md") {
 			continue
@@ -321,9 +349,11 @@ func checkObservabilityDoc(r *repo, cv catalogView) ([]finding, error) {
 
 // codeGate checks that every catalog family appears in the OBS "Ruralz
 // Gateway metrics" table with the same type, histogram set, unit and label
-// names, and every catalog reason in the "Degraded states" table, not
-// tagged for a later milestone.
-func codeGate(obs obsCatalog, cv catalogView) []finding {
+// names, and every catalog reason in the "Degraded states" table, tagged at
+// most for current, the milestone in progress: a reason registered while
+// its milestone is in progress keeps that milestone's tag until it exits,
+// and a tag of a later milestone contradicts the registered code.
+func codeGate(obs obsCatalog, cv catalogView, current int) []finding {
 	var out []finding
 	at := func(line int, format string, args ...any) {
 		out = append(out, finding{path: obsDoc, line: line, msg: fmt.Sprintf(format, args...)})
@@ -400,8 +430,17 @@ func codeGate(obs obsCatalog, cv catalogView) []finding {
 		switch {
 		case !ok:
 			at(0, "degraded reason %s is missing from the degraded states table", r)
-		case laterMilestone().MatchString(o.row):
-			at(o.line, "degraded reason %s is registered in M1 but tagged %s here", r, laterMilestone().FindString(o.row))
+		default:
+			for _, tag := range plannedTag().FindAllStringSubmatch(o.row, -1) {
+				if n, err := strconv.Atoi(tag[1]); err == nil && n > current {
+					inProgress := "none is in progress"
+					if current > 0 {
+						inProgress = fmt.Sprintf("M%d is in progress", current)
+					}
+					at(o.line, "degraded reason %s is registered in the catalog but tagged %s here, while %s", r, tag[0], inProgress)
+					break
+				}
+			}
 		}
 	}
 	return out
