@@ -18,8 +18,12 @@
 //
 // The guarded HTTP client (Client) sends no cookies, never follows https
 // to http, re-checks every redirect hop, caps response bodies and, for a
-// destination-bound secret (auth.upstream-oauth2 clientSecret), follows
-// no redirect at all and refuses any other origin.
+// destination-bound secret (auth.upstream-oauth2 clientSecret and
+// subjectToken), follows no redirect at all and refuses any other origin.
+// A destination-bound client may fetch a cleartext http destination only
+// when it asks to (ClientOptions.Cleartext): the metadata server's fixed
+// link-local address, which the guard refuses unless RURALZ_FETCH_ALLOW
+// holds it.
 package egress
 
 import (

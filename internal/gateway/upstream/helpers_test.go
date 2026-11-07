@@ -265,8 +265,10 @@ type hooks struct {
 	// under records each Phase call as "<phase> <leg attempt> under <span
 	// attempt>", the attempt of the span its context carries.
 	under []string
-	// onRequest, onHeaders and onBody script the Phases; nil continues.
+	// onRequest, onHeaders and onBody script the Phases, and onSign the
+	// transport-time signing hook; nil continues.
 	onRequest func(leg *filter.Leg) *filter.Response
+	onSign    func(leg *filter.Leg) *filter.Response
 	onHeaders func(leg *filter.Leg) (bool, *filter.Response)
 	onBody    func(leg *filter.Leg) *filter.Response
 }
@@ -316,6 +318,17 @@ func (r *legRun) OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter
 		return r.h.onRequest(leg)
 	}
 	return nil
+}
+
+// Sign records the hook's call only when a test scripts it, so the event
+// lists of the other tests stay as they are.
+func (r *legRun) Sign(ctx context.Context, leg *filter.Leg) *filter.Response {
+	if r.h.onSign == nil {
+		return nil
+	}
+	r.h.record("sign %d %s", leg.Attempt, leg.Endpoint)
+	r.h.recordUnder(ctx, "sign", leg.Attempt)
+	return r.h.onSign(leg)
 }
 
 func (r *legRun) OnUpstreamResponseHeaders(ctx context.Context, leg *filter.Leg) (bool, *filter.Response) {

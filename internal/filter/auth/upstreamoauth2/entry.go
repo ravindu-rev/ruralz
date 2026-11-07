@@ -75,9 +75,13 @@ func (f *flight) settle(tok *token, err error) {
 type entry struct {
 	reg *Registry
 	key entryKey
-	// form is the request body; client the destination-bound client.
+	// form is the client credentials request body; client the
+	// destination-bound client of the grant's endpoint, the tokenUrl
+	// origin or the metadata server; iam the one of the IAM Service
+	// Account Credentials API, set when token-exchange impersonates.
 	form   string
 	client *http.Client
+	iam    *http.Client
 
 	// tok is the latest token, read lock-free on the request path; it is
 	// replaced only by a successful fetch.
@@ -99,28 +103,56 @@ type entry struct {
 	closed bool
 }
 
-// newEntry returns the entry of k with its request body and its client:
-// bound to the tokenUrl origin, following no redirect and capped at
-// MaxResponseBytes. The client has no deadline of its own: the fetch
-// context (startLocked) bounds each fetch by the timeout, and as the only
-// end of an exchange it is the one fetch checks a failure against. A
-// connect, which the transport runs apart from the request context, is
-// bounded by the timeout as well, and at most by egress.DefaultDialTimeout.
+// newEntry returns the entry of k with its request body and its clients:
+// each bound to one origin, following no redirect and capped at
+// MaxResponseBytes. The tokenUrl client is bound to the tokenUrl origin,
+// the only destination of clientSecret and subjectToken; the
+// metadata-server client to the metadata server's address, the one origin
+// it fetches over cleartext HTTP; the impersonation client to the IAM
+// Service Account Credentials API. The clients have no deadline of their
+// own: the fetch context (startLocked) bounds each fetch by the timeout,
+// and as the only end of an exchange it is the one fetch checks a failure
+// against. A connect, which the transport runs apart from the request
+// context, is bounded by the timeout as well, and at most by
+// egress.DefaultDialTimeout.
 func newEntry(r *Registry, k entryKey) *entry {
-	form := url.Values{"grant_type": {grantClientCredentials}}
-	if k.scope != "" {
-		form.Set("scope", k.scope)
+	e := &entry{reg: r, key: k}
+	switch k.grant {
+	case grantClientCredentials:
+		form := url.Values{"grant_type": {grantTypeClientCredentials}}
+		if k.scope != "" {
+			form.Set("scope", k.scope)
+		}
+		e.form = form.Encode()
+		e.client = r.client(k, k.origin, false)
+	case grantMetadataServer:
+		e.client = r.client(k, originOf(r.metadataURL), true)
+	case grantTokenExchange:
+		e.client = r.client(k, k.origin, false)
+		if k.serviceAccount != "" {
+			e.iam = r.client(k, originOf(r.iamURL), false)
+		}
+	default:
+		e.client = r.client(k, k.origin, false)
 	}
-	return &entry{
-		reg:  r,
-		key:  k,
-		form: form.Encode(),
-		client: r.guard.Client(egress.ClientOptions{
-			TLS:          r.tls,
-			Destination:  k.origin,
-			DialTimeout:  min(k.timeout, egress.DefaultDialTimeout),
-			MaxBodyBytes: MaxResponseBytes,
-		}),
+	return e
+}
+
+// originOf returns the origin of a fixed endpoint URL (egress.Origin); an
+// unparsable one is its own text, which matches no request.
+func originOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return raw
+	}
+	return egress.Origin(u)
+}
+
+// closeIdle closes the idle connections of the entry's clients.
+func (e *entry) closeIdle() {
+	e.client.CloseIdleConnections()
+	if e.iam != nil {
+		e.iam.CloseIdleConnections()
 	}
 }
 
@@ -262,7 +294,7 @@ func (e *entry) finish(ctx context.Context, f *flight, tok *token, err error, st
 	e.reg.kick()
 	switch {
 	case closed:
-		e.client.CloseIdleConnections()
+		e.closeIdle()
 	case err == nil:
 		h.setAge(now.Sub(tok.obtained))
 	case !stopping:

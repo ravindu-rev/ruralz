@@ -10,7 +10,11 @@
 // failureMode table by Filter class and Phase, the short-circuit rules,
 // consumptive batching of admission Filters into shared State Store round
 // trips, onLog, Finish, and the per-leg hooks the Upstream layer calls
-// (snapshot.LegHooks and snapshot.LegRun).
+// (snapshot.LegHooks and snapshot.LegRun), the transport-time signing hook
+// among them: LegRun.Sign calls every running request-signing Policy of
+// the leg (filter.Signer) on the attempt's final request, after the
+// attempt's last onUpstreamRequest Filter (foundation pack section 8.12
+// rule 6).
 //
 // A request uses one Run: Executor.Begin, Run.Request for onRequestHeaders,
 // onRequestBody and onRoute, the Run as snapshot.Outbound.Hooks while the
@@ -258,6 +262,18 @@ func (e *Executor) handle(ctx context.Context, p *snapshot.Policy, ph phase.Phas
 		}
 	}()
 	return p.Filter.Handle(ctx, ph, x)
+}
+
+// signCall calls s, p's Filter, at the transport-time signing hook,
+// recovering a panic as cannot decide, logged as one in onUpstreamRequest.
+func (e *Executor) signCall(ctx context.Context, p *snapshot.Policy, s filter.Signer, x filter.Exchange) (r filter.Result) {
+	defer func() {
+		if v := recover(); v != nil {
+			e.logPanic(ctx, p, phase.OnUpstreamRequest, v)
+			r = filter.Undecided("", ErrPanic)
+		}
+	}()
+	return s.Sign(ctx, x)
 }
 
 // prepare calls Consumptive.Prepare, recovering a panic as cannot decide.

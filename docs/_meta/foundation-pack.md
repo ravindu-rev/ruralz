@@ -149,7 +149,8 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor. | (tech stack doc; ADR-0003) |
 | Protobuf | `google.golang.org/protobuf` runtime; the pinned `buf` CLI runs version-pinned local `protoc-gen-go` and `protoc-gen-connect-go` plugins, hermetic, with no network at generate time | (tech stack doc; ADR-0007) |
 | MaxMind database reader | `github.com/oschwald/maxminddb-golang` reads the local MaxMind-format database of `authz.geoip` | (tech stack doc) |
-| Pending selections | SigV4 signer, SAML, `postgres` driver and the Vault Transit and cloud KMS signer clients (OQ-tech-stack-and-libraries-17, -19, -20 and -25). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
+| AWS SigV4 signer | `github.com/aws/aws-sdk-go-v2`, its `aws` and `aws/signer/v4` packages only, confined to the `auth.upstream-sigv4` Filter | (tech stack doc) |
+| Pending selections | SAML, `postgres` driver and the Vault Transit and cloud KMS signer clients (OQ-tech-stack-and-libraries-19, -20 and -25). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 

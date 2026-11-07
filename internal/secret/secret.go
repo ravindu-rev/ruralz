@@ -107,6 +107,9 @@ const (
 	KindAPIKey
 	// KindStateStoreURL is a State Store URL that must fit its topology.
 	KindStateStoreURL
+	// KindServiceAccountKey is a Google Cloud service-account JSON key
+	// (internal/serviceaccount).
+	KindServiceAccountKey
 )
 
 // Use is one reference to resolve, with its location for diagnostics.

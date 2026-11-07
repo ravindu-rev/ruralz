@@ -1,0 +1,6 @@
+ruralz bundle diff: rev-3f5f9c7200d6 -> rev-f7f28ed1eee9 (environment: prod)
+
++ Route/stock                                   overlays/prod/stock.yaml     [routing]
++ Upstream/inventory                            overlays/prod/stock.yaml     [routing, traffic]
+
+2 resources changed: 2 added, 0 removed, 0 modified; 0 Route chains changed; impact: routing, traffic

@@ -46,8 +46,9 @@ type attachment struct {
 	// timeout is the effective stateStoreTimeout.
 	timeout time.Duration
 	// gatesBody is set when the attachment gates the request body: it
-	// runs in onRequestBody, or is a transform.request whose config needs
-	// the body (pipeline.Pipeline.PolicySite).
+	// runs in onRequestBody, is a transform.request whose config needs
+	// the body, or is an auth.upstream-sigv4 that signs its payload
+	// (pipeline.Pipeline.PolicySite).
 	gatesBody bool
 	// readsResponse is set for a client-scope transform.response whose
 	// config needs the response body, or whose when reads it.

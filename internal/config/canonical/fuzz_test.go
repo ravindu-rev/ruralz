@@ -39,7 +39,7 @@ func addGolden(f *testing.F, dumps bool) {
 			if err != nil {
 				f.Fatal(err)
 			}
-			rev, err := NewEncoder(hubIndex(f)).EncodeResources(context.Background(), rs, Options{})
+			rev, err := NewEncoder(hubIndex(f)).EncodeResources(context.Background(), rs, hubOptions(f, Options{}))
 			if err != nil {
 				f.Fatal(err)
 			}
@@ -225,11 +225,11 @@ func FuzzDecodeCanonical(f *testing.F) {
 			}
 			return
 		}
-		rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, Options{})
+		rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, hubOptions(t, Options{}))
 		if err != nil || !bytes.Equal(rev.Content, data) {
 			t.Fatalf("decoded content does not re-encode to itself: %v\n%q\n%q", err, data, rev.Content)
 		}
-		yrev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), yrs, Options{Workers: 3, Now: clock.now, YieldAfter: time.Microsecond})
+		yrev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), yrs, hubOptions(t, Options{Workers: 3, Now: clock.now, YieldAfter: time.Microsecond}))
 		if err != nil || !bytes.Equal(yrev.Content, data) || yrev.Digest != rev.Digest {
 			t.Fatalf("yielding: decoded content does not re-encode to itself: %v\n%q\n%q", err, data, yrev.Content)
 		}
@@ -287,7 +287,7 @@ func FuzzReorderInvariance(f *testing.F) {
 		for i, p := range r.Perm(len(rs)) {
 			out[i] = &hub.Resource{ID: rs[p].ID, Tree: shuffled(rs[p].Root, r)}
 		}
-		rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(out), Options{Workers: 1 + int(seed%4)})
+		rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(out), hubOptions(t, Options{Workers: 1 + int(seed%4)}))
 		if err != nil || !bytes.Equal(rev.Content, data) {
 			t.Fatalf("reordered resources re-encode differently: %v", err)
 		}

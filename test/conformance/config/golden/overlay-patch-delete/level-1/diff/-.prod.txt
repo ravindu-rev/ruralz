@@ -1,0 +1,13 @@
+ruralz bundle diff: rev-7c672265c34f -> rev-d70c81ef1039 (environment: prod)
+
+~ Gateway/edge                                  ruralz.yaml                  [security, traffic]
+    - spec.policies[name=cors-default]
+    > spec.policies[name=headers-security]: position 2 -> 1
+~ Upstream/orders                               ruralz.yaml                  [routing]
+    - spec.endpoints[address=orders-b.shop.svc:8080]: {"address":"orders-b.shop.svc:8080","weight":1}
+
+Effective Filter Chain changes:
+  Route/orders onRequestHeaders: - cors-default (cors, first)
+  Route/orders onResponse: - cors-default (cors, after headers-security)
+
+2 resources changed: 0 added, 0 removed, 2 modified; 1 Route chain changed; impact: routing, security, traffic

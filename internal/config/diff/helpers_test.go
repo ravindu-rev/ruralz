@@ -151,7 +151,7 @@ func finish(t testing.TB, rs []*tree.Resource, files *tree.FileTable) *hub.Valid
 	if err != nil || ds.HasErrors() {
 		t.Fatalf("stage I: %v %s", err, texts(ds))
 	}
-	rev, err := canonical.NewEncoder(s.idx).Encode(ctx, b, canonical.Options{})
+	rev, err := canonical.NewEncoder(s.idx).Encode(ctx, b, canonical.Options{Level: s.idx.Level()})
 	if err != nil {
 		t.Fatalf("stage L: %v", err)
 	}
@@ -348,7 +348,8 @@ func altered(t *testing.T, v *hub.Validated, id string, fn func(root *tree.Node)
 		t.Fatalf("no resource %s", id)
 	}
 	b := hub.NewBundle(rs)
-	rev, err := canonical.NewEncoder(hubIndex(t)).Encode(context.Background(), b, canonical.Options{})
+	idx := hubIndex(t)
+	rev, err := canonical.NewEncoder(idx).Encode(context.Background(), b, canonical.Options{Level: idx.Level()})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}

@@ -64,7 +64,7 @@ spec:
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	rev, err := NewEncoder(hubIndex(t)).Encode(ctx, loadBundle(t, dirFiles(t, bundleDir)), Options{})
+	rev, err := NewEncoder(hubIndex(t)).Encode(ctx, loadBundle(t, dirFiles(t, bundleDir)), hubOptions(t, Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}

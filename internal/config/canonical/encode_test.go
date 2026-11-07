@@ -58,7 +58,7 @@ func TestEnvelope(t *testing.T) {
 
 // TestEmptyBundle: a Bundle without resources is the bare envelope.
 func TestEmptyBundle(t *testing.T) {
-	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(nil), Options{Workers: 4})
+	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(nil), hubOptions(t, Options{Workers: 4}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +70,7 @@ func TestEmptyBundle(t *testing.T) {
 // TestDigest: the digest is SHA-256 over the exact bytes, which carry no
 // trailing newline, so sha256sum of a build output prints it.
 func TestDigest(t *testing.T) {
-	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, gatewayDoc, routeDoc), Options{})
+	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, gatewayDoc, routeDoc), hubOptions(t, Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -255,8 +255,12 @@ func TestDepthLimit(t *testing.T) {
 // TestLevel: the encoder renders only the index's own schema level.
 func TestLevel(t *testing.T) {
 	b := bundleOf(t, routeDoc)
-	if _, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: 1}); !errors.Is(err, ErrEncode) {
-		t.Errorf("Level 1 on a level-0 schema: error = %v, want ErrEncode", err)
+	hubLevel := hubIndex(t).Level()
+	if _, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: hubLevel + 1}); !errors.Is(err, ErrEncode) {
+		t.Errorf("Level %d on a level-%d schema: error = %v, want ErrEncode", hubLevel+1, hubLevel, err)
+	}
+	if _, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: hubLevel}); err != nil {
+		t.Errorf("Level %d on a level-%d schema: error = %v", hubLevel, hubLevel, err)
 	}
 	if _, err := NewEncoder(syntheticIndex(t)).Encode(context.Background(), hub.NewBundle(nil), Options{}); !errors.Is(err, ErrEncode) {
 		t.Errorf("Level 0 on a level-2 schema: error = %v, want ErrEncode", err)
@@ -290,7 +294,7 @@ func TestEncodeErrors(t *testing.T) {
 		{"null in spec", tree.Resource{ID: tree.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Root: jsonTree(t, `{"kind": "Route", "metadata": {"name": "r"}, "spec": {"timeout": null}}`)}, "Route/r spec.timeout: null"},
 		{"null in metadata", tree.Resource{ID: tree.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Root: jsonTree(t, `{"kind": "Route", "metadata": {"name": "r", "labels": null}}`)}, "Route/r metadata.labels: null"},
 	} {
-		_, err := enc.EncodeResources(ctx, []tree.Resource{tc.res}, Options{})
+		_, err := enc.EncodeResources(ctx, []tree.Resource{tc.res}, hubOptions(t, Options{}))
 		if !errors.Is(err, ErrEncode) || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%s: error = %v, want ErrEncode containing %q", tc.name, err, tc.want)
 		}
@@ -303,7 +307,7 @@ func TestEncodeErrors(t *testing.T) {
 	}
 	// Duplicate identities.
 	r := tree.Resource{ID: tree.ID{Kind: v1alpha1.KindRoute, Name: "r"}, Root: jsonTree(t, `{"kind": "Route", "metadata": {"name": "r"}}`)}
-	if _, err := enc.EncodeResources(ctx, []tree.Resource{r, r}, Options{}); !errors.Is(err, ErrEncode) || !strings.Contains(err.Error(), "duplicate resource Route/r") {
+	if _, err := enc.EncodeResources(ctx, []tree.Resource{r, r}, hubOptions(t, Options{})); !errors.Is(err, ErrEncode) || !strings.Contains(err.Error(), "duplicate resource Route/r") {
 		t.Errorf("duplicate: error = %v", err)
 	}
 }
@@ -316,7 +320,7 @@ func TestEncodeResourcesSorts(t *testing.T) {
 		r := resourceOf(t, jsonTree(t, d))
 		rs = append(rs, tree.Resource{ID: r.ID, Root: r.Tree})
 	}
-	rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, Options{})
+	rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, hubOptions(t, Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -344,12 +348,12 @@ func largeBundle(t testing.TB, n int) *hub.Bundle {
 func TestWorkers(t *testing.T) {
 	b := largeBundle(t, 200)
 	enc := NewEncoder(hubIndex(t))
-	one, err := enc.Encode(context.Background(), b, Options{Workers: 1})
+	one, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: 1}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, w := range []int{0, 2, 3, 8, 1000} {
-		got, err := enc.Encode(context.Background(), b, Options{Workers: w})
+		got, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: w}))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -361,7 +365,7 @@ func TestWorkers(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	for _, w := range []int{1, 4} {
-		if _, err := enc.Encode(ctx, b, Options{Workers: w}); !errors.Is(err, context.Canceled) {
+		if _, err := enc.Encode(ctx, b, hubOptions(t, Options{Workers: w})); !errors.Is(err, context.Canceled) {
 			t.Errorf("canceled, workers %d: error = %v", w, err)
 		}
 	}
@@ -384,7 +388,7 @@ func TestParallelErrors(t *testing.T) {
 	}
 	first := bad[len(rs)-30].String()
 	for _, w := range []int{1, 2, 7, 64} {
-		_, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(bad), Options{Workers: w})
+		_, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(bad), hubOptions(t, Options{Workers: w}))
 		if !errors.Is(err, ErrEncode) || !strings.Contains(err.Error(), first+" spec.timeout") {
 			t.Errorf("workers %d: error = %v, want %s", w, err, first)
 		}
@@ -408,7 +412,7 @@ func TestParallelErrors(t *testing.T) {
 // leaves the bytes unchanged.
 func TestReorderInvariance(t *testing.T) {
 	b := largeBundle(t, 20)
-	want, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{})
+	want, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, hubOptions(t, Options{}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +425,7 @@ func TestReorderInvariance(t *testing.T) {
 			c.Tree = shuffled(rs[p].Tree, r)
 			out[i] = &c
 		}
-		got, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(out), Options{Workers: 3})
+		got, err := NewEncoder(hubIndex(t)).Encode(context.Background(), hub.NewBundle(out), hubOptions(t, Options{Workers: 3}))
 		if err != nil {
 			t.Fatal(err)
 		}

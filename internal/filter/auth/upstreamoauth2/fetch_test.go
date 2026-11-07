@@ -34,7 +34,7 @@ import (
 func TestTokenRequest(t *testing.T) {
 	h := running(t, issue(300))
 	b := h.build(testPolicy, h.config(func(c *v1alpha1.AuthUpstreamOAuth2Config) {
-		c.TokenURL += "?tenant=shop"
+		c.TokenURL = strPtr(*c.TokenURL + "?tenant=shop")
 		c.Scopes = []string{"orders.read", "orders.write", "orders.read"}
 	}))
 	r, auth := handle(t.Context(), b)
@@ -270,7 +270,7 @@ func TestMockIdPInterop(t *testing.T) {
 	h.reg.fetchHook = func() {}
 	h.start()
 	b := h.build(testPolicy, h.config(func(c *v1alpha1.AuthUpstreamOAuth2Config) {
-		c.TokenURL = idp.TokenURL()
+		c.TokenURL = strPtr(idp.TokenURL())
 		c.Scopes = []string{"orders.read"}
 	}))
 	r, auth := handle(t.Context(), b)

@@ -168,6 +168,9 @@ func TestPolicySite(t *testing.T) {
 	value := func(i int) diag.Path {
 		return diag.Path{diag.Field("spec"), diag.Field("config"), diag.Field("set"), diag.Index(i), diag.Field("valueExpression")}
 	}
+	sigv4 := func(p v1alpha1.SigV4Payload) *v1alpha1.AuthUpstreamSigV4Config {
+		return &v1alpha1.AuthUpstreamSigV4Config{Region: "us-east-1", Service: "lambda", Payload: &p}
+	}
 	tests := []struct {
 		name   string
 		r      *hub.Resource
@@ -208,6 +211,22 @@ func TestPolicySite(t *testing.T) {
 		{
 			"transform.response when", policy(v1alpha1.PolicyTypeTransformResponse, response), expr.PlacePolicyWhen, nil, phase.ScopeRoute, phase.Of(phase.OnResponse),
 			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeTransformResponse, FirstPhase: phase.OnResponse},
+		},
+		{
+			"auth.upstream-sigv4 signing its payload", policy(v1alpha1.PolicyTypeAuthUpstreamSigV4, sigv4(v1alpha1.SigV4PayloadSigned)), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeAuthUpstreamSigV4, FirstPhase: phase.OnUpstreamRequest, GatesBody: true},
+		},
+		{
+			"auth.upstream-sigv4 with the default payload", policy(v1alpha1.PolicyTypeAuthUpstreamSigV4, &v1alpha1.AuthUpstreamSigV4Config{Region: "us-east-1", Service: "lambda"}), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeAuthUpstreamSigV4, FirstPhase: phase.OnUpstreamRequest, GatesBody: true},
+		},
+		{
+			"auth.upstream-sigv4 with an unsigned payload", policy(v1alpha1.PolicyTypeAuthUpstreamSigV4, sigv4(v1alpha1.SigV4PayloadUnsigned)), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeAuthUpstreamSigV4, FirstPhase: phase.OnUpstreamRequest},
+		},
+		{
+			"auth.upstream-oauth2 when", policy(v1alpha1.PolicyTypeAuthUpstreamOAuth2, &v1alpha1.AuthUpstreamOAuth2Config{}), expr.PlacePolicyWhen, nil, phase.ScopeUpstream, phase.Of(phase.OnUpstreamRequest),
+			expr.Site{Place: expr.PlacePolicyWhen, Scope: phase.ScopeUpstream, PolicyType: v1alpha1.PolicyTypeAuthUpstreamOAuth2, FirstPhase: phase.OnUpstreamRequest},
 		},
 		{
 			"header value", policy(v1alpha1.PolicyTypeTransformRequest, targets), expr.PlaceTransformRequestValue, value(0), phase.ScopeRoute, phase.Of(phase.OnRequestHeaders),

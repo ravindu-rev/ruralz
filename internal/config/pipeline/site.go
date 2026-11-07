@@ -169,13 +169,21 @@ func setIndex(path diag.Path) int {
 // body at every scope exactly when its config needs the body, as the
 // registry decides (registry.Registry.TransformBody), and otherwise runs
 // while the body streams on (docs/architecture/03-data-plane.md
-// "Transform Policies").
+// "Transform Policies"). auth.upstream-sigv4 gates it unless its
+// config.payload is unsigned, as each attempt signs the SHA-256 of the
+// body it sends (docs/architecture/08-security-and-identity.md "Upstream
+// authentication").
 func (s *sites) gatesBody(r *hub.Resource, p *v1alpha1.Policy, scope phase.Scope, phases phase.Set) bool {
-	if p.Spec.Type == v1alpha1.PolicyTypeTransformRequest {
+	switch p.Spec.Type {
+	case v1alpha1.PolicyTypeTransformRequest:
 		needs, err := s.reg.TransformBody(registry.Attachment{Policy: p, Config: r.Config, Scope: scope}, s)
 		return err == nil && needs
+	case v1alpha1.PolicyTypeAuthUpstreamSigV4:
+		cfg, ok := r.Config.(*v1alpha1.AuthUpstreamSigV4Config)
+		return !ok || cfg == nil || cfg.Payload == nil || *cfg.Payload != v1alpha1.SigV4PayloadUnsigned
+	default:
+		return phases.Has(phase.OnRequestBody)
 	}
-	return phases.Has(phase.OnRequestBody)
 }
 
 // refsResult is one References answer the cache keeps.

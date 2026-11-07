@@ -1,0 +1,10 @@
+ruralz bundle diff: rev-96767fd91734 -> rev-754eabd767ca (environment: prod)
+
+~ Route/orders                                  ruralz.yaml                  [routing, traffic]
+    ~ spec.timeout: 5s -> 2s
+    - spec.match.methods[item=HEAD]
+    - spec.match.methods[item=POST]
+~ Policy/limit                                  ruralz.yaml                  [traffic]
+    ~ spec.config.limits: [{"requests":100,"window":"1s"},{"requests":1000,"window":"1m0s"}] -> [{"requests":50,"window":"1s"}]
+
+2 resources changed: 0 added, 0 removed, 2 modified; 0 Route chains changed; impact: routing, traffic

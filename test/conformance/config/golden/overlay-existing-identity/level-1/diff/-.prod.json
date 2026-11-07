@@ -1,0 +1,75 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-5981e581e783",
+    "digest": "sha256:5981e581e783db545d1c14c0051ff6e4aa24a35ddd50282c27192d46bc0f8048"
+  },
+  "to": {
+    "revision": "rev-a51a7e236610",
+    "bundle": "./overlay-existing-identity",
+    "digest": "sha256:a51a7e236610c53ad0f145daf00bbe58e71b6a9636e4629e7ec9dfd25977143c"
+  },
+  "environment": "prod",
+  "resources": [
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "traffic"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "healthCheck",
+            "active",
+            "interval"
+          ],
+          "from": "10s",
+          "to": "5s"
+        },
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "retries",
+            "attempts"
+          ],
+          "from": 2,
+          "to": 3
+        },
+        {
+          "op": "add",
+          "path": [
+            "metadata",
+            "labels",
+            "tier"
+          ],
+          "to": "gold"
+        },
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "timeout"
+          ],
+          "to": "2s"
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 1,
+    "added": 0,
+    "removed": 0,
+    "modified": 1,
+    "routeChainsChanged": 0,
+    "impact": [
+      "traffic"
+    ]
+  }
+}

@@ -40,6 +40,11 @@ const (
 	oauthRef      = `{"secretRef":{"provider":"env","name":"OAUTH_SECRET"}}`
 	jwksURL       = `https://127.0.0.1:1/jwks` // refused by the egress guard at once: no network
 	oauthEndpoint = `https://idp.example/token`
+	gcpKeyRef     = `{"secretRef":{"provider":"env","name":"GCP_KEY"}}`
+	gcpSubjectRef = `{"secretRef":{"provider":"file","name":"/var/run/secrets/tokens/gcp"}}`
+	gcpToken      = `https://oauth2.googleapis.com/token` //nolint:gosec // G101: a token endpoint address, not a credential
+	gcpSTS        = `https://sts.googleapis.com/v1/token`
+	gcpProvider   = `//iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/shop/providers/edge`
 	codeCFG5      = "RZ-CFG-005"
 	codeCEL       = "RZ-CFG-014"
 	codeHTTPS     = "RZ-CFG-037"
@@ -77,6 +82,13 @@ func validCases() []configCase {
 		{typ: v1alpha1.PolicyTypeTransformResponse, name: "header and body", config: `{"set":[{"target":"header","name":"x-r","valueExpression":"\"1\""}],"remove":[{"target":"body","name":"secret"}],"arrayOps":[{"op":"delete","from":"items.*.internal"}]}`},
 		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "client credentials", config: `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `,"scopes":["read"],"timeout":"3s"}`},
 		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "default timeout", config: `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "client credentials named", config: `{"grantType":"client-credentials","tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "jwt-bearer", config: `{"grantType":"jwt-bearer","tokenUrl":"` + gcpToken + `","serviceAccountKey":` + gcpKeyRef + `,"scopes":["https://www.googleapis.com/auth/cloud-platform"]}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "jwt-bearer ID token", config: `{"grantType":"jwt-bearer","tokenUrl":"` + gcpToken + `","serviceAccountKey":` + gcpKeyRef + `,"audience":"https://orders.shop.example"}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "metadata-server", config: `{"grantType":"metadata-server","scopes":["https://www.googleapis.com/auth/cloud-platform"],"timeout":"2s"}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "metadata-server ID token", config: `{"grantType":"metadata-server","audience":"https://orders.shop.example"}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "token-exchange", config: `{"grantType":"token-exchange","tokenUrl":"` + gcpSTS + `","subjectToken":` + gcpSubjectRef + `,"workloadIdentityProvider":"` + gcpProvider + `","scopes":["https://www.googleapis.com/auth/cloud-platform"]}`},
+		{typ: v1alpha1.PolicyTypeAuthUpstreamOAuth2, name: "token-exchange impersonating for an ID token", config: `{"grantType":"token-exchange","tokenUrl":"` + gcpSTS + `","subjectToken":` + gcpSubjectRef + `,"subjectTokenType":"urn:ietf:params:oauth:token-type:id_token","workloadIdentityProvider":"` + gcpProvider + `","serviceAccount":"orders@shop.iam.gserviceaccount.com","audience":"https://orders.shop.example"}`},
 	}
 }
 
@@ -159,6 +171,15 @@ func refusedCases() []configCase {
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "http tokenUrl", `{"tokenUrl":"http://idp.example/token","clientId":"shop","clientSecret":` + oauthRef + `}`, codeHTTPS},
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "tokenUrl without host", `{"tokenUrl":"https://","clientId":"shop","clientSecret":` + oauthRef + `}`, codeHTTPS},
 		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "zero timeout", `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `,"timeout":"0s"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "client credentials without clientSecret", `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "client credentials with audience", `{"tokenUrl":"` + oauthEndpoint + `","clientId":"shop","clientSecret":` + oauthRef + `,"audience":"https://orders.shop.example"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "jwt-bearer without its key", `{"grantType":"jwt-bearer","tokenUrl":"` + gcpToken + `"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "jwt-bearer with a clientSecret", `{"grantType":"jwt-bearer","tokenUrl":"` + gcpToken + `","serviceAccountKey":` + gcpKeyRef + `,"clientSecret":` + oauthRef + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "jwt-bearer http tokenUrl", `{"grantType":"jwt-bearer","tokenUrl":"http://oauth2.googleapis.com/token","serviceAccountKey":` + gcpKeyRef + `}`, codeHTTPS},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "jwt-bearer audience with scopes", `{"grantType":"jwt-bearer","tokenUrl":"` + gcpToken + `","serviceAccountKey":` + gcpKeyRef + `,"scopes":["a"],"audience":"https://orders.shop.example"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "metadata-server with a tokenUrl", `{"grantType":"metadata-server","tokenUrl":"http://169.254.169.254/token"}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "token-exchange without provider", `{"grantType":"token-exchange","tokenUrl":"` + gcpSTS + `","subjectToken":` + gcpSubjectRef + `}`, codeCFG5},
+		{v1alpha1.PolicyTypeAuthUpstreamOAuth2, "token-exchange ID token without impersonation", `{"grantType":"token-exchange","tokenUrl":"` + gcpSTS + `","subjectToken":` + gcpSubjectRef + `,"workloadIdentityProvider":"` + gcpProvider + `","audience":"https://orders.shop.example"}`, codeCFG5},
 	}
 }
 

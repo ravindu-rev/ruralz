@@ -148,7 +148,7 @@ func TestDecodePanicSurfaces(t *testing.T) {
 func TestEncodePanicSurfaces(t *testing.T) {
 	b := largeBundle(t, 50)
 	enc := NewEncoder(hubIndex(t))
-	want, err := enc.Encode(context.Background(), b, Options{Workers: 1})
+	want, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: 1}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -161,13 +161,13 @@ func TestEncodePanicSurfaces(t *testing.T) {
 		for _, w := range tc.workers {
 			base := runtime.NumGoroutine()
 			ctx := &injecting{Context: context.Background(), site: tc.site, mine: goroutineID(), onMine: tc.onMine, at: tc.at}
-			v := recovered(func() { _, _ = enc.Encode(ctx, b, Options{Workers: w}) })
+			v := recovered(func() { _, _ = enc.Encode(ctx, b, hubOptions(t, Options{Workers: w})) })
 			if !ctx.fired.Load() {
 				t.Fatalf("%s, workers %d: the panic was not injected", tc.name, w)
 			}
 			checkSurfaced(t, tc, w, v)
 			settles(t, base)
-			got, err := enc.Encode(context.Background(), b, Options{Workers: w})
+			got, err := enc.Encode(context.Background(), b, hubOptions(t, Options{Workers: w}))
 			if err != nil {
 				t.Fatal(err)
 			}

@@ -1,0 +1,10 @@
+name: AWS signing test suite, Signature Version 4 cases
+url: https://github.com/awslabs/aws-c-auth
+ref: v1.0.3
+commit: 6f9496f2f355bf7f53083ea759ae17d5fdd366b2
+path: tests/aws-signing-test-suite/v4
+sha256: ee570550905ec3cce5dcd20d5eff333285f2c199fff7373f466d3db79af896e8
+sha256-of: git -c core.autocrlf=false -c core.eol=lf archive --format=tar 6f9496f2f355bf7f53083ea759ae17d5fdd366b2
+license: Apache-2.0 (LICENSE and NOTICE of the same commit)
+kept: context.json request.txt header-canonical-request.txt header-signed-request.txt of every case but the query-signing files, the unnormalized cases and post-sts-header-after (vectors_test.go says why)
+updated-by: scripts/update-test-suites.sh

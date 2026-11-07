@@ -1,0 +1,1 @@
+policies.yaml:31:31 error RZ-CFG-041 Policy/upstream-oauth spec.config.clientSecret: secretRef "file:/etc/ruralz/oauth/client-secret" has destination "https://auth.shop.example:443" here and "local" at Policy/upstream-gcp-key spec.config.serviceAccountKey (one secret is sent to one destination; use a separate secret for each) (first used in extra.yaml:10:36)

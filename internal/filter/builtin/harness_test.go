@@ -5,11 +5,15 @@ package builtin
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand/v2"
+	mrand "math/rand/v2"
 	"strings"
 	"sync"
 	"testing"
@@ -86,7 +90,7 @@ func newHarness(tb testing.TB) *harness {
 		tb.Fatal(err)
 	}
 	clk := clocktest.New(t0)
-	filters, err := New(Options{Clock: clk, Entropy: zeros{}, Rand: rand.NewPCG(1, 2)})
+	filters, err := New(Options{Clock: clk, Entropy: zeros{}, Rand: mrand.NewPCG(1, 2)})
 	if err != nil {
 		tb.Fatal(err)
 	}
@@ -253,7 +257,7 @@ func (h *harness) buildValidated(t *testing.T, v *hub.Validated) []build {
 		t.Fatalf("Policy object is %T", r.Object)
 	}
 	consumers := identity.CompileBundle(v.Bundle).Map()
-	secrets := h.secrets(v.Secrets)
+	secrets := h.secrets(t, v.Secrets)
 	type attachment struct {
 		scope  phase.Scope
 		phases phase.Set
@@ -367,10 +371,11 @@ func (h *harness) build(t *testing.T, env filter.BuildEnv) error {
 }
 
 // secrets resolves every secretRef use with a value of the kind its use
-// checks: the harness CA for a CA bundle, its CRL for a CRL, an opaque
-// value otherwise, as a Node's resolver would for a Bundle whose secrets
+// checks: the harness CA for a CA bundle, its CRL for a CRL, a
+// service-account key for a serviceAccountKey, an opaque value otherwise, as a Node's resolver would for a Bundle whose secrets
 // exist.
-func (h *harness) secrets(uses []hub.SecretUse) mapStore {
+func (h *harness) secrets(t *testing.T, uses []hub.SecretUse) mapStore {
+	t.Helper()
 	m := mapStore{}
 	for _, u := range uses {
 		r := secret.RefOf(u.Ref)
@@ -389,6 +394,8 @@ func (h *harness) secrets(uses []hub.SecretUse) mapStore {
 			v = []byte(strings.Repeat("k", 32))
 		case secret.KindStateStoreURL:
 			v = []byte("redis://127.0.0.1:6379")
+		case secret.KindServiceAccountKey:
+			v = serviceAccountKey(t)
 		default:
 			v = []byte("opaque-secret-value")
 		}
@@ -482,4 +489,33 @@ func (o outcome) firstBuild() error {
 		return errNoBuild
 	}
 	return o.builds[0].err
+}
+
+// sharedServiceAccountKey is the service-account JSON key every harness
+// resolves a serviceAccountKey to; an RSA key takes a while to generate,
+// so the tests of the package share one.
+var sharedServiceAccountKey = sync.OnceValues(func() ([]byte, error) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, err
+	}
+	der, err := x509.MarshalPKCS8PrivateKey(key)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]string{
+		"type": "service_account", "private_key_id": "harness",
+		"private_key":  string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})),
+		"client_email": "harness@shop.iam.gserviceaccount.com",
+	})
+})
+
+// serviceAccountKey returns the shared service-account key.
+func serviceAccountKey(t *testing.T) []byte {
+	t.Helper()
+	b, err := sharedServiceAccountKey()
+	if err != nil {
+		t.Fatalf("service-account key: %v", err)
+	}
+	return b
 }

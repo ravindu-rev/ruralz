@@ -408,6 +408,14 @@ type LegRun interface {
 	// OnUpstreamRequest runs per attempt; a non-nil response ends the leg
 	// without retry.
 	OnUpstreamRequest(ctx context.Context, leg *filter.Leg) *filter.Response
+	// Sign is the transport-time signing hook of an attempt (foundation
+	// pack section 8.12 rule 6): the Upstream layer calls it after
+	// OnUpstreamRequest, as the last step before leg.Request is sent, and
+	// every request-signing Policy of the leg (filter.Signer) signs
+	// leg.Request in place. A non-nil response, a signing Policy's closed
+	// failure (401 RZ-AUTH-020 for upstream-auth), ends the leg without
+	// retry.
+	Sign(ctx context.Context, leg *filter.Leg) *filter.Response
 	// OnUpstreamResponseHeaders runs in reverse order once per attempt that
 	// was sent: with the response headers, or, for an attempt that got none,
 	// with leg.Response nil and leg.ErrorKind set (an attempt the caller

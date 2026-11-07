@@ -178,6 +178,8 @@ type legRun struct{}
 
 func (legRun) OnUpstreamRequest(context.Context, *filter.Leg) *filter.Response { return nil }
 
+func (legRun) Sign(context.Context, *filter.Leg) *filter.Response { return nil }
+
 func (legRun) OnUpstreamResponseHeaders(context.Context, *filter.Leg) (bool, *filter.Response) {
 	return false, nil
 }

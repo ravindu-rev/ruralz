@@ -36,15 +36,16 @@ var _ filter.Factory = Factory{}
 
 // Build validates env.Config and returns a Filter on the entry of the
 // Policy's name and fetch parameters, sharing it with the Filters of other
-// live snapshots that have them. A config of the wrong type or with a
-// timeout that is not positive is RZ-CFG-005, a tokenUrl that is not an
-// https URL RZ-CFG-037, and a clientSecret missing from env.Secrets
-// RZ-CFG-026. A ctx that has ended is its error, unchanged and without a
-// code, as is a Factory without a Registry: these are failures of the
-// snapshot compile, not findings about the Revision. Build fetches
-// nothing: the first request of the Policy does. Close every Filter Build
-// returns, including those of a snapshot that is never published, or its
-// entry keeps refreshing.
+// live snapshots that have them. A config of the wrong type, or one that
+// breaks a rule of Check but the tokenUrl's, is RZ-CFG-005, a tokenUrl
+// that is not an https URL RZ-CFG-037, and a credential secret
+// (clientSecret, serviceAccountKey or subjectToken) missing from
+// env.Secrets RZ-CFG-026. A ctx that has ended is its error, unchanged
+// and without a code, as is a Factory without a Registry: these are
+// failures of the snapshot compile, not findings about the Revision.
+// Build fetches nothing: the first request of the Policy does. Close
+// every Filter Build returns, including those of a snapshot that is never
+// published, or its entry keeps refreshing.
 func (fa Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -60,11 +61,13 @@ func (fa Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter
 	if err != nil {
 		return nil, fmt.Errorf("auth.upstream-oauth2: %w", err)
 	}
-	if env.Secrets == nil {
-		return nil, errcode.Errorf(CodeUnresolved, "auth.upstream-oauth2: config.clientSecret %s: no secret table", s.ref)
-	}
-	if _, ok := env.Secrets.Get(s.ref); !ok {
-		return nil, errcode.Errorf(CodeUnresolved, "auth.upstream-oauth2: config.clientSecret %s is not resolved", s.ref)
+	if field := credentialField(s.grant); field != "" {
+		if env.Secrets == nil {
+			return nil, errcode.Errorf(CodeUnresolved, "auth.upstream-oauth2: config.%s %s: no secret table", field, s.ref)
+		}
+		if _, ok := env.Secrets.Get(s.ref); !ok {
+			return nil, errcode.Errorf(CodeUnresolved, "auth.upstream-oauth2: config.%s %s is not resolved", field, s.ref)
+		}
 	}
 	var name string
 	if env.Policy != nil {
@@ -85,6 +88,21 @@ func (fa Factory) Build(ctx context.Context, env filter.BuildEnv) (filter.Filter
 	f := &Filter{e: fa.Registry.acquire(entryKey{policy: name, settings: s}, h), h: h}
 	f.lastAge.Store(-1)
 	return f, nil
+}
+
+// credentialField returns the config field holding the credential secret
+// of grant g; "" for metadata-server, which takes none.
+func credentialField(g grant) string {
+	switch g {
+	case grantClientCredentials:
+		return "clientSecret"
+	case grantJWTBearer:
+		return "serviceAccountKey"
+	case grantTokenExchange:
+		return "subjectToken"
+	default:
+		return ""
+	}
 }
 
 // Filter is a compiled auth.upstream-oauth2 Policy: it puts the Policy's

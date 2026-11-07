@@ -31,6 +31,8 @@ func kindName(k secret.Kind) string {
 		return "api-key"
 	case secret.KindStateStoreURL:
 		return "state-store-url"
+	case secret.KindServiceAccountKey:
+		return "service-account-key"
 	default:
 		return fmt.Sprintf("kind-%d", k)
 	}

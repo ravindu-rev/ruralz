@@ -401,6 +401,65 @@ func TestClientOnlyHTTPS(t *testing.T) {
 	}
 }
 
+// plainServer is an httptest cleartext server that counts its requests.
+func plainServer(t *testing.T, body string) (*httptest.Server, *atomic.Int64) {
+	t.Helper()
+	var hits atomic.Int64
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		_, _ = io.WriteString(w, body)
+	}))
+	t.Cleanup(s.Close)
+	return s, &hits
+}
+
+// TestClientCleartextDestination checks ClientOptions.Cleartext: a client
+// bound to an http destination fetches that origin over cleartext, and
+// only it; every other http URL, a Cleartext client without a destination
+// or with an https one, and an http destination without Cleartext still
+// fail with ErrScheme before any connection; the guard still refuses a
+// denied address, such as the metadata server's link-local one without an
+// allow entry.
+func TestClientCleartextDestination(t *testing.T) {
+	home, homeHits := plainServer(t, "token")
+	other, otherHits := plainServer(t, "other")
+	c := loopbackGuard(t).Client(ClientOptions{Destination: home.URL, Cleartext: true})
+	defer c.CloseIdleConnections()
+	if _, body, err := get(t, c, home.URL+"/computeMetadata"); err != nil || string(body) != "token" {
+		t.Fatalf("cleartext fetch at the destination: %q, %v", body, err)
+	}
+	if _, _, err := get(t, c, other.URL+"/token"); !errors.Is(err, ErrScheme) {
+		t.Fatalf("cleartext fetch of another origin = %v, want ErrScheme", err)
+	}
+	u, err := url.Parse(home.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		o    ClientOptions
+	}{
+		{"no destination", ClientOptions{Cleartext: true}},
+		{"https destination", ClientOptions{Destination: "https://" + u.Host, Cleartext: true}},
+		{"http destination without Cleartext", ClientOptions{Destination: home.URL}},
+	} {
+		c := loopbackGuard(t).Client(tc.o)
+		if _, _, err := get(t, c, home.URL+"/token"); !errors.Is(err, ErrScheme) {
+			t.Errorf("%s: cleartext fetch = %v, want ErrScheme", tc.name, err)
+		}
+		c.CloseIdleConnections()
+	}
+	if n, m := homeHits.Load(), otherHits.Load(); n != 1 || m != 0 {
+		t.Fatalf("destination saw %d requests, the other origin %d; want 1 and 0", n, m)
+	}
+	var g *Guard
+	md := g.Client(ClientOptions{Destination: "http://169.254.169.254", Cleartext: true})
+	defer md.CloseIdleConnections()
+	if _, _, err := get(t, md, "http://169.254.169.254/computeMetadata/v1/"); !errors.Is(err, ErrDenied) {
+		t.Fatalf("metadata server without an allow entry = %v, want ErrDenied", err)
+	}
+}
+
 // TestClientBodyCap checks the cap with and without a
 // Content-Length, and a body exactly at the cap.
 func TestClientBodyCap(t *testing.T) {

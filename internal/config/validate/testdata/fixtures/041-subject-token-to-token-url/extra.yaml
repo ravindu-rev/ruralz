@@ -1,0 +1,11 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: upstream-gcp-wif
+spec:
+  type: auth.upstream-oauth2
+  config:
+    grantType: token-exchange
+    tokenUrl: https://sts.googleapis.com/v1/token
+    subjectToken: {secretRef: {provider: file, name: /etc/ruralz/oauth/client-secret}}
+    workloadIdentityProvider: //iam.googleapis.com/projects/123/locations/global/workloadIdentityPools/shop/providers/edge

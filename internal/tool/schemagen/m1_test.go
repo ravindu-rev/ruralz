@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -63,55 +64,57 @@ func propertyKeyword(t *testing.T, doc map[string]any, keyword string) map[strin
 // not fields.
 func TestDefaults(t *testing.T) {
 	want := map[string]string{ //nolint:gosec // Schema defaults, among them a header name, not credentials.
-		"ActiveHealthCheck.healthyThreshold":   `2`,
-		"ActiveHealthCheck.interval":           `"10s"`,
-		"ActiveHealthCheck.path":               `"/"`,
-		"ActiveHealthCheck.timeout":            `"2s"`,
-		"ActiveHealthCheck.unhealthyThreshold": `3`,
-		"Admin.port":                           `9901`,
-		"AuthAPIKeyConfig.header":              `"x-api-key"`,
-		"AuthUpstreamOAuth2Config.timeout":     `"2s"`,
-		"AuthUpstreamSigV4Config.payload":      `"signed"`,
-		"BasicCredential.iterations":           `600000`,
-		"CircuitBreaker.consecutiveFailures":   `5`,
-		"CircuitBreaker.maxConnections":        `1024`,
-		"CircuitBreaker.maxPendingRequests":    `256`,
-		"CircuitBreaker.openDuration":          `"30s"`,
-		"CompositionStep.collection":           `false`,
-		"CompositionStep.optional":             `false`,
-		"Endpoint.weight":                      `1`,
-		"HealthCheck.pingTimeout":              `"5s"`,
-		"HealthCheck.stallTimeout":             `"1s"`,
-		"Limits.maxBufferedBytes":              `536870912`,
-		"Limits.maxCompositionSteps":           `16`,
-		"Limits.maxPluginMemoryBytes":          `2147483648`,
-		"Limits.maxRequestBodyBytes":           `10485760`,
-		"Limits.maxRequestHeaderBytes":         `65536`,
-		"Limits.maxResponseBodyBytes":          `10485760`,
-		"Listener.proxyProtocol":               `false`,
-		"ListenerTLS.minVersion":               `"1.3"`,
-		"LoadBalancing.algorithm":              `"least-request"`,
-		"PassiveHealthCheck.consecutiveErrors": `5`,
-		"PassiveHealthCheck.ejectionTime":      `"30s"`,
-		"PluginLimits.memoryBytes":             `16777216`,
-		"PluginLimits.timeout":                 `"5ms"`,
-		"PolicySpec.overridable":               `true`,
-		"QuotaConfig.cost":                     `"1"`,
-		"QuotaConfig.key":                      `"consumer.name"`,
-		"RateLimitConfig.cost":                 `"1"`,
-		"RateLimitConfig.localOnly":            `false`,
-		"RateLimitConfig.responseHeaders":      `"ietf"`,
-		"Retries.attempts":                     `1`,
-		"RouteUpstream.weight":                 `1`,
-		"StateStore.driver":                    `"memory"`,
-		"StateStore.timeout":                   `"50ms"`,
-		"StateStore.topology":                  `"standalone"`,
-		"StateStoreCache.topology":             `"standalone"`,
-		"Telemetry.traceSampling":              `0.01`,
-		"TransformRequestConfig.contentType":   `"application/json"`,
-		"TransformResponseConfig.contentType":  `"application/json"`,
-		"UpstreamSpec.connectTimeout":          `"1s"`,
-		"UpstreamTLS.handshakeTimeout":         `"2s"`,
+		"ActiveHealthCheck.healthyThreshold":        `2`,
+		"ActiveHealthCheck.interval":                `"10s"`,
+		"ActiveHealthCheck.path":                    `"/"`,
+		"ActiveHealthCheck.timeout":                 `"2s"`,
+		"ActiveHealthCheck.unhealthyThreshold":      `3`,
+		"Admin.port":                                `9901`,
+		"AuthAPIKeyConfig.header":                   `"x-api-key"`,
+		"AuthUpstreamOAuth2Config.grantType":        `"client-credentials"`,
+		"AuthUpstreamOAuth2Config.subjectTokenType": `"urn:ietf:params:oauth:token-type:jwt"`,
+		"AuthUpstreamOAuth2Config.timeout":          `"2s"`,
+		"AuthUpstreamSigV4Config.payload":           `"signed"`,
+		"BasicCredential.iterations":                `600000`,
+		"CircuitBreaker.consecutiveFailures":        `5`,
+		"CircuitBreaker.maxConnections":             `1024`,
+		"CircuitBreaker.maxPendingRequests":         `256`,
+		"CircuitBreaker.openDuration":               `"30s"`,
+		"CompositionStep.collection":                `false`,
+		"CompositionStep.optional":                  `false`,
+		"Endpoint.weight":                           `1`,
+		"HealthCheck.pingTimeout":                   `"5s"`,
+		"HealthCheck.stallTimeout":                  `"1s"`,
+		"Limits.maxBufferedBytes":                   `536870912`,
+		"Limits.maxCompositionSteps":                `16`,
+		"Limits.maxPluginMemoryBytes":               `2147483648`,
+		"Limits.maxRequestBodyBytes":                `10485760`,
+		"Limits.maxRequestHeaderBytes":              `65536`,
+		"Limits.maxResponseBodyBytes":               `10485760`,
+		"Listener.proxyProtocol":                    `false`,
+		"ListenerTLS.minVersion":                    `"1.3"`,
+		"LoadBalancing.algorithm":                   `"least-request"`,
+		"PassiveHealthCheck.consecutiveErrors":      `5`,
+		"PassiveHealthCheck.ejectionTime":           `"30s"`,
+		"PluginLimits.memoryBytes":                  `16777216`,
+		"PluginLimits.timeout":                      `"5ms"`,
+		"PolicySpec.overridable":                    `true`,
+		"QuotaConfig.cost":                          `"1"`,
+		"QuotaConfig.key":                           `"consumer.name"`,
+		"RateLimitConfig.cost":                      `"1"`,
+		"RateLimitConfig.localOnly":                 `false`,
+		"RateLimitConfig.responseHeaders":           `"ietf"`,
+		"Retries.attempts":                          `1`,
+		"RouteUpstream.weight":                      `1`,
+		"StateStore.driver":                         `"memory"`,
+		"StateStore.timeout":                        `"50ms"`,
+		"StateStore.topology":                       `"standalone"`,
+		"StateStoreCache.topology":                  `"standalone"`,
+		"Telemetry.traceSampling":                   `0.01`,
+		"TransformRequestConfig.contentType":        `"application/json"`,
+		"TransformResponseConfig.contentType":       `"application/json"`,
+		"UpstreamSpec.connectTimeout":               `"1s"`,
+		"UpstreamTLS.handshakeTimeout":              `"2s"`,
 	}
 	for _, v := range []view{rendered, authoring} {
 		got := map[string]string{}
@@ -238,60 +241,65 @@ func (e *schemaError) Error() string { return e.msg }
 // on the oauth2 tokenUrl, the secret's destination (SEC "Secrets" rule 7).
 func TestImpactClasses(t *testing.T) {
 	want := map[string]string{
-		"AICredentials.apiKey":                  "security",
-		"AIModelSpec.candidates":                "ai",
-		"AIProviderSpec.baseUrl":                "ai,security",
-		"AIProviderSpec.credentials":            "ai,security",
-		"APIKey.secretRef":                      "security",
-		"AuthMTLSConfig.caCertificate":          "security",
-		"AuthMTLSConfig.crl":                    "security",
-		"AuthUpstreamOAuth2Config.clientSecret": "security",
-		"AuthUpstreamOAuth2Config.tokenUrl":     "security",
-		"Certificate.certificate":               "security",
-		"Certificate.privateKey":                "security",
-		"ConsumerSpec.credentials":              "security",
-		"ConsumerSpec.quotas":                   "traffic",
-		"ConsumerSpec.tags":                     "metadata",
-		"ConsumerSpec.tier":                     "traffic",
-		"GatewaySpec.admin":                     "security",
-		"GatewaySpec.limits":                    "traffic",
-		"GatewaySpec.listeners":                 "routing",
-		"GatewaySpec.stateStore":                "traffic",
-		"GatewaySpec.telemetry":                 "metadata",
-		"GatewaySpec.trustedProxies":            "security",
-		"Listener.proxyProtocol":                "security",
-		"Listener.tls":                          "security",
-		"OTLP.tls":                              "security",
-		"OTLPTLS.caCertificate":                 "security",
-		"OTLPTLS.clientCertificate":             "security",
-		"OTLPTLS.clientKey":                     "security",
-		"PluginSpec.capabilities":               "plugin,security",
-		"PluginSpec.image":                      "plugin,security",
-		"PolicySpec.overridable":                "security",
-		"RouteSpec.composition":                 "routing",
-		"RouteSpec.match":                       "routing",
-		"RouteSpec.timeout":                     "traffic",
-		"RouteSpec.upstreams":                   "routing",
-		"StateStore.tls":                        "security",
-		"StateStore.url":                        "security",
-		"StateStoreCache.tls":                   "security",
-		"StateStoreCache.url":                   "security",
-		"StateStoreTLS.caCertificate":           "security",
-		"StateStoreTLS.clientCertificate":       "security",
-		"StateStoreTLS.clientKey":               "security",
-		"UpstreamSpec.ai":                       "ai",
-		"UpstreamSpec.circuitBreaker":           "traffic",
-		"UpstreamSpec.connectTimeout":           "traffic",
-		"UpstreamSpec.discovery":                "routing",
-		"UpstreamSpec.endpoints":                "routing",
-		"UpstreamSpec.healthCheck":              "traffic",
-		"UpstreamSpec.loadBalancing":            "traffic",
-		"UpstreamSpec.retries":                  "traffic",
-		"UpstreamSpec.timeout":                  "traffic",
-		"UpstreamSpec.tls":                      "security",
-		"UpstreamTLS.caCertificate":             "security",
-		"UpstreamTLS.clientCertificate":         "security",
-		"UpstreamTLS.clientKey":                 "security",
+		"AICredentials.apiKey":                              "security",
+		"AIModelSpec.candidates":                            "ai",
+		"AIProviderSpec.baseUrl":                            "ai,security",
+		"AIProviderSpec.credentials":                        "ai,security",
+		"APIKey.secretRef":                                  "security",
+		"AuthMTLSConfig.caCertificate":                      "security",
+		"AuthMTLSConfig.crl":                                "security",
+		"AuthUpstreamOAuth2Config.clientSecret":             "security",
+		"AuthUpstreamOAuth2Config.grantType":                "security",
+		"AuthUpstreamOAuth2Config.serviceAccount":           "security",
+		"AuthUpstreamOAuth2Config.serviceAccountKey":        "security",
+		"AuthUpstreamOAuth2Config.subjectToken":             "security",
+		"AuthUpstreamOAuth2Config.tokenUrl":                 "security",
+		"AuthUpstreamOAuth2Config.workloadIdentityProvider": "security",
+		"Certificate.certificate":                           "security",
+		"Certificate.privateKey":                            "security",
+		"ConsumerSpec.credentials":                          "security",
+		"ConsumerSpec.quotas":                               "traffic",
+		"ConsumerSpec.tags":                                 "metadata",
+		"ConsumerSpec.tier":                                 "traffic",
+		"GatewaySpec.admin":                                 "security",
+		"GatewaySpec.limits":                                "traffic",
+		"GatewaySpec.listeners":                             "routing",
+		"GatewaySpec.stateStore":                            "traffic",
+		"GatewaySpec.telemetry":                             "metadata",
+		"GatewaySpec.trustedProxies":                        "security",
+		"Listener.proxyProtocol":                            "security",
+		"Listener.tls":                                      "security",
+		"OTLP.tls":                                          "security",
+		"OTLPTLS.caCertificate":                             "security",
+		"OTLPTLS.clientCertificate":                         "security",
+		"OTLPTLS.clientKey":                                 "security",
+		"PluginSpec.capabilities":                           "plugin,security",
+		"PluginSpec.image":                                  "plugin,security",
+		"PolicySpec.overridable":                            "security",
+		"RouteSpec.composition":                             "routing",
+		"RouteSpec.match":                                   "routing",
+		"RouteSpec.timeout":                                 "traffic",
+		"RouteSpec.upstreams":                               "routing",
+		"StateStore.tls":                                    "security",
+		"StateStore.url":                                    "security",
+		"StateStoreCache.tls":                               "security",
+		"StateStoreCache.url":                               "security",
+		"StateStoreTLS.caCertificate":                       "security",
+		"StateStoreTLS.clientCertificate":                   "security",
+		"StateStoreTLS.clientKey":                           "security",
+		"UpstreamSpec.ai":                                   "ai",
+		"UpstreamSpec.circuitBreaker":                       "traffic",
+		"UpstreamSpec.connectTimeout":                       "traffic",
+		"UpstreamSpec.discovery":                            "routing",
+		"UpstreamSpec.endpoints":                            "routing",
+		"UpstreamSpec.healthCheck":                          "traffic",
+		"UpstreamSpec.loadBalancing":                        "traffic",
+		"UpstreamSpec.retries":                              "traffic",
+		"UpstreamSpec.timeout":                              "traffic",
+		"UpstreamSpec.tls":                                  "security",
+		"UpstreamTLS.caCertificate":                         "security",
+		"UpstreamTLS.clientCertificate":                     "security",
+		"UpstreamTLS.clientKey":                             "security",
 	}
 	got := map[string]string{}
 	for k, v := range propertyKeyword(t, committed(t, rendered), "x-ruralz-impact") {
@@ -340,22 +348,26 @@ func TestSecretFieldsCarrySecurity(t *testing.T) {
 	}
 }
 
-// TestSchemaLevelZero checks that the served schema level of
-// ruralz/v1alpha1 is the maximum x-ruralz-since, 0 in M1, so no field
-// carries the keyword (fields added before 0.1.0 are level 0, whose
-// x-ruralz-since docs/architecture/02-configuration-model.md "Schema
-// keywords that drive tooling" omits).
-func TestSchemaLevelZero(t *testing.T) {
+// TestSchemaLevels checks the schema levels of ruralz/v1alpha1, whose
+// served level is the maximum x-ruralz-since: the fields of 0.1.0 are
+// level 0, whose x-ruralz-since docs/architecture/02-configuration-model.md
+// "Schema keywords that drive tooling" omits, and every field added since
+// carries 1, the level of the next release, which every field added before
+// it shares (docs/engineering/02-repository-layout-and-conventions.md
+// "Schema generation from Go types").
+func TestSchemaLevels(t *testing.T) {
 	for _, v := range []view{authoring, rendered} {
 		out, err := generate(realInput(t), v)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Contains(string(out), "x-ruralz-since") {
-			t.Errorf("%s view carries x-ruralz-since; M1 is schema level 0", v)
+		for k, since := range propertyKeyword(t, decode(t, out), "x-ruralz-since") {
+			if fmt.Sprint(since) != "1" {
+				t.Errorf("%s view: x-ruralz-since of %s = %v, want 1, the level of the release after 0.1.0", v, k, since)
+			}
 		}
 		if strings.Contains(string(out), `"deprecated"`) {
-			t.Errorf("%s view marks a deprecated field; the M1 lifecycle table is empty", v)
+			t.Errorf("%s view marks a deprecated field; the lifecycle table is empty", v)
 		}
 	}
 }
@@ -482,7 +494,7 @@ func TestPolicyConfigClosure(t *testing.T) {
 		"HeaderResponseSet":          false,
 		"TransformRequestConfig":     false,
 		"TransformResponseConfig":    false,
-		"AuthUpstreamOAuth2Config":   true,
+		"AuthUpstreamOAuth2Config":   false, // every auth.upstream-oauth2 field is registered
 		"AuthUpstreamSigV4Config":    false,
 		"AITokenBudgetConfig":        true,
 		"AISemanticCacheConfig":      true,
