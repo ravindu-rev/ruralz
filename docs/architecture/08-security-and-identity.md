@@ -105,13 +105,13 @@ Every TLS hop verifies the server certificate; no field disables it. Cleartext, 
 
 | Hop | Protocol | Peer authentication | Planned |
 |---|---|---|---|
-| Client, TCP 8443 | TLS 1.3 by default; `tls.minVersion: "1.2"` allowed | Server certificate; client certificate for `auth.mtls` | Planned (M1) |
+| Client, TCP 8443 | TLS 1.3 by default; `tls.minVersion: "1.2"` allowed | Server certificate; client certificate for `auth.mtls` | |
 | Client, UDP 8443 | HTTP/3, TLS 1.3 | As above | Planned (M3) |
-| Client, 8080 | Cleartext, SHOULD serve only redirects or traffic behind a TLS-terminating load balancer | Consumer credentials | Planned (M1) |
-| Upstream, `AIProvider`, State Store, OTLP (TB-3, TB-4, TB-12) | TLS 1.2 or newer with `Upstream.spec.tls`, an `https` URL, or `rediss://` with optional `stateStore.tls` (`stateStore.cache.tls` for the cache connection) for every State Store server, cluster node and sentinel; else cleartext | Server verified; optional client certificate; State Store credentials | Planned (M1) |
+| Client, 8080 | Cleartext, SHOULD serve only redirects or traffic behind a TLS-terminating load balancer | Consumer credentials | |
+| Upstream, `AIProvider`, State Store, OTLP (TB-3, TB-4, TB-12) | TLS 1.2 or newer with `Upstream.spec.tls`, an `https` URL, or `rediss://` with optional `stateStore.tls` (`stateStore.cache.tls` for the cache connection) for every State Store server, cluster node and sentinel; else cleartext | Server verified; optional client certificate; State Store credentials | |
 | Vault, Kubernetes API (TB-3, TB-7) | TLS 1.2 or newer, never cleartext | Server verified; Vault Kubernetes auth, AppRole or a token file, chosen per Node ([Secrets](#secrets)); namespace-scoped service account | Planned (M2) |
-| IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037) | Server verified | Planned (M1) |
-| Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9901 Planned (M1); 9902 Planned (M2) |
+| IdP (TB-10) | TLS 1.2 or newer; `jwksUrl` and `tokenUrl` MUST be `https` (RZ-CFG-037) | Server verified | |
+| Admin 9901, 9902 (TB-9) | TLS when configured | [Admin ports](#admin-ports) | 9902 Planned (M2) |
 | 8091 (TB-5) | TLS 1.3; client certificate required for every RPC except `Enroll`, which uses server-authenticated TLS with a pinned server CA and a one-time token or a projected service account token | Node certificate or token | Planned (M2) |
 | 8092 (TB-11) | mTLS, TLS 1.3 only, except token `Join` from a replica without a peer certificate, over server-authenticated TLS | Disjoint CAs, so a Node key cannot join Raft; `Join` redeems a one-time `admin` token over a pinned server CA | Planned (M2) |
 | Relay (TB-13) | mTLS, TLS 1.3 only | Relay certificate | Planned (M4) |
@@ -125,7 +125,7 @@ A listener requests an unverified client certificate when any of its Routes atta
 
 ### Certificate rotation
 
-Listener and upstream certificates from `file`, Planned (M1), or `kubernetes`, Planned (M2), rotate by watch without a Rollout, keeping the last value on failure (`ruralz_config_secret_rotation_failures_total`). Enrollment certificates (30 days, target) and Ruralz Control certificates renew at two thirds; signing keys arrive in a root-signed `TrustUpdate` before use ([Control plane and GitOps](04-control-plane-and-gitops.md#revision-signing-and-verification)); all Planned (M2).
+Listener and upstream certificates from `file`, or from `kubernetes`, Planned (M2), rotate by watch without a Rollout, keeping the last value on failure (`ruralz_config_secret_rotation_failures_total`). Enrollment certificates (30 days, target) and Ruralz Control certificates renew at two thirds; signing keys arrive in a root-signed `TrustUpdate` before use ([Control plane and GitOps](04-control-plane-and-gitops.md#revision-signing-and-verification)); all Planned (M2).
 
 ### HTTP/3
 
@@ -146,10 +146,10 @@ A `when` that errors makes a closed Policy run ([Configuration model](02-configu
 
 | Type | Verification | Consumer binding | Planned |
 |---|---|---|---|
-| `auth.jwt` | Signature with keys from each issuer's `jwksUrl`; `iss`, `aud`, required `exp`, `nbf` | `credentials.jwt` by issuer plus `subject` or `claims` | Planned (M1) |
-| `auth.api-key` | SHA-256 of the key in `config.header`, looked up by digest; a missing or empty value is RZ-AUTH-001 | `credentials.apiKeys` | Planned (M1) |
-| `auth.basic` | PBKDF2 behind the [throttle](#pre-authentication-throttling) | `credentials.basic` by username ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
-| `auth.mtls` | Chain to `config.caCertificate`, `config.subjects`, `config.crl` | Optional `credentials.certificates` by subject or URI SAN ([proposed](#basic-and-mtls-schemas)) | Planned (M1) |
+| `auth.jwt` | Signature with keys from each issuer's `jwksUrl`; `iss`, `aud`, required `exp`, `nbf` | `credentials.jwt` by issuer plus `subject` or `claims` | |
+| `auth.api-key` | SHA-256 of the key in `config.header`, looked up by digest; a missing or empty value is RZ-AUTH-001 | `credentials.apiKeys` | |
+| `auth.basic` | PBKDF2 behind the [throttle](#pre-authentication-throttling) | `credentials.basic` by username ([proposed](#basic-and-mtls-schemas)) | |
+| `auth.mtls` | Chain to `config.caCertificate`, `config.subjects`, `config.crl` | Optional `credentials.certificates` by subject or URI SAN ([proposed](#basic-and-mtls-schemas)) | |
 
 ### JWT and OIDC
 
@@ -203,7 +203,7 @@ flowchart TD
 
 ### Basic and mTLS schemas
 
-Per pack section 3, this document authors these schemas, all Planned (M1) and registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents).
+Per pack section 3, this document authors these schemas, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents).
 
 | Type or kind | Field | Shape and rule |
 |---|---|---|
@@ -257,7 +257,7 @@ spec:
 
 ### Upstream authentication
 
-`auth.upstream-oauth2`, Planned (M1), runs the client credentials grant with `client_secret_basic` and sends `Authorization: Bearer` on every leg attempt. A token lives for `expires_in`, or 5 minutes when absent, counted from sending the request. It is refreshed in the background at two thirds of its lifetime (target); a failed refresh keeps it serving and retries at two thirds of the remaining lifetime. A miss runs one single-flight fetch per Policy and Node, which each request waits for within its own deadline, and the fetch within a 2 s `timeout` (target); failure is 401 RZ-AUTH-020. Fetches of one Policy start at least 1 s apart, and a miss within that time after a failed fetch fails at once. A response must be a JSON object of at most 64 KiB with a Bearer token.
+`auth.upstream-oauth2` runs the client credentials grant with `client_secret_basic` and sends `Authorization: Bearer` on every leg attempt. A token lives for `expires_in`, or 5 minutes when absent, counted from sending the request. It is refreshed in the background at two thirds of its lifetime (target); a failed refresh keeps it serving and retries at two thirds of the remaining lifetime. A miss runs one single-flight fetch per Policy and Node, which each request waits for within its own deadline, and the fetch within a 2 s `timeout` (target); failure is 401 RZ-AUTH-020. Fetches of one Policy start at least 1 s apart, and a miss within that time after a failed fetch fails at once. A response must be a JSON object of at most 64 KiB with a Bearer token.
 
 `auth.upstream-sigv4`, Planned (M2), records SigV4 signing parameters in `onUpstreamRequest`; the Node signs every attempt at the transport-time signing hook, which runs after the last `onUpstreamRequest` Filter or Plugin and after dialect translation (pack 8.12), so nothing changes a request once it is signed. The body is buffered within `limits.maxRequestBodyBytes` or, with `payload: unsigned`, sent as UNSIGNED-PAYLOAD where accepted. Bedrock uses this type on the `ai` Upstream, signing only `bedrock` dialect legs (OQ-ai-llm-gateway-12).
 
@@ -301,7 +301,7 @@ Authorization runs in Filter class `authz`. Each type's slot defaults to its nam
 
 | Engine | When to use | Cost per request | Guardrails | Planned |
 |---|---|---|---|---|
-| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)), which alone bounds an evaluation | Planned (M1) |
+| CEL, `authz.cel` | Short rules over claims, Consumer, Tier, method and path; the default | Compiled per Revision; under 2 µs at p99 (target) | RZ-CFG-015; runtime `CostLimit` ([source](https://github.com/cel-expr/cel-go/blob/master/cel/options.go)), which alone bounds an evaluation | |
 | OPA (Rego), `authz.opa` | Large or shared data-driven rule sets | `PrepareForEval` per Revision ([source](https://github.com/open-policy-agent/opa/blob/main/v1/rego/rego.go)); under 100 µs at p99 (hypothesis) | Deadline; only allowlisted pure built-ins, so no `http.send`; 16 MiB data per Policy (target) | Planned (M2) |
 | Cedar, `authz.cedar` | Principal, action and resource models with hierarchies | In process; under 100 µs at p99 (hypothesis) | 1,000 policies and 10,000 entities per Policy, ancestor depth at most 8 (target), transitive closure precomputed per Revision; no schema validator in cedar-go ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)) | Planned (M2) |
 
@@ -346,7 +346,7 @@ Ruralz adds the principal and resource entities per request, merging parents wit
 
 ### IP filtering and GeoIP
 
-`authz.ip`, Planned (M1), filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database, which the Node reads with `github.com/oschwald/maxminddb-golang` ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)); the process setting that names the database file is OQ-security-and-identity-37. This document authors both schemas, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents):
+`authz.ip` filters by CIDR on `source.ip`; `authz.geoip`, Planned (M2), by country from a local MaxMind-format database, which the Node reads with `github.com/oschwald/maxminddb-golang` ([Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog)); the process setting that names the database file is OQ-security-and-identity-37. This document authors both schemas, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents):
 
 | Type | Field | Shape |
 |---|---|---|
@@ -355,7 +355,7 @@ Ruralz adds the principal and resource entities per request, merging parents wit
 
 For both, a `deny` match refuses; otherwise a non-empty `allow` refuses every address outside it, and an empty one admits. Both lists empty fails validation. Refusals are 403 RZ-AUTH-013 (`authz.ip`) or RZ-AUTH-014 (`authz.geoip`). A request without a client address fails closed with RZ-AUTH-015.
 
-**Client address**, Planned (M1), uses two fields: `listeners[].proxyProtocol: true` requires a PROXY protocol v2 header on every connection, whose source replaces the TCP peer, and `Gateway.spec.trustedProxies` lists trusted-proxy CIDRs. `source.ip` is that peer unless the list holds it; then it is the rightmost `Forwarded` (preferred) or `X-Forwarded-For` address outside the list, from at most 16 parsed (target). A trusted proxy not managing `Forwarded` MUST remove or overwrite a client's `Forwarded` (OQ-security-and-identity-33). Forwarding headers from untrusted peers are overwritten, never appended. Behind a load balancer without either field, `source.ip` controls collapse to one key.
+**Client address** uses two fields: `listeners[].proxyProtocol: true` requires a PROXY protocol v2 header on every connection, whose source replaces the TCP peer, and `Gateway.spec.trustedProxies` lists trusted-proxy CIDRs. `source.ip` is that peer unless the list holds it; then it is the rightmost `Forwarded` (preferred) or `X-Forwarded-For` address outside the list, from at most 16 parsed (target). A trusted proxy not managing `Forwarded` MUST remove or overwrite a client's `Forwarded` (OQ-security-and-identity-33). Forwarding headers from untrusted peers are overwritten, never appended. Behind a load balancer without either field, `source.ip` controls collapse to one key.
 
 ## Consumers and tiers
 
@@ -387,11 +387,11 @@ Every key change is a Revision; urgent removal uses [Revocation](#revocation). T
 
 ## Secrets
 
-`secretRef` is the only way a secret enters Ruralz: a literal in a `SecretValue` field is RZ-CFG-012. Providers `env` (rotation needs a restart) and `file` (preferred on Kubernetes) are Planned (M1); `kubernetes` (`get` and `watch` in the Node's namespace, limited by `resourceNames`) and `vault` are Planned (M2).
+`secretRef` is the only way a secret enters Ruralz: a literal in a `SecretValue` field is RZ-CFG-012. Providers are `env` (rotation needs a restart) and `file` (preferred on Kubernetes); `kubernetes` (`get` and `watch` in the Node's namespace, limited by `resourceNames`) and `vault` are Planned (M2).
 
 Each Node authenticates to Vault by the method its process configuration chooses: Kubernetes auth, AppRole, or a token file that a Vault Agent sink writes. With Kubernetes auth or AppRole the Node logs in itself and renews its token; with a token file it re-reads the file the agent rewrites. With every method it renews the lease of each secret it reads, and a lease event updates the value as Figure 3 shows. The Node calls Vault's HTTP API through Ruralz's own client on `net/http`, linking no Vault SDK. The process settings that select the method and hold its inputs are OQ-security-and-identity-38.
 
-Components MUST follow rules 1 to 9, Planned (M1) on Nodes and the CLI, the Ruralz Control, Enrollment and Vault parts Planned (M2).
+Components MUST follow rules 1 to 9, the Ruralz Control, Enrollment and Vault parts Planned (M2).
 
 1. Only Nodes resolve Bundle secrets; Ruralz Control and the CLI see references.
 2. Resolved values never appear in a Revision, diff, Last-Known-Good, `/config/dump`, log, trace, metric label or `/tap`, which also redacts credential headers.
@@ -431,7 +431,7 @@ flowchart TD
 
 ## Request hardening
 
-These controls are always on and Planned (M1) unless noted ([System overview](01-system-overview.md#design-principles)); [Data plane](03-data-plane.md) owns parsing.
+These controls are always on ([System overview](01-system-overview.md#design-principles)); [Data plane](03-data-plane.md) owns parsing.
 
 | Concern | Control |
 |---|---|
@@ -446,7 +446,7 @@ These controls are always on and Planned (M1) unless noted ([System overview](01
 
 ### Pre-authentication throttling
 
-Rate Limits run after `auth` and never see failed attempts, so a throttle, Planned (M1) and local to each Node, covers `auth.basic` verifications that miss the success cache; API keys rely on entropy.
+Rate Limits run after `auth` and never see failed attempts, so a throttle, local to each Node, covers `auth.basic` verifications that miss the success cache; API keys rely on entropy.
 
 | Element | Rule |
 |---|---|
@@ -476,7 +476,7 @@ Ruralz Control delivers one signed revocation list to every Node of a Cluster ov
 | What is revoked | Mechanism | Propagation | Planned |
 |---|---|---|---|
 | A JWT by `jti`; a subject's older tokens; an IdP key by (issuer, `kid`), forcing a JWKS refetch; an API key hash or `auth.basic` username; a client certificate by issuer and serial (per Policy: `config.crl`) | Signed entry, REST API; the watched file in file mode | 5 s or less at p99 with a fresh mark (target) | Planned (M2) |
-| An API key, file mode | Removed; CI and Hot Reload | No Ruralz target | Planned (M1) |
+| An API key, file mode | Removed; CI and Hot Reload | No Ruralz target | |
 | An API key, Control mode | Removed; Rollout | 30 s or less at p95 for 100 Nodes, `all-at-once` (target) | Planned (M2) |
 | An Enrollment identity | `ruralz node revoke` | 5 s or less at p99 (target) | Planned (M2) |
 | An operator session or token | Raft-replicated set | 1 s or less on connected replicas (target) | Planned (M2) |
@@ -539,7 +539,7 @@ With `--oci`, `ruralz bundle push` signs two annotations with the Revision: its 
 
 ### Admin ports
 
-Ports 9901 and 9902 bind all interfaces for kubelet probes (OQ-system-overview-6), 9901 binding loopback only under `RURALZ_BIND_LOOPBACK`, and every path but `/healthz` and `/readyz` needs a credential on every interface, loopback included, because a Pod's containers share loopback. Three process settings, never Bundle fields and each an absolute path, hold the admin credentials (TB-9), Planned (M1):
+Ports 9901 and 9902 bind all interfaces for kubelet probes (OQ-system-overview-6), 9901 binding loopback only under `RURALZ_BIND_LOOPBACK`, and every path but `/healthz` and `/readyz` needs a credential on every interface, loopback included, because a Pod's containers share loopback. Three process settings, never Bundle fields and each an absolute path, hold the admin credentials (TB-9):
 
 | Setting | Holds | Admits |
 |---|---|---|
@@ -557,7 +557,7 @@ Every state change is audited, Raft-committed before the write returns and hash-
 
 ### Release supply chain
 
-[Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md) implements, all Planned (M1): signed images, a CycloneDX SBOM per artifact as an attestation, and SLSA Build Level 3 provenance.
+[Release, versioning and compatibility](../engineering/04-release-versioning-and-compatibility.md) owns the release supply chain: signed images, a CycloneDX SBOM per artifact as an attestation, and SLSA Build Level 3 provenance.
 
 ## Compliance
 

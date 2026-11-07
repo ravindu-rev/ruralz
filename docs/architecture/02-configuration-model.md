@@ -18,7 +18,7 @@ Non-goals:
 
 ## Format decision
 
-Configuration is YAML 1.2 with a published JSON Schema (draft 2020-12) and a Kubernetes-style resource model ([ADR-0003](../adr/0003-configuration-format.md)). JSON is accepted as a strict subset of YAML: `.json` files use the same loader and schema and yield the same Revision digest. Keys are `camelCase`; kinds are `PascalCase`. The published JSON Schema is `Planned (M0)`. The `ruralz bundle` verbs `validate`, `render`, `diff` and `build` are `Planned (M1)`, as in [System overview](01-system-overview.md); `push`, `import`, `export` and `audit` are `Planned (M2)` (foundation pack section 9).
+Configuration is YAML 1.2 with a published JSON Schema (draft 2020-12) and a Kubernetes-style resource model ([ADR-0003](../adr/0003-configuration-format.md)). JSON is accepted as a strict subset of YAML: `.json` files use the same loader and schema and yield the same Revision digest. Keys are `camelCase`; kinds are `PascalCase`. The `ruralz bundle` verbs are `validate`, `render`, `diff` and `build`, as in [System overview](01-system-overview.md); `push`, `import`, `export` and `audit` are `Planned (M2)` (foundation pack section 9).
 
 ### Why the Kubernetes resource model
 
@@ -33,7 +33,7 @@ The envelope maps one to one onto CRDs, so the CRD path in ADR-0016 (proposed) i
 
 ### Restricted YAML profile
 
-The loader rejects features that let a small edit change distant values or let a small file expand without bound. The profile is `Planned (M1)`, with the `ruralz bundle` verbs and file-mode `ruralzd`.
+The loader rejects features that let a small edit change distant values or let a small file expand without bound.
 
 | YAML feature | Accepted | Reason |
 |---|---|---|
@@ -61,7 +61,7 @@ The loader parses with Ruralz code in `internal/config/profile`, written for the
 Every resource has the same envelope:
 
 ```yaml
-apiVersion: ruralz/v1alpha1     # required; the first served version, Planned (M0)
+apiVersion: ruralz/v1alpha1     # required; the first served version
 kind: Route                      # required; one of the ten kinds
 metadata:
   name: orders-summary           # required; RFC 1123 label, 1 to 63 chars
@@ -82,10 +82,10 @@ References are by name within the rendered Bundle: a string for one target (`spe
 
 | Kind | Lives in | Planned |
 |---|---|---|
-| `Gateway`, `Route`, `Upstream`, `Policy`, `Consumer` | Bundle, delivered to Nodes | Planned (M1) |
+| `Gateway`, `Route`, `Upstream`, `Policy`, `Consumer` | Bundle, delivered to Nodes | |
 | `Plugin` | Bundle, delivered to Nodes | Planned (M2) |
 | `AIProvider`, `AIModel` | Bundle, delivered to Nodes | Planned (M3) |
-| `Environment` | Control plane only, outside the Bundle; the CLI also reads it from `--environments` files and never sends it to Nodes | Planned (M1) for CLI renders; Planned (M2) in Ruralz Control |
+| `Environment` | Control plane only, outside the Bundle; the CLI also reads it from `--environments` files and never sends it to Nodes | Planned (M2) in Ruralz Control |
 | `Cluster` | Control plane only, outside the Bundle | Planned (M2) |
 
 Each Bundle has exactly one `Gateway`, in `ruralz.yaml` (RZ-CFG-016). It holds per-Cluster singletons (admin port, State Store connection, global limits), and one Gateway removes any Route-to-Gateway binding rules.
@@ -262,19 +262,19 @@ spec:
 
 Each listener has its own `port`: two listeners on one `port`, or a listener on the admin port (`admin.port`, else its default 9901), are RZ-CFG-005 at stage H. A Node that still meets either at activation refuses the Revision with RZ-CFG-039 ([Data plane](03-data-plane.md#listeners-and-protocols)). An `https` listener needs `tls` with at least one certificate, and `tls` on an `http` listener, which ignores it, is RZ-CFG-005 too.
 
-`trustedProxies` and `listeners[].proxyProtocol`, Planned (M1), feed Security's [Client address](08-security-and-identity.md#ip-filtering-and-geoip) rule, which owns their semantics; a malformed CIDR is RZ-CFG-005. Every topology that puts Nodes behind a load balancer SHOULD set one or both, or `source.ip` is the balancer's address.
+`trustedProxies` and `listeners[].proxyProtocol` feed Security's [Client address](08-security-and-identity.md#ip-filtering-and-geoip) rule, which owns their semantics; a malformed CIDR is RZ-CFG-005. Every topology that puts Nodes behind a load balancer SHOULD set one or both, or `source.ip` is the balancer's address.
 
-`stateStore.topology`, Planned (M1), selects `standalone`, `cluster` or `sentinel`. `url` uses the rueidis URL form ([source](https://github.com/redis/rueidis/blob/main/README.md)), `rediss://` outside loopback: `standalone` takes one endpoint, `rediss://[user:password@]host:port[/db]`; `cluster` takes a seed list, `rediss://host:port?addr=host:port&addr=host:port`; `sentinel` takes a sentinel seed list and the master set, `rediss://[user:password@]host:port[/db]?addr=host:port&master_set=name`, whose credentials authenticate to the primary and to the sentinels, a sentinel without a password taking them for its default user, and whose database is the primary's. A `standalone` URL names an endpoint that follows the primary through failover, such as a managed service's primary endpoint; the Node sets `ForceSingleClient`, so rueidis never guesses, and on a closed connection reconnects under Scalability's [reconnect pacing](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes) and reloads its scripts. A `cluster` client reads the slot map from any seed with `CLUSTER SHARDS` on servers of version 8 and later, else `CLUSTER SLOTS`, follows `MOVED` and `ASK`, and refreshes the map after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)), so promoted replicas and new shards need no Revision. A `sentinel` client asks the sentinels for the master set's primary, checks it with `ROLE`, and asks again on a `+switch-master` event, a closed sentinel connection and every 10 s (target) through `TopologyRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/sentinel.go)), so failovers need no Revision. A resolved URL that does not fit `topology`, such as `master_set` outside `sentinel`, a `sentinel` URL without it, `addr` under `standalone` or a database under `cluster`, is RZ-CFG-026 on the Node; one the transport rules refuse is RZ-CFG-042.
+`stateStore.topology` selects `standalone`, `cluster` or `sentinel`. `url` uses the rueidis URL form ([source](https://github.com/redis/rueidis/blob/main/README.md)), `rediss://` outside loopback: `standalone` takes one endpoint, `rediss://[user:password@]host:port[/db]`; `cluster` takes a seed list, `rediss://host:port?addr=host:port&addr=host:port`; `sentinel` takes a sentinel seed list and the master set, `rediss://[user:password@]host:port[/db]?addr=host:port&master_set=name`, whose credentials authenticate to the primary and to the sentinels, a sentinel without a password taking them for its default user, and whose database is the primary's. A `standalone` URL names an endpoint that follows the primary through failover, such as a managed service's primary endpoint; the Node sets `ForceSingleClient`, so rueidis never guesses, and on a closed connection reconnects under Scalability's [reconnect pacing](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes) and reloads its scripts. A `cluster` client reads the slot map from any seed with `CLUSTER SHARDS` on servers of version 8 and later, else `CLUSTER SLOTS`, follows `MOVED` and `ASK`, and refreshes the map after a redirect, a closed connection and every 10 s (target) through `ShardsRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/rueidis.go)), so promoted replicas and new shards need no Revision. A `sentinel` client asks the sentinels for the master set's primary, checks it with `ROLE`, and asks again on a `+switch-master` event, a closed sentinel connection and every 10 s (target) through `TopologyRefreshInterval` ([source](https://github.com/redis/rueidis/blob/main/sentinel.go)), so failovers need no Revision. A resolved URL that does not fit `topology`, such as `master_set` outside `sentinel`, a `sentinel` URL without it, `addr` under `standalone` or a database under `cluster`, is RZ-CFG-026 on the Node; one the transport rules refuse is RZ-CFG-042.
 
 `stateStore.url` is a `SecretValue` because Redis URLs often carry credentials; each Node resolves it, so each Region uses its own State Store under one Revision. `driver: redis` without `url` is RZ-CFG-005. Without `stateStore`, `ruralzd` reads `RURALZ_STATE_STORE_URL`, else uses `memory` and logs a warning at startup, because `memory` multiplies every Rate Limit and Quota by the Node count. Sketch comments give the schema defaults (target); [Body buffering and limits](#body-buffering-and-limits) enforces the limits.
 
-`stateStore.cache`, Planned (M1), is a second `redis` connection under the rules above, used only by the Response Cache, so cache entries never evict limit keys; its deployment runs `noeviction` or `volatile-ttl` ([Response caching](09-traffic-management-and-resilience.md#response-caching)). Without it the Response Cache shares the main one under Scalability's [shared-connection rules](11-scalability-and-distributed-state.md#distributed-caches), and each activation that combines `cache` with a limit Policy type logs a warning.
+`stateStore.cache` is a second `redis` connection under the rules above, used only by the Response Cache, so cache entries never evict limit keys; its deployment runs `noeviction` or `volatile-ttl` ([Response caching](09-traffic-management-and-resilience.md#response-caching)). Without it the Response Cache shares the main one under Scalability's [shared-connection rules](11-scalability-and-distributed-state.md#distributed-caches), and each activation that combines `cache` with a limit Policy type logs a warning.
 
-`stateStore.tls` and `stateStore.cache.tls`, Planned (M1), hold the client TLS settings of the main and of the cache connection, each its own, so a cleartext loopback cache can sit beside a TLS main connection: `caCertificate` verifies each server, cluster node and sentinel of the connection for the host the Node dials, instead of the system roots, and `clientCertificate` with `clientKey` is the certificate the Node presents to each. A block has no `sni`, since the servers of one deployment differ. Without its block a connection verifies `rediss://` servers against the system roots. A Node refuses a block beside a cleartext URL of its connection (RZ-CFG-042); `clientCertificate` without `clientKey`, or the reverse, is RZ-CFG-005. A rotated value reaches new connections only.
+`stateStore.tls` and `stateStore.cache.tls` hold the client TLS settings of the main and of the cache connection, each its own, so a cleartext loopback cache can sit beside a TLS main connection: `caCertificate` verifies each server, cluster node and sentinel of the connection for the host the Node dials, instead of the system roots, and `clientCertificate` with `clientKey` is the certificate the Node presents to each. A block has no `sni`, since the servers of one deployment differ. Without its block a connection verifies `rediss://` servers against the system roots. A Node refuses a block beside a cleartext URL of its connection (RZ-CFG-042); `clientCertificate` without `clientKey`, or the reverse, is RZ-CFG-005. A rotated value reaches new connections only.
 
-`stateStore.zones` and `stateStore.cache.zones`, Planned (M1), map the server hosts of the main and of the cache connection to failure zones, each its own. An entry's `host` is a hostname or an IP literal, written as the URL names it or the topology announces it: a `standalone` endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name; its `zone` is a name of 1 to 63 characters from `[a-z0-9-]`, the form of the Node's `RURALZ_ZONE` (foundation pack section 2). The State client labels each call's duration `same` when the server's zone equals the Node's, `cross` when they differ and `unknown` when either is missing ([State client](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)). An entry for a host the connection never dials has no effect, and a server whose host has no entry is `unknown`: neither is a finding, since URLs are secrets and cluster and sentinel hosts appear at run time. Hosts compare case-insensitively and IP literals in canonical form, so two entries naming one host, a `host` that is neither a hostname nor an IP literal, a `zone` outside its form, and `stateStore.zones` beside `driver: memory` are RZ-CFG-005.
+`stateStore.zones` and `stateStore.cache.zones` map the server hosts of the main and of the cache connection to failure zones, each its own. An entry's `host` is a hostname or an IP literal, written as the URL names it or the topology announces it: a `standalone` endpoint, a cluster shard's primary in the slot map, or the primary the sentinels name; its `zone` is a name of 1 to 63 characters from `[a-z0-9-]`, the form of the Node's `RURALZ_ZONE` (foundation pack section 2). The State client labels each call's duration `same` when the server's zone equals the Node's, `cross` when they differ and `unknown` when either is missing ([State client](11-scalability-and-distributed-state.md#state-client-and-rz-sts-error-codes)). An entry for a host the connection never dials has no effect, and a server whose host has no entry is `unknown`: neither is a finding, since URLs are secrets and cluster and sentinel hosts appear at run time. Hosts compare case-insensitively and IP literals in canonical form, so two entries naming one host, a `host` that is neither a hostname nor an IP literal, a `zone` outside its form, and `stateStore.zones` beside `driver: memory` are RZ-CFG-005.
 
-`telemetry.otlp.tls`, Planned (M1), holds the collector's TLS client settings; without it an `https` collector is verified against system roots, and an `http` one is a reported cleartext hop ([Observability](10-observability.md#telemetry-pipeline)). Beside an `http` endpoint, which ignores it, `telemetry.otlp.tls` is RZ-CFG-005. Authentication is OQ-observability-2.
+`telemetry.otlp.tls` holds the collector's TLS client settings; without it an `https` collector is verified against system roots, and an `http` one is a reported cleartext hop ([Observability](10-observability.md#telemetry-pipeline)). Beside an `http` endpoint, which ignores it, `telemetry.otlp.tls` is RZ-CFG-005. Authentication is OQ-observability-2.
 
 [WASM plugin system](05-wasm-plugin-system.md) owns the value and the cap behavior of `limits.maxPluginMemoryBytes` (foundation pack section 8.11). `http3: true` is `Planned (M3)` and off in FIPS builds.
 
@@ -324,7 +324,7 @@ Two Routes with identical match criteria on a common listener are RZ-CFG-023, a 
 
 #### Body buffering and limits
 
-Every body streams unless something must read it whole. Buffering is `Planned (M1)`, its AI triggers `Planned (M3)`, in two forms that fail differently:
+Every body streams unless something must read it whole. Buffering, whose AI triggers are `Planned (M3)`, takes two forms that fail differently:
 
 | Form | Triggered by | Over a limit or out of budget |
 |---|---|---|
@@ -380,7 +380,7 @@ spec:
   policies: [{name: headers-internal}]   # orderedMap keyed by name; upstream-leg Policies
 ```
 
-`ai.models` replaces `endpoints` for `ai`, and `ring-hash` requires `hashKey`, a rule the schema states (RZ-CFG-005 at stage F). Kubernetes discovery watches EndpointSlices, avoiding DNS TTL lag. `http` and `dns` discovery are `Planned (M1)`; `kubernetes` discovery `Planned (M2)`; `grpc`, `graphql`, `websocket` and `ai` `Planned (M3)`; `kafka`, `nats`, `mqtt` and `messaging` `Planned (M4)`.
+`ai.models` replaces `endpoints` for `ai`, and `ring-hash` requires `hashKey`, a rule the schema states (RZ-CFG-005 at stage F). Kubernetes discovery watches EndpointSlices, avoiding DNS TTL lag. `kubernetes` discovery is `Planned (M2)`; `grpc`, `graphql`, `websocket` and `ai` `Planned (M3)`; `kafka`, `nats`, `mqtt` and `messaging` `Planned (M4)`.
 
 Sketch comments give the schema defaults, the static defaults of [Deadlines](09-traffic-management-and-resilience.md#deadlines) (target); computed defaults, such as the Route `timeout` its protocol sets, stay out of the canonical form. `connectTimeout`, `tls.handshakeTimeout`, `healthCheck.stallTimeout` and `healthCheck.pingTimeout` bound the dial, the TLS handshake, stall detection and the HTTP/2 ping, whose expiries [Traffic management and resilience](09-traffic-management-and-resilience.md#health-checking-and-outlier-detection) defines. The breaker's guards are fixed values, not fields: at least 20 legs in a rolling 10 s window with at least 50% of them failed, and 3 probe successes to close (target; [Circuit breakers](09-traffic-management-and-resilience.md#circuit-breakers)).
 
@@ -412,20 +412,20 @@ The registry below matches foundation pack section 10; its `type` strings are ex
 
 | `type` | Filter class | Phases | Scopes | Slot | `failureMode`: default; allowed | Planned |
 |---|---|---|---|---|---|---|
-| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | Planned (M1) |
-| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M1) |
+| `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | |
+| `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | |
 | `authz.opa`, `authz.cedar` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M2) |
-| `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M1) |
+| `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | |
 | `authz.geoip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | Planned (M2) |
-| `ratelimit` | admission | onRequestHeaders | G, R | `name` | open; either | Planned (M1) |
-| `quota` | admission | onRequestHeaders, onLog | G, R | `name` | open; either | Planned (M1) |
-| `validation.json-schema` | validation | onRequestBody | R | `validation` | closed; either | Planned (M1) |
-| `cors` | cors | onRequestHeaders, onResponse | G, R | `cors` | closed; either | Planned (M1) |
-| `cache` (Response Cache) | cache | onRequestHeaders, onResponse | R | `cache` | open; either | Planned (M1) |
-| `headers` | transform | onRequestHeaders, onResponse; at U: onUpstreamRequest, onUpstreamResponseHeaders | G, R, U | `name` | closed; either | Planned (M1) |
-| `transform.request` | transform | onRequestBody; at U: onUpstreamRequest | G, R, U | `name` | closed; either | Planned (M1) |
-| `transform.response` | transform | onResponse; at U: onUpstreamResponseBody | G, R, U | `name` | closed; either | Planned (M1) |
-| `auth.upstream-oauth2` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | Planned (M1) |
+| `ratelimit` | admission | onRequestHeaders | G, R | `name` | open; either | |
+| `quota` | admission | onRequestHeaders, onLog | G, R | `name` | open; either | |
+| `validation.json-schema` | validation | onRequestBody | R | `validation` | closed; either | |
+| `cors` | cors | onRequestHeaders, onResponse | G, R | `cors` | closed; either | |
+| `cache` (Response Cache) | cache | onRequestHeaders, onResponse | R | `cache` | open; either | |
+| `headers` | transform | onRequestHeaders, onResponse; at U: onUpstreamRequest, onUpstreamResponseHeaders | G, R, U | `name` | closed; either | |
+| `transform.request` | transform | onRequestBody; at U: onUpstreamRequest | G, R, U | `name` | closed; either | |
+| `transform.response` | transform | onResponse; at U: onUpstreamResponseBody | G, R, U | `name` | closed; either | |
+| `auth.upstream-oauth2` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | |
 | `auth.upstream-sigv4` | upstream-auth | onUpstreamRequest | U | `upstream-auth` | closed; closed only | Planned (M2) |
 | `ai.token-budget` | admission | onRequestBody, onChunk, onLog | G, R | `name` | closed; either | Planned (M3) |
 | `ai.semantic-cache` (Semantic Cache) | cache | onRequestBody, onResponse | R | `semantic-cache` | open; either | Planned (M3) |
@@ -481,7 +481,7 @@ These fields are registered as their feature documents authored them, so each co
 | `Consumer`, for `quota` and `ai.token-budget` | `quotas[].calendar` (`month`: the UTC calendar month), in place of `window` | Both or neither of `window` and `calendar`, or a `window` below 1 s or not whole seconds, is RZ-CFG-005 | [Quotas](09-traffic-management-and-resilience.md#quotas) |
 | `transform.request`, `transform.response` | `config.body` (CEL; a top-level string written as its bytes, bytes as they are, another value as JSON), `config.contentType` (an RFC 9110 media type; default `application/json`), and `atomic` lists `config.set[]` (`target`: `header`, `query` or `path` (request only), or `body`; `name`, which target `path` takes none of; `valueExpression`, CEL), `config.remove[]` (`target`, `name`), `config.arrayOps[]` (`op`: `move`, `append` or `delete`; `from`; `to`) and `config.replace[]` (`path`, optional, else the raw body; `pattern`, `replacement`, `literal`) | These are RZ-CFG-005: a `pattern` over 1 KiB (target) or not valid RE2; a `contentType` that is not a media type; a body path with an empty segment, an unescaped `*` inside a longer segment or another backslash escape than `\.`, `\*` and `\\`, or a `to` holding `*`; a `move` or `append` without `from` and `to`, or a `delete` without `from` or with `to`; a header `name` that breaks the `headers` name rules above, a query `name` that is not an RFC 9110 token of at most 256 bytes (target), and `content-encoding` or a body digest field in a Policy that rewrites the body; a `set[]` entry with target `path` beside a `name` or another such entry, or a `remove[]` entry with target `path`; and more than 32 entries across the four lists (target) | [Transform Policies](03-data-plane.md#transform-policies) |
 
-Each field ships with its type's Planned tag in the registry, the `Consumer` fields with `auth.basic`, `auth.mtls` and `quota`, Planned (M1), and the fields of the row tagged Planned (M2) in M2. Until they register with their features, these fields leave their types' `config` open to unknown members: `auth.api-key` `config.query`; `ai.semantic-cache` `config.embedding`; the `auth.upstream-oauth2` fields of Google's keyless token sources (OQ-security-and-identity-34).
+Each field ships with its type's Planned tag in the registry, the `Consumer` fields with `auth.basic`, `auth.mtls` and `quota`, and the fields of the row tagged Planned (M2) in M2. Until they register with their features, these fields leave their types' `config` open to unknown members: `auth.api-key` `config.query`; `ai.semantic-cache` `config.embedding`; the `auth.upstream-oauth2` fields of Google's keyless token sources (OQ-security-and-identity-34).
 
 ### Plugin
 
@@ -505,7 +505,7 @@ spec:
         message: "at most 50 countries"
 ```
 
-An image without a full `@sha256:` digest, 64 lower-case hexadecimal characters, is RZ-CFG-021 at stage H, Planned (M1), so a Bundle pins its artifacts before any Node runs a Plugin; the tag is informational. A `plugin` Policy's `config` that violates the Plugin's `configSchema` is RZ-CFG-021 with the `plugin` Policy, Planned (M2). The inline `spec` is authoritative for offline validation and the digest; an online stage checks the artifact against it ([Validation and diff semantics](#validation-and-diff-semantics)). Capability identifiers, default limits and instance pool bounds belong to [WASM plugin system](05-wasm-plugin-system.md). Publishers sign Plugin artifacts at `ruralz plugin push` ([ADR-0017](../adr/0017-artifact-signing.md)).
+An image without a full `@sha256:` digest, 64 lower-case hexadecimal characters, is RZ-CFG-021 at stage H, so a Bundle pins its artifacts before any Node runs a Plugin; the tag is informational. A `plugin` Policy's `config` that violates the Plugin's `configSchema` is RZ-CFG-021 with the `plugin` Policy, Planned (M2). The inline `spec` is authoritative for offline validation and the digest; an online stage checks the artifact against it ([Validation and diff semantics](#validation-and-diff-semantics)). Capability identifiers, default limits and instance pool bounds belong to [WASM plugin system](05-wasm-plugin-system.md). Publishers sign Plugin artifacts at `ruralz plugin push` ([ADR-0017](../adr/0017-artifact-signing.md)).
 
 ### Consumer
 
@@ -663,7 +663,7 @@ Base files form a union and never patch each other: `ruralz.yaml` first, then th
 
 ### Overlays
 
-`overlays/<env>/` is selected by an Environment's `spec.overlay` (default: its name) or by `--env` on the CLI; at most one applies per render, in lexical file order. Overlays, `--env` and `--environments` (local `Environment` files) are `Planned (M1)`; selection by Ruralz Control is `Planned (M2)`. The rules follow Kubernetes strategic merge, driven by `x-ruralz-list`:
+`overlays/<env>/` is selected by an Environment's `spec.overlay` (default: its name) or by `--env` on the CLI; at most one applies per render, in lexical file order. The CLI reads local `Environment` files through `--environments`; selection by Ruralz Control is `Planned (M2)`. The rules follow Kubernetes strategic merge, driven by `x-ruralz-list`:
 
 | Construct | Merge rule |
 |---|---|
@@ -683,7 +683,7 @@ A selected directory that does not exist is an empty overlay, or RZ-CFG-009 at `
 
 ### Rendered Bundle
 
-`ruralz bundle render --env prod` emits one YAML stream that is itself a valid one-file Bundle, `Planned (M1)`. It holds each resource as merge and substitution leave it: the overlay applied, every `${VAR}` replaced and a value that was exactly one expression re-typed by the rendered schema view, with no default materialized and no value normalized. The stream therefore validates against the rendered view as it stands, and never freezes a default that a later schema level changes. Comments and file names are dropped.
+`ruralz bundle render --env prod` emits one YAML stream that is itself a valid one-file Bundle. It holds each resource as merge and substitution leave it: the overlay applied, every `${VAR}` replaced and a value that was exactly one expression re-typed by the rendered schema view, with no default materialized and no value normalized. The stream therefore validates against the rendered view as it stands, and never freezes a default that a later schema level changes. Comments and file names are dropped.
 
 File-mode `ruralzd` applies no overlay, and no setting selects one. It loads a source Bundle directory, running stages A to M with `${VAR}` taken from its process environment and `overlays/` never applied; a rendered one-file Bundle, which the same stages read as it stands; or, Planned (M2), a Revision from an OCI registry.
 
@@ -695,7 +695,7 @@ A `secretRef` renders as the reference itself, never as a value, because only No
 
 ### Canonical form and Revision
 
-A Revision is the content-addressed digest of a Bundle rendered for one Environment, not of its source; foundation pack sections 2 (Revision row) and 8.1 fix that definition, and [System overview](01-system-overview.md) defers to this section for its detail. The canonical form and the Revision digest are `Planned (M1)`, with `ruralz bundle build`.
+A Revision is the content-addressed digest of a Bundle rendered for one Environment, not of its source; foundation pack sections 2 (Revision row) and 8.1 fix that definition, and [System overview](01-system-overview.md) defers to this section for its detail.
 
 The digest covers a specified, versioned serialization, `ruralz.canonical.v1`, never an internal Go type. After merge and substitution, each resource is decoded with the schema of its own apiVersion, every schema default and every registry default (`slot`, `failureMode`, `filterClass`) is materialized, and the resource is converted to its hub representation. Values are then normalized, `set` lists and unordered `map` lists are sorted, `orderedMap` and `atomic` lists keep authored order, resources are sorted by kind (`Gateway`, `Upstream`, `Plugin`, `Policy`, `Consumer`, `AIProvider`, `AIModel`, `Route`) and name, comments and file names are dropped, and the result is serialized as RFC 8785 canonical JSON behind the format identifier. Because effective values are inside the digest, one Revision behaves the same on every Node that accepts it, even when its resources mix apiVersions.
 
@@ -762,7 +762,7 @@ From the example Bundle: Gateway `edge` attaches `cors-default`, `jwt-default`, 
 | onResponse | client | `cors-partner` | Route | Response side of cors |
 | none | none | `cors-default` | Gateway | Replaced in slot `cors` |
 
-Client-leg Policies run once per request, upstream-leg Policies once per leg. On `support-chat`, `apikey-partner` (`auth.api-key`, slot `auth`) replaces `jwt-default`; `cart-grpc` excludes `cors-default`; excluding `ratelimit-global` fails with RZ-CFG-019. `ruralz bundle render --effective --route orders-summary` prints these rows in this order, `Planned (M1)`, from the chain the data plane builds its Phases from; its Reason column states the slot rule in fixed words, such as `slot cors, replaces cors-default` or `leg orders only`, instead of this table's explanations ([CLI and API surface](../reference/01-cli-and-api-surface.md#bundle-verbs-in-detail)).
+Client-leg Policies run once per request, upstream-leg Policies once per leg. On `support-chat`, `apikey-partner` (`auth.api-key`, slot `auth`) replaces `jwt-default`; `cart-grpc` excludes `cors-default`; excluding `ratelimit-global` fails with RZ-CFG-019. `ruralz bundle render --effective --route orders-summary` prints these rows in this order, from the chain the data plane builds its Phases from; its Reason column states the slot rule in fixed words, such as `slot cors, replaces cors-default` or `leg orders only`, instead of this table's explanations ([CLI and API surface](../reference/01-cli-and-api-surface.md#bundle-verbs-in-detail)).
 
 ## CEL expressions and allowed places
 
@@ -774,23 +774,23 @@ CEL is allowed only in these fields, each marked `x-ruralz-cel`; elsewhere CEL-l
 
 | Field | Result | Evaluated | Variables | On runtime error | Planned |
 |---|---|---|---|---|---|
-| `Route.spec.match.when` | bool | Route matching | `request` (no body), `source`, `now` | 500; no fallthrough to another Route | Planned (M1) |
-| `Policy.spec.when` | bool | Once, before the Policy's first Phase | Base; `response` if that Phase is a response Phase | `closed`: Policy runs; `open`: skipped | Planned (M1) |
-| `Route.spec.composition.steps[].pathExpression` | string | Before the step | Base, `steps` | Step fails; `optional` decides | Planned (M1) |
-| `Route.spec.composition.steps[].when` | bool | Before the step | Base, `steps` | Step fails; `optional` decides | Planned (M1) |
-| `authz.cel` `config.rule` | bool | onRequestHeaders or onRequestBody | Base | Deny | Planned (M1) |
-| `ratelimit`, `quota` `config.key` | string | onRequestHeaders | Base | Policy `failureMode` | Planned (M1) |
-| `ratelimit`, `quota` `config.cost` | int | onRequestHeaders | Base | Policy `failureMode` | Planned (M1) |
-| `ratelimit` `config.limits[].when` | bool | onRequestHeaders | Base | Policy `failureMode` | Planned (M1) |
-| `headers` `config.*.set[].valueExpression`, `config.*.add[].valueExpression` | string | The operation's Phase | Base; `response`, `upstream` on response operations | Policy `failureMode` | Planned (M1) |
-| `cache` `config.key` | string | onRequestHeaders | Base | Cache bypassed | Planned (M1) |
-| `transform.request` `config.body`, `config.set[].valueExpression` | dyn; string, or dyn with target `body` | onRequestBody; onUpstreamRequest at Upstream scope | Base with `request.body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
-| `transform.response` `config.body`, `config.set[].valueExpression` | dyn; string, or dyn with target `body` | onResponse; onUpstreamResponseBody at Upstream scope | Base, `response` with `body`; `upstream` at Upstream scope | Policy `failureMode` | Planned (M1) |
+| `Route.spec.match.when` | bool | Route matching | `request` (no body), `source`, `now` | 500; no fallthrough to another Route | |
+| `Policy.spec.when` | bool | Once, before the Policy's first Phase | Base; `response` if that Phase is a response Phase | `closed`: Policy runs; `open`: skipped | |
+| `Route.spec.composition.steps[].pathExpression` | string | Before the step | Base, `steps` | Step fails; `optional` decides | |
+| `Route.spec.composition.steps[].when` | bool | Before the step | Base, `steps` | Step fails; `optional` decides | |
+| `authz.cel` `config.rule` | bool | onRequestHeaders or onRequestBody | Base | Deny | |
+| `ratelimit`, `quota` `config.key` | string | onRequestHeaders | Base | Policy `failureMode` | |
+| `ratelimit`, `quota` `config.cost` | int | onRequestHeaders | Base | Policy `failureMode` | |
+| `ratelimit` `config.limits[].when` | bool | onRequestHeaders | Base | Policy `failureMode` | |
+| `headers` `config.*.set[].valueExpression`, `config.*.add[].valueExpression` | string | The operation's Phase | Base; `response`, `upstream` on response operations | Policy `failureMode` | |
+| `cache` `config.key` | string | onRequestHeaders | Base | Cache bypassed | |
+| `transform.request` `config.body`, `config.set[].valueExpression` | dyn; string, or dyn with target `body` | onRequestBody; onUpstreamRequest at Upstream scope | Base with `request.body`; `upstream` at Upstream scope | Policy `failureMode` | |
+| `transform.response` `config.body`, `config.set[].valueExpression` | dyn; string, or dyn with target `body` | onResponse; onUpstreamResponseBody at Upstream scope | Base, `response` with `body`; `upstream` at Upstream scope | Policy `failureMode` | |
 | `ai.semantic-cache` `config.key` | string | onRequestBody | Base, `ai` | Cache bypassed | Planned (M3) |
-| `Upstream.spec.loadBalancing.hashKey` | string | Endpoint selection | Base | Random Endpoint | Planned (M1) |
-| `Upstream.spec.retries.retryOn` | bool | After each attempt | `request` (no body), `response`, `error`, `attempt`, `upstream` | No retry | Planned (M1) |
-| `Upstream.spec.circuitBreaker.failureWhen` | bool | After each attempt | `request` (no body), `response`, `error`, `upstream` | Counted as failure | Planned (M1) |
-| `Gateway.spec.telemetry.accessLog.when` | bool | onLog | Base, `response`, `upstream`, `duration` | Entry written | Planned (M1) |
+| `Upstream.spec.loadBalancing.hashKey` | string | Endpoint selection | Base | Random Endpoint | |
+| `Upstream.spec.retries.retryOn` | bool | After each attempt | `request` (no body), `response`, `error`, `attempt`, `upstream` | No retry | |
+| `Upstream.spec.circuitBreaker.failureWhen` | bool | After each attempt | `request` (no body), `response`, `error`, `upstream` | Counted as failure | |
+| `Gateway.spec.telemetry.accessLog.when` | bool | onLog | Base, `response`, `upstream`, `duration` | Entry written | |
 | `Upstream.spec.messaging.key` | string | onUpstreamRequest | Base | 502 | Planned (M4) |
 | `AIModel.spec.candidates[].when` | bool | Model routing, after onRequestBody | Base, `ai` | Candidate skipped | Planned (M3) |
 | `x-ruralz-validations[].rule` | bool | Validation time only | `self` | Validation error | Planned (M2) |
@@ -851,8 +851,8 @@ password:
 
 | Provider | `name` means | `key` means | Rotation | Planned |
 |---|---|---|---|---|
-| `env` | `ruralzd` process variable: `RURALZ_STATE_STORE_URL` or a name starting `RURALZ_SECRET_` | Unused | Restart | Planned (M1) |
-| `file` | Absolute path under `RURALZ_SECRET_ROOT` (default `/etc/ruralz`) | Optional JSON key | File watch | Planned (M1) |
+| `env` | `ruralzd` process variable: `RURALZ_STATE_STORE_URL` or a name starting `RURALZ_SECRET_` | Unused | Restart | |
+| `file` | Absolute path under `RURALZ_SECRET_ROOT` (default `/etc/ruralz`) | Optional JSON key | File watch | |
 | `kubernetes` | Secret in the Node's namespace | Data key | API watch | Planned (M2) |
 | `vault` | Secret path | Field | Lease renewal | Planned (M2) |
 
@@ -872,10 +872,10 @@ Substitution is forbidden in keys, `apiVersion`, `kind`, `metadata.name`, refere
 
 | Renderer | Source of values | Planned |
 |---|---|---|
-| `ruralz bundle validate`, `render`, `diff` or `build` with `--env <name>` | That Environment's `spec.variables`, read from the file named by `--environments` or fetched from Ruralz Control; never the process environment; with neither source, an error | Planned (M1) from a file; Planned (M2) from Ruralz Control |
-| The same verbs without `--env` | CLI process environment, for local development; no overlay | Planned (M1) |
+| `ruralz bundle validate`, `render`, `diff` or `build` with `--env <name>` | That Environment's `spec.variables`, read from the file named by `--environments` or fetched from Ruralz Control; never the process environment; with neither source, an error | Planned (M2) from Ruralz Control |
+| The same verbs without `--env` | CLI process environment, for local development; no overlay | |
 | Ruralz Control, including the CRD path | Target Environment's `spec.variables`, never its own process environment | Planned (M2) |
-| `ruralzd` in file mode | Its process environment, only when it loads an unrendered source Bundle | Planned (M1) |
+| `ruralzd` in file mode | Its process environment, only when it loads an unrendered source Bundle | |
 
 With `--env`, CI renders exactly what Ruralz Control renders and reproduces its digest. Ruralz Control never accepts a pre-rendered Revision: `ruralz bundle push --env staging` uploads the source Bundle with the CLI's digest, and Ruralz Control re-renders it with the Environment's variables, rejects a mismatch with RZ-CFG-027 and records the source tree digest in place of a Git commit, so promotion gating applies unchanged. Pushing to an OCI registry publishes the rendered Revision, signed with Sigstore ([ADR-0017](../adr/0017-artifact-signing.md)), for file-mode Nodes to pull by digest. [CLI and API surface](../reference/01-cli-and-api-surface.md#global-flags) defines the flags.
 
@@ -1035,7 +1035,7 @@ A CEL finding of stage J (RZ-CFG-014, RZ-CFG-015) is one diagnostic per distinct
 
 ### Diff semantics
 
-`ruralz bundle diff FROM TO` compares two rendered states in that order, each a Bundle rendered for an Environment, a Revision from Ruralz Control or an OCI registry, or a live Node's `/config/dump` (how Drift is shown). Naming a different Environment per side reviews a promotion. Diffing rendered Bundles and `/config/dump` is `Planned (M1)`; Revisions fetched from Ruralz Control or an OCI registry are `Planned (M2)`. Each side is the pipeline's output: canonical content such as a dump runs stages F to M again, so both sides compare as hub trees with their effective Filter Chains. Rules:
+`ruralz bundle diff FROM TO` compares two rendered states in that order, each a Bundle rendered for an Environment, a Revision from Ruralz Control or an OCI registry, or a live Node's `/config/dump` (how Drift is shown). Naming a different Environment per side reviews a promotion. Revisions fetched from Ruralz Control or an OCI registry are `Planned (M2)`. Each side is the pipeline's output: canonical content such as a dump runs stages F to M again, so both sides compare as hub trees with their effective Filter Chains. Rules:
 
 1. Resources match by identity; renames are never inferred, so a rename is a removal plus an addition.
 2. Comparison uses the canonical form, so formatting, file moves, member order, `apiVersion` and the `ruralz.io/conversion-data` annotation never appear, numbers compare by their RFC 8785 form, and a field with `x-ruralz-since` above 0 counts only where the canonical form writes it. Equal digests are equal states.
@@ -1141,7 +1141,7 @@ A failing object blocks the namespace's Revision and Nodes keep the previous one
 
 ## apiVersion versioning and migration
 
-The first served version is `ruralz/v1alpha1`, `Planned (M0)`; it names the schema, not the product. The lifecycle follows Kubernetes API conventions:
+The first served version is `ruralz/v1alpha1`; it names the schema, not the product. The lifecycle follows Kubernetes API conventions:
 
 | Version | Promise | Field removal | Conversion |
 |---|---|---|---|
@@ -1710,7 +1710,7 @@ ruralz bundle push $CONTROL --env staging ./shop-bundle
 
 ## REST example Bundle
 
-The `shop-rest-bundle` is the part of the [example Bundle](#complete-annotated-example-bundle) an M1 Node serves: the `orders-summary` aggregation and a partner API, using only kinds, fields and Policy types that are `Planned (M1)`, so no resource is RZ-CFG-040, and every `secretRef` uses the `env` or `file` provider within its name limits ([secretRef](#secretref)). Against the `shop-bundle` it leaves out the gRPC and AI Routes with their Upstreams, `AIProvider`, `AIModel`, the Plugin with `geo-block-default`, HTTP/3, and `kubernetes` discovery and `secretRef`s: `orders` uses `dns` discovery and the OAuth client secret is a `file` reference. The Consumer holds an API key and a `requests` quota, which the partner Route `partner-orders` charges.
+The `shop-rest-bundle` is the part of the [example Bundle](#complete-annotated-example-bundle) a Node serves: the `orders-summary` aggregation and a partner API, using only kinds, fields and Policy types without a `Planned` tag, so no resource is RZ-CFG-040, and every `secretRef` uses the `env` or `file` provider within its name limits ([secretRef](#secretref)). Against the `shop-bundle` it leaves out the gRPC and AI Routes with their Upstreams, `AIProvider`, `AIModel`, the Plugin with `geo-block-default`, HTTP/3, and `kubernetes` discovery and `secretRef`s: `orders` uses `dns` discovery and the OAuth client secret is a `file` reference. The Consumer holds an API key and a `requests` quota, which the partner Route `partner-orders` charges.
 
 The repository holds it as `examples/shop-rest-bundle/`, each file byte for byte as shown below, beside the `shop-bundle`, so it renders for the Environments of `control/environments.yaml`; `prod` applies the `orders` patch below, and `staging` has no overlay. The Go test that checks the `shop-bundle` also renders this Bundle without `--env` and for each Environment with no diagnostic, checks that no resource uses a feature tagged after M1, and checks both effective chains below.
 

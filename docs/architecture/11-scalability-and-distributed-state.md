@@ -317,7 +317,7 @@ Cookie affinity or a session Policy type is OQ-scalability-and-distributed-state
 
 ### Post-commit write queue
 
-The queue, Planned (M1), holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. A class's bytes count each queued write's retained memory: a fixed overhead per item, the Go type sizes of the write and its queue slot, about 480 bytes on a 64-bit Node (hypothesis), plus its key and payload bytes, such as a refund's Quota name or a store's names and entry. The invalidation class's 1 MiB therefore holds about 2,180 writes (hypothesis), binding before its item cap. Plugin writes take their own class, with the Environment name as `rzplg:` namespace (pack 8.7 rules 4 and 7). Sizes are fixed (OQ-scalability-and-distributed-state-4).
+The queue holds 64,000 items and 85 MiB (target) in four classes capped in items and bytes; a full class drops only its own writes. A class's bytes count each queued write's retained memory: a fixed overhead per item, the Go type sizes of the write and its queue slot, about 480 bytes on a 64-bit Node (hypothesis), plus its key and payload bytes, such as a refund's Quota name or a store's names and entry. The invalidation class's 1 MiB therefore holds about 2,180 writes (hypothesis), binding before its item cap. Plugin writes take their own class, with the Environment name as `rzplg:` namespace (pack 8.7 rules 4 and 7). Sizes are fixed (OQ-scalability-and-distributed-state-4).
 
 | Class | Capacity | Drain turn | On full |
 |---|---|---|---|
@@ -330,7 +330,7 @@ Eight writers per Node cycle through the turns, skipping empty classes, 64 write
 
 ### State client and RZ-STS error codes
 
-The State client, Planned (M1), is `rueidis` with auto-pipelining ([source](https://github.com/redis/rueidis)), one client per driver, created off the request path; `internal/statestore/redis` is its only importer. Per Node it keeps 2 pipelined connections per shard, opened by the maintenance loop when the shard first serves, so no call waits for a first dial, and redialed on demand once closed, plus up to 8 dedicated ones opened lazily, which no M1 call uses (target), and at most 8,192 calls in flight across every driver (target): a request's call, a post-commit batch or a probe holds one slot from its send until its reply or a connection reset, not its caller's timeout, so a goroutine waits for the client while the caller waits only for its timeout. An excess call is skipped under `failureMode` (`RZ-STS-004`). Client-side caching and retries are off, so no call makes a second round trip, and a cluster command follows at most 3 `MOVED` or `ASK` replies.
+The State client is `rueidis` with auto-pipelining ([source](https://github.com/redis/rueidis)), one client per driver, created off the request path; `internal/statestore/redis` is its only importer. Per Node it keeps 2 pipelined connections per shard, opened by the maintenance loop when the shard first serves, so no call waits for a first dial, and redialed on demand once closed, plus up to 8 dedicated ones opened lazily, which no Rate Limit, Quota, Response Cache or probe call uses (target), and at most 8,192 calls in flight across every driver (target): a request's call, a post-commit batch or a probe holds one slot from its send until its reply or a connection reset, not its caller's timeout, so a goroutine waits for the client while the caller waits only for its timeout. An excess call is skipped under `failureMode` (`RZ-STS-004`). Client-side caching and retries are off, so no call makes a second round trip, and a cluster command follows at most 3 `MOVED` or `ASK` replies.
 
 | Topology | Client | Shards |
 |---|---|---|
@@ -403,7 +403,7 @@ Scripts read server `TIME`, so Node clock skew up to half a window does not matt
 
 ## Multi-region
 
-Multi-region is Planned (M4); single-Region Cells work from Planned (M1). Pack 8.13 fixes the rules: no request crosses a Region to reach a State Store, and each Region's Nodes resolve their own `stateStore.url` through `secretRef`, so Regions share one Revision.
+Multi-region is Planned (M4); single-Region Cells work without it. Pack 8.13 fixes the rules: no request crosses a Region to reach a State Store, and each Region's Nodes resolve their own `stateStore.url` through `secretRef`, so Regions share one Revision.
 
 ### Topologies
 
@@ -469,7 +469,7 @@ A shared Revision gives every Region the same `limit`, enforced alone: each Regi
 | Home Region | Region-pinned tenants | Exact in the home Cell (target) | Planned (M4) |
 | Leased global budget | A home Region leases allowances to others | Bounded by lease size and refresh | OQ-scalability-and-distributed-state-5 |
 
-Per-Cell enforcement is Planned (M1) and Environment variables Planned (M2).
+Enforcement is per Cell; Environment variables are Planned (M2).
 
 A divided Quota: the Bundle's `consumers/partner-acme.yaml`, plus its enforcing Policy:
 

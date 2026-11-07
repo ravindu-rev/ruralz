@@ -12,7 +12,7 @@ Non-goals, with owners: kinds and fields ([Configuration model](02-configuration
 
 ## Load balancing
 
-Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state, Planned (M1) for `http` Upstreams. A Route picks an `upstreams` entry per request by `weight`, under the Endpoint weight rule: an entry of weight 0 is never picked while another weighs more, and if every weight is 0 all weigh 1. When the picked entry's leg is refused before any attempt is sent (`RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`), the request picks again by weight among the entries it has not tried, under the same rule, so a weight-0 entry serves once every weighted entry was refused; each entry is tried at most once, and the request answers with the last refusal when none is left. A leg that sent an attempt is final, even when a retry attempt is refused. The Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
+For `http` Upstreams, Endpoint selection runs per attempt between `onRoute` and `onUpstreamRequest` on Node-local state. A Route picks an `upstreams` entry per request by `weight`, under the Endpoint weight rule: an entry of weight 0 is never picked while another weighs more, and if every weight is 0 all weigh 1. When the picked entry's leg is refused before any attempt is sent (`RZ-UP-005`, `RZ-UP-006` or `RZ-UP-008`), the request picks again by weight among the entries it has not tried, under the same rule, so a weight-0 entry serves once every weighted entry was refused; each entry is tried at most once, and the request answers with the last refusal when none is left. A leg that sent an attempt is final, even when a retry attempt is refused. The Upstream picks an Endpoint by `loadBalancing.algorithm`, weighted by `endpoints[].weight` or SRV weights.
 
 | Algorithm | Selection | Best for |
 |---|---|---|
@@ -59,8 +59,8 @@ flowchart TD
 
 | Source | Fields | Behavior | Planned |
 |---|---|---|---|
-| Static | `endpoints[].address`, `weight` | Host names resolve every 30 s (target), keeping the last good answer | Planned (M1) |
-| DNS | `discovery.type: dns`, `service`, `port` | Numeric `port`: A and AAAA; named: SRV `_<port>._tcp.<service>`. Every 30 s, 10% jitter (target) | Planned (M1) |
+| Static | `endpoints[].address`, `weight` | Host names resolve every 30 s (target), keeping the last good answer | |
+| DNS | `discovery.type: dns`, `service`, `port` | Numeric `port`: A and AAAA; named: SRV `_<port>._tcp.<service>`. Every 30 s, 10% jitter (target) | |
 | Kubernetes | `discovery.type: kubernetes`, `service`, `namespace`, `port` | EndpointSlice watch (client: OQ-tech-stack-and-libraries-23) | Planned (M2) |
 
 Kubernetes discovery uses serving, non-terminating Endpoints, or terminating ones if all are ([source](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/)).
@@ -69,7 +69,7 @@ On lookup failure or an unreachable Kubernetes API the Node keeps its last set, 
 
 ## Health checking and outlier detection
 
-Each Node judges health alone (P3 in [Vision](../vision/01-vision-and-positioning.md#principles)), Planned (M1):
+Each Node judges health alone (P3 in [Vision](../vision/01-vision-and-positioning.md#principles)):
 
 | Mechanism | Fields | Rule |
 |---|---|---|
@@ -164,7 +164,7 @@ stateDiagram-v2
 
 ## Circuit breakers
 
-Each Node keeps one breaker and one in-flight ceiling per Upstream, Planned (M1); ejection isolates Endpoints. The breaker counts legs whose final result matches `failureWhen`; connect errors count only while over 50% of Endpoints are ejected (target), so a bad Endpoint or lost zone never opens it. Its guards are fixed values, not fields: it may open only once a rolling 10 s window holds at least 20 legs and at least 50% of them failed, together with `consecutiveFailures`, and 3 consecutive probe successes close it when half-open (target).
+Each Node keeps one breaker and one in-flight ceiling per Upstream; ejection isolates Endpoints. The breaker counts legs whose final result matches `failureWhen`; connect errors count only while over 50% of Endpoints are ejected (target), so a bad Endpoint or lost zone never opens it. Its guards are fixed values, not fields: it may open only once a rolling 10 s window holds at least 20 legs and at least 50% of them failed, together with `consecutiveFailures`, and 3 consecutive probe successes close it when half-open (target).
 
 | Field | Role | When exceeded |
 |---|---|---|
@@ -182,7 +182,7 @@ Streaming and WebSocket legs hold a slot for life, up to the Route `timeout`, so
 
 ## Rate limiting
 
-A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`), Planned (M1). `config.key` (CEL) partitions traffic; without it every request of the Policy shares one partition, a service limit. Every applied `config.limits[]` entry must allow `requests` per `window`, plus its `burst`. Route limits stack on Gateway limits (pack 8.12). Limits apply per Cell, so R Regions allow R × each. Auth runs first.
+A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`). `config.key` (CEL) partitions traffic; without it every request of the Policy shares one partition, a service limit. Every applied `config.limits[]` entry must allow `requests` per `window`, plus its `burst`. Route limits stack on Gateway limits (pack 8.12). Limits apply per Cell, so R Regions allow R × each. Auth runs first.
 
 These fields, registered in the [Configuration model](02-configuration-model.md#registered-from-feature-documents) beside those of [Per-Node ceiling](#per-node-ceiling), shape a limit:
 
@@ -322,7 +322,7 @@ spec:
 
 ### RateLimit response headers
 
-Ruralz Gateway emits Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists, Planned (M1) ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)). Each `ratelimit` and `quota` Policy records the limits it applied to a request, and the request handler writes the fields after `onResponse`, on every response of that request, generated responses included. They replace any `RateLimit-Policy` and `RateLimit` an Upstream or a Policy set, so a response states this Node's limits only; a response of a request without an applied limit keeps the Upstream's. A limit a skipped Policy, or a `limits[].when` that was false, did not apply is not listed, nor any limit of a `ratelimit` Policy with `config.responseHeaders: none`:
+Ruralz Gateway emits Internet-Draft `draft-ietf-httpapi-ratelimit-headers-11` fields as RFC 9651 Structured Field lists ([source](https://datatracker.ietf.org/doc/html/draft-ietf-httpapi-ratelimit-headers)). Each `ratelimit` and `quota` Policy records the limits it applied to a request, and the request handler writes the fields after `onResponse`, on every response of that request, generated responses included. They replace any `RateLimit-Policy` and `RateLimit` an Upstream or a Policy set, so a response states this Node's limits only; a response of a request without an applied limit keeps the Upstream's. A limit a skipped Policy, or a `limits[].when` that was false, did not apply is not listed, nor any limit of a `ratelimit` Policy with `config.responseHeaders: none`:
 
 | Field | Content | When |
 |---|---|---|
@@ -352,7 +352,7 @@ A Quota is a long-window Consumer allowance (a Consumer quota's `limit` per `win
 
 | Unit | Policy | Admission | Settlement | Planned |
 |---|---|---|---|---|
-| `requests` | `quota` (`config.consumerQuota`, `config.key`, `config.cost`) | `onRequestHeaders`: one atomic script reserves `cost` units if the window has that many left | `onLog`: refunds the reserved units when a later Filter rejected the request (`Final.RejectedAfter`), or when no attempt reached an Upstream (`Final.UpstreamReached` false): none was made, or every one failed to connect or to finish TLS, as for `RZ-UP-001`, `RZ-UP-002`, `RZ-UP-005`, `RZ-UP-006`, `RZ-UP-008` and a Node rejection before any attempt, such as 413 `RZ-RT-003`, 503 `RZ-RT-004`, 504 `RZ-RT-007`, `RZ-RT-014` or `RZ-RT-016`; cache hits are charged | Planned (M1) |
+| `requests` | `quota` (`config.consumerQuota`, `config.key`, `config.cost`) | `onRequestHeaders`: one atomic script reserves `cost` units if the window has that many left | `onLog`: refunds the reserved units when a later Filter rejected the request (`Final.RejectedAfter`), or when no attempt reached an Upstream (`Final.UpstreamReached` false): none was made, or every one failed to connect or to finish TLS, as for `RZ-UP-001`, `RZ-UP-002`, `RZ-UP-005`, `RZ-UP-006`, `RZ-UP-008` and a Node rejection before any attempt, such as 413 `RZ-RT-003`, 503 `RZ-RT-004`, 504 `RZ-RT-007`, `RZ-RT-014` or `RZ-RT-016`; cache hits are charged | |
 | `tokens` (LLM input plus output) | `ai.token-budget` (`config.consumerQuota`) | `onRequestBody`: reserves estimated input plus output cap C (pack 8.9) | `onLog` (pack 8.9): provider-reported usage, else all of R with a degraded-state metric | Planned (M3) |
 
 `config.cost` (CEL int over Base; default `1`) is the units a request reserves, and a refund returns them; a runtime error or a cost below 1 applies `failureMode` like a `config.key` error (`closed`: 503 `RZ-RL-005`), and a cost above the window's remaining units is denied (429 `RZ-RL-003`), reserving nothing.
@@ -389,7 +389,7 @@ Dropped refunds only over-charge. `quota` fails open and `ai.token-budget` close
 
 ## Response caching
 
-The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeaders` after auth, authz and admission, store in `onResponse`, default `failureMode: open`, Planned (M1): an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`. Its entries live on Gateway `stateStore.cache` when the Gateway sets it, else on the main State Store connection beside the limit keys.
+The Response Cache is the `cache` Policy: Route scope, lookup in `onRequestHeaders` after auth, authz and admission, store in `onResponse`, default `failureMode: open`: an RFC 9111 shared cache plus RFC 5861 `stale-while-revalidate` and `stale-if-error`. Its entries live on Gateway `stateStore.cache` when the Gateway sets it, else on the main State Store connection beside the limit keys.
 
 | Rule | Behavior |
 |---|---|
@@ -486,7 +486,7 @@ sequenceDiagram
 
 ## Traffic shaping
 
-Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`, all Planned (M1). Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring is `Route.spec.mirror`, Planned (M2) ([Mirroring](#mirroring)).
+Weighted splits and blue-green use `upstreams[].weight` per request; header, cookie or query canaries a higher-ranked Route with `match.headers` or `match.when`; spike arrest a short-`window` `ratelimit`; the bulkhead `circuitBreaker.maxConnections`. Splits stick only through a client-sent header or cookie (percentage-sticky: OQ-traffic-management-and-resilience-17). Mirroring is `Route.spec.mirror`, Planned (M2) ([Mirroring](#mirroring)).
 
 ```yaml
 apiVersion: ruralz/v1alpha1
@@ -502,7 +502,7 @@ spec:
   timeout: 3s
 ```
 
-Routing features build on Route matching and composition, all free and Planned (M1) unless noted. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: [Data plane](03-data-plane.md#compiled-structure)); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression`, or, for plain `upstreams`, a `transform.request` `set[]` entry with target `path` ([Data plane](03-data-plane.md#transform-policies)). Upstream 3xx responses pass through; Route-issued redirects use `Route.spec.redirect`, Planned (M2) ([Redirects](#redirects)). A service-wide Rate Limit is a `ratelimit` with a constant or absent `config.key`, and a tiered one is one `ratelimit` whose `limits[].when` select each Tier's entries, or one per Tier guarded by `when`. IP filtering is `authz.ip`, Planned (M1), and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
+Routing features build on Route matching and composition, all free. A catch-all fallback is a Route matching only `when: "true"`, ranked by [precedence](03-data-plane.md#precedence); header and query routing use `match.headers`, `match.when` over `request.query` or `composition.mode: conditional` with CEL ([ADR-0019](../adr/0019-expressions-authorization-comprehension-stop.md)); wildcard routes use `match.path` `prefix`, `template` or `regex` (wildcard hosts: [Data plane](03-data-plane.md#compiled-structure)); virtual hosts use `match.hosts` with listener `hostnames`. URL rewrite is a composition step `path` or `pathExpression`, or, for plain `upstreams`, a `transform.request` `set[]` entry with target `path` ([Data plane](03-data-plane.md#transform-policies)). Upstream 3xx responses pass through; Route-issued redirects use `Route.spec.redirect`, Planned (M2) ([Redirects](#redirects)). A service-wide Rate Limit is a `ratelimit` with a constant or absent `config.key`, and a tiered one is one `ratelimit` whose `limits[].when` select each Tier's entries, or one per Tier guarded by `when`. IP filtering is `authz.ip`, and GeoIP `authz.geoip`, Planned (M2) ([Security](08-security-and-identity.md)).
 
 ### Mirroring
 

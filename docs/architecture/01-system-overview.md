@@ -32,11 +32,11 @@ Accepted costs: `net/http` and `quic-go` allocate more than fasthttp (hypothesis
 
 | Component | Role | Binary and image | Default ports | On request path? | Milestone |
 |---|---|---|---|---|---|
-| Ruralz Gateway | Stateless data plane; each process is a Node (`node.id`, a ULID) | `ruralzd`, `ghcr.io/ravindu-rev/ruralzd` | 8080 HTTP, 8443 TLS (plus UDP 8443 for HTTP/3, Planned (M3)), 9901 admin | Yes | Planned (M1); HTTP/3 Planned (M3) |
+| Ruralz Gateway | Stateless data plane; each process is a Node (`node.id`, a ULID) | `ruralzd`, `ghcr.io/ravindu-rev/ruralzd` | 8080 HTTP, 8443 TLS (plus UDP 8443 for HTTP/3, Planned (M3)), 9901 admin | Yes | HTTP/3 Planned (M3) |
 | Ruralz Control | Optional control plane: Revisions, Rollouts, RBAC, audit log, Drift detection | `ruralz-control`, `ghcr.io/ravindu-rev/ruralz-control` | 8090 REST API and Ruralz Console, 8091 Control Stream (mTLS, Nodes dial), 8092 Raft peer transport (mTLS), 9902 admin | No | Planned (M2) |
 | Ruralz Console | React and TypeScript SPA in `ruralz-control` | Served at `/console` | 8090 | No | Planned (M2) |
-| `ruralz` CLI | `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control` and `test` commands | `ruralz` | None | No | Planned (M1) to Planned (M3), per command in pack 9 |
-| State Store | Rate Limits, Quotas, Response Cache Planned (M1); Token Budgets, Semantic Cache Planned (M3) | `memory` (single Node) or `redis` (Redis, Valkey, Dragonfly over RESP3) | Operator-defined | Stateful Policies only | Planned (M1) |
+| `ruralz` CLI | `bundle`, `rollout`, `plugin`, `ai`, `dev`, `node`, `control` and `test` commands | `ruralz` | None | No | `rollout`, `plugin`, `control`, `test` and some `bundle` and `node` verbs Planned (M2), `ai` Planned (M3), per command in pack 9 |
+| State Store | Rate Limits, Quotas, Response Cache; Token Budgets, Semantic Cache Planned (M3) | `memory` (single Node) or `redis` (Redis, Valkey, Dragonfly over RESP3) | Operator-defined | Stateful Policies only | |
 | Control Store | Raft metadata (Rollout plans, Environments, Clusters, Enrollment, RBAC) plus digest-addressed Revision content and audit segments | Embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt; `postgres` optional, Planned (M4) ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed) | 8092 between replicas | No | Planned (M2) |
 
 Revision content and hash-chained audit segments reach a replica quorum before the Raft entry referencing their digest; Raft entries stay under 1 MiB (target), and `ruralz control backup` covers all of it. The dedicated peer port 8092 keeps Nodes off peer traffic (pack 8.4). [Control plane and GitOps](04-control-plane-and-gitops.md) owns the mechanism.
@@ -136,7 +136,7 @@ flowchart TB
 
 | Part | Responsibility | Hot-path rule |
 |---|---|---|
-| Listeners | HTTP/1.1, HTTP/2 Planned (M1); HTTP/3 (`quic-go`, off in FIPS builds) Planned (M3); gRPC via `connectrpc.com/connect`, WebSocket, SSE Planned (M3) | Reads only the snapshot pointer |
+| Listeners | HTTP/1.1, HTTP/2; HTTP/3 (`quic-go`, off in FIPS builds) Planned (M3); gRPC via `connectrpc.com/connect`, WebSocket, SSE Planned (M3) | Reads only the snapshot pointer |
 | Router | Matches a request to a Route | Prebuilt per Revision; span `ruralz.route.match` |
 | Filter Chain executor | Runs the Route's pre-resolved Filters and Plugins | Built at compile time; span `ruralz.filter.<name>` |
 | Plugin host | wazero, `ruralz.plugin.v1`, Capabilities, instance pools | Never compiles or instantiates; an exhausted pool rejects with `RZ-PLG-<NNN>` after a brief wait |
@@ -362,7 +362,7 @@ Ruralz Gateway runs without Ruralz Control, by watching a Bundle directory or pu
 | Components | `ruralzd`, optional State Store | Nodes, `ruralz-control` replicas, Control Store, State Store | Plus a State Store per Cell, optional regional Ruralz Control (Planned (M4)) |
 | Change delivery | CI replaces the directory or publishes a digest; not a Rollout | Rollout with per-Node ACK/NACK | Rollouts per Cluster, source commits promoted across Environments |
 | Failure domain | Every Node reading that source; no canary unless CI runs one | One Cluster; stopped at canary when strategy is canary | One Cell |
-| Milestone | Planned (M1) watch; Planned (M2) OCI pull | Planned (M2) | Planned (M2); multi-region with Cells Planned (M4) |
+| Milestone | Directory watch; Planned (M2) OCI pull | Planned (M2) | Planned (M2); multi-region with Cells Planned (M4) |
 
 Choose Control mode when several teams change configuration, auditors need attribution, or bad changes must stop at a canary; in file mode a valid yet wrong change reaches every Node at once.
 
@@ -398,7 +398,7 @@ The Helm chart and CRDs are Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm
 
 ### Hot Reload, Rollout and Zero-Downtime Upgrade
 
-A **Hot Reload** activates a Revision on one Node without a restart. A **Zero-Downtime Upgrade** replaces the `ruralzd` binary: the new process binds the same ports with `SO_REUSEPORT` and reports ready, then the old one Drains with HTTP/2 GOAWAY ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1); [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md) owns procedures. Handover rules:
+A **Hot Reload** activates a Revision on one Node without a restart. A **Zero-Downtime Upgrade** replaces the `ruralzd` binary: the new process binds the same ports with `SO_REUSEPORT` and reports ready, then the old one Drains with HTTP/2 GOAWAY ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). [Zero-downtime upgrades and hot reload](../operations/02-zero-downtime-upgrades-and-hot-reload.md) owns procedures. Handover rules:
 
 1. Before closing a TCP listener, `SO_ATTACH_REUSEPORT_CBPF` (through `golang.org/x/sys/unix`) steers new connections to the new socket while the old accept queue empties; hosts SHOULD also set `net.ipv4.tcp_migrate_req`, which complements steering, and the old process keeps accepting through a 3 s linger (target).
 2. In-flight QUIC connections on UDP 8443 are lost and reconnect (OQ-system-overview-18).

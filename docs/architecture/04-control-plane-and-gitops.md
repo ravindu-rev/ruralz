@@ -201,7 +201,7 @@ With `requireApproval`, an `approver` runs `ruralz rollout approve` once per rec
 
 Forge webhooks at `/api/v1/hooks/git` need a per-source HMAC, are rate-limited (`RZ-CP-018`) and only trigger an authenticated fetch; otherwise Ruralz Control polls every 60 s (target). The Git client is go-git, pure Go under Apache-2.0 ([source](https://github.com/go-git/go-git/blob/main/README.md)) ([source](https://github.com/go-git/go-git/blob/main/LICENSE)): it authenticates with an HTTPS token or an SSH key from `git.credentialsFile` and fetches each tracked branch shallowly.
 
-Forge CI renders each pull request per Environment exactly as Ruralz Control does ([Configuration model](02-configuration-model.md#environment-substitution)): `ruralz bundle validate --environments control/environments.yaml` and `ruralz bundle build`, Planned (M1); `ruralz bundle diff` against the Environment's Revision, Planned (M2); and `ruralz test run`. Ruralz Control re-validates every commit; commit status needs forge adapters (OQ-control-plane-and-gitops-7).
+Forge CI renders each pull request per Environment exactly as Ruralz Control does ([Configuration model](02-configuration-model.md#environment-substitution)): `ruralz bundle validate --environments control/environments.yaml` and `ruralz bundle build`; `ruralz bundle diff` against the Environment's Revision, Planned (M2); and `ruralz test run`. Ruralz Control re-validates every commit; commit status needs forge adapters (OQ-control-plane-and-gitops-7).
 
 ### Ruralz Console write-back and other sources
 

@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the `transform.request` and `transform.response` `config` schema, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class. Ruralz Gateway is Planned (M1).
+This document specifies Ruralz Gateway (`ruralzd`), the stateless data plane: concurrency bounds, listeners, Route matching, Filter Chain execution through the fixed Phases, Upstream composition and balancing, and configuration snapshot swaps during Hot Reload that drop no in-flight request. It fixes routing precedence, the `transform.request` and `transform.response` `config` schema, the admin API on port 9901, the error format, the `RZ-RT` registry and fail-open or fail-closed behavior per Filter class.
 
 ## Scope and non-goals
 
@@ -142,9 +142,9 @@ Listeners come from `Gateway.spec.listeners` with `protocol` `http` or `https`, 
 
 | Protocol | Detection | Implementation | Planned |
 |---|---|---|---|
-| HTTP/1.1 | Default | `net/http` `Server` | Planned (M1) |
-| HTTP/2 over TLS | ALPN `h2` on `https` | `net/http`, `HTTP2Config` | Planned (M1) |
-| h2c | Prior knowledge on `http`; no `Upgrade: h2c` | `net/http` `UnencryptedHTTP2` | Planned (M1) |
+| HTTP/1.1 | Default | `net/http` `Server` | |
+| HTTP/2 over TLS | ALPN `h2` on `https` | `net/http`, `HTTP2Config` | |
+| h2c | Prior knowledge on `http`; no `Upgrade: h2c` | `net/http` `UnencryptedHTTP2` | |
 | HTTP/3 | UDP on the `https` port when `http3: true` | quic-go `http3`, off in FIPS builds | Planned (M3) |
 | gRPC, gRPC-Web, Connect | Content-Type | `connectrpc.com/connect` generic handlers | Planned (M3) |
 | WebSocket | `Upgrade: websocket` on a matched Route | `coder/websocket` | Planned (M3) |
@@ -320,7 +320,7 @@ A Filter returns continue, respond, or cannot decide (a failed or timed-out Stat
 
 ### Headers Policy
 
-A `headers` Policy, Planned (M1), removes, sets and adds header fields with the `config` and validation the [Configuration model](02-configuration-model.md#policy) fixes. Each side runs only when it holds an entry, in the Phase of its scope:
+A `headers` Policy removes, sets and adds header fields with the `config` and validation the [Configuration model](02-configuration-model.md#policy) fixes. Each side runs only when it holds an entry, in the Phase of its scope:
 
 | Side | Gateway and Route scope | Upstream scope |
 |---|---|---|
@@ -331,7 +331,7 @@ A side evaluates every `valueExpression` first, over the message as it reached t
 
 ### Transform Policies
 
-`transform.request` and `transform.response`, both Planned (M1), rewrite bodies, headers, the query string and the request path with CEL and regular expressions instead of a template language. This section authors their `config` schema (pack 3) for registration by the [Configuration model](02-configuration-model.md#policy), with a CEL row per expression field. A transform whose `config` needs the body is a gate ([Body buffering and limits](02-configuration-model.md#body-buffering-and-limits)): one with `body`, `arrayOps[]`, `replace[]`, a `set[]` or `remove[]` entry with target `body`, or a CEL field that reads `request.body` or `response.body`. Any other transform runs at its Phase while the body streams on.
+`transform.request` and `transform.response` rewrite bodies, headers, the query string and the request path with CEL and regular expressions instead of a template language. This section authors their `config` schema (pack 3) for registration by the [Configuration model](02-configuration-model.md#policy), with a CEL row per expression field. A transform whose `config` needs the body is a gate ([Body buffering and limits](02-configuration-model.md#body-buffering-and-limits)): one with `body`, `arrayOps[]`, `replace[]`, a `set[]` or `remove[]` entry with target `body`, or a CEL field that reads `request.body` or `response.body`. Any other transform runs at its Phase while the body streams on.
 
 | Field | Contents | `transform.request` | `transform.response` |
 |---|---|---|---|
@@ -437,13 +437,13 @@ A failed `optional: true` step is left out, and the response carries `ruralz-par
 
 ### Workflow composition
 
-The executor models every mode as a step graph, so a workflow (a dependency graph of parallel and sequential stages) needs only declared edges, which the Configuration model lacks (OQ-data-plane-3); meanwhile linear workflows use `sequential` with per-step `when`, Planned (M1).
+The executor models every mode as a step graph, so a workflow (a dependency graph of parallel and sequential stages) needs only declared edges, which the Configuration model lacks (OQ-data-plane-3); meanwhile linear workflows use `sequential` with per-step `when`.
 
 ## Upstream layer
 
 The Upstream layer forwards with its own loop on `http.Transport`, not `httputil.ReverseProxy`, because retries, per-attempt Phases and `onChunk` need per-attempt control.
 
-Endpoints come from `endpoints` or `discovery` (`dns` Planned (M1); `kubernetes` EndpointSlices Planned (M2), client: OQ-tech-stack-and-libraries-23), swapped copy-on-write beside the snapshot, never a new Revision; a failing source keeps the last set and reports a degraded state. `loadBalancing.algorithm` selects `round-robin` (weighted), `least-request` (two random choices), `random` or `ring-hash` over the CEL `hashKey`; `healthCheck.active` probes with jitter and `healthCheck.passive` ejects for `ejectionTime`. When every Endpoint is unhealthy, the Node balances across all and reports a degraded state (threshold: OQ-data-plane-7).
+Endpoints come from `endpoints` or `discovery` (`dns`; `kubernetes` EndpointSlices Planned (M2), client: OQ-tech-stack-and-libraries-23), swapped copy-on-write beside the snapshot, never a new Revision; a failing source keeps the last set and reports a degraded state. `loadBalancing.algorithm` selects `round-robin` (weighted), `least-request` (two random choices), `random` or `ring-hash` over the CEL `hashKey`; `healthCheck.active` probes with jitter and `healthCheck.passive` ejects for `ejectionTime`. When every Endpoint is unhealthy, the Node balances across all and reports a degraded state (threshold: OQ-data-plane-7).
 
 Three deadlines nest: the Route `timeout` bounds the request, the Upstream `timeout` one leg including retries, and `retries.perTryTimeout` one attempt. `retryOn` decides after each attempt under the replay rule: a leg is retried or falls back only if its request body is empty or buffered and no response byte is committed. An open breaker (`consecutiveFailures`, `openDuration`, `failureWhen`) or a full `maxPendingRequests` queue fails the attempt at once with an `RZ-UP-<NNN>` code; each attempt emits `ruralz.upstream.<name>`.
 
@@ -537,7 +537,7 @@ The file-mode watcher polls `RURALZ_CONFIG` every 1 s (target) with the standard
 
 A load whose every failure is transient in the [validation gate](../operations/02-zero-downtime-upgrades-and-hot-reload.md#validation-gate), RZ-CFG-026, RZ-CFG-039, RZ-CFG-042 or RZ-CFG-044, is retried with full-jitter backoff from 1 s to 60 s (target) until it activates or the source changes. A Node booting on such a source activates Last-Known-Good meanwhile when it passes, under degraded reason `lkg_boot`, so a secret file that appears later or a port that frees reaches service without a restart.
 
-A Drain, on SIGTERM (which `ruralz node drain` sends) or SIGINT, fails `/readyz`, releases the data-directory lock, stops accepting, shuts its server shards down one at a time across the 10 s jitter window (target), and ends remaining work at its deadline with `RZ-RT-016` through the ending protocol ([Drain timeline](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Each client listener serves through K = 8 `http.Server` shards (target) that share the handler: a dispatching listener accepts every connection and hands it round-robin to the shards' channel-fed listeners, in one turn order every client listener of the Node shares, so shard i of every listener together holds an eighth of the Node's connections, and stopping accepting closes the dispatching listener. A shard's `Shutdown`, at its jittered time, sends one HTTP/2 GOAWAY on each of its connections and closes its idle HTTP/1.1 ones, and each of its busy HTTP/1.1 connections gets `Connection: close` on its next response, so clients reconnect in K waves. A Zero-Downtime Upgrade Drains the old process once a new one on the same ports is ready ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)). Both are Planned (M1).
+A Drain, on SIGTERM (which `ruralz node drain` sends) or SIGINT, fails `/readyz`, releases the data-directory lock, stops accepting, shuts its server shards down one at a time across the 10 s jitter window (target), and ends remaining work at its deadline with `RZ-RT-016` through the ending protocol ([Drain timeline](../operations/02-zero-downtime-upgrades-and-hot-reload.md#drain-timeline-defaults)). Each client listener serves through K = 8 `http.Server` shards (target) that share the handler: a dispatching listener accepts every connection and hands it round-robin to the shards' channel-fed listeners, in one turn order every client listener of the Node shares, so shard i of every listener together holds an eighth of the Node's connections, and stopping accepting closes the dispatching listener. A shard's `Shutdown`, at its jittered time, sends one HTTP/2 GOAWAY on each of its connections and closes its idle HTTP/1.1 ones, and each of its busy HTTP/1.1 connections gets `Connection: close` on its next response, so clients reconnect in K waves. A Zero-Downtime Upgrade Drains the old process once a new one on the same ports is ready ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)).
 
 At Drain start the source stops: nothing more activates and a pending Revision is dropped, since the lock and Last-Known-Good pass to any successor. A second stop signal jumps to the deadline and later ones do nothing. SIGHUP never Drains; SIGPIPE is ignored, so a closed stdout only drops log lines, counted in `ruralz_telemetry_logs_dropped_total` with sink `stdout` and reason `export_error`; SIGQUIT keeps the Go runtime's stack dump and exit.
 
@@ -556,14 +556,14 @@ The admin listener binds `Gateway.spec.admin.port`, default 9901, on all interfa
 
 | Path on 9901 | Method | Returns | Authentication | Used by | Planned |
 |---|---|---|---|---|---|
-| `/healthz` | GET | 200 `{"status":"ok"}` while the process responds | MAY be open | Liveness probes | Planned (M1) |
-| `/readyz` | GET | 200 only with an active validated Revision, every `secretRef` resolved, listeners bound and no Drain, else 503; never fails for a lost Control Stream | MAY be open | Readiness probes | Planned (M1) |
-| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | Planned (M1) |
-| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles, including the goroutine leak profile, GA in Go 1.27 ([source](https://go.dev/doc/go1.27)); mutex and block profiling only during a `?seconds=` request, at a mutex profile fraction of 1 and a block profile rate of 1, recording every event | Operator token or client certificate | Profiling | Planned (M1) |
-| `/debug/snapshots` | GET | Active, retired, closing and ending snapshots with digests and pin counts | Same | Hot Reload debugging | Planned (M1) |
-| `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | Planned (M1) |
-| `/config/dump` | GET | The active Revision in `ruralz.canonical.v1` form with its full digest and the Last-Known-Good digest; `secretRef` shown, secrets omitted; 503 `RZ-RT-024` before the first activation | Same | `ruralz node dump`, `ruralz bundle diff`, Drift detection | Planned (M1) |
-| `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted; a fifth subscriber gets 503 `RZ-RT-019` | Same | `ruralz dev tap` | Planned (M1) |
+| `/healthz` | GET | 200 `{"status":"ok"}` while the process responds | MAY be open | Liveness probes | |
+| `/readyz` | GET | 200 only with an active validated Revision, every `secretRef` resolved, listeners bound and no Drain, else 503; never fails for a lost Control Stream | MAY be open | Readiness probes | |
+| `/metrics` | GET | `ruralz_<component>_<name>_<unit>` metrics (exporter: [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | Metrics token, operator token or client certificate | Scrapers | |
+| `/debug/*`: `/debug/pprof/` | GET | Go runtime profiles, including the goroutine leak profile, GA in Go 1.27 ([source](https://go.dev/doc/go1.27)); mutex and block profiling only during a `?seconds=` request, at a mutex profile fraction of 1 and a block profile rate of 1, recording every event | Operator token or client certificate | Profiling | |
+| `/debug/snapshots` | GET | Active, retired, closing and ending snapshots with digests and pin counts | Same | Hot Reload debugging | |
+| `/debug/upstreams` | GET | Endpoint sets, health, ejections and breaker states | Same | Incident response | |
+| `/config/dump` | GET | The active Revision in `ruralz.canonical.v1` form with its full digest and the Last-Known-Good digest; `secretRef` shown, secrets omitted; 503 `RZ-RT-024` before the first activation | Same | `ruralz node dump`, `ruralz bundle diff`, Drift detection | |
+| `/tap` | GET, streaming | Sampled request and response metadata, credentials redacted; a fifth subscriber gets 503 `RZ-RT-019` | Same | `ruralz dev tap` | |
 
 `/debug/*` names every path under `/debug/`; a new one MUST be added here. Paths compare exactly. Other paths are 404 `RZ-RT-020` whatever the method, and other methods on an endpoint, `HEAD` included, are 405 `RZ-RT-021` with `Allow: GET`, as problem documents. The `requestId` of an admin problem document is the trace ID of the request's valid `traceparent`, else a new trace ID drawn as for a data-plane request without one. Admin endpoints never change configuration, so a leaked admin token cannot alter routing. The activation loader serves `/config/dump` and `/debug/snapshots`, which need the active, pending and Last-Known-Good digests it holds. Only `/config/dump` needs an active Revision: until the first activation it answers 503 `RZ-RT-024`, while every other endpoint answers, `/readyz` with `no_revision`, `/debug/snapshots` and `/debug/upstreams` listing no active snapshot or Upstream, and `/tap` streaming no event until traffic flows. Every response to an authenticated request carries `ruralz-version`, the Node's build version, from which the CLI warns about [version skew](../engineering/04-release-versioning-and-compatibility.md#control-plane-and-data-plane-version-skew).
 
