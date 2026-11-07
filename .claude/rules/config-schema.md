@@ -15,7 +15,7 @@ Authority: `docs/architecture/02-configuration-model.md` owns kinds, fields, Pol
 - Add or change a field only when the configuration model defines it; its Kind catalog sketches are normative for names, `# required` and list types. Otherwise ask the owner.
 - `pkg/` non-test files import only the standard library and `pkg/`.
 - The 10 kinds are fixed (foundation pack section 3).
-- Every field added within an apiVersion carries `x-ruralz-since`, and changing a `v1alpha1` default is a new schema level: ask the owner before adding `+ruralz:since` or changing a `+ruralz:default=`.
+- Every field added within an apiVersion carries `+ruralz:since=<n>`: n is the schema level of the first release that ships it, one above the highest level a release has shipped (the `0.1.0` fields are level 0), so every field added before the next release shares that level. Changing a `v1alpha1` default stays a question for the owner.
 
 ## Translating a sketch
 
