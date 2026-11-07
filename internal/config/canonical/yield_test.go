@@ -277,7 +277,7 @@ func TestYieldEncode(t *testing.T) {
 	for _, w := range []int{1, 4} {
 		for _, mode := range []string{"Encode", "EncodeResources"} {
 			now, after := due()
-			opt := Options{Workers: w, Now: now, YieldAfter: after}
+			opt := Options{Level: level(t), Workers: w, Now: now, YieldAfter: after}
 			var rev revision.Revision
 			var err error
 			if mode == "Encode" {
@@ -325,7 +325,7 @@ func TestYieldEncode(t *testing.T) {
 		}
 	}
 	// Without a clock nothing is counted and nothing yields.
-	if _, err := enc.Encode(context.Background(), b, Options{Workers: 4}); err != nil {
+	if _, err := enc.Encode(context.Background(), b, Options{Level: level(t), Workers: 4}); err != nil {
 		t.Fatal(err)
 	}
 	if sites, checks, yields := total(o.take()); sites != [siteCount]int{} || checks != 0 || yields != 0 {
@@ -480,7 +480,7 @@ func TestYieldGivesUpProcessor(t *testing.T) {
 		} else {
 			enc := NewEncoder(hubIndex(t))
 			enc.observe = o.add
-			_, err = enc.Encode(context.Background(), b, Options{Workers: 1, Now: now, YieldAfter: after})
+			_, err = enc.Encode(context.Background(), b, Options{Level: level(t), Workers: 1, Now: now, YieldAfter: after})
 		}
 		got := turns.Load()
 		stop.Store(true)
@@ -546,7 +546,7 @@ func TestNowPanicSurfaces(t *testing.T) {
 	n := len(yb.Resources())
 	b := largeBundle(t, 50)
 	enc := NewEncoder(hubIndex(t))
-	want, err := enc.Encode(context.Background(), b, Options{})
+	want, err := enc.Encode(context.Background(), b, Options{Level: level(t)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -574,7 +574,7 @@ func TestNowPanicSurfaces(t *testing.T) {
 				case "Verify":
 					_, _ = NewDecoder(hubIndex(t), DecoderOptions{Workers: w, Now: c.now, YieldAfter: time.Microsecond}).Verify(context.Background(), content, revision.Sum(content), Source{})
 				default:
-					_, _ = enc.Encode(context.Background(), b, Options{Workers: w, Now: c.now, YieldAfter: time.Microsecond})
+					_, _ = enc.Encode(context.Background(), b, Options{Level: level(t), Workers: w, Now: c.now, YieldAfter: time.Microsecond})
 				}
 			})
 			if !c.fired.Load() {
@@ -583,7 +583,7 @@ func TestNowPanicSurfaces(t *testing.T) {
 			checkSurfaced(t, tc.panicCase, w, v)
 			settles(t, base)
 			if tc.call == "Encode" {
-				got, err := enc.Encode(context.Background(), b, Options{Workers: w})
+				got, err := enc.Encode(context.Background(), b, Options{Level: level(t), Workers: w})
 				if err != nil {
 					t.Fatal(err)
 				}

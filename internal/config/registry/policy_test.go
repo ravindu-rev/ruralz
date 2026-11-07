@@ -27,7 +27,7 @@ func policy(name string, typ v1alpha1.PolicyType) *v1alpha1.Policy {
 
 func ptr[T any](v T) *T { return &v }
 
-// TestDefaults checks that, for each of the 23 types, absent slot,
+// TestDefaults checks that, for each of the 24 types, absent slot,
 // failureMode and filterClass materialize the registry values; explicit
 // values are kept; plugin without filterClass gets custom; a second pass
 // changes nothing.
@@ -44,8 +44,8 @@ func TestDefaults(t *testing.T) {
 		v1alpha1.PolicyTypeCache: true, v1alpha1.PolicyTypeAISemanticCache: true,
 	}
 	reg := New()
-	if n := len(reg.Types()); n != 23 {
-		t.Fatalf("registry has %d types, want 23", n)
+	if n := len(reg.Types()); n != 24 {
+		t.Fatalf("registry has %d types, want 24", n)
 	}
 	for _, e := range reg.Entries() {
 		t.Run(string(e.Type), func(t *testing.T) {

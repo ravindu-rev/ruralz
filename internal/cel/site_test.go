@@ -30,6 +30,12 @@ func TestResolveRefinesBySite(t *testing.T) {
 		{"when at onUpstreamResponseHeaders", expr.Site{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnUpstreamResponseHeaders}, base | expr.VarResponse, false, false},
 		{"when of transform.response", expr.Site{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnResponse, PolicyType: v1alpha1.PolicyTypeTransformResponse}, base | expr.VarResponse, false, true},
 		{"when of transform.response at a request Phase", expr.Site{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnRequestHeaders, PolicyType: v1alpha1.PolicyTypeTransformResponse}, base, false, false},
+		// auth.jwt-sign gates the response body it signs into, so its when
+		// may read it.
+		{"when of auth.jwt-sign", expr.Site{Place: expr.PlacePolicyWhen, FirstPhase: phase.OnResponse, PolicyType: v1alpha1.PolicyTypeAuthJWTSign, Scope: phase.ScopeRoute}, base | expr.VarResponse, false, true},
+		// config.claims reads response, consumer and auth, the response body
+		// included, and no other variable.
+		{"auth.jwt-sign claims", expr.Site{Place: expr.PlaceJWTSignClaims, Scope: phase.ScopeRoute, PolicyType: v1alpha1.PolicyTypeAuthJWTSign}, expr.VarResponse | expr.VarConsumer | expr.VarAuth, false, true},
 		{"authz.cel rule", expr.Site{Place: expr.PlaceAuthzCELRule}, base, true, false},
 		{"step path", expr.Site{Place: expr.PlaceStepPathExpression, Mode: v1alpha1.CompositionModeSequential}, base | expr.VarSteps, true, false},
 		{"step when", expr.Site{Place: expr.PlaceStepWhen, Mode: v1alpha1.CompositionModeConditional}, base | expr.VarSteps, true, false},

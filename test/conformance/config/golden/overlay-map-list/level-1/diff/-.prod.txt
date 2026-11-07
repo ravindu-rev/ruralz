@@ -1,0 +1,9 @@
+ruralz bundle diff: rev-af784702b2aa -> rev-1581aa2f1f45 (environment: prod)
+
+~ Gateway/edge                                  ruralz.yaml                  [routing, security]
+    + spec.listeners[name=internal]: {"name":"internal","port":9080,"protocol":"http","proxyProtocol":false}
+~ Upstream/orders                               ruralz.yaml                  [routing]
+    ~ spec.endpoints[address=orders-b.shop.svc:8080].weight: 1 -> 3
+    + spec.endpoints[address=orders-c.shop.svc:8080]: {"address":"orders-c.shop.svc:8080","weight":1}
+
+2 resources changed: 0 added, 0 removed, 2 modified; 0 Route chains changed; impact: routing, security

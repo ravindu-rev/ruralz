@@ -381,6 +381,7 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 | `type` | Filter class | Phases | Scopes | Slot | `failureMode`: default; allowed | Planned |
 |---|---|---|---|---|---|---|
 | `auth.jwt`, `auth.api-key`, `auth.basic`, `auth.mtls` | auth | onRequestHeaders | G, R | `auth` | closed; closed only | |
+| `auth.jwt-sign` | auth | onResponse | R | `name` | closed; closed only | Planned (M2) |
 | `authz.cel` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | |
 | `authz.opa`, `authz.cedar` | authz | onRequestHeaders, onRequestBody | G, R | `name` | closed; closed only | Planned (M2) |
 | `authz.ip` | authz | onRequestHeaders | G, R | `name` | closed; closed only | |
@@ -400,7 +401,7 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 | `ai.guardrail` | validation | onRequestBody, onChunk, onResponse | G, R | `name` | closed; either | Planned (M3) |
 | `plugin` | `filterClass` | The Plugin's `phases` | Scopes matching those Phases | `name` | closed; closed only for auth and authz classes | Planned (M2) |
 
-IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file, the `RURALZ_GEOIP_DATABASE_FILE` process setting (section 2), read with `github.com/oschwald/maxminddb-golang` (section 7); header enrichment for Upstreams is an Open question of Security and identity. `auth.upstream-sigv4` records its signing parameters in `onUpstreamRequest`, and the Node signs at the transport-time signing hook after the last `onUpstreamRequest` Filter (section 8.12). JWT signing is a built-in type this table registers once Security and identity names it. The `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stand as registered.
+IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file, the `RURALZ_GEOIP_DATABASE_FILE` process setting (section 2), read with `github.com/oschwald/maxminddb-golang` (section 7); header enrichment for Upstreams is an Open question of Security and identity. `auth.upstream-sigv4` records its signing parameters in `onUpstreamRequest`, and the Node signs at the transport-time signing hook after the last `onUpstreamRequest` Filter (section 8.12). `auth.jwt-sign` signs JWTs into the buffered Upstream response with a key the Node holds through `secretRef`, never Plugin `config`; it authenticates no client, so it takes its own name as slot and no part in Security and identity's rule that a Route whose every client authentication Policy `when` skips fails with RZ-AUTH-001. The `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stand as registered.
 
 ## 11. Glossary definitions
 

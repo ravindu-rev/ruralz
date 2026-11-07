@@ -1,0 +1,8 @@
+ruralz bundle diff: rev-9c9b12d2a9c5 -> rev-3f5f9c7200d6 (environment: prod)
+
+~ Route/orders                                  ruralz.yaml                  [traffic]
+    - spec.timeout: 8s
+~ Upstream/orders                               ruralz.yaml                  [traffic]
+    - spec.timeout: 5s
+
+2 resources changed: 0 added, 0 removed, 2 modified; 0 Route chains changed; impact: traffic

@@ -21,10 +21,12 @@
 // Nodes on one State Store (mac_test.go); Secrets rules 5 and 6
 // (secrets_test.go); listener and Upstream certificate rotation by watch
 // (rotation_test.go); the auth.basic throttle (basic_test.go); authz.geoip
-// over RURALZ_GEOIP_DATABASE_FILE and its reloads (geoip_test.go); and the
-// secret leak and redaction test over every surface the harness scans
-// (leak_test.go). Every value a case supplies carries a harness canary,
-// and the teardown of every topology fails the case when a canary leaks.
+// over RURALZ_GEOIP_DATABASE_FILE and its reloads (geoip_test.go);
+// auth.jwt-sign with its signing key resolved, rotated and refused by
+// watch (jwtsign_test.go); and the secret leak and redaction test over
+// every surface the harness scans (leak_test.go). Every value a case
+// supplies carries a harness canary, and the teardown of every topology
+// fails the case when a canary leaks.
 //
 // A case that needs the controllable clock skips when
 // RURALZ_TEST_BIN_DIR names a release build.

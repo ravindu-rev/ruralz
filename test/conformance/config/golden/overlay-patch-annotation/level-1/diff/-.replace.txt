@@ -1,0 +1,9 @@
+ruralz bundle diff: rev-a9d0366d244d -> rev-d5ce06b861ce (environment: replace)
+
+~ Upstream/orders                               ruralz.yaml                  [routing, traffic]
+    + spec.endpoints[address=orders.prod.svc:8080]: {"address":"orders.prod.svc:8080","weight":1}
+    - spec.endpoints[address=orders.shop.svc:8080]: {"address":"orders.shop.svc:8080","weight":1}
+    - spec.retries: {"attempts":3,"perTryTimeout":"1s"}
+    - spec.timeout: 5s
+
+1 resource changed: 0 added, 0 removed, 1 modified; 0 Route chains changed; impact: routing, traffic

@@ -24,11 +24,15 @@ func TestPlacesTable(t *testing.T) {
 	base := VarsBase
 	// Every place, with its result, variables, rule and milestone.
 	want := map[PlaceID]Place{
-		PlaceRouteMatchWhen:         {PlaceRouteMatchWhen, ResultBool, VarRequest | VarSource | VarNow, RuleInternalError, "M1"},
-		PlacePolicyWhen:             {PlacePolicyWhen, ResultBool, base | VarResponse, RulePolicyWhen, "M1"},
-		PlaceStepPathExpression:     {PlaceStepPathExpression, ResultString, base | VarSteps, RuleStepFails, "M1"},
-		PlaceStepWhen:               {PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},
-		PlaceAuthzCELRule:           {PlaceAuthzCELRule, ResultBool, base, RuleAuthzUndecided, "M1"},
+		PlaceRouteMatchWhen:     {PlaceRouteMatchWhen, ResultBool, VarRequest | VarSource | VarNow, RuleInternalError, "M1"},
+		PlacePolicyWhen:         {PlacePolicyWhen, ResultBool, base | VarResponse, RulePolicyWhen, "M1"},
+		PlaceStepPathExpression: {PlaceStepPathExpression, ResultString, base | VarSteps, RuleStepFails, "M1"},
+		PlaceStepWhen:           {PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},
+		PlaceAuthzCELRule:       {PlaceAuthzCELRule, ResultBool, base, RuleAuthzUndecided, "M1"},
+		// auth.jwt-sign config.claims reads response, consumer and auth
+		// only (docs/architecture/08-security-and-identity.md "JWT
+		// signing").
+		PlaceJWTSignClaims:          {PlaceJWTSignClaims, ResultDyn, VarResponse | VarConsumer | VarAuth, RuleFailureMode, "M2"},
 		PlaceRateLimitKey:           {PlaceRateLimitKey, ResultString, base, RuleFailureMode, "M1"},
 		PlaceRateLimitCost:          {PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
 		PlaceRateLimitWhen:          {PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},

@@ -97,8 +97,8 @@ func TestMetaViewsCompile(t *testing.T) {
 // registered Policy type.
 func TestMetaDispatch(t *testing.T) {
 	types := registry.New().Types()
-	if len(types) != 23 {
-		t.Fatalf("registry has %d Policy types, want the 23 of foundation pack section 10", len(types))
+	if len(types) != 24 {
+		t.Fatalf("registry has %d Policy types, want the 24 of foundation pack section 10", len(types))
 	}
 	for name, data := range views() {
 		var doc map[string]any

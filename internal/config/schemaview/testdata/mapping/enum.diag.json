@@ -13,7 +13,7 @@
       "spec",
       "type"
     ],
-    "message": "is not one of the 23 allowed values",
+    "message": "is not one of the 24 allowed values",
     "hint": "did you mean \"ratelimit\"?"
   },
   {

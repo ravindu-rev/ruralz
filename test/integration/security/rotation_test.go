@@ -106,7 +106,7 @@ func TestListenerCertificateRotation(t *testing.T) {
 	failures := freshCounter(t, top, n, "ruralz_config_secret_rotation_failures_total", "provider", "file")
 	replaceFile(t, certPath, top.WithCanary([]byte(notACertificate)))
 	advance(t, top, pollInterval)
-	waitCounter(t, top, n, failures+1, "ruralz_config_secret_rotation_failures_total", "provider", "file")
+	waitRotationFailures(t, top, n, failures+1)
 	waitDegraded(t, n, "secret_rotation_failed", true)
 	if got := served(); got.Cmp(second) != 0 {
 		t.Fatalf("served serial %v after a failed rotation, want the last valid %v", got, second)
@@ -202,7 +202,7 @@ func TestUpstreamCertificateRotation(t *testing.T) {
 	_, stray := client("stray")
 	replaceFile(t, keyPath, stray)
 	advance(t, top, pollInterval)
-	waitCounter(t, top, n, failures+1, "ruralz_config_secret_rotation_failures_total", "provider", "file")
+	waitRotationFailures(t, top, n, failures+1)
 	waitDegraded(t, n, "secret_rotation_failed", true)
 	wantOK(t, "request after the failed rotation", get(t, c, n.URL("web")+"/"))
 	if got := rec.last(); got != "edge-2" {

@@ -22,6 +22,7 @@ func schemaPlace() map[string]expr.PlaceID {
 		"CompositionStep.pathExpression":       expr.PlaceStepPathExpression,
 		"CompositionStep.when":                 expr.PlaceStepWhen,
 		"AuthzCELConfig.rule":                  expr.PlaceAuthzCELRule,
+		"AuthJWTSignConfig.claims":             expr.PlaceJWTSignClaims,
 		"RateLimitConfig.key":                  expr.PlaceRateLimitKey,
 		"RateLimitConfig.cost":                 expr.PlaceRateLimitCost,
 		"RateLimit.when":                       expr.PlaceRateLimitWhen,

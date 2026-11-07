@@ -65,7 +65,7 @@ func TestGoldenExampleBundles(t *testing.T) {
 			digestFile := filepath.Join("testdata", "golden", tc.name+".parsed.digest")
 			for i, dir := range tc.dirs {
 				b := loadBundle(t, exampleBundle(t, dir))
-				rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Workers: 2})
+				rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), b, Options{Level: level(t), Workers: 2})
 				if err != nil {
 					t.Fatalf("%s: Encode() error = %v", dir, err)
 				}

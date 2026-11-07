@@ -50,7 +50,8 @@ type attachment struct {
 	// the body (pipeline.Pipeline.PolicySite).
 	gatesBody bool
 	// readsResponse is set for a client-scope transform.response whose
-	// config needs the response body, or whose when reads it.
+	// config needs the response body, or whose when reads it, and for
+	// every auth.jwt-sign attachment, which signs into the body.
 	readsResponse bool
 	when          expr.Program
 	filter        filter.Filter

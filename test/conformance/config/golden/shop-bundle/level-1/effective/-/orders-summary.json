@@ -1,0 +1,122 @@
+[
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "cors-partner",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Route",
+    "reason": "slot cors, replaces cors-default"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "jwt-default",
+    "type": "auth.jwt",
+    "filterClass": "auth",
+    "slot": "auth",
+    "from": "Gateway",
+    "reason": "slot auth, inherited"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "geo-block-default",
+    "type": "plugin",
+    "filterClass": "authz",
+    "slot": "geo-block-default",
+    "from": "Gateway",
+    "reason": "own slot"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "authz-orders",
+    "type": "authz.cel",
+    "filterClass": "authz",
+    "slot": "authz-orders",
+    "from": "Route",
+    "reason": "own slot"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "ratelimit-global",
+    "type": "ratelimit",
+    "filterClass": "admission",
+    "slot": "ratelimit-global",
+    "from": "Gateway",
+    "reason": "own slot, not overridable"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "ratelimit-orders",
+    "type": "ratelimit",
+    "filterClass": "admission",
+    "slot": "ratelimit-orders",
+    "from": "Route",
+    "reason": "own slot"
+  },
+  {
+    "phase": "onUpstreamRequest",
+    "leg": "orders",
+    "policy": "upstream-oauth",
+    "type": "auth.upstream-oauth2",
+    "filterClass": "upstream-auth",
+    "slot": "upstream-auth",
+    "from": "Upstream orders",
+    "reason": "leg orders only"
+  },
+  {
+    "phase": "onUpstreamRequest",
+    "leg": "orders",
+    "policy": "headers-internal",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-internal",
+    "from": "Upstream orders",
+    "reason": "leg orders only"
+  },
+  {
+    "phase": "onUpstreamRequest",
+    "leg": "inventory",
+    "policy": "headers-internal",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-internal",
+    "from": "Upstream inventory",
+    "reason": "leg inventory only"
+  },
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "headers-security",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-security",
+    "from": "Gateway",
+    "reason": "own slot, not overridable"
+  },
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "cors-partner",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Route",
+    "reason": "slot cors, replaces cors-default"
+  },
+  {
+    "phase": "none",
+    "leg": "none",
+    "policy": "cors-default",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Gateway",
+    "reason": "replaced in slot cors by cors-partner"
+  }
+]

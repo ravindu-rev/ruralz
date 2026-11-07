@@ -375,7 +375,7 @@ func pipelineCtx(ctx context.Context, t testing.TB, base, patches []source, vars
 	if out.diags = append(out.diags, ds...); out.diags.HasErrors() {
 		return out
 	}
-	rev, err := canonical.NewEncoder(s.hub).Encode(ctx, b, canonical.Options{})
+	rev, err := canonical.NewEncoder(s.hub).Encode(ctx, b, canonical.Options{Level: s.hub.Level()})
 	if err != nil {
 		t.Fatal(err)
 	}

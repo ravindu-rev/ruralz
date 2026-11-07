@@ -1,0 +1,24 @@
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: token-signer
+spec:
+  type: auth.jwt-sign
+  config:
+    paths: [token]
+    algorithm: ES256
+    keyId: edge-1
+    signingKey: {secretRef: {provider: file, name: /etc/ruralz/jwt/signing.jwk}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: session-signer
+spec:
+  type: auth.jwt-sign
+  config:
+    claims: '{"sub": consumer.name, "exp": auth.claims.exp}'
+    target: session.token
+    algorithm: ES256
+    keyId: edge-1
+    signingKey: {secretRef: {provider: file, name: /etc/ruralz/jwt/signing.jwk}}

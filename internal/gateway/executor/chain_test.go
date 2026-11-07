@@ -562,6 +562,47 @@ func TestAuthRuleEveryAuthPolicySkipped(t *testing.T) {
 	}
 }
 
+// TestAuthRuleIgnoresResponseAuth: Security rule 1 counts the client
+// authentication Policies, the auth-class Policies of a request Phase. An
+// auth-class Policy of onResponse only, auth.jwt-sign, authenticates
+// nobody: beside a client authentication Policy its when skipped, the
+// request still fails with 401 RZ-AUTH-001 carrying that Policy's
+// challenge alone, and on its own it fails nothing.
+func TestAuthRuleIgnoresResponseAuth(t *testing.T) {
+	sign := func(h *harness) *snapshot.Policy {
+		return policy(spec{
+			name: "sign", class: phase.ClassAuth, typ: v1alpha1.PolicyTypeAuthJWTSign, phases: []phase.Phase{phase.OnResponse},
+			f: &challengeFilter{fakeFilter: *h.filter("sign", nil), challenge: `Never realm="sign"`},
+		})
+	}
+	h := newHarness(t)
+	jwt := policy(spec{
+		name: "jwt", class: phase.ClassAuth, phases: []phase.Phase{phase.OnRequestHeaders}, when: &constProgram{ok: false},
+		f: &challengeFilter{fakeFilter: *h.filter("jwt", nil), challenge: `Bearer realm="ruralz"`},
+	})
+	s := sign(h)
+	c := chain([]*snapshot.Policy{jwt, s}, nil)
+	if c.AuthPolicies != 1 || s.Authenticates() || !jwt.Authenticates() {
+		t.Fatalf("AuthPolicies = %d; jwt-sign authenticates %v", c.AuthPolicies, s.Authenticates())
+	}
+	r := h.e.Begin(h.st, c, nil)
+	defer r.Release()
+	resp := r.Request(context.Background(), phase.OnRequestHeaders)
+	if got(resp) != "401 RZ-AUTH-001" {
+		t.Fatalf("response = %s, want 401 RZ-AUTH-001", got(resp))
+	}
+	if ch := resp.Header.Values("WWW-Authenticate"); len(ch) != 1 || ch[0] != `Bearer realm="ruralz"` {
+		t.Errorf("challenges = %q, want the client Policy's alone", ch)
+	}
+	h = newHarness(t)
+	alone := chain([]*snapshot.Policy{sign(h)}, nil)
+	r2 := h.e.Begin(h.st, alone, nil)
+	defer r2.Release()
+	if resp := r2.Request(context.Background(), phase.OnRequestHeaders); resp != nil || alone.AuthPolicies != 0 {
+		t.Fatalf("a chain with only auth.jwt-sign: response %s, AuthPolicies %d", got(resp), alone.AuthPolicies)
+	}
+}
+
 func TestAuthRuleAtEndOfPhaseAndWithoutChallenges(t *testing.T) {
 	// Rule 1 also applies when the auth-class Policies are the last of the
 	// Phase; auth Filters without a challenge add no WWW-Authenticate.
@@ -641,13 +682,14 @@ func TestOnResponseReplacementContinues(t *testing.T) {
 
 func TestResponseKinds(t *testing.T) {
 	// On an Upstream failure (RZ-UP) cache still runs (stale-if-error)
-	// while transform.response and ai.semantic-cache do not; on an
-	// Upstream response every Policy runs.
+	// while transform.response, auth.jwt-sign and ai.semantic-cache do
+	// not; a generated response runs neither, so it never carries a
+	// signed token; on an Upstream response every Policy runs.
 	tests := []struct {
 		kind ResponseKind
 		want []string
 	}{
-		{ResponseUpstream, []string{"tr.onResponse", "sem.onResponse", "cache.onResponse", "cors.onResponse"}},
+		{ResponseUpstream, []string{"tr.onResponse", "sem.onResponse", "cache.onResponse", "sign.onResponse", "cors.onResponse"}},
 		{ResponseUpstreamError, []string{"cache.onResponse", "cors.onResponse"}},
 		{ResponseGenerated, []string{"cors.onResponse"}},
 	}
@@ -657,6 +699,7 @@ func TestResponseKinds(t *testing.T) {
 			on := []phase.Phase{phase.OnResponse}
 			ps := []*snapshot.Policy{
 				policy(spec{name: "cors", class: phase.ClassCORS, phases: on, f: h.filter("cors", nil)}),
+				policy(spec{name: "sign", class: phase.ClassAuth, typ: v1alpha1.PolicyTypeAuthJWTSign, phases: on, f: h.filter("sign", nil)}),
 				policy(spec{name: "cache", class: phase.ClassCache, typ: v1alpha1.PolicyTypeCache, phases: on, f: h.filter("cache", nil)}),
 				policy(spec{name: "sem", class: phase.ClassCache, typ: v1alpha1.PolicyTypeAISemanticCache, phases: on, f: h.filter("sem", nil)}),
 				policy(spec{name: "tr", class: phase.ClassTransform, typ: v1alpha1.PolicyTypeTransformResponse, phases: on, f: h.filter("tr", nil)}),

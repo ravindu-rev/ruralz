@@ -105,7 +105,7 @@ func (b *build) chainOf(ch *hub.Chain) snapshot.Chain {
 		p := b.policyOf(e, i)
 		by[entryKey{policy: e.Policy, scope: e.Scope}] = p
 		c.Policies = append(c.Policies, p)
-		if p.Class == phase.ClassAuth {
+		if p.Authenticates() {
 			c.AuthPolicies++
 		}
 	}
@@ -266,8 +266,8 @@ func (b *build) forwarderOf(rt *v1alpha1.Route, res *hub.Resource) (snapshot.For
 // body), when an Upstream-scope transform.request needs it, as each of its
 // attempts reads the same buffered input, or when the composition does
 // (compGate). The client response is gated for a client transform.response
-// whose config or when reads the body. It is teed for a cache Policy's
-// store.
+// whose config or when reads the body, and for an auth.jwt-sign Policy,
+// which signs into it. It is teed for a cache Policy's store.
 func (b *build) bodyNeeds(ch *hub.Chain, compGate bool) snapshot.BodyNeeds {
 	n := snapshot.BodyNeeds{RequestGate: compGate}
 	if ch == nil {

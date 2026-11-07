@@ -1,0 +1,52 @@
+[
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "jwt-default",
+    "type": "auth.jwt",
+    "filterClass": "auth",
+    "slot": "auth",
+    "from": "Gateway",
+    "reason": "slot auth, inherited"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "geo-block-default",
+    "type": "plugin",
+    "filterClass": "authz",
+    "slot": "geo-block-default",
+    "from": "Gateway",
+    "reason": "own slot"
+  },
+  {
+    "phase": "onRequestHeaders",
+    "leg": "client",
+    "policy": "ratelimit-global",
+    "type": "ratelimit",
+    "filterClass": "admission",
+    "slot": "ratelimit-global",
+    "from": "Gateway",
+    "reason": "own slot, not overridable"
+  },
+  {
+    "phase": "onResponse",
+    "leg": "client",
+    "policy": "headers-security",
+    "type": "headers",
+    "filterClass": "transform",
+    "slot": "headers-security",
+    "from": "Gateway",
+    "reason": "own slot, not overridable"
+  },
+  {
+    "phase": "none",
+    "leg": "none",
+    "policy": "cors-default",
+    "type": "cors",
+    "filterClass": "cors",
+    "slot": "cors",
+    "from": "Gateway",
+    "reason": "excluded by Route"
+  }
+]

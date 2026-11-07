@@ -1,0 +1,93 @@
+{
+  "format": "ruralz.diff.v1",
+  "from": {
+    "revision": "rev-af784702b2aa",
+    "digest": "sha256:af784702b2aaffbbc2a7d1a90c07b35def228f831d247affaeae8781d80f9502"
+  },
+  "to": {
+    "revision": "rev-1581aa2f1f45",
+    "bundle": "./overlay-map-list",
+    "digest": "sha256:1581aa2f1f4551982807eaac733b14fa1d445df063a5f81c8cb4efc8c2616f08"
+  },
+  "environment": "prod",
+  "resources": [
+    {
+      "kind": "Gateway",
+      "name": "edge",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing",
+        "security"
+      ],
+      "ops": [
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "listeners",
+            {
+              "name": "internal"
+            }
+          ],
+          "to": {
+            "name": "internal",
+            "port": 9080,
+            "protocol": "http",
+            "proxyProtocol": false
+          }
+        }
+      ]
+    },
+    {
+      "kind": "Upstream",
+      "name": "orders",
+      "change": "modified",
+      "source": "ruralz.yaml",
+      "impact": [
+        "routing"
+      ],
+      "ops": [
+        {
+          "op": "replace",
+          "path": [
+            "spec",
+            "endpoints",
+            {
+              "address": "orders-b.shop.svc:8080"
+            },
+            "weight"
+          ],
+          "from": 1,
+          "to": 3
+        },
+        {
+          "op": "add",
+          "path": [
+            "spec",
+            "endpoints",
+            {
+              "address": "orders-c.shop.svc:8080"
+            }
+          ],
+          "to": {
+            "address": "orders-c.shop.svc:8080",
+            "weight": 1
+          }
+        }
+      ]
+    }
+  ],
+  "effective": [],
+  "summary": {
+    "changed": 2,
+    "added": 0,
+    "removed": 0,
+    "modified": 2,
+    "routeChainsChanged": 0,
+    "impact": [
+      "routing",
+      "security"
+    ]
+  }
+}

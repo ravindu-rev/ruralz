@@ -411,7 +411,7 @@ func checkOps(t *testing.T, tc *toolchain, ab diffDoc, va, vb *hub.Validated) {
 // encodeResource returns the canonical bytes of one resource.
 func encodeResource(t *testing.T, idx *schemaidx.Index, id hub.ID, root *tree.Node) []byte {
 	t.Helper()
-	rev, err := canonical.NewEncoder(idx).EncodeResources(t.Context(), []tree.Resource{{ID: id, Root: root}}, canonical.Options{})
+	rev, err := canonical.NewEncoder(idx).EncodeResources(t.Context(), []tree.Resource{{ID: id, Root: root}}, canonical.Options{Level: idx.Level()})
 	if err != nil {
 		t.Fatalf("encode %s: %v", id, err)
 	}

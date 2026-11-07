@@ -320,7 +320,7 @@ func registryFindings(t *testing.T, views *schemaview.Set, res *tree.Resource, b
 }
 
 // registryTable is the Policy type registry of foundation pack section
-// 10, exact strings: for each of the 23 Policy types, its slot ("" for the
+// 10, exact strings: for each of the 24 Policy types, its slot ("" for the
 // name slot: metadata.name), its failureMode default and its filter class
 // (custom for plugin).
 func registryTable() map[v1alpha1.PolicyType][3]string {
@@ -329,6 +329,7 @@ func registryTable() map[v1alpha1.PolicyType][3]string {
 		"auth.api-key":           {"auth", "closed", "auth"},
 		"auth.basic":             {"auth", "closed", "auth"},
 		"auth.mtls":              {"auth", "closed", "auth"},
+		"auth.jwt-sign":          {"", "closed", "auth"},
 		"authz.cel":              {"", "closed", "authz"},
 		"authz.opa":              {"", "closed", "authz"},
 		"authz.cedar":            {"", "closed", "authz"},
@@ -351,7 +352,7 @@ func registryTable() map[v1alpha1.PolicyType][3]string {
 	}
 }
 
-// TestRegistryDefaults checks that, for each of the 23 types, absent slot,
+// TestRegistryDefaults checks that, for each of the 24 types, absent slot,
 // failureMode and filterClass materialize the values of the foundation
 // pack section 10 table (registryTable, metadata.name for the name slot),
 // so a changed registry default fails, and of the registry (filterClass
@@ -366,8 +367,8 @@ func TestRegistryDefaults(t *testing.T) {
 		t.Fatalf("schemaview.Embedded: %v", err)
 	}
 	table := registryTable()
-	if n := len(reg.Entries()); n != 23 || len(table) != 23 {
-		t.Fatalf("registry has %d types and the table %d, want 23", n, len(table))
+	if n := len(reg.Entries()); n != 24 || len(table) != 24 {
+		t.Fatalf("registry has %d types and the table %d, want 24", n, len(table))
 	}
 	for _, e := range reg.Entries() {
 		t.Run(string(e.Type), func(t *testing.T) {

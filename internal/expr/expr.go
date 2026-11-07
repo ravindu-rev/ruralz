@@ -48,6 +48,7 @@ const (
 	PlaceStepPathExpression     PlaceID = "Route.spec.composition.steps[].pathExpression"
 	PlaceStepWhen               PlaceID = "Route.spec.composition.steps[].when" //nolint:gosec // G101: a CEL place name, not a credential.
 	PlaceAuthzCELRule           PlaceID = "authz.cel config.rule"
+	PlaceJWTSignClaims          PlaceID = "auth.jwt-sign config.claims"
 	PlaceRateLimitKey           PlaceID = "ratelimit config.key"
 	PlaceRateLimitCost          PlaceID = "ratelimit config.cost"
 	PlaceRateLimitWhen          PlaceID = "ratelimit config.limits[].when"
@@ -163,6 +164,7 @@ func Places() []Place {
 		{PlaceStepPathExpression, ResultString, base | VarSteps, RuleStepFails, "M1"},
 		{PlaceStepWhen, ResultBool, base | VarSteps, RuleStepFails, "M1"},
 		{PlaceAuthzCELRule, ResultBool, base, RuleAuthzUndecided, "M1"},
+		{PlaceJWTSignClaims, ResultDyn, VarResponse | VarConsumer | VarAuth, RuleFailureMode, "M2"},
 		{PlaceRateLimitKey, ResultString, base, RuleFailureMode, "M1"},
 		{PlaceRateLimitCost, ResultInt, base, RuleFailureMode, "M1"},
 		{PlaceRateLimitWhen, ResultBool, base, RuleFailureMode, "M1"},

@@ -53,6 +53,13 @@ func hubIndex(t testing.TB) *schemaidx.Index {
 	return idx
 }
 
+// level is the schema level this release renders, the hub index's
+// (schemaidx.Index.Level): every encode over the hub schema renders at it.
+func level(t testing.TB) int {
+	t.Helper()
+	return hubIndex(t).Level()
+}
+
 // synthetic is a schema of level 2 with real kind names, so the since
 // rules and the level checks can be tested before any committed field
 // carries x-ruralz-since.
@@ -217,7 +224,7 @@ func bundleOf(t testing.TB, docs ...string) *hub.Bundle {
 // encode encodes docs with the hub index.
 func encode(t testing.TB, docs ...string) []byte {
 	t.Helper()
-	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, docs...), Options{})
+	rev, err := NewEncoder(hubIndex(t)).Encode(context.Background(), bundleOf(t, docs...), Options{Level: level(t)})
 	if err != nil {
 		t.Fatalf("Encode() error = %v", err)
 	}
@@ -422,7 +429,7 @@ func mustDecode(t testing.TB, content []byte) []tree.Resource {
 // reencode encodes decoded resources with the hub index.
 func reencode(t testing.TB, rs []tree.Resource) []byte {
 	t.Helper()
-	rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, Options{})
+	rev, err := NewEncoder(hubIndex(t)).EncodeResources(context.Background(), rs, Options{Level: level(t)})
 	if err != nil {
 		t.Fatalf("EncodeResources() error = %v", err)
 	}

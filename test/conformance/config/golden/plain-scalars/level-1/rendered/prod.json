@@ -1,0 +1,84 @@
+[
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Gateway",
+    "metadata": {
+      "name": "edge",
+      "labels": {
+        "yes-word": "yes",
+        "on-word": "on",
+        "binary": "0b1",
+        "underscore": "1_000",
+        "date": "2026-09-23",
+        "build": "0777"
+      }
+    },
+    "spec": {
+      "listeners": [
+        {
+          "name": "http",
+          "protocol": "http",
+          "port": 777
+        }
+      ],
+      "policies": [
+        {
+          "name": "limit"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Upstream",
+    "metadata": {
+      "name": "orders"
+    },
+    "spec": {
+      "protocol": "http",
+      "endpoints": [
+        {
+          "address": "orders.shop.svc:8080"
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Policy",
+    "metadata": {
+      "name": "limit"
+    },
+    "spec": {
+      "type": "ratelimit",
+      "config": {
+        "key": "source.ip",
+        "limits": [
+          {
+            "requests": 777,
+            "window": "1s"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "apiVersion": "ruralz/v1alpha1",
+    "kind": "Route",
+    "metadata": {
+      "name": "orders"
+    },
+    "spec": {
+      "match": {
+        "path": {
+          "prefix": "/orders"
+        }
+      },
+      "upstreams": [
+        {
+          "name": "orders"
+        }
+      ]
+    }
+  }
+]

@@ -63,11 +63,13 @@ func resolve(site expr.Site) (siteEnv, bool) {
 	case expr.PlacePolicyWhen:
 		// response exists only when the Policy's first Phase at this
 		// attachment is a response Phase; the Policy reads a body only when
-		// it gates that body itself.
+		// it gates that body itself, as transform.response may and
+		// auth.jwt-sign always does.
 		se.vars = expr.VarsBase
 		if site.FirstPhase.IsResponse() {
 			se.vars |= expr.VarResponse
-			se.respBody = site.PolicyType == v1alpha1.PolicyTypeTransformResponse
+			se.respBody = site.PolicyType == v1alpha1.PolicyTypeTransformResponse ||
+				site.PolicyType == v1alpha1.PolicyTypeAuthJWTSign
 		}
 		se.reqBody = site.GatesBody
 	case expr.PlaceStepPathExpression, expr.PlaceStepWhen:
@@ -90,6 +92,10 @@ func resolve(site expr.Site) (siteEnv, bool) {
 		if site.Scope == phase.ScopeUpstream {
 			se.vars |= expr.VarUpstream
 		}
+		se.respBody = true
+	case expr.PlaceJWTSignClaims:
+		// auth.jwt-sign gates the response body it writes the token into,
+		// so its claims may read it.
 		se.respBody = true
 	default:
 		// Every other place declares its whole union and reads no body.

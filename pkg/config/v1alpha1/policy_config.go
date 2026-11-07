@@ -67,6 +67,57 @@ type AuthMTLSConfig struct {
 	CRL *SecretValue `json:"crl,omitempty"`
 }
 
+// JWTSignAlgorithm is the JWS algorithm of an auth.jwt-sign Policy
+// (RFC 7518, RFC 8037).
+type JWTSignAlgorithm string
+
+// JWT signing algorithms.
+const (
+	// JWTSignAlgorithmRS256 is RSASSA-PKCS1-v1_5 with SHA-256, signed with an RSA key of 2,048 bits or more.
+	JWTSignAlgorithmRS256 JWTSignAlgorithm = "RS256"
+	// JWTSignAlgorithmPS256 is RSASSA-PSS with SHA-256 and MGF1 with SHA-256, signed with an RSA key of 2,048 bits or more.
+	JWTSignAlgorithmPS256 JWTSignAlgorithm = "PS256"
+	// JWTSignAlgorithmES256 is ECDSA with SHA-256, signed with a P-256 key.
+	JWTSignAlgorithmES256 JWTSignAlgorithm = "ES256"
+	// JWTSignAlgorithmEdDSA is EdDSA, signed with an Ed25519 key.
+	JWTSignAlgorithmEdDSA JWTSignAlgorithm = "EdDSA"
+)
+
+// AuthJWTSignConfig is the config of an auth.jwt-sign Policy, which signs
+// JWTs into the buffered Upstream response in onResponse: exactly one of
+// paths, whose matched JSON objects each become a compact JWS of those
+// claims, and claims, which builds one token's claims, written at target.
+// target with paths, or claims without target, is RZ-CFG-005.
+// +ruralz:policyType=auth.jwt-sign
+// +ruralz:exactlyOneOf=paths,claims
+type AuthJWTSignConfig struct {
+	// Paths are body dot paths, applied in order: each JSON object a path matches is replaced by a compact JWS whose claims are that object; a match that is not an object fails the Policy.
+	// +ruralz:minItems=1
+	// +ruralz:list=atomic
+	// +ruralz:since=1
+	Paths []string `json:"paths,omitempty"`
+	// Claims builds the claims of one token from response, consumer and auth: a map, written as JSON.
+	// +ruralz:cel=response,consumer,auth:dyn
+	// +ruralz:since=1
+	Claims string `json:"claims,omitempty"`
+	// Target is the body dot path where the token claims builds is written, creating missing objects; required with claims, and not allowed with paths.
+	// +ruralz:since=1
+	Target string `json:"target,omitempty"`
+	// SigningKey is the private key the Node signs with: a JWK or an unencrypted PEM key that fits algorithm.
+	// +ruralz:required
+	// +ruralz:secret
+	// +ruralz:impact=security
+	// +ruralz:since=1
+	SigningKey SecretValue `json:"signingKey"`
+	// Algorithm is the JWS algorithm: RS256, PS256, ES256 or EdDSA.
+	// +ruralz:required
+	// +ruralz:since=1
+	Algorithm JWTSignAlgorithm `json:"algorithm"`
+	// KeyID is the kid header of every token the Policy signs; absent, tokens carry no kid.
+	// +ruralz:since=1
+	KeyID string `json:"keyId,omitempty"`
+}
+
 // CertificateSubject names a certificate by exactly one of subject or
 // uriSan, a non-empty string.
 // +ruralz:exactlyOneOf=subject,uriSan

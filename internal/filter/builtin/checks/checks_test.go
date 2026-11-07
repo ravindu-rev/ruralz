@@ -28,6 +28,7 @@ func checked() []v1alpha1.PolicyType {
 	return []v1alpha1.PolicyType{
 		v1alpha1.PolicyTypeAuthJWT,
 		v1alpha1.PolicyTypeAuthAPIKey,
+		v1alpha1.PolicyTypeAuthJWTSign,
 		v1alpha1.PolicyTypeAuthzCEL,
 		v1alpha1.PolicyTypeAuthzIP,
 		v1alpha1.PolicyTypeAuthzGeoIP,
@@ -109,6 +110,9 @@ func TestTableWiresEachType(t *testing.T) {
 			{Issuer: "https://idp.example", JWKSURL: "http://idp.example/jwks", Audiences: []string{"api"}},
 		}}, "RZ-CFG-037"},
 		v1alpha1.PolicyTypeAuthAPIKey: {&v1alpha1.AuthAPIKeyConfig{Header: str("host")}, "RZ-CFG-005"},
+		v1alpha1.PolicyTypeAuthJWTSign: {&v1alpha1.AuthJWTSignConfig{
+			Paths: []string{"a..b"}, Algorithm: v1alpha1.JWTSignAlgorithmES256,
+		}, "RZ-CFG-005"},
 		v1alpha1.PolicyTypeAuthzCEL:   {&v1alpha1.AuthzCELConfig{}, "RZ-CFG-005"},
 		v1alpha1.PolicyTypeAuthzIP:    {&v1alpha1.AuthzIPConfig{Allow: []string{"office"}}, "RZ-CFG-005"},
 		v1alpha1.PolicyTypeAuthzGeoIP: {&v1alpha1.AuthzGeoIPConfig{Allow: []v1alpha1.CountryCode{}}, "RZ-CFG-005"},

@@ -26,6 +26,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/config/hub"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/apikey"
 	jwtcheck "github.com/ravindu-rev/ruralz/internal/filter/auth/jwt/check"
+	"github.com/ravindu-rev/ruralz/internal/filter/auth/jwtsign"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/upstreamoauth2"
 	authzcel "github.com/ravindu-rev/ruralz/internal/filter/authz/cel"
 	geoipcheck "github.com/ravindu-rev/ruralz/internal/filter/authz/geoip/check"
@@ -46,6 +47,8 @@ import (
 //   - auth.jwt: issuers and their audiences (RZ-CFG-005), an https jwksUrl
 //     (RZ-CFG-037);
 //   - auth.api-key: a config.header that can carry keys (RZ-CFG-005);
+//   - auth.jwt-sign: dot paths and target, target only beside claims
+//     (RZ-CFG-005);
 //   - authz.cel: a non-empty rule (RZ-CFG-005);
 //   - authz.ip: CIDR or address entries, not both lists empty (RZ-CFG-005);
 //   - authz.geoip: not both lists empty (RZ-CFG-005);
@@ -71,6 +74,7 @@ func Table() hub.Checks {
 	return hub.Checks{
 		v1alpha1.PolicyTypeAuthJWT:              jwtcheck.Check,
 		v1alpha1.PolicyTypeAuthAPIKey:           apikey.Check,
+		v1alpha1.PolicyTypeAuthJWTSign:          jwtsign.Check,
 		v1alpha1.PolicyTypeAuthzCEL:             authzcel.Check,
 		v1alpha1.PolicyTypeAuthzIP:              ip.Check,
 		v1alpha1.PolicyTypeAuthzGeoIP:           geoipcheck.Check,

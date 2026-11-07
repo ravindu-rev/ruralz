@@ -258,9 +258,9 @@ func newConfig[T any]() func() any { return func() any { return new(T) } }
 
 // table builds foundation pack section 10 row by row. Rows that list
 // several types are expanded in their listed order. Served is true exactly
-// for the types this release builds: those of M1 and authz.geoip, of the
-// milestone in progress; plugin, authz.opa, authz.cedar,
-// auth.upstream-sigv4 and ai.* are RZ-CFG-040.
+// for the types this release builds: those of M1 and auth.jwt-sign and
+// authz.geoip, of the milestone in progress; plugin, authz.opa,
+// authz.cedar, auth.upstream-sigv4 and ai.* are RZ-CFG-040.
 func table() []Entry {
 	const (
 		closed = v1alpha1.FailureModeClosed
@@ -302,6 +302,13 @@ func table() []Entry {
 		auth(v1alpha1.PolicyTypeAuthAPIKey, newConfig[v1alpha1.AuthAPIKeyConfig]()),
 		auth(v1alpha1.PolicyTypeAuthBasic, newConfig[v1alpha1.AuthBasicConfig]()),
 		auth(v1alpha1.PolicyTypeAuthMTLS, newConfig[v1alpha1.AuthMTLSConfig]()),
+		{
+			// Signs JWTs into the buffered Upstream response; it
+			// authenticates no client, so its slot is its name.
+			Type: v1alpha1.PolicyTypeAuthJWTSign, Class: phase.ClassAuth, Phases: phase.Of(phase.OnResponse),
+			Scopes: routeOnly, Slot: SlotName, DefaultFailureMode: closed, ClosedOnly: true, Served: true, Planned: m2,
+			NewConfig: newConfig[v1alpha1.AuthJWTSignConfig](),
+		},
 		authz(v1alpha1.PolicyTypeAuthzCEL, headersAnd, selAuthzCEL, true, m1, newConfig[v1alpha1.AuthzCELConfig]()),
 		authz(v1alpha1.PolicyTypeAuthzOPA, headersAnd, selHeadersOnly, false, m2, newConfig[v1alpha1.AuthzOPAConfig]()),
 		authz(v1alpha1.PolicyTypeAuthzCedar, headersAnd, selHeadersOnly, false, m2, newConfig[v1alpha1.AuthzCedarConfig]()),
