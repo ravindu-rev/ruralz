@@ -159,9 +159,10 @@ func gcraCall(policy string, d statestore.Digest, limits ...statestore.GCRALimit
 	}}
 }
 
-func quotaCall(name string, window time.Duration, limit int64, d statestore.Digest) *statestore.Call {
+// quotaCall returns a call on the Quota counter named q.
+func quotaCall(window time.Duration, limit int64, d statestore.Digest) *statestore.Call {
 	return &statestore.Call{Kind: statestore.OpQuota, Timeout: 50 * time.Millisecond, Quota: statestore.Quota{
-		Name: name, Window: window, Limit: limit, Digest: d,
+		Name: "q", Window: window, Limit: limit, Digest: d,
 	}}
 }
 

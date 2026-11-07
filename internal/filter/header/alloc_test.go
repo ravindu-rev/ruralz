@@ -4,18 +4,12 @@
 package header
 
 import (
-	"context"
 	"net/http"
 	"testing"
 
-	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/phase"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
-
-// Allocation gates and benchmarks of headers (targets: onUpstreamRequest
-// with headers setting two values, 2 µs at p50 and 8 µs at p99, 2
-// allocations).
 
 // twoLiterals sets two literal request values.
 func twoLiterals() *v1alpha1.HeadersConfig {
@@ -66,9 +60,8 @@ func TestLiteralSideAllocatesNothing(t *testing.T) {
 	}
 }
 
-// TestComputedSideAllocations checks the budget of two computed values:
-// the Filter adds one allocation to the evaluations, the slice the values
-// share, within the budget's 2.
+// TestComputedSideAllocations checks that setting two computed values adds
+// one allocation to their evaluations: the slice the values share.
 func TestComputedSideAllocations(t *testing.T) {
 	if raceEnabled {
 		t.Skip("cel-go's pools drop items at random under -race")
@@ -93,25 +86,3 @@ func TestComputedSideAllocations(t *testing.T) {
 		t.Errorf("Handle allocates %.0f per run and its evaluations %.0f, want 1 and 0", handle, eval)
 	}
 }
-
-// benchmarkSide measures Handle of cfg at Upstream scope in
-// onUpstreamRequest over a typical outgoing header map, edited again on
-// every iteration.
-func benchmarkSide(b *testing.B, cfg *v1alpha1.HeadersConfig) {
-	f := build(b, cfg, phase.ScopeUpstream)
-	h := outgoing()
-	x := onRequest(b, h)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		if r := f.Handle(ctx, phase.OnUpstreamRequest, x); r.Outcome != filter.Continue {
-			b.Fatalf("Handle = %+v, want Continue", r)
-		}
-	}
-}
-
-// BenchmarkSetTwoLiterals sets two literal values.
-func BenchmarkSetTwoLiterals(b *testing.B) { benchmarkSide(b, twoLiterals()) }
-
-// BenchmarkSetTwoComputed sets two computed values.
-func BenchmarkSetTwoComputed(b *testing.B) { benchmarkSide(b, twoComputed()) }

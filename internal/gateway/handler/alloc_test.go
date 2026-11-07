@@ -38,29 +38,27 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/telemetry"
 )
 
-// PB-8: Ruralz-owned allocations per S1 request, net/http excluded, 30 or
-// fewer (target), measured by testing.AllocsPerRun over one whole S1
-// request: a pre-parsed HTTP/1.1 request through the exchange, the Router,
-// the Filter
-// Chain executor and the Upstream leg on a canned transport, to the
-// response write into a discard ResponseWriter and onLog with metrics, an
-// unsampled trace and the access log. The Node is assembled from the parts
-// the ruralzd wiring builds (internal/gateway buildParts), its snapshot
-// compiled from the S1 Bundle by the snapshot compiler; only net/http is
-// replaced: no server parses the request, the canned transport answers the
-// leg, and the discard writer takes the response.
+// One whole request makes at most maxRequestAllocs allocations in Ruralz
+// code once the pools are warm, net/http excluded, as testing.AllocsPerRun
+// counts them: a pre-parsed HTTP/1.1 GET through the exchange, the Router,
+// the Filter Chain executor and the Upstream leg on a canned transport, to
+// the response write into a discard ResponseWriter and onLog with metrics,
+// an unsampled trace and the access log. The Node is assembled from the
+// parts the ruralzd wiring builds (internal/gateway buildParts), its
+// snapshot compiled from allocBundle by the snapshot compiler; only
+// net/http is replaced: no server parses the request, the canned transport
+// answers the leg, and the discard writer takes the response.
 
-// pb8MaxAllocs is PB-8's cap.
-const pb8MaxAllocs = 30
+// maxRequestAllocs bounds the allocations of one whole request.
+const maxRequestAllocs = 30
 
-// s1Bundle is the S1 scenario of PBB "Scenarios": the S2 Bundle without the
-// Gateway Policies, with the mock Upstream at an address the canned
-// transport stands in for, no OTLP export (the access log still writes
-// every record) and every trace unsampled.
-const s1Bundle = `apiVersion: ruralz/v1alpha1
+// allocBundle is one GET Route without Policies to one Upstream at an
+// address the canned transport stands in for, with no OTLP export (the
+// access log still writes every record) and every trace unsampled.
+const allocBundle = `apiVersion: ruralz/v1alpha1
 kind: Gateway
 metadata:
-  name: bench
+  name: edge
 spec:
   listeners:
     - name: http
@@ -74,7 +72,7 @@ spec:
 apiVersion: ruralz/v1alpha1
 kind: Upstream
 metadata:
-  name: mock
+  name: items
 spec:
   protocol: http
   endpoints:
@@ -88,24 +86,24 @@ spec:
 apiVersion: ruralz/v1alpha1
 kind: Route
 metadata:
-  name: bench-1k
+  name: items-1k
 spec:
   match:
-    path: {exact: /bench/1k}
+    path: {exact: /v1/items/1k}
     methods: [GET]
   upstreams:
-    - name: mock
+    - name: items
   timeout: 5s
 `
 
-// s1Body is the mock's 1 KiB response.
-var s1Body = bytes.Repeat([]byte("r"), 1024)
+// allocBody is the canned Upstream response's 1 KiB body.
+var allocBody = bytes.Repeat([]byte("r"), 1024)
 
-// cannedS1 is the canned transport of the mock Upstream: every attempt gets
+// cannedUpstream is the Upstream's canned transport: every attempt gets
 // the same 200 response with a 1 KiB body, rebuilt in place, so it
 // allocates nothing and the leg's own allocations are counted. Requests
 // run one at a time.
-type cannedS1 struct {
+type cannedUpstream struct {
 	resp http.Response
 	body cannedBody
 	hdr  http.Header
@@ -113,25 +111,25 @@ type cannedS1 struct {
 	cl   []string
 }
 
-// cannedBody reads s1Body once per attempt.
+// cannedBody reads allocBody once per attempt.
 type cannedBody struct{ off int }
 
 func (b *cannedBody) Read(p []byte) (int, error) {
-	if b.off >= len(s1Body) {
+	if b.off >= len(allocBody) {
 		return 0, io.EOF
 	}
-	n := copy(p, s1Body[b.off:])
+	n := copy(p, allocBody[b.off:])
 	b.off += n
 	return n, nil
 }
 
 func (*cannedBody) Close() error { return nil }
 
-func newCannedS1() *cannedS1 {
-	return &cannedS1{hdr: http.Header{}, ct: []string{"application/octet-stream"}, cl: []string{"1024"}}
+func newCannedUpstream() *cannedUpstream {
+	return &cannedUpstream{hdr: http.Header{}, ct: []string{"application/octet-stream"}, cl: []string{"1024"}}
 }
 
-func (c *cannedS1) RoundTrip(r *http.Request) (*http.Response, error) {
+func (c *cannedUpstream) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.Body != nil {
 		_ = r.Body.Close()
 	}
@@ -140,7 +138,7 @@ func (c *cannedS1) RoundTrip(r *http.Request) (*http.Response, error) {
 	c.body.off = 0
 	c.resp = http.Response{
 		Status: "200 OK", StatusCode: http.StatusOK, Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1,
-		Header: c.hdr, Body: &c.body, ContentLength: int64(len(s1Body)), Request: r,
+		Header: c.hdr, Body: &c.body, ContentLength: int64(len(allocBody)), Request: r,
 	}
 	return &c.resp, nil
 }
@@ -184,8 +182,8 @@ func (s *accessSignal) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// s1Node is a Node serving the S1 Bundle, as the ruralzd wiring builds it.
-type s1Node struct {
+// allocNode is a Node serving allocBundle, as the ruralzd wiring builds it.
+type allocNode struct {
 	h      *Handler
 	rt     *telemetry.Runtime
 	conn   *handlertest.Conn
@@ -194,14 +192,15 @@ type s1Node struct {
 	access *accessSignal
 }
 
-// newS1Node assembles the Node and publishes the compiled S1 snapshot.
-func newS1Node(tb testing.TB) *s1Node {
+// newAllocNode assembles the Node and publishes the compiled snapshot of
+// allocBundle.
+func newAllocNode(tb testing.TB) *allocNode {
 	tb.Helper()
 	ctx := tb.Context()
 	clk := clock.Real()
 	access := &accessSignal{ch: make(chan struct{}, 1024)}
 	rt, err := telemetry.New(telemetry.Options{
-		Service: telemetry.ServiceGateway, NodeID: "01JBENCH000000000000000000", Version: "0.0.0-bench",
+		Service: telemetry.ServiceGateway, NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4", Version: "0.0.0-test",
 		Stdout: access, Level: slog.LevelError, Clock: clk,
 	})
 	if err != nil {
@@ -226,11 +225,11 @@ func newS1Node(tb testing.TB) *s1Node {
 		tb.Fatal(err)
 	}
 	stores := manager.New(ctx, manager.Config{
-		Deps:    statestore.Deps{Clock: clk, Metrics: &nm.State, Status: rt, NodeID: "01JBENCH000000000000000000"},
+		Deps:    statestore.Deps{Clock: clk, Metrics: &nm.State, Status: rt, NodeID: "01J9Z8Q4W6X3V5T7R2N0M1K8H4"},
 		Openers: manager.Openers{Memory: memory.Open},
 	})
 	tb.Cleanup(func() { _ = stores.Close(context.Background()) })
-	ups := upstream.NewManager(upstream.Options{Clock: clk, Status: rt, Tracer: rt.Tracer(), Send: newCannedS1()})
+	ups := upstream.NewManager(upstream.Options{Clock: clk, Status: rt, Tracer: rt.Tracer(), Send: newCannedUpstream()})
 	units := admission.NewUnits(admission.DefaultUnits)
 	budget := body.NewBudget(body.DefaultMaxBufferedBytes, nm.BufferedBytes)
 	engine := composition.New(composition.Deps{Clock: clk, Budget: budget, Units: units, Decoder: celc, Logger: rt.Logger("composition")})
@@ -247,14 +246,14 @@ func newS1Node(tb testing.TB) *s1Node {
 	if err != nil {
 		tb.Fatal(err)
 	}
-	fsys := fstest.MapFS{"ruralz.yaml": {Data: []byte(s1Bundle)}}
+	fsys := fstest.MapFS{"ruralz.yaml": {Data: []byte(allocBundle)}}
 	pr, err := pipe.Run(ctx, pipeline.Request{Source: loader.Source{FS: fsys, Path: "."}})
 	if err != nil || pr.Validated == nil {
-		tb.Fatalf("S1 Bundle: %v %v", err, pr.Diagnostics)
+		tb.Fatalf("allocBundle: %v %v", err, pr.Diagnostics)
 	}
 	c, ds, err := compiler.Compile(ctx, compile.Input{Validated: pr.Validated, Files: pr.Files})
 	if err != nil || len(ds) > 0 {
-		tb.Fatalf("compile S1: %v %v", err, ds)
+		tb.Fatalf("compile allocBundle: %v %v", err, ds)
 	}
 	if _, err := holder.Publish(c.Snapshot); err != nil {
 		tb.Fatal(err)
@@ -272,56 +271,42 @@ func newS1Node(tb testing.TB) *s1Node {
 	conn.StripeV = meter.NewStripe()
 	h.connOf = func(context.Context) Conn { return conn }
 	req := (&http.Request{
-		Method: http.MethodGet, URL: &url.URL{Path: "/bench/1k"}, RequestURI: "/bench/1k",
-		Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1, Host: "bench.example:8080", RemoteAddr: "10.1.0.7:40000",
-		Header: http.Header{"User-Agent": {"oha/1.16.0"}, "Accept": {"*/*"}}, Body: http.NoBody,
+		Method: http.MethodGet, URL: &url.URL{Path: "/v1/items/1k"}, RequestURI: "/v1/items/1k",
+		Proto: "HTTP/1.1", ProtoMajor: 1, ProtoMinor: 1, Host: "shop.example:8080", RemoteAddr: "10.1.0.7:40000",
+		Header: http.Header{"User-Agent": {"shop/1.0"}, "Accept": {"*/*"}}, Body: http.NoBody,
 	}).WithContext(ctx)
-	return &s1Node{h: h, rt: rt, conn: conn, req: req, w: &discardWriter{h: http.Header{}}, access: access}
+	return &allocNode{h: h, rt: rt, conn: conn, req: req, w: &discardWriter{h: http.Header{}}, access: access}
 }
 
-// serve runs one whole S1 request and waits until its access record was
+// serve runs one whole request and waits until its access record was
 // written.
-func (n *s1Node) serve() {
+func (n *allocNode) serve() {
 	clear(n.w.h)
 	n.w.status, n.w.n = 0, 0
 	n.h.ServeHTTP(n.w, n.req)
 	<-n.access.ch
 }
 
-// TestS1RequestAllocations is PB-8's gate: one whole S1 request allocates
-// at most 30 times once the pools are warm, and answers the canned 1 KiB
-// body.
-func TestS1RequestAllocations(t *testing.T) {
+// TestRequestAllocations checks that one whole request makes at most
+// maxRequestAllocs allocations once the pools are warm, and answers the
+// canned 1 KiB body.
+func TestRequestAllocations(t *testing.T) {
 	if raceEnabled {
-		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
+		t.Skip("sync.Pool drops items at random under -race")
 	}
-	n := newS1Node(t)
+	n := newAllocNode(t)
 	for range 200 {
 		n.serve()
 	}
-	if n.w.status != http.StatusOK || n.w.n != len(s1Body) {
-		t.Fatalf("S1 request answered %d with %d bytes, want 200 with %d", n.w.status, n.w.n, len(s1Body))
+	if n.w.status != http.StatusOK || n.w.n != len(allocBody) {
+		t.Fatalf("the request answered %d with %d bytes, want 200 with %d", n.w.status, n.w.n, len(allocBody))
 	}
 	if got := n.req.Header; len(got) != 2 || strings.Join(got["Accept"], ",") != "*/*" {
 		t.Fatalf("the handler changed the pre-parsed request's header: %v", got)
 	}
 	got := testing.AllocsPerRun(1000, n.serve)
-	t.Logf("allocations per S1 request: %.1f (PB-8: %d)", got, pb8MaxAllocs)
-	if got > pb8MaxAllocs {
-		t.Errorf("allocations per S1 request = %.1f, want at most %d (PB-8)", got, pb8MaxAllocs)
-	}
-}
-
-// BenchmarkS1Request measures the time and allocations of one whole S1
-// request.
-func BenchmarkS1Request(b *testing.B) {
-	n := newS1Node(b)
-	for range 200 {
-		n.serve()
-	}
-	b.ReportAllocs()
-	b.ResetTimer()
-	for b.Loop() {
-		n.serve()
+	t.Logf("allocations per request: %.1f (at most %d)", got, maxRequestAllocs)
+	if got > maxRequestAllocs {
+		t.Errorf("allocations per request = %.1f, want at most %d", got, maxRequestAllocs)
 	}
 }

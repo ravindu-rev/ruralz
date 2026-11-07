@@ -182,7 +182,7 @@ func TestViaString(t *testing.T) {
 }
 
 // TestResolveAllocations: source.ip is computed on every request without
-// allocating (the BenchmarkClientAddr budget).
+// allocating.
 func TestResolveAllocations(t *testing.T) {
 	tr := testTrusted()
 	peer := netip.MustParseAddrPort("10.0.0.1:443")

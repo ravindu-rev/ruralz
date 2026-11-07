@@ -308,8 +308,7 @@ func arrayExtra(n int64) int64 {
 
 // Work, in work units: one unit is about a nanosecond of the library on
 // the reference machine (a shared 4-vCPU 2.8 GHz Xeon, Go 1.27). Each
-// constant is the measured cost rounded up by at least a quarter;
-// BenchmarkWorkModel compares the model with the library.
+// constant is the measured cost rounded up by at least a quarter.
 const (
 	// evalUnits is one evaluation: its frame, scope and unevaluated
 	// record (measured 212 to 222 units passing).
@@ -324,10 +323,10 @@ const (
 	// dependentRequired: a lookup.
 	depUnits = 32
 	// compareUnits is one comparison of two values (measured 4 units for
-	// short strings alone, 6.5 to 9 with the loop over an enum's values,
-	// BenchmarkWorkModel; at 16 an array of two-letter codes under a
-	// 250-value enum would be refused above 27% of the limit); compareBytes
-	// are the string bytes compared per unit.
+	// short strings alone, 6.5 to 9 with the loop over an enum's values;
+	// at 16 an array of two-letter codes under a 250-value enum would be
+	// refused above 27% of the limit); compareBytes are the string bytes
+	// compared per unit.
 	compareUnits, compareBytes = 12, 8
 	// memberUnits is one member of an object per evaluation at the
 	// object: the library loops over every member (measured 19 to 35).
@@ -380,7 +379,7 @@ const (
 	// besides reading its location (walkWork): the kind, the keyword path,
 	// the comparison; walkByteUnits per byte of the location and keyword,
 	// which it unescapes, extends and compares (measured at most 120 and
-	// 1.4, BenchmarkLocationWalk).
+	// 1.4).
 	walkUnits, walkByteUnits = 192, 2
 	// numberUnits, numberByteUnits and numberExpUnits bound one parse and
 	// comparison of a number literal with math/big: measured 420 to 610
@@ -403,9 +402,9 @@ const (
 // updates and the final divisions): measured on 1,500 random pairs within
 // the number bounds and at their edges, from 0.25 to 0.5 µs for short
 // literals to 26 µs, every one at least 40% under the model, which is up
-// to about 30 times above it for literals sharing large powers of ten
-// (BenchmarkWorkModel's multipleOf cases). The divisor's part is the
-// schema's (workWeight); the rest is the scan's (bodyScan.quoWork).
+// to about 30 times above it for literals sharing large powers of ten.
+// The divisor's part is the schema's (workWeight); the rest is the
+// scan's (bodyScan.quoWork).
 const (
 	quoUnits, quoMinUnits, quoDigitUnits, quoProductDigits = 512, 64, 16, 128
 )

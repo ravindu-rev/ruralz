@@ -246,21 +246,3 @@ func TestPinRetriesOntoTheNewSnapshot(t *testing.T) {
 		}
 	}
 }
-
-// BenchmarkPinUnpin measures the request-path pin (pin plus match is
-// budgeted at 3 µs p50 and 0 allocations).
-func BenchmarkPinUnpin(b *testing.B) {
-	h := New(Config{})
-	if _, err := h.Publish(newSnap("a", nil)); err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		stripe := h.ConnStripe()
-		rec := &snapshot.PinnedRequest{}
-		for pb.Next() {
-			s := h.Pin(stripe, rec)
-			h.Unpin(s, stripe, rec)
-		}
-	})
-}

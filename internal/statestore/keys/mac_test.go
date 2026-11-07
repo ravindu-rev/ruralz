@@ -254,19 +254,3 @@ func TestMACDoesNotAllocate(t *testing.T) {
 		t.Fatalf("Seal allocates %v times", n)
 	}
 }
-
-func BenchmarkMACOpen(b *testing.B) {
-	m, err := NewMAC(macKey(5))
-	if err != nil {
-		b.Fatal(err)
-	}
-	key, field := macFixture()
-	stored := m.Seal(nil, key, field, bytes.Repeat([]byte{'x'}, 16<<10))
-	b.ReportAllocs()
-	b.SetBytes(int64(len(stored)))
-	for b.Loop() {
-		if _, ok := m.Open(key, field, stored); !ok {
-			b.Fatal("open failed")
-		}
-	}
-}

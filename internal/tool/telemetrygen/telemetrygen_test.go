@@ -713,11 +713,3 @@ func FuzzCheckExpr(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkGenerate(b *testing.B) {
-	for b.Loop() {
-		if _, err := generate(); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

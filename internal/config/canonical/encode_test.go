@@ -324,7 +324,7 @@ func TestEncodeResourcesSorts(t *testing.T) {
 }
 
 // largeBundle returns a Bundle of one Gateway and n Routes, Upstreams and
-// Policies, about a PBB ladder step of 3n+1 resources.
+// Policies: 3n+1 resources.
 func largeBundle(t testing.TB, n int) *hub.Bundle {
 	t.Helper()
 	rs := []*hub.Resource{resourceOf(t, jsonTree(t, gatewayDoc))}

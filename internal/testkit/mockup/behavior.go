@@ -50,7 +50,7 @@ func (u Uniform) Sample(r *rand.Rand) time.Duration {
 func (u Uniform) String() string { return fmt.Sprintf("uniform(%v..%v)", u.Min, u.Max) }
 
 // Normal draws from a normal distribution with mean Mean and standard
-// deviation StdDev, clamped at 0 (PBB S5x: 500 µs ± 100 µs).
+// deviation StdDev, clamped at 0.
 type Normal struct{ Mean, StdDev time.Duration }
 
 // Sample draws a normally distributed duration, clamped at 0.

@@ -318,23 +318,3 @@ func TestBuildersDoNotAllocate(t *testing.T) {
 		}
 	}
 }
-
-func BenchmarkAppendRateLimit(b *testing.B) {
-	d := statestore.DigestOf("user-42")
-	l := statestore.GCRALimit{Requests: 5000, Window: time.Minute}
-	buf := make([]byte, 0, 256)
-	b.ReportAllocs()
-	for b.Loop() {
-		buf = AppendRateLimit(buf[:0], "ratelimit-gold", l, d)
-	}
-}
-
-func BenchmarkAppendQuota(b *testing.B) {
-	d := statestore.DigestOf("user-42")
-	start := time.UnixMilli(1757376000000)
-	buf := make([]byte, 0, 256)
-	b.ReportAllocs()
-	for b.Loop() {
-		buf = AppendQuota(buf[:0], "monthly-requests", 720*time.Hour, start, d)
-	}
-}

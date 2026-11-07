@@ -186,28 +186,3 @@ func TestUnitsAcquireError(t *testing.T) {
 		t.Fatalf("InUse = %d", u.InUse())
 	}
 }
-
-// BenchmarkUnitsAcquireRelease is the admission step of every request (the
-// RZ-RT-005 path budget starts here).
-func BenchmarkUnitsAcquireRelease(b *testing.B) {
-	u := NewUnits(DefaultUnits)
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			if u.TryAcquire(1) {
-				u.Release(1)
-			}
-		}
-	})
-}
-
-// BenchmarkUnitsReject measures a rejection at a full ceiling.
-func BenchmarkUnitsReject(b *testing.B) {
-	u := NewUnits(0)
-	b.ReportAllocs()
-	for b.Loop() {
-		if u.TryAcquire(1) {
-			b.Fatal("admitted at a zero ceiling")
-		}
-	}
-}

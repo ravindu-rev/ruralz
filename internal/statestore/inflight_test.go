@@ -137,7 +137,7 @@ func TestInFlightGauge(t *testing.T) {
 // gauge within the slots in use: never above the limit, and zero once
 // every slot is released. A release that freed its slot before lowering
 // the gauge let another call take the slot while the gauge still counted
-// it, reading above the limit, which O2's plateau at 8,192 judges a miss.
+// it, reading above the limit.
 func TestInFlightGaugeConcurrent(t *testing.T) {
 	const limit = 8
 	gauge := &countingGauge{}

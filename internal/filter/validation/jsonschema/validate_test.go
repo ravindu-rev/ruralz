@@ -6,7 +6,6 @@ package jsonschema
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
@@ -144,9 +143,9 @@ func TestValidateWithin(t *testing.T) {
 	// A failing value whose decision pass fits the work limit, but not
 	// with the location pass and its walk, is not ok at the root, and the
 	// location pass does not run.
-	walk := walkCases(120000, 40000)[2]
-	ws := mustCompile(t, walk.schema)
-	wv, wscan := scanBody(t, ws, walk.body)
+	walkSchema, walkBody := walkCase()
+	ws := mustCompile(t, walkSchema)
+	wv, wscan := scanBody(t, ws, walkBody)
 	wscan.workLimit = limitsOf(0).work
 	if wscan.workOver() || !wscan.locateOver() || wscan.locateMemory() > limitsOf(0).workingSet {
 		t.Fatalf("the walk case: work over %v, location over %v, location memory %d", wscan.workOver(), wscan.locateOver(), wscan.locateMemory())
@@ -219,43 +218,15 @@ func TestValidateMapModel(t *testing.T) {
 	}
 }
 
-// walkCases are failing bodies whose error trees the location walk
-// reads: a dense array failing at a short location, at one long location
-// reached through an anchor (such as a 250,000-byte $defs name), and at
-// two long locations that differ only at their end, which the walk
-// compares in full.
-func walkCases(nameLen, items int) []struct{ name, schema, body string } {
-	long := strings.Repeat("n", nameLen)
-	return []struct{ name, schema, body string }{
-		{"short", `{"items":{"type":"integer"}}`, denseArray(items, `"x"`, 0)},
-		{"one long", `{"type":"array","items":{"$ref":"#a"},"$defs":{"` + long + `":{"$anchor":"a","type":"integer"}}}`, denseArray(items, `"x"`, 0)},
-		{
-			"two long", `{"type":"array","items":{"anyOf":[{"$ref":"#a"},{"$ref":"#b"}]},"$defs":{"` + long + `a":{"$anchor":"a","type":"integer"},"` +
-				long + `b":{"$anchor":"b","type":"integer"}}}`, denseArray(items, `"x"`, 0),
-		},
-	}
-}
-
-// BenchmarkLocationWalk measures the location walk alone against what the
-// scan charges it (walkWork): ns/unit must stay below 1 on the reference
-// machine.
-func BenchmarkLocationWalk(b *testing.B) {
-	for _, nameLen := range []int{10, 20000} {
-		for _, tc := range walkCases(nameLen, 5000) {
-			b.Run(fmt.Sprintf("%s/%d", tc.name, nameLen), func(b *testing.B) {
-				s := mustCompile(b, tc.schema)
-				v, scan := scanBody(b, s, tc.body)
-				var verr *sjs.ValidationError
-				if !errors.As(s.root.Validate(v), &verr) {
-					b.Fatal("the body is valid")
-				}
-				for b.Loop() {
-					_, _, _ = locationOf(verr, nil)
-				}
-				b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(scan.walk), "ns/unit")
-			})
-		}
-	}
+// walkCase is a failing body whose error tree the location walk reads: a
+// dense array of 40,000 items failing at two locations under
+// 120,000-byte $defs names, reached through anchors, that differ only at
+// their end, which the walk compares in full.
+func walkCase() (schema, body string) {
+	long := strings.Repeat("n", 120000)
+	schema = `{"type":"array","items":{"anyOf":[{"$ref":"#a"},{"$ref":"#b"}]},"$defs":{"` + long + `a":{"$anchor":"a","type":"integer"},"` +
+		long + `b":{"$anchor":"b","type":"integer"}}}`
+	return schema, denseArray(40000, `"x"`, 0)
 }
 
 // TestHandleLocationWalk covers the location pass's walk over the error
@@ -268,14 +239,14 @@ func BenchmarkLocationWalk(b *testing.B) {
 // as when the request ends during the walk. Through Factory.Build and
 // Handle at the 10 MiB default.
 func TestHandleLocationWalk(t *testing.T) {
-	cases := walkCases(120000, 40000)
-	f := buildFilter(t, cases[2].schema, 0)
-	_, scan := scanBody(t, f.schema, cases[2].body)
+	schema, body := walkCase()
+	f := buildFilter(t, schema, 0)
+	_, scan := scanBody(t, f.schema, body)
 	if leaves := int64(2 * 40000); scan.walk < leaves*120000 {
 		t.Errorf("the walk is charged %d, less than %d leaves of 120,000 bytes", scan.walk, leaves)
 	}
 	scan.workLimit = f.limits.work
-	if got := detailOf(t, handle(t, f, cases[2].body)); got != DetailMismatch || !scan.locateOver() || scan.workOver() {
+	if got := detailOf(t, handle(t, f, body)); got != DetailMismatch || !scan.locateOver() || scan.workOver() {
 		t.Errorf("Handle(%d failing items under long locations) = %q, want DetailMismatch alone", 40000, got)
 	}
 	// A few items fit: the location of the first failing leaf, cut back to

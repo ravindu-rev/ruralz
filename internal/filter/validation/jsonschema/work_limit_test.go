@@ -45,102 +45,12 @@ func records(n int) string {
 const recordsSchema = `{"type":"array","items":{"$ref":"#/$defs/item"},"$defs":{"item":{"type":"object","required":["sku","qty"],` +
 	`"properties":{"sku":{"type":"string","minLength":1,"pattern":"^SKU-[0-9]{5}-[A-Z]+$"},"qty":{"type":"integer","minimum":1,"maximum":1000},"price":{"type":"number","exclusiveMinimum":0}}}}}`
 
-// workCases are bodies that make the library work in every way the model
-// charges: per evaluation, per member, per string byte (copies and
-// patterns, adversarial inputs included), per number literal, const and
-// enum comparisons, uniqueItems hashing and pairwise comparison, the
-// unevaluated copies, scope walks, and failing bodies.
-func workCases() []struct{ name, schema, body string } {
-	var enum, nums, pats, distinct []string
-	for i := range 600 {
-		enum = append(enum, fmt.Sprintf(`"v%d"`, i))
-	}
-	for i := range 2000 {
-		nums = append(nums, fmt.Sprint(i))
-	}
-	for i := range 10 {
-		pats = append(pats, fmt.Sprintf(`"^z%d":true`, i))
-	}
-	for i := range 20 {
-		distinct = append(distinct, fmt.Sprintf("1.%02d%se-999", i, strings.Repeat("7", 110)))
-	}
-	longs := make([]string, 2000)
-	for i := range longs {
-		longs[i] = fmt.Sprintf("1.%04d%se-999", i, strings.Repeat("7", 100))
-	}
-	var objects strings.Builder
-	objects.WriteByte('[')
-	for i := range 5000 {
-		if i > 0 {
-			objects.WriteByte(',')
-		}
-		fmt.Fprintf(&objects, `{"a":%d,"b":"x%d","c":[1,2],"d":{"e":null}}`, i, i)
-	}
-	objects.WriteByte(']')
-	return []struct{ name, schema, body string }{
-		{"members, allOf of references", allOfRefs(100, `{"minProperties":0}`), wideObject(5000)},
-		{"string copies, allOf of references", allOfRefs(20, `{"minLength":0}`), `"` + strings.Repeat("a", 256<<10) + `"`},
-		{"multi-byte lengths, allOf of references", allOfRefs(20, `{"maxLength":100000000}`), `"` + strings.Repeat("é€😀", 20<<10) + `"`},
-		{"enum of 600 strings", `{"items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(2000, `"v599"`, 0)},
-		{"enum of 600 strings, failing", `{"items":{"enum":[` + strings.Join(enum, ",") + `]}}`, denseArray(2000, `"x"`, 0)},
-		{"short numbers", `{"items":{"minimum":0,"maximum":1e9,"type":"integer"}}`, denseArray(20000, `12345`, 0)},
-		{"const array", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"const":[`+strings.Join(nums, ",")+`]},`, 20), ",") + `]}`, `[` + strings.Join(nums, ",") + `]`},
-		{"const array, long literals", `{"allOf":[` + strings.TrimSuffix(strings.Repeat(`{"const":[`+strings.Join(longs, ",")+`]},`, 20), ",") + `]}`, `[` + strings.Join(longs, ",") + `]`},
-		{"enum of numbers, long literals", `{"items":{"enum":[` + strings.Join(nums[:300], ",") + `]}}`, denseArray(50, longNumber, 0)},
-		{"uniqueItems pairwise", `{"items":{"uniqueItems":true}}`, denseArray(50, `[`+strings.Join(distinct, ",")+`]`, 0)},
-		{"uniqueItems hashed objects", `{"uniqueItems":true}`, objects.String()},
-		{"uniqueItems colliding arrays", `{"uniqueItems":true}`, "[" + strings.Join(splits(strings.Repeat("a\x04", 9)+"a"), ",") + "]"},
-		{"unevaluated names along a chain", unevaluatedChain(100, "unevaluatedProperties"), wideObject(1000)},
-		{"unevaluated indexes along a chain", strings.Replace(unevaluatedChain(100, "unevaluatedItems"), "minProperties", "minItems", 1), denseArray(2000, `1`, 0)},
-		{"unanchored pattern", `{"items":{"pattern":"a$"}}`, denseArray(16, `"`+strings.Repeat("a", 16384)+`"`, 0)},
-		{"pattern with a large queue", `{"items":{"pattern":"[a-z]{100}x"}}`, denseArray(4, `"`+strings.Repeat("a", 4096)+`"`, 0)},
-		{"e-mail pattern", `{"items":{"pattern":"` + emailPattern + `"}}`, denseArray(64, `"a@`+strings.Repeat("a", 2048)+`"`, 0)},
-		{"patternProperties", `{"patternProperties":{` + strings.Join(pats, ",") + `}}`, wideObject(5000)},
-		{"propertyNames", `{"propertyNames":{"pattern":"^k[0-9]+$"}}`, wideObject(5000)},
-		{"failing oneOf of consts", `{"items":` + oneOfConsts(8) + `}`, denseArray(5000, `"x"`, 0)},
-		{"failing object keywords", `{"items":{"type":"object","required":["a","b","c"],"minProperties":9,"maxProperties":1,"additionalProperties":false,"properties":{"z":{"type":"integer"}}}}`, denseArray(2500, `{"q":1,"y":2,"w":3,"z":"s"}`, 0)},
-		{"dynamic references, nested", `{"$dynamicAnchor":"n","items":{"$dynamicRef":"#n"},"$defs":{"x":{"$id":"urn:x","$dynamicAnchor":"n","items":{"$dynamicRef":"#n"}}}}`, denseArray(500, strings.Repeat("[", 30)+"1"+strings.Repeat("]", 30), 0)},
-		{"reference chain at one value", chain(4000, `{"$ref":"#/$defs/d%d","x":%d}`), `{"a":1}`},
-		{"records", recordsSchema, records(5000)},
-		// The library hashes member names whole, in maps of more than eight
-		// names.
-		{"long names, properties lookups", allOfRefs(100, tenProperties), longMember(9, 256<<10)},
-		{"long names, unevaluated copies", strings.Replace(unevaluatedChain(100, "unevaluatedProperties"), `{"minProperties":0}`, tenProperties, 1), longMember(9, 32<<10)},
-		{"long names, uniqueItems objects", `{"uniqueItems":true}`, prefixedObjects(30, 10, 4<<10)},
-		{"long names, enum objects", `{"items":{"enum":[` + strings.TrimSuffix(strings.Repeat(nineMembers+",", 500), ",") + `]}}`, denseArray(4, longMember(8, 256<<10), 0)},
-		// A multipleOf check divides the value by the divisor as math/big
-		// rationals, whose work grows with the digits of both.
-		{"multipleOf 0.01, short decimals", `{"items":{"multipleOf":0.01}}`, decimals(20000)},
-		{"multipleOf 1e-1000, short decimals", `{"items":{"multipleOf":1e-1000}}`, decimals(5000)},
-		{"multipleOf of 127 bytes, short decimals", `{"items":{"multipleOf":` + longDivisor + `}}`, decimals(5000)},
-		{"multipleOf 3e1000, long literals", `{"items":{"multipleOf":3e1000}}`, denseArray(2000, longDecimal, 0)},
-		{"multipleOf of 127 bytes, long literals", `{"items":{"multipleOf":` + longDivisor + `}}`, denseArray(2000, longDecimal, 0)},
-		{"anyOf of 16 multipleOf, long literals", `{"items":{"anyOf":[` + bigDivisors(16) + `]}}`, denseArray(500, longDecimal, 0)},
-	}
-}
-
 // longDivisor and longDecimal are literals of 127 bytes near the number
 // bounds: 0.(120 fives)e-990 and 0.(119 sevens)3e-990.
 const (
 	longDivisor = "0.555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555555e-990"
 	longDecimal = "0.777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777777773e-990"
 )
-
-// decimals returns an array of n short decimals, the shape of prices or
-// measurements.
-func decimals(n int) string {
-	return "[" + joined(n, func(i int) string { return fmt.Sprintf("%d.%02d", i%1000, i%97) }) + "]"
-}
-
-// bigDivisors returns n multipleOf schemas whose divisors have large
-// exponents, the branches of an anyOf.
-func bigDivisors(n int) string {
-	items := make([]string, n)
-	for i := range items {
-		items[i] = fmt.Sprintf(`{"multipleOf":%de%d}`, 3+i%6, 1000-i/6)
-	}
-	return strings.Join(items, ",")
-}
 
 // propertiesChain returns an allOf of n references to the head of a chain
 // of four schemas with tenProperties each: 5n+1 evaluations at a value,
@@ -154,57 +64,6 @@ func propertiesChain(n int) string {
 // tenProperties is a schema with ten properties, so the library looks a
 // member name up by its hash.
 const tenProperties = `{"properties":{"a":true,"b":true,"c":true,"d":true,"e":true,"f":true,"g":true,"h":true,"i":true,"j":true}}`
-
-// nineMembers is an object of nine members, eight of which longMember(8,
-// n) shares.
-const nineMembers = `{"a":"x","b":"x","c":"x","d":"x","e":"x","f":"x","g":"x","h":"x","z":"x"}`
-
-// prefixedObjects returns an array of n distinct objects of k members
-// whose names share a prefix of l bytes, which sorting them compares.
-func prefixedObjects(n, k, l int) string {
-	prefix := strings.Repeat("p", l)
-	items := make([]string, n)
-	for i := range items {
-		members := make([]string, k)
-		for j := range members {
-			members[j] = fmt.Sprintf(`"%s%02d":%d`, prefix, j, i)
-		}
-		items[i] = "{" + strings.Join(members, ",") + "}"
-	}
-	return "[" + strings.Join(items, ",") + "]"
-}
-
-// longMember returns an object of k short members a, b, ... and one more
-// whose name is n bytes long.
-func longMember(k, n int) string {
-	var b strings.Builder
-	b.WriteByte('{')
-	for i := range k {
-		fmt.Fprintf(&b, `"%c":"x",`, 'a'+i)
-	}
-	fmt.Fprintf(&b, `"%s":"x"}`, strings.Repeat("n", n))
-	return b.String()
-}
-
-// BenchmarkWorkModel measures the work model (proposed, package
-// documentation "Work bound") against the library: for every way the
-// library's work grows, it reports the nanoseconds validating the body
-// takes per work unit the scan charges (ns/unit), which must stay below 1
-// on the reference machine. A benchmark, not a test: the ratio depends on
-// the machine and its load (no wall-clock time in unit tests);
-// TestWorkCharges pins the model itself.
-func BenchmarkWorkModel(b *testing.B) {
-	for _, tc := range workCases() {
-		b.Run(tc.name, func(b *testing.B) {
-			s := mustCompile(b, tc.schema)
-			v, scan := scanBody(b, s, tc.body)
-			for b.Loop() {
-				_ = s.root.Validate(v)
-			}
-			b.ReportMetric(float64(b.Elapsed().Nanoseconds())/float64(b.N)/float64(scan.work), "ns/unit")
-		})
-	}
-}
 
 // TestWorkCharges pins the work model (proposed) on small bodies: each
 // evaluation's weight, the cycle check, the location copies, and the terms

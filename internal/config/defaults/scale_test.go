@@ -98,8 +98,6 @@ func stageCost(t *testing.T, s *Stage, src string) (bytes uint64, units int) {
 //   - The bytes allocated grow about eight times, where a stage that
 //     built a path, an index or a copy once per member would allocate
 //     about 64 times.
-//
-// BenchmarkScale measures the time of the same shapes.
 func TestScaleLinear(t *testing.T) {
 	if testing.Short() {
 		t.Skip("scale test")

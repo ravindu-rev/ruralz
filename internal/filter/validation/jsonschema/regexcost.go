@@ -42,8 +42,7 @@ const (
 	// entry, input byte and step of the search a rune instruction makes in
 	// the ranges of its class, at most classSteps of the program's largest
 	// class (a repetition of \pL takes about 21 ns per entry and byte, of a
-	// one-range class 9; measured 9 to 27 ns from 1 to 20,000 ranges,
-	// BenchmarkPatternModel).
+	// one-range class 9; measured 9 to 27 ns from 1 to 20,000 ranges).
 	queueUnits, searchUnits = 16, 2
 	// clearInstsPerUnit is the program instructions per work unit and
 	// byte that clearing the backtracker's visited set takes.
@@ -51,7 +50,7 @@ const (
 	// regexpBudget bounds the steps the exploration of all the patterns of
 	// one document may take, and patternBudget those of one pattern, each
 	// a queue entry scanned or added (about 25 ms and 3 ms;
-	// BenchmarkPatternCost, TestQueueBoundBudget).
+	// TestQueueBoundBudget).
 	regexpBudget, patternBudget = 1 << 20, 1 << 17
 	// regexpStates bounds the queues the exploration of one pattern
 	// visits.
@@ -108,9 +107,8 @@ const (
 	// jobArrayBytes the 256 jobs the stack starts with.
 	jobBytes, jobArrayBytes = 48, 256 * 16
 	// heldBudget bounds the instructions the search for held alternations
-	// may visit in all the patterns of one document (about 10 ms,
-	// BenchmarkHeldAlternations); past it a program is charged every
-	// alternation it has.
+	// may visit in all the patterns of one document (about 10 ms); past it
+	// a program is charged every alternation it has.
 	heldBudget = 1 << 21
 )
 

@@ -85,9 +85,9 @@ func typeNames() [kinds]string {
 // transitions by name and index, which the compiled Schema keeps (about 5
 // MB at the bounds); stateBudget bounds the schemas, multiset entries,
 // in-place edges, programs of the schemas' pattern reaches and declared
-// names building them may touch (part of BenchmarkEvaluationAnalysis).
-// Matching the declared names against the patterns of other schemas
-// spends what newGNode left of the document's matchBudget.
+// names building them may touch. Matching the declared names against the
+// patterns of other schemas spends what newGNode left of the document's
+// matchBudget.
 const (
 	maxStates      = 1 << 12
 	maxTransitions = 1 << 16

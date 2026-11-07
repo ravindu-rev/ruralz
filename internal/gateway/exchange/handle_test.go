@@ -238,12 +238,12 @@ func TestLegReleaseRacesPut(t *testing.T) {
 	}
 }
 
-// TestLegHandlesAmortized checks the allocation cost of fresh leg handles
-// (PB-8): handles come from pooled chunks, one allocation per handleChunk
-// legs, so a request with one leg rounds to none.
+// TestLegHandlesAmortized checks the allocation cost of fresh leg handles:
+// handles come from pooled chunks, one allocation per handleChunk legs, so
+// a request with one leg rounds to none.
 func TestLegHandlesAmortized(t *testing.T) {
 	if raceEnabled {
-		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
+		t.Skip("sync.Pool drops items at random under -race")
 	}
 	f := newFixture(t)
 	r := serverRequest(http.MethodGet, "/", "", nil)

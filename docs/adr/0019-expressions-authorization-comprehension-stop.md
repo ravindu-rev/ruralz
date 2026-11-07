@@ -83,7 +83,7 @@ flowchart LR
 - Good, because CEL, inline Rego and Cedar errors appear in `ruralz bundle validate`, since all three binaries link the same libraries ([Dependency graph](../engineering/01-tech-stack-and-libraries.md#dependency-graph)).
 - Good, because teams reuse Rego or Cedar policies without a sidecar, free in every build (P1).
 - Good, because a CEL evaluation's outcome depends on its inputs alone: one that finishes under the cost limit gives its result on any Node, at any load and past any deadline, so an `authz.cel` rule never denies for lack of time.
-- Bad, because the time a CEL evaluation takes rests on cel-go's linear cost tracking and on what one unit costs to run; a cel-go release that slowed either would leave evaluation bounded in cost but not in time, which the worst-case benchmarks watch.
+- Bad, because the time a CEL evaluation takes rests on cel-go's linear cost tracking and on what one unit costs to run; a cel-go release that slowed either would leave evaluation bounded in cost but not in time.
 - Bad, because only CEL fully meets S4: OPA has a deadline but no cost or allocation limit, and cedar-go has neither.
 - Bad, because three evaluators must be secured and upgraded, and OPA grows the stripped `ruralzd` binary.
 - Bad, because cedar-go is idle since 2026-06-01 and lacks the schema validator ([source](https://github.com/cedar-policy/cedar-go/blob/main/README.md)); its [Watch list](../engineering/01-tech-stack-and-libraries.md#watch-list) fallback is "OPA only; fork".

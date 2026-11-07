@@ -319,15 +319,3 @@ func TestEmbeddedDeciderIsChallenger(t *testing.T) {
 		t.Fatal("authz has a challenge")
 	}
 }
-
-// BenchmarkAuthenticated: the success path of every auth Filter.
-func BenchmarkAuthenticated(b *testing.B) {
-	d := NewAuth(nil, ChallengeJWT)
-	id := NewIdentity(filter.MethodAPIKey, "keys", &expr.Consumer{Name: "acme"})
-	x := &filtertest.Exchange{}
-	b.ReportAllocs()
-	for b.Loop() {
-		x.Ident = nil
-		d.Authenticated(x, id)
-	}
-}

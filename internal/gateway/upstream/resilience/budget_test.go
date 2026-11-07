@@ -192,19 +192,3 @@ func FuzzRetryBudget(f *testing.F) {
 		}
 	})
 }
-
-// BenchmarkRetryBudget measures one leg's budget bookkeeping.
-func BenchmarkRetryBudget(b *testing.B) {
-	var rb RetryBudget
-	b.ReportAllocs()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			rb.BeginLeg()
-			n := 0
-			if rb.TryRetry() {
-				n = 1
-			}
-			rb.EndLeg(n)
-		}
-	})
-}

@@ -365,36 +365,3 @@ func FuzzParse(f *testing.F) {
 		}
 	})
 }
-
-// BenchmarkNew measures one node.id-style generation on crypto/rand.
-func BenchmarkNew(b *testing.B) {
-	now := time.Now()
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := New(now, nil); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkString measures the encoder.
-func BenchmarkString(b *testing.B) {
-	u, err := New(time.UnixMilli(1469918176385), fixedReader(0xa5))
-	if err != nil {
-		b.Fatal(err)
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		_ = u.String()
-	}
-}
-
-// BenchmarkParse measures the decoder.
-func BenchmarkParse(b *testing.B) {
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := Parse("01ARYZ6S41TSV4RRFFQ69G5FAV"); err != nil {
-			b.Fatal(err)
-		}
-	}
-}

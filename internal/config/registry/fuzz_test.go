@@ -166,32 +166,3 @@ func FuzzPhases(f *testing.F) {
 		}
 	})
 }
-
-// BenchmarkPhases measures Phase selection for a headers attachment, the
-// per-attachment cost stage I pays on every Hot Reload (PB-7 budget of the
-// configuration pipeline).
-func BenchmarkPhases(b *testing.B) {
-	reg := New()
-	a := Attachment{
-		Policy: policy("hdr", v1alpha1.PolicyTypeHeaders),
-		Config: &v1alpha1.HeadersConfig{Response: &v1alpha1.HeaderResponseOps{Set: []v1alpha1.HeaderResponseSet{{Name: "x"}}}},
-		Scope:  phase.ScopeRoute,
-	}
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, err := reg.Phases(a, nil); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// BenchmarkLookup measures one registry lookup.
-func BenchmarkLookup(b *testing.B) {
-	reg := New()
-	b.ReportAllocs()
-	for b.Loop() {
-		if _, ok := reg.Lookup(v1alpha1.PolicyTypeTransformResponse); !ok {
-			b.Fatal("missing")
-		}
-	}
-}

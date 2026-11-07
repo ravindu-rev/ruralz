@@ -1,11 +1,10 @@
 // Copyright 2026 Revington
 // SPDX-License-Identifier: Apache-2.0
 
-// Package mockup is the mock Upstream of the test kit (PBB scenarios S1
-// and O1a): an HTTP server on loopback that speaks HTTP/1.1 and h2c
-// (HTTP/2 over cleartext with prior knowledge) or, with a TLS
-// configuration passed in (from testkit/pki), HTTP/1.1 and HTTP/2 over TLS
-// negotiated by ALPN.
+// Package mockup is the mock Upstream of the test kit: an HTTP server on
+// loopback that speaks HTTP/1.1 and h2c (HTTP/2 over cleartext with prior
+// knowledge) or, with a TLS configuration passed in (from testkit/pki),
+// HTTP/1.1 and HTTP/2 over TLS negotiated by ALPN.
 //
 // Its answers are programmable per Server and per path with a Behavior:
 // status, headers, a literal or generated body of any size, a delay drawn

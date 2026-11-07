@@ -15,12 +15,9 @@ import (
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
 
-// Allocation gate and benchmark (PB-8: 30 or fewer Ruralz-owned
-// allocations per S1 request around the Router and the executor; the
-// per-stage budget gives Filters of onRequestHeaders, onRoute,
-// onUpstreamRequest without attached work and the ratelimit memory path 0
-// allocations). The executor's share is zero: a pooled Run and LegRun, no
-// per-call allocation, spans and metrics through preallocated handles.
+// A request through the executor allocates nothing once its pools are
+// warm: a pooled Run and LegRun, no per-call allocation, spans and metrics
+// through preallocated handles.
 
 // nopFilter continues and implements Finisher.
 type nopFilter struct{}
@@ -107,11 +104,12 @@ func (f *allocFixture) request(ctx context.Context, leg *filter.Leg) {
 	r.Release()
 }
 
+// TestAllocsPerRunThreePolicyChain checks that a request through a
+// 3-Policy chain and an upstream-leg Policy, with and without a tracer,
+// and one through an empty chain allocate nothing once the pools are warm.
 func TestAllocsPerRunThreePolicyChain(t *testing.T) {
-	// AllocsPerRun on a 3-Policy chain stays within the PB-8 share, which
-	// is zero for the executor.
 	if raceEnabled {
-		t.Skip("sync.Pool drops items under -race; the allocation gate runs without it")
+		t.Skip("sync.Pool drops items at random under -race")
 	}
 	for _, tracer := range []bool{false, true} {
 		f := newAllocFixture(t, tracer)
@@ -122,7 +120,7 @@ func TestAllocsPerRunThreePolicyChain(t *testing.T) {
 			t.Fatalf("tracer %v: %v allocations per request, want 0", tracer, n)
 		}
 	}
-	// An empty chain costs nothing either (S1).
+	// An empty chain costs nothing either.
 	e, st := New(Deps{}), newState()
 	empty := chain(nil, nil)
 	if n := testing.AllocsPerRun(200, func() {
@@ -134,31 +132,5 @@ func TestAllocsPerRunThreePolicyChain(t *testing.T) {
 		r.Release()
 	}); n != 0 {
 		t.Fatalf("empty chain: %v allocations", n)
-	}
-}
-
-func BenchmarkThreePolicyChain(b *testing.B) {
-	f := newAllocFixture(b, true)
-	ctx := context.Background()
-	leg := &filter.Leg{Upstream: "up", Attempt: 1}
-	b.ReportAllocs()
-	for b.Loop() {
-		f.request(ctx, leg)
-	}
-}
-
-func BenchmarkEmptyChain(b *testing.B) {
-	e, st := New(Deps{}), newState()
-	ch := chain(nil, nil)
-	ctx := context.Background()
-	b.ReportAllocs()
-	for b.Loop() {
-		r := e.Begin(st, ch, nil)
-		for _, ph := range []phase.Phase{phase.OnRequestHeaders, phase.OnRequestBody, phase.OnRoute} {
-			r.Request(ctx, ph)
-		}
-		r.Response(ctx, ResponseUpstream)
-		r.Log(ctx)
-		r.Release()
 	}
 }

@@ -363,19 +363,3 @@ func FuzzProblemAppend(f *testing.F) {
 		}
 	})
 }
-
-func BenchmarkWrite(b *testing.B) {
-	p := New("RZ-RT-005", traceID)
-	w := discardWriter{h: http.Header{}}
-	b.ReportAllocs()
-	for b.Loop() {
-		clear(w.h)
-		Write(w, p, nil)
-	}
-}
-
-type discardWriter struct{ h http.Header }
-
-func (w discardWriter) Header() http.Header       { return w.h }
-func (discardWriter) Write(b []byte) (int, error) { return len(b), nil }
-func (discardWriter) WriteHeader(int)             {}

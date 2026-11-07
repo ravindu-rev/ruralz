@@ -274,7 +274,8 @@ func TestShardRegistryBound(t *testing.T) {
 // Node's whole in-flight ceiling: with rueidis's default ring of 1,024
 // commands per connection, the 2 pipelined connections of a shard held
 // 2,048 of the 8,192 calls in flight and the rest blocked in the full
-// ring past their timeout, so O2's calls never plateaued at 8,192.
+// ring past their timeout, so the calls in flight never reached the
+// 8,192 ceiling.
 func TestRingScaleOf(t *testing.T) {
 	for _, c := range []struct{ inFlight, pipelined, want int }{
 		{8192, 2, 12}, {8192, 1, 13}, {8192, 4, 11}, {8192, 3, 12}, {1000, 2, 10}, {0, 2, 10}, {100000, 2, 16},
