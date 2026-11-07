@@ -21,6 +21,9 @@ func (u *unit) policy() {
 		d.Location = u.f.path(d.Path)
 		u.out.add(d)
 	}
+	if p.Spec.Type == v1alpha1.PolicyTypePlugin {
+		u.pluginSecrets(p)
+	}
 	switch cfg := u.r.Config.(type) {
 	case *v1alpha1.QuotaConfig:
 		if cfg != nil {

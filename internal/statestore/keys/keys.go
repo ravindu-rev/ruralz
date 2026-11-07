@@ -32,8 +32,8 @@ const (
 	PrefixQuota = "rz:qt:"
 	// PrefixCache holds Response Cache generations, partitions and leases.
 	PrefixCache = "rz:rc:"
-	// PrefixPlugin is reserved for Plugin state (M2,
-	// OQ-wasm-plugin-system-19 (a)); nothing in M1 writes under it.
+	// PrefixPlugin holds Plugin state, apart from every built-in key (pack
+	// section 8.7 rule 7; AppendPlugin).
 	PrefixPlugin = "rzplg:"
 )
 
@@ -43,9 +43,28 @@ func Prefixes() []string {
 	return []string{PrefixRateLimit, PrefixQuota, PrefixCache, PrefixPlugin}
 }
 
-// Reserved reports whether key lies in a namespace M1 never writes
-// (rzplg:, Plugin state from M2).
+// Reserved reports whether key lies in the Plugin namespace (rzplg:),
+// which no built-in Filter writes.
 func Reserved(key string) bool { return strings.HasPrefix(key, PrefixPlugin) }
+
+// AppendPlugin appends the key of one Plugin guest key
+// (docs/architecture/05-wasm-plugin-system.md "Host Function rules", State
+// Store): "rzplg:", the Environment name, ":", the decimal byte length of
+// the Policy name, ":", the Policy name and the guest key as given.
+// Environment and Policy names hold no ":", and the length prefix ends the
+// Policy name without a separator the guest key could repeat, so no two
+// Policies' or Environments' keys meet, and none meets a built-in rz:
+// key. A brace pair in the guest key is a Redis Cluster hash tag, which
+// only places the Policy's own keys.
+func AppendPlugin(dst []byte, environment, policy, key string) []byte {
+	dst = append(dst, PrefixPlugin...)
+	dst = append(dst, environment...)
+	dst = append(dst, ':')
+	dst = strconv.AppendInt(dst, int64(len(policy)), 10)
+	dst = append(dst, ':')
+	dst = append(dst, policy...)
+	return append(dst, key...)
+}
 
 // Response Cache key suffixes and partition hash fields. A variant field
 // is its prefix followed by the lowercase hex SHA-256 of the

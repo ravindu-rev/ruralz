@@ -14,7 +14,9 @@
 --      updating the TATs only if all allow; q reserves config.cost
 --      Quota units, all or none, in the window the server's TIME picks
 --      from the Node's two candidates, each an epoch-aligned window or a
---      UTC calendar month given as its start and end
+--      UTC calendar month given as its start and end; p adds a Plugin
+--      increment to a guest key's integer, the key taking the given TTL
+--      when it has no expiry, and returns the new value as text
 --   r  returns a reservation's units, never below 0 and never creating a
 --      key
 --   n  the generation step of a Response Cache store, refresh or
@@ -162,6 +164,22 @@ if op == 'c' then
       if not allowed then
         return out
       end
+    elseif kind == 'p' then
+      -- A Plugin increment: INCRBY creates the key at 0; a key without an
+      -- expiry takes ttl milliseconds. GET returns the new value as exact
+      -- text, as a Lua number holds 53 bits.
+      local delta = ARGV[a + 1]
+      local ttl = tonumber(ARGV[a + 2])
+      if not tonumber(delta) or not ttl or ttl < 1 or ttl ~= math.floor(ttl) then
+        return bad('increment')
+      end
+      a = a + 3
+      redis.call('INCRBY', KEYS[k], delta)
+      if redis.call('PTTL', KEYS[k]) < 0 then
+        redis.call('PEXPIRE', KEYS[k], int(ttl))
+      end
+      out[#out + 1] = {1, redis.call('GET', KEYS[k])}
+      k = k + 1
     elseif kind == 'q' then
       -- The candidate [start, end) holding the server's now is charged:
       -- cost units if the count plus cost stays within the limit, else

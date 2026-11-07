@@ -851,6 +851,17 @@ func (v *legView) PolicyState() *any {
 	return new(any)
 }
 
+// SharedState implements filter.Exchange: the calling Policy's slot of
+// the leg's request, which every leg of the request shares; once the leg
+// ended, a slot of its own that nothing reads.
+func (v *legView) SharedState() *filter.SharedSlot {
+	l := v.state()
+	if l == nil || l.parent == nil {
+		return new(filter.SharedSlot)
+	}
+	return l.parent.sharedAt(l.cur)
+}
+
 // Stripe implements filter.Exchange.
 func (v *legView) Stripe() emit.Stripe {
 	if x := v.parent(); x != nil {

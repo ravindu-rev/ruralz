@@ -533,6 +533,7 @@ func conformanceCases() []conformanceCase {
 	cs = append(cs, quotaCases()...)
 	cs = append(cs, consumeCases()...)
 	cs = append(cs, cacheCases()...)
+	cs = append(cs, pluginCases()...)
 	return cs
 }
 

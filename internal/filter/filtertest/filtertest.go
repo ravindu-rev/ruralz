@@ -169,7 +169,10 @@ type Exchange struct {
 	FinalV     filter.Final
 	// State is the PolicyState slot; StripeV and RouteMetricsV are returned
 	// as is (RouteMetrics falls back to an empty value).
-	State         any
+	State any
+	// Shared is the SharedState slot; Exchanges standing for several
+	// legs of one request share one, made on first use.
+	Shared        *filter.SharedSlot
 	StripeV       emit.Stripe
 	RouteMetricsV *emit.RouteMetrics
 	// PolicyName names the calling Policy in the Charges it makes.
@@ -323,6 +326,14 @@ func (x *Exchange) Final() filter.Final { return x.FinalV }
 
 // PolicyState implements filter.Exchange; one slot for the Filter under test.
 func (x *Exchange) PolicyState() *any { return &x.State }
+
+// SharedState implements filter.Exchange: Shared, made on first use.
+func (x *Exchange) SharedState() *filter.SharedSlot {
+	if x.Shared == nil {
+		x.Shared = new(filter.SharedSlot)
+	}
+	return x.Shared
+}
 
 // Stripe implements filter.Exchange.
 func (x *Exchange) Stripe() emit.Stripe { return x.StripeV }

@@ -32,6 +32,7 @@ import (
 	"sync"
 
 	"github.com/ravindu-rev/ruralz/internal/clock"
+	"github.com/ravindu-rev/ruralz/internal/config/registry"
 	"github.com/ravindu-rev/ruralz/internal/egress"
 	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/filter/auth/apikey"
@@ -53,6 +54,7 @@ import (
 	"github.com/ravindu-rev/ruralz/internal/filter/transform/response"
 	"github.com/ravindu-rev/ruralz/internal/filter/validation/jsonschema"
 	"github.com/ravindu-rev/ruralz/internal/identity"
+	"github.com/ravindu-rev/ruralz/internal/pluginhost"
 	"github.com/ravindu-rev/ruralz/internal/telemetry/emit"
 	"github.com/ravindu-rev/ruralz/pkg/config/v1alpha1"
 )
@@ -103,6 +105,12 @@ type Options struct {
 	// database of authz.geoip, which New reads at once; "" means none, so
 	// every authz.geoip Policy cannot decide.
 	GeoIPDatabaseFile string
+	// PluginSource fetches Plugin artifacts by digest, verified; nil fails
+	// every Plugin with RZ-CFG-028 (artifact unavailable).
+	PluginSource pluginhost.Source
+	// Environment is the Node's Environment name, the rzplg: namespace of
+	// its Plugins' State Store keys.
+	Environment string
 }
 
 // New returns the table of the built-in Filters: a Factory for every
@@ -112,7 +120,8 @@ type Options struct {
 // supervisor starts them: the JWKS manager (auth.jwt), the auth.basic
 // throttle, the GeoIP database (authz.geoip), the rate-limit key table
 // (ratelimit), the quota denial cache, the Response Cache revalidation
-// workers (cache) and the upstream token registry (auth.upstream-oauth2).
+// workers (cache), the upstream token registry (auth.upstream-oauth2)
+// and, once the release serves the plugin type, the Plugin host (plugin).
 // The GeoIP database reads Options.GeoIPDatabaseFile here: a file that
 // cannot be read or is not valid leaves the Node without a database and
 // raises geoip_database_stale, never an error. New fails when the
@@ -159,6 +168,7 @@ func New(o Options) (*filter.Registry, error) {
 	}
 	workers := revalidate.New(revalidate.Options{Clock: o.Clock, Rand: src, Logger: o.Logger, Drops: drops, Status: o.Status})
 	tokens := upstreamoauth2.NewRegistry(upstreamoauth2.Options{Guard: o.Guard, TLS: o.TLS, Clock: o.Clock, Logger: o.Logger})
+	plugins := pluginhost.NewEngine(pluginhost.Options{Clock: o.Clock, Logger: o.Logger, Status: o.Status, Source: o.PluginSource})
 
 	jwtFactory, err := jwt.NewFactory(keys, revoker)
 	if err != nil {
@@ -195,7 +205,14 @@ func New(o Options) (*filter.Registry, error) {
 		v1alpha1.PolicyTypeTransformResponse:    response.Factory{},
 		v1alpha1.PolicyTypeAuthUpstreamOAuth2:   upstreamoauth2.Factory{Registry: tokens},
 	}
-	return filter.NewRegistry(factories, keys, throttle, geo, limits, denials, workers, tokens), nil
+	components := []filter.Component{keys, throttle, geo, limits, denials, workers, tokens}
+	// The plugin type joins the table, with the Plugin host, once the
+	// release serves it (internal/config/registry).
+	if registry.New().Served(v1alpha1.PolicyTypePlugin) {
+		factories[v1alpha1.PolicyTypePlugin] = pluginhost.Factory{Engine: plugins, Environment: o.Environment}
+		components = append(components, plugins)
+	}
+	return filter.NewRegistry(factories, components...), nil
 }
 
 // lockedSource serializes the calls of a rand.Source that the cache

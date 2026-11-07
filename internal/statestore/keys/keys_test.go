@@ -318,3 +318,32 @@ func TestBuildersDoNotAllocate(t *testing.T) {
 		}
 	}
 }
+
+// TestAppendPlugin pins the rzplg: key layout: the Environment name, the
+// length-prefixed Policy name and the guest key, so Policies whose names
+// prefix each other never share keys.
+func TestAppendPlugin(t *testing.T) {
+	cases := []struct {
+		env, policy, key, want string
+	}{
+		{"prod", "geo-block-default", "AQ", "rzplg:prod:17:geo-block-defaultAQ"},
+		{"prod", "a", "bc", "rzplg:prod:1:abc"},
+		{"prod", "ab", "c", "rzplg:prod:2:abc"},
+		{"", "p", "", "rzplg::1:p"},
+		{"staging", "p", "{tag}:k", "rzplg:staging:1:p{tag}:k"},
+	}
+	seen := map[string]string{}
+	for _, tc := range cases {
+		got := string(AppendPlugin(nil, tc.env, tc.policy, tc.key))
+		if got != tc.want {
+			t.Errorf("AppendPlugin(%q, %q, %q) = %q, want %q", tc.env, tc.policy, tc.key, got, tc.want)
+		}
+		if prev, ok := seen[got]; ok {
+			t.Errorf("AppendPlugin gave %q for both %s and %s/%s", got, prev, tc.policy, tc.key)
+		}
+		seen[got] = tc.policy + "/" + tc.key
+		if !Reserved(got) {
+			t.Errorf("Reserved(%q) = false, want true", got)
+		}
+	}
+}

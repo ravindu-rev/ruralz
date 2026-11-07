@@ -1,0 +1,1 @@
+ruralz.yaml:21:18 error RZ-CFG-052 Plugin/geo-block spec.limits.memoryBytes: Plugin "geo-block" limits.memoryBytes 629145600 is above its pool's share of the Node Plugin memory cap (25% of 2147483648 bytes) (lower limits.memoryBytes to at most 536870912 bytes, or raise the Gateway's spec.limits.maxPluginMemoryBytes)

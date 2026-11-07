@@ -32,6 +32,7 @@ const (
 	opInvalidate = "i"
 	kindGCRA     = "g"
 	kindQuota    = "q"
+	kindPlugin   = "p"
 )
 
 // Modes of the generation step (opGeneration, ARGV[2]).

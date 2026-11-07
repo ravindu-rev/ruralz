@@ -139,5 +139,5 @@ Planned (M2) unless tagged:
 
 - Owning document: [WASM plugin system](../architecture/05-wasm-plugin-system.md).
 - Related decisions: [ADR-0001](0001-implementation-language-go.md), [ADR-0019](0019-expressions-authorization-comprehension-stop.md) and [ADR-0017](0017-artifact-signing.md).
-- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius), -19 and -20 (key Host Functions, secret and key fields) and OQ-release-versioning-and-compatibility-10.
+- Open questions: OQ-wasm-plugin-system-8 (adapter declaration, blocking Planned (M4); first measure SDK-built filters' import sets), -13 (ABI levels in Rollouts), -17 (adapter recycling and fault radius) and OQ-release-versioning-and-compatibility-10.
 - Revisit if proxy-wasm gains a capability model and a maintained pure-Go host; admitting outbound calls would add Host Functions within v1, plus a Policy-declared timeout and `failureMode` (pack section 8.7 rule 6) that the Configuration model does not define yet (OQ-wasm-plugin-system-5).

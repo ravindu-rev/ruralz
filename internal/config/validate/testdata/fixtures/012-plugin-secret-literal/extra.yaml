@@ -1,0 +1,59 @@
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: signer
+spec:
+  image: ghcr.io/acme/signer:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  capabilities: [crypto.use]
+  configSchema:
+    type: object
+    properties:
+      token: {x-ruralz-secret: true}
+      key: {x-ruralz-key: {algorithm: ES256, operations: [sign]}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: signer-literal
+spec:
+  type: plugin
+  plugin: signer
+  config:
+    token: plaintext-token
+    key: {secretRef: {provider: file, name: /etc/ruralz/es256.pem}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Policy
+metadata:
+  name: signer-referenced
+spec:
+  type: plugin
+  plugin: signer
+  config:
+    token: {secretRef: {provider: file, name: /etc/ruralz/token}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: bad-key
+spec:
+  image: ghcr.io/acme/bad:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  configSchema:
+    properties:
+      key: {x-ruralz-key: {algorithm: HS256, operations: [sign]}}
+---
+apiVersion: ruralz/v1alpha1
+kind: Plugin
+metadata:
+  name: bad-secret
+spec:
+  image: ghcr.io/acme/bad:1.0.0@sha256:fc37c2971bb6e82aa12a871aed718818afcf45ab42bd093f0cf52f4ad8045435
+  abi: ruralz.plugin.v1
+  phases: [onRequestHeaders]
+  configSchema:
+    properties:
+      token: {x-ruralz-secret: "true"}

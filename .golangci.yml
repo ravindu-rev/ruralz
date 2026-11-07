@@ -39,6 +39,8 @@ linters:
             - github.com/redis/rueidis
             - github.com/santhosh-tekuri/jsonschema/v6
             - github.com/testcontainers/testcontainers-go
+            # M2 modules; each has a Tech stack catalog row.
+            - github.com/tetratelabs/wazero
             - go.opentelemetry.io/contrib/bridges/otelslog
             - go.opentelemetry.io/otel
             - go.opentelemetry.io/proto/otlp
@@ -153,7 +155,7 @@ linters:
             - pkg: github.com/testcontainers
               desc: test tooling, never linked into a binary
         testsupport:
-          files: ["$all", "!$test", "!**/internal/testkit/**", "!**/test/**", "!**/internal/statestore/statestoretest/**", "!**/internal/filter/filtertest/**", "!**/internal/filter/authz/geoip/geoiptest/**", "!**/internal/clock/clocktest/**", "!**/internal/cel/celtest/**", "!**/internal/gateway/handler/handlertest/**"]
+          files: ["$all", "!$test", "!**/internal/testkit/**", "!**/test/**", "!**/internal/statestore/statestoretest/**", "!**/internal/filter/filtertest/**", "!**/internal/filter/authz/geoip/geoiptest/**", "!**/internal/clock/clocktest/**", "!**/internal/cel/celtest/**", "!**/internal/gateway/handler/handlertest/**", "!**/internal/pluginhost/pluginhosttest/**"]
           deny:
             - pkg: github.com/ravindu-rev/ruralz/internal/testkit
               desc: test support is imported by tests only
@@ -168,6 +170,8 @@ linters:
             - pkg: github.com/ravindu-rev/ruralz/internal/cel/celtest
               desc: test support is imported by tests only
             - pkg: github.com/ravindu-rev/ruralz/internal/gateway/handler/handlertest
+              desc: test support is imported by tests only
+            - pkg: github.com/ravindu-rev/ruralz/internal/pluginhost/pluginhosttest
               desc: test support is imported by tests only
         secretresolver:
           files: ["**/internal/cli/**", "**/internal/config/**", "**/internal/control/**", "**/internal/filter/**"]

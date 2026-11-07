@@ -32,11 +32,11 @@ const (
 	sc    = "status_class=1xx|2xx|3xx|4xx|5xx"
 	proto = "protocol=http1|http2"
 	ph    = "phase=onRequestHeaders|onRequestBody|onRoute|onUpstreamRequest|onUpstreamResponseHeaders|onUpstreamResponseBody|onResponse|onLog|onChunk"
-	ops   = "gcra|quota|cache_get|script_multi|pipeline|cache_set|cache_invalidate|refund"
+	ops   = "gcra|quota|cache_get|script_multi|pipeline|cache_set|cache_invalidate|refund|plugin_get|plugin_incr"
 	// singleOps is the `kind` of ruralz_state_ops_total, "any
 	// single-operation op" in Observability: ops without the round-trip
 	// labels.
-	singleOps = "gcra|quota|cache_get|cache_set|cache_invalidate|refund"
+	singleOps = "gcra|quota|cache_get|cache_set|cache_invalidate|refund|plugin_get|plugin_incr"
 )
 
 // contractDeviations lists the families whose committed labels differ
@@ -98,7 +98,7 @@ func m1Families() []family {
 		{StateCallDurationSeconds, Histogram, BoundsFast, "s", []string{"op=" + ops, "zone=same|cross|unknown"}, L, true},
 		{StateCallsTotal, Counter, BoundsNone, "{calls}", []string{"op=" + ops, "result=ok|error|timeout|skipped"}, L, true},
 		{StateOpsTotal, Counter, BoundsNone, "{operations}", []string{"kind=" + singleOps}, L, true},
-		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []string{"kind=refund|cache_set|cache_invalidate"}, L, false},
+		{StateWritesDroppedTotal, Counter, BoundsNone, "{writes}", []string{"kind=refund|cache_set|cache_invalidate|plugin_incr"}, L, false},
 		{StateWriteQueueItems, Gauge, BoundsNone, "{items}", nil, L, false},
 		{StateInflightCalls, Gauge, BoundsNone, "{calls}", nil, L, false},
 		{ConfigRevisionInfo, Gauge, BoundsNone, "1", []string{"revision", "role=active|lkg"}, L, false},
@@ -330,13 +330,14 @@ func TestLookup(t *testing.T) {
 func TestReasons(t *testing.T) {
 	// The M1 degraded reasons plus crl_stale and
 	// cache_revalidation_saturated, then the authz.geoip database's
-	// geoip_database_stale.
+	// geoip_database_stale and the Plugin host's reasons.
 	want := []string{
 		"lkg_boot", "lkg_write_failed", "state_store_memory_fallback", "state_store_unauthenticated",
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
-		"cache_revalidation_saturated", "geoip_database_stale",
+		"cache_revalidation_saturated", "geoip_database_stale", "plugin_pool_degraded",
+		"plugin_parked_bound_low", "plugin_memlimit",
 	}
 	if !slices.Equal(ReasonNames(), want) {
 		t.Fatalf("ReasonNames = %v", ReasonNames())
@@ -410,8 +411,9 @@ func TestHops(t *testing.T) {
 }
 
 func TestOpsAndWriteKinds(t *testing.T) {
-	// The M1 op enumeration: single ops first, then round-trip labels,
-	// then post-commit write kinds.
+	// The op enumeration: the M1 single ops first, then the round-trip
+	// labels, then the post-commit write kinds, then the Plugin host's
+	// plugin_get and plugin_incr.
 	if got := strings.Join(Ops(), "|"); got != ops {
 		t.Fatalf("Ops = %s", got)
 	}

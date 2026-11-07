@@ -153,8 +153,9 @@ func DigestOf(s string) Digest { return sha256.Sum256([]byte(s)) }
 // OpKind is one operation; String returns the ruralz_state_* op label.
 type OpKind uint8
 
-// Operations of M1. M2/M3 add budget, settle, semantic_get,
-// semantic_set and the Plugin operations.
+// Operations: the M1 operations, then the Plugin operations of M2 (a
+// guest's state_get and state_incr on its rzplg: keys). M3 adds budget,
+// settle, semantic_get and semantic_set.
 const (
 	OpGCRA OpKind = iota + 1
 	OpQuota
@@ -162,6 +163,8 @@ const (
 	OpCacheSet
 	OpCacheInvalidate
 	OpRefund
+	OpPluginGet
+	OpPluginIncr
 )
 
 // String returns the op label.
@@ -179,6 +182,10 @@ func (o OpKind) String() string {
 		return "cache_invalidate"
 	case OpRefund:
 		return "refund"
+	case OpPluginGet:
+		return "plugin_get"
+	case OpPluginIncr:
+		return "plugin_incr"
 	default:
 		return ""
 	}
@@ -202,6 +209,10 @@ func (o OpKind) Label() int {
 		return emit.StateOpCacheInvalidate
 	case OpRefund:
 		return emit.StateOpRefund
+	case OpPluginGet:
+		return emit.StateOpPluginGet
+	case OpPluginIncr:
+		return emit.StateOpPluginIncr
 	default:
 		return -1
 	}
@@ -218,6 +229,8 @@ func (o OpKind) WriteLabel() int {
 		return emit.WriteCacheSet
 	case OpCacheInvalidate:
 		return emit.WriteCacheInvalidate
+	case OpPluginIncr:
+		return emit.WritePluginIncr
 	default:
 		return -1
 	}
@@ -425,6 +438,26 @@ type CacheLookup struct {
 	Resident time.Duration
 }
 
+// PluginState is one Plugin State Store operation on a guest key
+// (docs/architecture/05-wasm-plugin-system.md "Host Function rules", State
+// Store): OpPluginGet reads the key's value; OpPluginIncr adds Delta to
+// the key's integer, which takes TTL as its expiry when it has none, so a
+// key the increment creates expires TTL after it, and returns the new
+// value. Guests write only through increments, so values are decimal
+// integers of at most 20 bytes.
+type PluginState struct {
+	// Key is the full rzplg: key (pluginhost.StateKey).
+	Key string
+	// Delta and TTL are an increment's.
+	Delta int64
+	TTL   time.Duration
+
+	// Found and Value are a read's result; N is an increment's new value.
+	Found bool
+	Value []byte
+	N     int64
+}
+
 // Call is one Policy's blocking operation and outcome; callers own it.
 // Exactly one operation field is used, selected by Kind.
 type Call struct {
@@ -433,6 +466,9 @@ type Call struct {
 	GCRA    GCRA
 	Quota   Quota
 	Lookup  CacheLookup
+	// Plugin is the operation of OpPluginGet (a Read call) and
+	// OpPluginIncr (a Consume call).
+	Plugin PluginState
 
 	// Done is true when the store decided (false after an earlier deny).
 	Done bool
@@ -541,7 +577,7 @@ type CacheLease struct {
 
 // Write is one post-commit write.
 type Write struct {
-	Kind OpKind // OpRefund, OpCacheSet, OpCacheInvalidate
+	Kind OpKind // OpRefund, OpCacheSet, OpCacheInvalidate, OpPluginIncr
 	// Timeout is the effective stateStoreTimeout of the Policy that
 	// enqueued the write (the per-request RequestBudget does not apply).
 	// The enqueuing Filter sets it from BuildEnv.StateStoreTimeout: quota
@@ -554,6 +590,9 @@ type Write struct {
 	Cache      CacheStore
 	Lease      CacheLease
 	Invalidate Digest // URI digest for OpCacheInvalidate
+	// Plugin is the onLog state_incr of a Plugin (OpPluginIncr); its
+	// result is discarded.
+	Plugin PluginState
 	// Bump is the fresh token OpCacheInvalidate sets the URI's generation
 	// key to (SET with the 26 h TTL), so no entry written under an earlier
 	// token hits again.
@@ -582,7 +621,7 @@ const (
 	ClassSettle WriteClass = iota + 1 // Quota refunds (Token Budget settlement M3)
 	ClassInvalidate
 	ClassStore
-	ClassPlugin // M2; empty in M1
+	ClassPlugin // Plugin onLog writes: a sub-queue that never displaces settlement
 )
 
 // Enqueuer is the bounded post-commit queue. Enqueue never blocks and

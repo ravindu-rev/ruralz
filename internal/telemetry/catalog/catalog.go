@@ -171,11 +171,12 @@ func statusClasses() []string { return []string{"1xx", "2xx", "3xx", "4xx", "5xx
 
 // Ops returns the State Store op values (M1 subset first).
 func Ops() []string {
-	return []string{"gcra", "quota", "cache_get", "script_multi", "pipeline", "cache_set", "cache_invalidate", "refund"}
+	return []string{"gcra", "quota", "cache_get", "script_multi", "pipeline", "cache_set", "cache_invalidate", "refund", "plugin_get", "plugin_incr"}
 }
 
-// WriteKinds returns the dropped-write kinds of M1.
-func WriteKinds() []string { return []string{"refund", "cache_set", "cache_invalidate"} }
+// WriteKinds returns the dropped-write kinds: the M1 kinds, then the
+// Plugin onLog increments.
+func WriteKinds() []string { return []string{"refund", "cache_set", "cache_invalidate", "plugin_incr"} }
 
 // Zones returns the zone values of ruralz_state_call_duration_seconds in
 // label order, a closed enumeration that operator settings decide, never
@@ -344,6 +345,10 @@ const (
 	ReasonCRLStale
 	ReasonCacheRevalidationSaturated
 	ReasonGeoIPDatabaseStale
+	// Plugin host reasons (docs/architecture/05-wasm-plugin-system.md).
+	ReasonPluginPoolDegraded
+	ReasonPluginParkedBoundLow
+	ReasonPluginMemlimit
 	NumReasons
 )
 
@@ -362,7 +367,8 @@ func ReasonNames() []string {
 		"state_store_breaker_open", "state_store_eviction_policy", "upstream_panic", "discovery_stale",
 		"balancer_budget", "probes_skipped", "header_limit_capped", "snapshot_ending_overdue",
 		"secret_rotation_failed", "jwks_stale", "cleartext_hop", "telemetry_export_failing", "crl_stale",
-		"cache_revalidation_saturated", "geoip_database_stale",
+		"cache_revalidation_saturated", "geoip_database_stale", "plugin_pool_degraded",
+		"plugin_parked_bound_low", "plugin_memlimit",
 	}
 }
 
@@ -450,4 +456,9 @@ const (
 	KeyStack        = "stack"
 	KeyErrorType    = "error_type"
 	KeyMetric       = "metric" // a metric family name
+	KeyPlugin       = "plugin"
+	KeyGuestText    = "guest_text"
+	KeyTruncated    = "truncated"
+	KeyBytes        = "bytes"
+	KeyBound        = "bound"
 )

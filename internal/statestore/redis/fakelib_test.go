@@ -244,6 +244,30 @@ func (s *fakeServer) libConsume(keys, argv []string, sec, usec, nowMs int64) str
 				s.pexpireAt(key, at)
 			}
 			out = append(out, array(integer(1), integer(n), integer(int64(ws))))
+		case kindPlugin:
+			delta, okD := luaArg(argv, a+1)
+			ttl, okT := tonumber(luaArg(argv, a+2))
+			if _, isNum := tonumber(delta, okD); !isNum || !okT || ttl < 1 || ttl != math.Floor(ttl) {
+				return bad("increment")
+			}
+			a += 3
+			key, ok := luaKey(keys, k)
+			if !ok {
+				return errorReply(badArgs)
+			}
+			by, perr := strconv.ParseInt(delta, 10, 64)
+			if perr != nil {
+				return errorReply("ERR value is not an integer or out of range")
+			}
+			if _, err := s.incrBy(key, by); err != "" {
+				return err
+			}
+			if s.pttl(key) < 0 {
+				s.pexpireAt(key, nowMs+int64(ttl))
+			}
+			v, _ := s.get(key)
+			out = append(out, array(integer(1), bulk(v)))
+			k++
 		default:
 			return bad("kind")
 		}
@@ -261,6 +285,10 @@ func (s *fakeServer) incrBy(k string, by int64) (int64, string) {
 			return 0, errorReply("ERR value is not an integer or out of range")
 		}
 		exp = s.strs[k].exp
+	}
+	if (by > 0 && n > math.MaxInt64-by) || (by < 0 && n < math.MinInt64-by) {
+		// Redis refuses an increment past the int64 range.
+		return 0, errorReply("ERR increment or decrement would overflow")
 	}
 	n += by
 	s.strs[k] = fstr{v: strconv.FormatInt(n, 10), exp: exp}

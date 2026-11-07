@@ -420,6 +420,12 @@ ruralz_state_call_duration_seconds{op="cache_invalidate",zone="unknown"} count=0
 ruralz_state_call_duration_seconds{op="refund",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
 ruralz_state_call_duration_seconds{op="refund",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
 ruralz_state_call_duration_seconds{op="refund",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_get",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_get",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_get",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_incr",zone="same"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_incr",zone="cross"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
+ruralz_state_call_duration_seconds{op="plugin_incr",zone="unknown"} count=0 sum=0 buckets=[0 0 0 0 0 0 0 0 0 0 0 0 0 0] start=0s
 # ruralz_state_calls_total counter {calls} monotonic=true cumulative=true
 ruralz_state_calls_total{op="gcra",result="ok"} 1 start=0s
 ruralz_state_calls_total{op="gcra",result="error"} 0 start=0s
@@ -453,6 +459,14 @@ ruralz_state_calls_total{op="refund",result="ok"} 0 start=0s
 ruralz_state_calls_total{op="refund",result="error"} 0 start=0s
 ruralz_state_calls_total{op="refund",result="timeout"} 0 start=0s
 ruralz_state_calls_total{op="refund",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="plugin_get",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="plugin_get",result="error"} 0 start=0s
+ruralz_state_calls_total{op="plugin_get",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="plugin_get",result="skipped"} 0 start=0s
+ruralz_state_calls_total{op="plugin_incr",result="ok"} 0 start=0s
+ruralz_state_calls_total{op="plugin_incr",result="error"} 0 start=0s
+ruralz_state_calls_total{op="plugin_incr",result="timeout"} 0 start=0s
+ruralz_state_calls_total{op="plugin_incr",result="skipped"} 0 start=0s
 # ruralz_state_ops_total counter {operations} monotonic=true cumulative=true
 ruralz_state_ops_total{kind="gcra"} 0 start=0s
 ruralz_state_ops_total{kind="quota"} 0 start=0s
@@ -462,10 +476,13 @@ ruralz_state_ops_total{kind="pipeline"} 0 start=0s
 ruralz_state_ops_total{kind="cache_set"} 0 start=0s
 ruralz_state_ops_total{kind="cache_invalidate"} 0 start=0s
 ruralz_state_ops_total{kind="refund"} 0 start=0s
+ruralz_state_ops_total{kind="plugin_get"} 0 start=0s
+ruralz_state_ops_total{kind="plugin_incr"} 0 start=0s
 # ruralz_state_writes_dropped_total counter {writes} monotonic=true cumulative=true
 ruralz_state_writes_dropped_total{kind="refund"} 0 start=0s
 ruralz_state_writes_dropped_total{kind="cache_set"} 0 start=0s
 ruralz_state_writes_dropped_total{kind="cache_invalidate"} 0 start=0s
+ruralz_state_writes_dropped_total{kind="plugin_incr"} 0 start=0s
 # ruralz_state_write_queue_items gauge {items}
 ruralz_state_write_queue_items{} 0 start=0s
 # ruralz_state_inflight_calls gauge {calls}
@@ -519,6 +536,9 @@ ruralz_node_degraded_info{reason="telemetry_export_failing"} 0 start=0s
 ruralz_node_degraded_info{reason="crl_stale"} 0 start=0s
 ruralz_node_degraded_info{reason="cache_revalidation_saturated"} 0 start=0s
 ruralz_node_degraded_info{reason="geoip_database_stale"} 0 start=0s
+ruralz_node_degraded_info{reason="plugin_pool_degraded"} 0 start=0s
+ruralz_node_degraded_info{reason="plugin_parked_bound_low"} 0 start=0s
+ruralz_node_degraded_info{reason="plugin_memlimit"} 0 start=0s
 # ruralz_node_buffered_bytes gauge By
 ruralz_node_buffered_bytes{} 0 start=0s
 # ruralz_telemetry_spans_total counter {spans} monotonic=true cumulative=true
@@ -571,7 +591,7 @@ ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_degraded_info"} 0
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_cel_errors_total"} 0 start=0s
 ruralz_telemetry_folded_label_sets{instrument="ruralz_upstream_pool_connections"} 0 start=0s
 # ruralz_telemetry_series gauge {series}
-ruralz_telemetry_series{state="live"} 1560 start=0s
+ruralz_telemetry_series{state="live"} 1670 start=0s
 ruralz_telemetry_series{state="retiring"} 10 start=0s
 # ruralz_tap_events_dropped_total counter {events} monotonic=true cumulative=true
 ruralz_tap_events_dropped_total{} 0 start=0s

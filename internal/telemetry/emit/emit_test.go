@@ -60,7 +60,7 @@ func TestLabelIndexes(t *testing.T) {
 		{catalog.UpstreamPoolConnections, "state", map[int]string{PoolIdle: "idle", PoolActive: "active"}, NumPoolStates},
 		{catalog.StateCallsTotal, "result", map[int]string{StateResultOK: "ok", StateResultError: "error", StateResultTimeout: "timeout", StateResultSkipped: "skipped"}, NumStateResults},
 		{catalog.StateCallDurationSeconds, "zone", map[int]string{StateZoneSame: "same", StateZoneCross: "cross", StateZoneUnknown: "unknown"}, NumStateZones},
-		{catalog.StateWritesDroppedTotal, "kind", map[int]string{WriteRefund: "refund", WriteCacheSet: "cache_set", WriteCacheInvalidate: "cache_invalidate"}, NumWriteKinds},
+		{catalog.StateWritesDroppedTotal, "kind", map[int]string{WriteRefund: "refund", WriteCacheSet: "cache_set", WriteCacheInvalidate: "cache_invalidate", WritePluginIncr: "plugin_incr"}, NumWriteKinds},
 	}
 	for _, tt := range tests {
 		t.Run(tt.family+"/"+tt.label, func(t *testing.T) {
@@ -91,6 +91,7 @@ func TestStateOpIndexes(t *testing.T) {
 	want := map[int]string{
 		StateOpGCRA: "gcra", StateOpQuota: "quota", StateOpCacheGet: "cache_get", StateOpScriptMulti: "script_multi",
 		StateOpPipeline: "pipeline", StateOpCacheSet: "cache_set", StateOpCacheInvalidate: "cache_invalidate", StateOpRefund: "refund",
+		StateOpPluginGet: "plugin_get", StateOpPluginIncr: "plugin_incr",
 	}
 	ops := catalog.Ops()
 	if NumStateOps != len(ops) || len(want) != len(ops) {
@@ -115,7 +116,7 @@ func TestStateOpIndexes(t *testing.T) {
 		}
 	}
 	kinds := catalog.WriteKinds()
-	for i, name := range map[int]string{WriteRefund: "refund", WriteCacheSet: "cache_set", WriteCacheInvalidate: "cache_invalidate"} {
+	for i, name := range map[int]string{WriteRefund: "refund", WriteCacheSet: "cache_set", WriteCacheInvalidate: "cache_invalidate", WritePluginIncr: "plugin_incr"} {
 		if kinds[i] != name {
 			t.Errorf("Write index %d is %q in catalog.WriteKinds(), want %q", i, kinds[i], name)
 		}

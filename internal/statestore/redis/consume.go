@@ -254,6 +254,11 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 				return false
 			}
 			nkeys += 2
+		case statestore.OpPluginIncr:
+			if c.Plugin.TTL < time.Millisecond {
+				return false
+			}
+			nkeys++
 		default:
 			return false
 		}
@@ -269,6 +274,10 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 			}
 			continue
 		}
+		if c.Kind == statestore.OpPluginIncr {
+			tr.key(c.Plugin.Key)
+			continue
+		}
 		q := &c.Quota
 		a, b := statestore.QuotaCandidates(nodeMs, q.Window, q.Month)
 		tr.key(string(keys.AppendQuotaCounter(buf[:0], q.Name, q.Window, q.Month, time.UnixMilli(a.Start), q.Digest)))
@@ -277,6 +286,12 @@ func (d *Driver) encodeConsume(tr *trip, group []*statestore.Call) bool {
 	tr.arg(opConsume)
 	tr.arg(strconv.Itoa(len(group)))
 	for _, c := range group {
+		if c.Kind == statestore.OpPluginIncr {
+			tr.arg(kindPlugin)
+			tr.arg(strconv.FormatInt(c.Plugin.Delta, 10))
+			tr.arg(strconv.FormatInt(c.Plugin.TTL.Milliseconds(), 10))
+			continue
+		}
 		if c.Kind == statestore.OpGCRA {
 			g := &c.GCRA
 			cost, _ := statestore.Cost(g.Cost)
@@ -338,9 +353,12 @@ func (d *Driver) parseConsume(m rueidis.RedisMessage, group []*statestore.Call) 
 		}
 		c := group[i]
 		ok := false
-		if c.Kind == statestore.OpGCRA {
+		switch c.Kind {
+		case statestore.OpGCRA:
 			ok = gcraOutcome(&c.GCRA, sub[1:], now, allowed)
-		} else {
+		case statestore.OpPluginIncr:
+			ok = pluginOutcome(&c.Plugin, sub[1:], allowed)
+		default:
 			ok = quotaOutcome(&c.Quota, sub[1:], now, allowed)
 		}
 		if !ok {
@@ -465,4 +483,22 @@ func (d *Driver) logSkew(ctx context.Context, group []*statestore.Call, err erro
 	q := &group[i-1].Quota
 	d.log.WarnContext(ctx, "state store clock skew beyond half a quota window; call failed",
 		catalog.KeyCode, statestore.ErrFailed.Code(), "quota", q.Name, "window", quotaWindowName(q))
+}
+
+// pluginOutcome reads a Plugin increment's new value: the key's exact
+// decimal text after INCRBY. An increment always applies.
+func pluginOutcome(ps *statestore.PluginState, msgs []rueidis.RedisMessage, allowed bool) bool {
+	if !allowed || len(msgs) != 1 {
+		return false
+	}
+	s, err := msgs[0].ToString()
+	if err != nil {
+		return false
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return false
+	}
+	ps.N = n
+	return true
 }

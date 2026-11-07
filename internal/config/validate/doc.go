@@ -36,7 +36,13 @@
 //     addresses and dns discovery as internal/netaddr parses them for the
 //     Upstream layer; a Policy filterClass the registry accepts; a
 //     Consumer quota window of at least 1s in whole seconds.
-//   - RZ-CFG-021: a Plugin image pinned by its full @sha256 digest.
+//   - RZ-CFG-021: a Plugin image pinned by its full @sha256 digest, and
+//     configSchema markers the host honors: x-ruralz-secret true, and
+//     x-ruralz-key declarations that name a JWA algorithm the host offers
+//     with operations its keys support.
+//   - RZ-CFG-012: a literal in a plugin Policy config field its Plugin's
+//     configSchema marks x-ruralz-secret or x-ruralz-key
+//     (internal/pluginhost/configschema).
 //   - RZ-CFG-031 and RZ-CFG-032: composition steps within
 //     limits.maxCompositionSteps, and explicit maxBodyBytes values within
 //     limits.maxResponseBodyBytes, leaving each other step a share.
@@ -50,6 +56,10 @@
 //   - RZ-CFG-023: two Routes with equal routematch.MatchKey on a common
 //     listener.
 //   - RZ-CFG-041: one secret used with two destinations.
+//   - RZ-CFG-052: Plugin pools that can never fit the Node Plugin memory
+//     cap: a limits.memoryBytes above its pool's share, or warm minimums,
+//     one instance per pool of distinct image digest, limits and
+//     canonical config, above the cap together.
 //
 // The schema states, and stage F reports, an empty expression in any CEL
 // field, ring-hash without hashKey, a plugin Policy without plugin, a step
@@ -63,7 +73,8 @@
 //
 // Run lists every secretRef use (Result.Secrets, hub.Validated.Secrets)
 // with the kind of value it holds, which selects the Node's check, and its
-// destination: the origin of the tokenUrl for an auth.upstream-oauth2
+// destination, the secret and key fields of plugin Policy configs
+// included: the origin of the tokenUrl for an auth.upstream-oauth2
 // clientSecret, hub.DestinationStateStore for stateStore.url and
 // stateStore.cache.url, hub.DestinationLocal for everything else.
 //

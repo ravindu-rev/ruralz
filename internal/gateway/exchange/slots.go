@@ -4,6 +4,7 @@
 package exchange
 
 import (
+	"github.com/ravindu-rev/ruralz/internal/filter"
 	"github.com/ravindu-rev/ruralz/internal/gateway/snapshot"
 )
 
@@ -96,4 +97,24 @@ func before(a, b *snapshot.Policy) bool {
 	default:
 		return a.Position < b.Position
 	}
+}
+
+// sharedAt returns the request-wide slot of p (filter.Exchange.SharedState)
+// by its name, creating it on first use; a call outside any Policy gets a
+// slot of its own that nothing else reads.
+func (x *Request) sharedAt(p *snapshot.Policy) *filter.SharedSlot {
+	if p == nil {
+		return new(filter.SharedSlot)
+	}
+	x.legMu.Lock()
+	defer x.legMu.Unlock()
+	s := x.shared[p.Name]
+	if s == nil {
+		if x.shared == nil {
+			x.shared = map[string]*filter.SharedSlot{}
+		}
+		s = new(filter.SharedSlot)
+		x.shared[p.Name] = s
+	}
+	return s
 }
