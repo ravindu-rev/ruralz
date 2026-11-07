@@ -77,7 +77,7 @@ Deadlines the Go runtime enforces on sockets stay on real time in that build: `h
 
 ### Required properties
 
-Each property is a `testing.F` target, with no property library, whose seeds the `unit` job runs. `test/property` holds one target per row due by the current milestone, driving the real packages end to end: the loader through `internal/config/pipeline` to the Revision; the CLI commands in process wherever a property names an exit code; the `ratelimit` Filter on N simulated Nodes over one shared State Store; and `internal/gateway/source`, `reload` and `lkg` together. The per-package targets stay as unit-level properties.
+Each property is a `testing.F` target, with no property library, whose seeds the `unit` job runs. `test/property` holds one target per row, each landing with the work it covers and due by its milestone's exit, driving the real packages end to end: the loader through `internal/config/pipeline` to the Revision; the CLI commands in process wherever a property names an exit code; the `ratelimit` Filter on N simulated Nodes over one shared State Store; and `internal/gateway/source`, `reload` and `lkg` together. The per-package targets stay as unit-level properties.
 
 | Area | Property | Source | Milestone |
 |---|---|---|---|
@@ -94,7 +94,7 @@ Each property is a `testing.F` target, with no property library, whose seeds the
 | Last-Known-Good, Control mode | A candidate is promoted exactly when the active digest equals the promoted digest, also after reconnect, Enrollment or scale-out; never after a failed canary | Pack section 8.2 | Planned (M2) |
 | Last-Known-Good, file mode | Under random renders, failures at every gate step, failed or interrupted candidate writes, restarts and handovers: a Revision becomes the candidate and Last-Known-Good only by activation, only the lock holder writes, and boot takes a valid Bundle, else a verified Last-Known-Good, else stays not ready | Pack section 8.2, [Last-Known-Good files](../architecture/03-data-plane.md#last-known-good-files), [Validation gate](../operations/02-zero-downtime-upgrades-and-hot-reload.md#validation-gate) | Planned (M1) |
 
-A registry in `test/property` maps each row's Area to its target. `TestRequiredProperties` reads the current milestone from the first milestone section of the [Roadmap](../roadmap/01-roadmap-and-milestones.md), and fails when a row due by that milestone has no registered target, when a registered target does not exist, or when a registered Area names no row.
+A registry in `test/property` maps each row's Area to its target. `TestRequiredProperties` reads the current milestone from the first milestone section of the [Roadmap](../roadmap/01-roadmap-and-milestones.md), and fails when a row of an exited milestone, one before the current, has no registered target, when a registered target does not exist, or when a registered Area names no row. A milestone therefore cannot exit, which removes its roadmap section, until every one of its rows has a target.
 
 The Token Budget target's seeds include the scenario of SM-10 ([Success metrics](../vision/01-vision-and-positioning.md#success-metrics)), on which it also checks that overshoot stays at or below 1% of B (hypothesis).
 

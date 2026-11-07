@@ -25,9 +25,11 @@
 // (requiredTargets) maps each row's Area to its target, and TestRequiredProperties
 // ties every row to it: it reads the current milestone from the first
 // milestone section of docs/roadmap/01-roadmap-and-milestones.md and fails
-// when a row due by that milestone has no registered target, when a
-// registered target does not exist in this package, or when a registered
-// Area names no row.
+// when a row of an exited milestone, one before the current, has no
+// registered target, when a registered target does not exist in this
+// package, or when a registered Area names no row. A milestone's rows are
+// due by its exit, so the current milestone's rows may still lack their
+// targets, and the milestone cannot exit until each has one.
 //
 // Every target is hermetic: time comes from internal/clock fakes,
 // randomness from the fuzzed seed, and nothing but loopback is reached.
@@ -75,8 +77,8 @@ type target struct {
 }
 
 // requiredTargets returns the Area of every row this package covers with its
-// target. A row due by a later milestone joins when its milestone is the
-// current one.
+// target. A row of the current or a later milestone joins when its target
+// lands, and must have joined by the time its milestone exits.
 func requiredTargets() []target {
 	return []target{
 		{Area: "Canonical form", Fuzz: "FuzzCanonicalForm"},
@@ -133,9 +135,10 @@ func TestRequiredProperties(t *testing.T) {
 }
 
 // checkRegistry returns every way reg fails to tie rows to targets: a row
-// due by milestone current without a registered target, a registered
-// target that is not among targets, a registered Area that names no row,
-// and an Area listed twice in the table or the registry.
+// of a milestone before current, which has exited, without a registered
+// target, a registered target that is not among targets, a registered Area
+// that names no row, and an Area listed twice in the table or the
+// registry.
 func checkRegistry(rows []row, current int, reg []target, targets map[string]bool) []string {
 	var problems []string
 	byArea := map[string]row{}
@@ -159,8 +162,8 @@ func checkRegistry(rows []row, current int, reg []target, targets map[string]boo
 		}
 	}
 	for _, r := range rows {
-		if r.Milestone <= current && !registered[r.Area] {
-			problems = append(problems, fmt.Sprintf("Area %q is due by M%d, the current milestone M%d, and has no registered target", r.Area, r.Milestone, current))
+		if r.Milestone < current && !registered[r.Area] {
+			problems = append(problems, fmt.Sprintf("Area %q is due by M%d, which exited before the current milestone M%d, and has no registered target", r.Area, r.Milestone, current))
 		}
 	}
 	return problems
@@ -338,14 +341,15 @@ func TestCheckRegistry(t *testing.T) {
 		targets map[string]bool
 		want    []string
 	}{
-		{name: "every due row registered, a later row without a target", rows: rows, current: 1, reg: reg, targets: targets},
+		{name: "every exited milestone's row registered, the current milestone's row without a target", rows: rows, current: 2, reg: reg, targets: targets},
+		{name: "the current milestone's rows are not yet due", rows: rows, current: 1, reg: nil, targets: targets},
 		{
-			name: "a due row without a target", rows: rows, current: 1, reg: reg[:1], targets: targets,
-			want: []string{`Area "B" is due by M1, the current milestone M1, and has no registered target`},
+			name: "an exited milestone's row without a target", rows: rows, current: 2, reg: reg[:1], targets: targets,
+			want: []string{`Area "B" is due by M1, which exited before the current milestone M2, and has no registered target`},
 		},
 		{
-			name: "the next milestone's rows become due", rows: rows, current: 2, reg: reg, targets: targets,
-			want: []string{`Area "Later" is due by M2, the current milestone M2, and has no registered target`},
+			name: "a milestone's rows become due when it exits", rows: rows, current: 3, reg: reg, targets: targets,
+			want: []string{`Area "Later" is due by M2, which exited before the current milestone M3, and has no registered target`},
 		},
 		{
 			name: "a registered target that does not exist", rows: rows, current: 1, reg: reg, targets: map[string]bool{"FuzzA": true},
