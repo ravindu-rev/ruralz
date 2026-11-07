@@ -10,7 +10,7 @@ status: accepted
 
 A Rate Limit is a `ratelimit` Policy (admission class, `onRequestHeaders`, default `failureMode: open`, pack section 10) whose `config.key` (CEL) partitions traffic; each `config.limits[]` entry allows `requests` per `window` ([Configuration model](../architecture/02-configuration-model.md#policy)). Every Node of a Cluster shares one State Store, so a limit holds per Cell (pack section 8.13).
 
-Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never wait on a peer (P3) and make at most one blocking State Store round trip per Policy (pack section 8.7), and what happens when the State Store fails? Stateful, State Store-backed rate limiting ships in every build, Planned (M1).
+Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never wait on a peer (P3) and make at most one blocking State Store round trip per Policy (pack section 8.7), and what happens when the State Store fails? Stateful, State Store-backed rate limiting ships in every build.
 
 ## Decision drivers
 
@@ -31,7 +31,7 @@ Which algorithm enforces a Cell-wide limit when Nodes are disposable (P4), never
 
 ## Decision outcome
 
-Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket answers most denials and shields shards from denied and pinned traffic without a round trip, GCRA keeps one timestamp per key and is exact within one store ([source](https://brandur.org/rate-limiting)), and fail-open, Stripe's default too ([source](https://stripe.com/blog/rate-limiters)), stays bounded by the local buckets. Rules, all Planned (M1):
+Chosen option: "Local bucket plus GCRA, fail-open", because the local bucket answers most denials and shields shards from denied and pinned traffic without a round trip, GCRA keeps one timestamp per key and is exact within one store ([source](https://brandur.org/rate-limiting)), and fail-open, Stripe's default too ([source](https://stripe.com/blog/rate-limiters)), stays bounded by the local buckets. Rules:
 
 | Aspect | Rule |
 |---|---|
@@ -89,10 +89,10 @@ flowchart TD
 
 ### Confirmation
 
-- **Integration tests**, Planned (M1): against Redis 8, Valkey, Dragonfly and clustered servers, the script's allow and deny sequences, τ, all-or-nothing updates and the `NOSCRIPT` path ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); a hot key above the shard hypothesis opens the breaker and co-tenants apply `failureMode`.
-- **Round-trip test**, Planned (M1): a counting State Store proxy asserts pack section 8.7 rules 1 to 4 for every M1 State Store Policy type, counting request-path commands only: zero commands for local denials, over-limit cache hits and cached Quota denials; at most one blocking call per admitted request per Policy; one shared script when consumptive keys share a hash slot; one pipelined read batch per Response Cache lookup; refunds and cache stores only after the response ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
-- **Rate Limit property test**, Planned (M1): the `ratelimit` Filter on N simulated Nodes over one shared State Store keeps admission per key within `requests` + `burst` per window while the State Store is healthy, and within N × per-Node ceiling per window (target) for `localOnly` Policies, for first-seen keys on local-only entries and while failing open ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
-- **Dependency admission**, Planned (M0): the Rate limiting row of the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) lists redis_rate and throttled as alternatives not chosen.
+- **Integration tests**: against Redis 8, Valkey, Dragonfly and clustered servers, the script's allow and deny sequences, τ, all-or-nothing updates and the `NOSCRIPT` path ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)); a hot key above the shard hypothesis opens the breaker and co-tenants apply `failureMode`.
+- **Round-trip test**: a counting State Store proxy asserts pack section 8.7 rules 1 to 4 for every M1 State Store Policy type, counting request-path commands only: zero commands for local denials, over-limit cache hits and cached Quota denials; at most one blocking call per admitted request per Policy; one shared script when consumptive keys share a hash slot; one pipelined read batch per Response Cache lookup; refunds and cache stores only after the response ([Integration tests](../engineering/03-testing-and-quality-strategy.md#integration-tests)).
+- **Rate Limit property test**: the `ratelimit` Filter on N simulated Nodes over one shared State Store keeps admission per key within `requests` + `burst` per window while the State Store is healthy, and within N × per-Node ceiling per window (target) for `localOnly` Policies, for first-seen keys on local-only entries and while failing open ([Required properties](../engineering/03-testing-and-quality-strategy.md#required-properties)).
+- **Dependency admission**: the Rate limiting row of the [Library catalog](../engineering/01-tech-stack-and-libraries.md#library-catalog) lists redis_rate and throttled as alternatives not chosen.
 - **Amendment trigger**: a change to per-request State Store calls, ceiling derivation or the default `failureMode` MUST amend this ADR.
 
 ## Pros and cons of the options

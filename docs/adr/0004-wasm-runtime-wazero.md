@@ -85,12 +85,12 @@ flowchart LR
 
 ### Confirmation
 
-- **Import rule**, Planned (M0): depguard rejects `github.com/tetratelabs/wazero` outside `internal/pluginhost` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
-- **G1 cross-build and license gate**, Planned (M0): all three binaries build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64, and the gate reads the linked package set ([Admission](../engineering/01-tech-stack-and-libraries.md#admission)).
+- **Import rule**: depguard rejects `github.com/tetratelabs/wazero` outside `internal/pluginhost` ([Banned imports](../engineering/02-repository-layout-and-conventions.md#banned-imports)).
+- **G1 cross-build and license gate**: all three binaries build with `CGO_ENABLED=0` for linux/amd64 and linux/arm64, and the gate reads the linked package set ([Admission](../engineering/01-tech-stack-and-libraries.md#admission)).
 - **Plugin ABI conformance suite** in the PR pipeline's `integration` job, Planned (M2): trap, timeout and memory cases return the same `RZ-PLG` codes on both hosts in compiler mode; a parked `state_get` outlasting `limits.timeout` returns without `RZ-PLG-002`, and the guest then looping past its remaining time gets `RZ-PLG-002` ([Conformance suites](../engineering/03-testing-and-quality-strategy.md#conformance-suites)).
 - **Node memory bound**, Planned (M2): at the Node cap, with every instance at its limit and `GOMEMLIMIT` = M_node, resident memory stays at or below `GOMEMLIMIT` / 0.9 (target).
 - **Fuzzing**, Planned (M2): one target per Host Function group; out-of-bounds guest pointers trap the guest, never the host ([Fuzzing](../engineering/03-testing-and-quality-strategy.md#fuzzing)).
-- **`govulncheck`** on every pull request, Planned (M0); SM-13 keeps unpatched sandbox escapes older than 30 days at zero (target).
+- **`govulncheck`** on every pull request; SM-13 keeps unpatched sandbox escapes older than 30 days at zero (target).
 - **Amendment trigger**: a pull request that uses `NewRuntimeConfig()`, enables `NewCompilationCacheWithDir`, disables `WithCloseOnContextDone`, gives it a deadline context, omits `WithMemoryLimitPages` or `WithMemoryCapacityFromMax`, or adds a second WebAssembly runtime MUST amend this ADR.
 
 ## Pros and cons of the options

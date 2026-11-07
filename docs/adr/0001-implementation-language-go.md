@@ -10,7 +10,7 @@ status: accepted
 
 Ruralz ships three binaries from one monorepo (`github.com/ravindu-rev/ruralz`): `ruralzd` (Ruralz Gateway), `ruralz-control` (Ruralz Control) and the `ruralz` CLI. They share one validation library, so `ruralz bundle validate` and Ruralz Control reject compile errors before a Revision exists, and each Node applies the same checks before any swap. Nodes are disposable (P4); a FIPS build keeps the default build's license (P1) and its features except HTTP/3 (foundation pack section 8.4; OQ-tech-stack-and-libraries-9) and hybrid post-quantum key exchange ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)); Plugins run in a sandbox inside the Node (P6) ([Vision](../vision/01-vision-and-positioning.md#principles)).
 
-Which language and build mode yield three simple artifacts that operators can copy, upgrade and verify, while every library the [foundation pack](../_meta/foundation-pack.md) section 7 fixes stays usable? Ruralz Console (TypeScript) is out of scope. Code starts in Planned (M0).
+Which language and build mode yield three simple artifacts that operators can copy, upgrade and verify, while every library the [foundation pack](../_meta/foundation-pack.md) section 7 fixes stays usable? Ruralz Console (TypeScript) is out of scope.
 
 ## Decision drivers
 
@@ -34,11 +34,11 @@ Chosen option: "Go 1.26 or newer with `CGO_ENABLED=0` static binaries", plus a `
 
 | Rule | Value | Planned |
 |---|---|---|
-| Floor | Root `go.mod` declares `go 1.26.10`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force Go 1.26, and `lestrrat-go/jwx/v4` v4.6.0 the patch | Planned (M0) |
-| Release toolchain | Latest patch of the newest Go release, pinned by the `toolchain` directive (now `go1.27.1` ([source](https://go.dev/doc/devel/release))); release and FIPS builds set no `GOEXPERIMENT` | Planned (M0) |
-| Floor check | vet's `stdversion` check, which `make lint` runs in the PR pipeline's `ci` job, reports any standard library API newer than the `go` line; a Go 1.26 build needs `GOEXPERIMENT=jsonv2`, which jwx v4 needs on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) | Planned (M0) |
-| Build flags | `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` version metadata | Planned (M0) |
-| Production platforms | linux/amd64 and linux/arm64 for all three binaries; the CLI also targets darwin and windows/amd64 | Planned (M0) |
+| Floor | Root `go.mod` declares `go 1.26.10`; quic-go, nats.go, OPA, `raft-boltdb/v2` and `otelslog` force Go 1.26, and `lestrrat-go/jwx/v4` v4.6.0 the patch | |
+| Release toolchain | Latest patch of the newest Go release, pinned by the `toolchain` directive (now `go1.27.1` ([source](https://go.dev/doc/devel/release))); release and FIPS builds set no `GOEXPERIMENT` | |
+| Floor check | vet's `stdversion` check, which `make lint` runs in the PR pipeline's `ci` job, reports any standard library API newer than the `go` line; a Go 1.26 build needs `GOEXPERIMENT=jsonv2`, which jwx v4 needs on 1.26 ([source](https://github.com/lestrrat-go/jwx/blob/develop/v4/README.md)) | |
+| Build flags | `CGO_ENABLED=0`, `-trimpath`, `-ldflags -X` version metadata | |
+| Production platforms | linux/amd64 and linux/arm64 for all three binaries; the CLI also targets darwin and windows/amd64 | |
 | FIPS variant | Same source; HTTP/3 off (OQ-tech-stack-and-libraries-9) and hybrid post-quantum key exchange off ([FIPS build](../engineering/01-tech-stack-and-libraries.md#fips-build)); `GOFIPS140=v1.0.0` (CMVP #5247) until v1.26.0 leaves "Pending Review", `GODEBUG=fips140=on`, separate artifacts ([source](https://go.dev/doc/security/fips140)) | Planned (M5) |
 
 A FIPS build constraint keeps the quic-go listener package out of the FIPS `ruralzd`, which the quic-go G3 exception does not cover ([source](https://github.com/quic-go/quic-go/blob/master/FIPS140.md)). How a FIPS Node treats a Revision with `http3: true` is open (OQ-tech-stack-and-libraries-9): ignoring the field would break equal behavior for equal digests (foundation pack section 8.1), a render-time error would need a field that marks FIPS targets, which the Configuration model lacks, and a deterministic NACK rolls back or pauses the Rollout in a Cluster that mixes FIPS and default Nodes (section 8.3).
@@ -75,9 +75,9 @@ flowchart LR
 
 ### Confirmation
 
-- **Cross-build gate (G1)**, Planned (M0): `make build` and every release cross-build all three binaries with `CGO_ENABLED=0` for every production platform; a library that fails loses its catalog row.
-- **Floor check and guard file**, Planned (M0): vet's `stdversion` check in `make lint`, which the `ci` job runs, fails on any standard library API newer than Go 1.26; a guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation, and JSON golden tests MUST produce identical bytes on the floor and release toolchains.
-- **Crypto denylist (G3)**, Planned (M0): `go list -deps` fails on non-allowlisted crypto packages; the FIPS CI job, Planned (M5), builds with `GOFIPS140` and fails if quic-go appears in the FIPS `ruralzd` dependencies.
+- **Cross-build gate (G1)**: `make build` and every release cross-build all three binaries with `CGO_ENABLED=0` for every production platform; a library that fails loses its catalog row.
+- **Floor check and guard file**: vet's `stdversion` check in `make lint`, which the `ci` job runs, fails on any standard library API newer than Go 1.26; a guard file constrained to `go1.26 && !go1.27 && !goexperiment.jsonv2` fails compilation, and JSON golden tests MUST produce identical bytes on the floor and release toolchains.
+- **Crypto denylist (G3)**: `go list -deps` fails on non-allowlisted crypto packages; the FIPS CI job, Planned (M5), builds with `GOFIPS140` and fails if quic-go appears in the FIPS `ruralzd` dependencies.
 - **Amendment trigger**: a pull request that changes the `go` directive MUST amend this ADR; `toolchain` bumps follow the [Update policy](../engineering/01-tech-stack-and-libraries.md#update-policy).
 
 ## Pros and cons of the options

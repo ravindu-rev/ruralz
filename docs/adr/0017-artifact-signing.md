@@ -37,12 +37,12 @@ Chosen option: "Layered signing, verified offline by default", because it alone 
 
 | Artifact | Signed by | Verified by | Default | Planned |
 |---|---|---|---|---|
-| Every Revision and Plugin artifact | Content addressing | Every fetch, by full `sha256:<64 hex>` (RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugins) | Always on; not configurable | Planned (M1); OCI and Control Stream Planned (M2) |
+| Every Revision and Plugin artifact | Content addressing | Every fetch, by full `sha256:<64 hex>` (RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugins) | Always on; not configurable | OCI and Control Stream Planned (M2) |
 | Revision in Control mode | Ruralz Control's online key ([Revision signing and verification](../architecture/04-control-plane-and-gitops.md#revision-signing-and-verification)) | Each Node before activation and at Last-Known-Good boot, against Enrollment anchors | Always verified; failure is a NACK | Planned (M2) |
 | Revision published to OCI (file mode) | CI at `ruralz bundle push`, Sigstore (keyless OIDC or a key) referrer | Each Node before activation | `enforce`; an explicit `off` is a degraded state | Planned (M2) |
 | Plugin artifact | Publisher at `ruralz plugin push`, Sigstore referrer | `ruralz bundle build`, `ruralz bundle validate --online`, Ruralz Control at ingest, Nodes at activation | `enforce`; `warn` in `ruralz dev run`; `off` is degraded | Planned (M2) |
 | OCI policy artifact of `authz.opa` or `authz.cedar` ([OPA and Cedar schemas](../architecture/08-security-and-identity.md#opa-and-cedar-schemas)) | Its publisher, Sigstore referrer | As for Plugin artifacts, under the Plugin trust policy | As for Plugin artifacts | Planned (M2) |
-| Watched Bundle directory | Not signed | The operator's filesystem is the trust root | Not applicable | Planned (M1) |
+| Watched Bundle directory | Not signed | The operator's filesystem is the trust root | Not applicable | |
 
 Rules that follow:
 

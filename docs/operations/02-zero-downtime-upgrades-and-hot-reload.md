@@ -2,7 +2,7 @@
 
 ## Summary
 
-This document decides how Ruralz changes what runs without dropping traffic: Hot Reload, the Zero-Downtime Upgrade of `ruralzd` through `SO_REUSEPORT` and Drain ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)), Raft rolling upgrades of Ruralz Control within N-1 skew, State Store upgrades, apiVersion migrations, rollback and verification. Hot Reload and the in-place handover are Planned (M1); Plugin hot-swap and Kubernetes, edge and Ruralz Control upgrades Planned (M2). For operators changing production.
+This document decides how Ruralz changes what runs without dropping traffic: Hot Reload, the Zero-Downtime Upgrade of `ruralzd` through `SO_REUSEPORT` and Drain ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)), Raft rolling upgrades of Ruralz Control within N-1 skew, State Store upgrades, apiVersion migrations, rollback and verification. Plugin hot-swap and Kubernetes, edge and Ruralz Control upgrades are Planned (M2). For operators changing production.
 
 ## Scope and non-goals
 
@@ -42,7 +42,7 @@ Not guaranteed: QUIC connections on UDP 8443 surviving steering (OQ-system-overv
 
 ## Configuration hot reload
 
-Hot Reload is Planned (M1). File-mode Nodes reload on a directory replacement, a settled change, SIGHUP or a new OCI digest (Planned (M2)), found by polling `RURALZ_CONFIG` ([Data plane](../architecture/03-data-plane.md#sources-last-known-good-and-drain)), Control-mode Nodes on a `Snapshot` or `Delta`, through one gate. A change that renders the active digest, such as a touched or reformatted file, activates nothing, counts nothing and logs at debug.
+File-mode Nodes reload on a directory replacement, a settled change, SIGHUP or a new OCI digest (Planned (M2)), found by polling `RURALZ_CONFIG` ([Data plane](../architecture/03-data-plane.md#sources-last-known-good-and-drain)), Control-mode Nodes on a `Snapshot` or `Delta`, through one gate. A change that renders the active digest, such as a touched or reformatted file, activates nothing, counts nothing and logs at debug.
 
 ### Validation gate
 
@@ -108,7 +108,7 @@ A Zero-Downtime Upgrade follows [ADR-0015](../adr/0015-zero-downtime-upgrades-so
 
 | Path | Where | Mechanism | Capacity during the upgrade |
 |---|---|---|---|
-| In-place Zero-Downtime Upgrade (handover) | VMs with systemd (T5), file-mode hosts (T2), Planned (M1); edge sites (T6), Planned (M2) | A second process on the same host and `${RURALZ_DATA_DIR}`; `SO_REUSEPORT` with CBPF pinning and steering | Unchanged; ceilings shared |
+| In-place Zero-Downtime Upgrade (handover) | VMs with systemd (T5), file-mode hosts (T2); edge sites (T6), Planned (M2) | A second process on the same host and `${RURALZ_DATA_DIR}`; `SO_REUSEPORT` with CBPF pinning and steering | Unchanged; ceilings shared |
 | Drain and restart, Planned (M2); not a Zero-Downtime Upgrade | Kubernetes (T4) | StatefulSet rolling update: preStop, Drain, new Pod | Minus up to `maxUnavailable` Pods, set to the PodDisruptionBudget: one zone's share at minimum scale (target) |
 
 Containers hand over the same way when the new `ruralzd` container joins the old one's network namespace, shares its data volume and runs as the same user.
@@ -167,7 +167,7 @@ sequenceDiagram
 
 A stop signal during a handover ends it in order. A new process that does not hold the lock exits 0 at once, closing its sockets; one already listening and steered Drains like any holder. A holder signaled before `accepted` answers `refused` with `draining` and Drains; after `accepted` it finishes steering, then Drains on the handover timeline, or on the stop-signal timeline when the new process is lost during the linger and the holder keeps serving. A process already in its handover Drain counts a stop signal as its first.
 
-The handover carries no Node-local state for Planned (M1): both processes keep full local token buckets within the one-extra-ceiling bound; until the new process's first `HeartbeatReply`, within 15 s (target), derived ceilings take the full limit under the clamp max(1, `requests` / 100) (target), reason `node_count_unknown` (OQ-zero-downtime-upgrades-and-hot-reload-5).
+The handover carries no Node-local state: both processes keep full local token buckets within the one-extra-ceiling bound; until the new process's first `HeartbeatReply`, within 15 s (target), derived ceilings take the full limit under the clamp max(1, `requests` / 100) (target), reason `node_count_unknown` (OQ-zero-downtime-upgrades-and-hot-reload-5).
 
 Node-wide ceilings are shared: the new process admits each ceiling minus the holder's reported `usage`, under a soft memory limit it sets with `debug.SetMemoryLimit` on each usage report ([source](https://pkg.go.dev/runtime/debug#SetMemoryLimit)): 90% of its cgroup's `memory.max` minus the holder's `rssBytes` (target), or, without a cgroup limit, `GOMEMLIMIT` minus `rssBytes`, and none with neither. It restores its own setting once the holder is gone. Hosts MUST fit two processes ([Capacity planning](03-capacity-planning.md#headroom-and-failure-capacity)), and State Store client limits MUST cover both:
 
@@ -195,7 +195,7 @@ A holder that is activating a Revision answers a `ready` once that activation en
 
 ### Handover under systemd
 
-Linux `ruralzd` archives ship a systemd unit and helper ([T5](01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites)), so `systemctl reload ruralzd` after a binary replacement runs this handover, Planned (M1). Under `Type=notify`, a process that took the lock at start sends `READY=1` after its first boot attempt, ready or not, with `STATUS=` naming the readiness reason, so a start never waits on usable configuration (pack 8.2); a handover successor sends nothing, watchdog pings included, until it takes the lock, then `MAINPID=<pid>`, `READY=1` and its `STATUS=`, which replaces its predecessor's. `STATUS=` then follows every readiness change: `STATUS=ready rev-<12 hex>`, `STATUS=not ready: <reason> <code> <detail>` with reasons joined by a semicolon and a space, or `STATUS=draining`, always one line cut to fit systemd's 4,096-byte message ([source](https://github.com/systemd/systemd/blob/main/src/core/manager.c)).
+Linux `ruralzd` archives ship a systemd unit and helper ([T5](01-deployment-topologies.md#t5-and-t6-vms-with-systemd-and-edge-sites)), so `systemctl reload ruralzd` after a binary replacement runs this handover. Under `Type=notify`, a process that took the lock at start sends `READY=1` after its first boot attempt, ready or not, with `STATUS=` naming the readiness reason, so a start never waits on usable configuration (pack 8.2); a handover successor sends nothing, watchdog pings included, until it takes the lock, then `MAINPID=<pid>`, `READY=1` and its `STATUS=`, which replaces its predecessor's. `STATUS=` then follows every readiness change: `STATUS=ready rev-<12 hex>`, `STATUS=not ready: <reason> <code> <detail>` with reasons joined by a semicolon and a space, or `STATUS=draining`, always one line cut to fit systemd's 4,096-byte message ([source](https://github.com/systemd/systemd/blob/main/src/core/manager.c)).
 
 Only a Drain that a stop signal starts sends `STOPPING=1`, at its start. Under `NotifyAccess=all`, systemd would take one from a process that handed over as the unit stopping, ignore the successor's `READY=1` and stop the unit once `ExecReload` ends ([source](https://github.com/systemd/systemd/blob/main/src/core/service.c)), so a process that handed over sends no notification from its Drain's start, before it releases the lock and so before the successor's `MAINPID=`: the unit keeps serving through the successor, and a `WATCHDOG=1` from it would hide a hung successor.
 
@@ -211,7 +211,7 @@ Handovers, Drains and replica replacements restart Control Streams. `clusterNode
 
 ### Drain timeline defaults
 
-A Drain starts on SIGTERM or SIGINT (`ruralz node drain` sends SIGTERM), an accepted handover, or a part of the Node that stops after boot, which keeps the SIGTERM timeline without `STOPPING=1` and exits 1 ([Process and concurrency model](../architecture/03-data-plane.md#process-and-concurrency-model)), with fixed defaults, Planned (M1); a second signal jumps to the deadline and later ones do nothing, and a Drain no signal started counts the first as its first. At its start the source stops: nothing more activates and a pending Revision is dropped. A handover's Drain starts after the linger, its `/readyz` failure unseen since step 6 moved every probe connection, skips the accept window and sends no notification, `STOPPING=1` included ([Handover under systemd](#handover-under-systemd)).
+A Drain starts on SIGTERM or SIGINT (`ruralz node drain` sends SIGTERM), an accepted handover, or a part of the Node that stops after boot, which keeps the SIGTERM timeline without `STOPPING=1` and exits 1 ([Process and concurrency model](../architecture/03-data-plane.md#process-and-concurrency-model)), with fixed defaults; a second signal jumps to the deadline and later ones do nothing, and a Drain no signal started counts the first as its first. At its start the source stops: nothing more activates and a pending Revision is dropped. A handover's Drain starts after the linger, its `/readyz` failure unseen since step 6 moved every probe connection, skips the accept window and sends no notification, `STOPPING=1` included ([Handover under systemd](#handover-under-systemd)).
 
 A Node that never answered `/readyz` with 200 and has no client listener bound skips the accept window too and exits after the flush. SIGHUP never starts a Drain, and SIGPIPE is ignored, so a closed stdout drops log lines instead of ending the process ([Data plane](../architecture/03-data-plane.md#sources-last-known-good-and-drain)).
 
@@ -444,7 +444,7 @@ flowchart TD
 | Ruralz Control before finalize | Return each relay at N, then each N replica, to N-1 one at a time, leadership moved off each replica first | Confirm `/readyz` on 9902 and Raft catch-up for every replica, and every relay | None |
 | Ruralz Control after finalize, Nodes at N | On the N deployment, steps 1 and 2 of the rollback-limit row, every Cluster | Every Node to N-1 by reverse handover or image | Restore; on Kubernetes re-apply N-1's `ruralz-crds.yaml` first; relays at N-1 |
 
-Control-mode rows are Planned (M2), directory rollback Planned (M1). The restore, rule 5 of [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades), loses later writes and detaches Nodes until a revocation list arrives; the 24-hour soak (target) avoids it. Once Nodes run N, rule 6 orders the Rollout and handover steps here before [its restore runbook](04-high-availability-and-disaster-recovery.md), so no Node outruns the restored Control Store version or boots N-only fields.
+Control-mode rows are Planned (M2). The restore, rule 5 of [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades), loses later writes and detaches Nodes until a revocation list arrives; the 24-hour soak (target) avoids it. Once Nodes run N, rule 6 orders the Rollout and handover steps here before [its restore runbook](04-high-availability-and-disaster-recovery.md), so no Node outruns the restored Control Store version or boots N-only fields.
 
 ## Verification runbook
 

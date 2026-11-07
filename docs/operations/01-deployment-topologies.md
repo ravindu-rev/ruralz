@@ -12,17 +12,17 @@ Non-goals: kinds and fields ([Configuration model](../architecture/02-configurat
 
 ## Topology catalog
 
-A Node runs in one mode, chosen at boot, never merging sources ([System overview](../architecture/01-system-overview.md#deployment-modes)). File mode watches a source Bundle directory or a rendered one-file Bundle ([Rendered Bundle](../architecture/02-configuration-model.md#rendered-bundle)), Planned (M1), or pulls a signed OCI Revision by digest, Planned (M2), without Ruralz Control (P2); Control mode enrolls and receives Rollouts over the Control Stream it dials on 8091, Planned (M2) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
+A Node runs in one mode, chosen at boot, never merging sources ([System overview](../architecture/01-system-overview.md#deployment-modes)). File mode watches a source Bundle directory or a rendered one-file Bundle ([Rendered Bundle](../architecture/02-configuration-model.md#rendered-bundle)), or pulls a signed OCI Revision by digest, Planned (M2), without Ruralz Control (P2); Control mode enrolls and receives Rollouts over the Control Stream it dials on 8091, Planned (M2) ([ADR-0007](../adr/0007-control-stream-protocol.md)).
 
 Ruralz Gateway is stateless (P4): a Node persists only identity, Last-Known-Good and caches under `${RURALZ_DATA_DIR}` (pack 8.11), which a reschedulable Node MUST keep on persistent storage (OQ-scalability-and-distributed-state-7).
 
 | Topology | When to use | Components | Failure domain | Configuration delivery | Scaling | Planned |
 |---|---|---|---|---|---|---|
-| T1 Development single binary | Authoring, Plugin work, CI | `ruralz dev run`, bound to loopback; `memory` State Store, which `--memory-state-store` forces on a Bundle that names another | The workstation | CLI render, Hot Reload | One Node | Planned (M1) |
-| T2 File mode | One team; no canary or audit | Nodes, L4 load balancer, `redis` State Store, CI, OCI registry | All Nodes reading one source | Rendered directory, or signed Revision by digest | Nodes to Cell ceilings, then Cells; declared per-Node ceilings bound fail-open | Planned (M1) directory; Planned (M2) OCI pull |
+| T1 Development single binary | Authoring, Plugin work, CI | `ruralz dev run`, bound to loopback; `memory` State Store, which `--memory-state-store` forces on a Bundle that names another | The workstation | CLI render, Hot Reload | One Node | |
+| T2 File mode | One team; no canary or audit | Nodes, L4 load balancer, `redis` State Store, CI, OCI registry | All Nodes reading one source | Rendered directory, or signed Revision by digest | Nodes to Cell ceilings, then Cells; declared per-Node ceilings bound fail-open | Planned (M2) OCI pull |
 | T3 Cluster with Ruralz Control | Several authors, audit, canaries | Nodes, three `ruralz-control` replicas, State Store, Git | One Cluster per Rollout, stopped at canary | Rollout with ACK/NACK | Nodes by token; replicas by streams | Planned (M2) |
 | T4 Kubernetes (Helm, HPA, CRDs) | Kubernetes operators | Helm chart, CRDs, StatefulSets | As T2 or T3, across zones | As T2 or T3; CRDs via Ruralz Control | HorizontalPodAutoscaler | Planned (M2) |
-| T5 VM with systemd | No Kubernetes | systemd services, L4 load balancer | One VM per Node | As T2 or T3 | Add VMs; in-place Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Planned (M1) file mode; Planned (M2) Control mode |
+| T5 VM with systemd | No Kubernetes | systemd services, L4 load balancer | One VM per Node | As T2 or T3 | Add VMs; in-place Zero-Downtime Upgrade ([ADR-0015](../adr/0015-zero-downtime-upgrades-so-reuseport.md)) | Planned (M2) Control mode |
 | T6 Edge | Many small sites, intermittent links | Few Nodes and a State Store per site | One site | Mirror pull (default), or mostly detached Control mode | One Cluster per site | Planned (M2) |
 | T7 Per-team | Own blast radius or pace per team | A Bundle and Clusters per team | One team's Clusters | As T2 or T3 | Clusters per team; voters too with a Ruralz Control each | Planned (M2) |
 | T8 Multi-cluster | Staging and production, or several Cells | One Ruralz Control; Clusters in Environments | One Cluster, one Cell | Commit promotion | Clusters, then Cells, to 10,000 Nodes per Ruralz Control (target) | Planned (M2) |
@@ -245,7 +245,7 @@ flowchart TB
 
 ### T5 and T6: VMs with systemd and edge sites
 
-**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). Linux `ruralzd` archives ship `deploy/systemd/`, Planned (M1):
+**T5.** One `ruralzd` service per VM keeps `${RURALZ_DATA_DIR}` on local disk; two per network namespace: Not planned ([listeners](../architecture/11-scalability-and-distributed-state.md#so_reuseport-and-listeners)). Linux `ruralzd` archives ship `deploy/systemd/`:
 
 | File | Contents |
 |---|---|
@@ -378,10 +378,10 @@ Ports follow pack 8.4; Ruralz Control never dials a Node, and Nodes never dial e
 
 | Port | Process | Who connects | Exposure | Authentication | Planned |
 |---|---|---|---|---|---|
-| 8080 TCP | `ruralzd` | Clients via the balancer | Client networks | Consumer credentials per Policy | Planned (M1) |
-| 8443 TCP | `ruralzd` | Clients via the balancer | Client networks | TLS; Consumer credentials | Planned (M1) |
+| 8080 TCP | `ruralzd` | Clients via the balancer | Client networks | Consumer credentials per Policy | |
+| 8443 TCP | `ruralzd` | Clients via the balancer | Client networks | TLS; Consumer credentials | |
 | 8443 UDP | `ruralzd` | HTTP/3 clients when `http3: true` | Client networks, UDP balancer; off in FIPS builds, Planned (M5) | QUIC; Consumer credentials | Planned (M3) |
-| 9901 TCP | `ruralzd` | Probes, scrapers, operators | Operator networks; binds all interfaces, so network policies SHOULD fence it | Only `/healthz` and `/readyz` unauthenticated ([Admin ports](../architecture/08-security-and-identity.md#admin-ports)) | Planned (M1) |
+| 9901 TCP | `ruralzd` | Probes, scrapers, operators | Operator networks; binds all interfaces, so network policies SHOULD fence it | Only `/healthz` and `/readyz` unauthenticated ([Admin ports](../architecture/08-security-and-identity.md#admin-ports)) | |
 | 8090 TCP | `ruralz-control` | Operators, CI, forge webhooks | Operator networks; the forge | Sessions or tokens, RBAC, audit log; HMAC for webhooks | Planned (M2) |
 | 8091 TCP | `ruralz-control` | Every Node | Node networks, L4 passthrough | mTLS, per-Node certificates; for `Enroll`, a one-time token or, in T4, a projected service account token | Planned (M2) |
 | 8092 TCP | `ruralz-control` | Other replicas; relays and token `Join` pending OQ-control-plane-and-gitops-15 | Replica networks only; unused with `postgres` | mTLS peer certificates; Node certificates rejected | Planned (M2); relays Planned (M4) |
