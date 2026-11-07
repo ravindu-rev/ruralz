@@ -123,10 +123,12 @@ func testOnlyStandard() []string {
 // testingLinkers are the third-party modules whose non-test packages
 // import the standard library's testing package, which a binary may link
 // through them alone: go-abnf's exported fuzz helpers do, and
-// prometheus/common's expfmt links go-abnf from v0.73
+// prometheus/common's expfmt links go-abnf from v0.73; hashicorp/raft's
+// exported test harness, testing.go, does in the raft package itself,
+// which the Control Store links into ruralz-control
 // (docs/engineering/01-tech-stack-and-libraries.md "Dependency graph").
 func testingLinkers() []string {
-	return []string{"github.com/pandatix/go-abnf"}
+	return []string{"github.com/pandatix/go-abnf", "github.com/hashicorp/raft"}
 }
 
 // testOnlyModules are third-party modules admitted for tests only (the

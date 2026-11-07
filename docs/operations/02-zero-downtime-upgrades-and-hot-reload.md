@@ -343,7 +343,7 @@ Nodes follow the [skew policy](../engineering/04-release-versioning-and-compatib
 
 ## Control plane upgrades
 
-Upgrades follow [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades) for the `raft` Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed), Planned (M2). N is the newest binary minor; until finalize the Control Store version stays N-1, and replicas write N-1 formats at N-1 schema levels. One minor at a time:
+Upgrades follow [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades) for the `raft` Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)), Planned (M2). N is the newest binary minor; until finalize the Control Store version stays N-1, and replicas write N-1 formats at N-1 schema levels. One minor at a time:
 
 1. **Prepare.** Every replica reported a snapshot at the Control Store version, and every Node runs N-1 by the version `ruralz node list` shows from its `Hello` (upgrade any N-2 Node to N-1 first); take `ruralz control backup` with `--revocation-list-file` and pause `ruralz bundle push`.
 2. **One replica at a time.** Move leadership off (`POST /api/v1/replicas/{serverId}/transfer`), replace the binary with N, and await `/readyz` on 9902, Raft catch-up and a recovered `ruralz_control_connected_nodes`; three voters keep a quorum of two. A failing replica returns to N-1 and the upgrade stops.

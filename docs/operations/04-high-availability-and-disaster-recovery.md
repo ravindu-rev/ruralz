@@ -184,7 +184,7 @@ Drain and restart   Z × (t_drain + (N / Z) / min(20 per s per leader, L_src × 
 
 ## Backups
 
-`ruralz control backup` and `ruralz control restore` are Planned (M2) ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed). A backup is a Raft snapshot plus referenced content, consistent at one index, encrypted to one or more operator public keys and signed; downloads need `admin` and are audited ([backup internals](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres)).
+`ruralz control backup` and `ruralz control restore` are Planned (M2) ([ADR-0006](../adr/0006-control-store-raft-boltdb.md)). A backup is a Raft snapshot plus referenced content, consistent at one index, encrypted to one or more operator public keys and signed; downloads need `admin` and are audited ([backup internals](../architecture/04-control-plane-and-gitops.md#backup-restore-and-postgres)).
 
 ### What to protect
 

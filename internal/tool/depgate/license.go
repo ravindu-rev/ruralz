@@ -88,11 +88,23 @@ func normalizeText(s string) string {
 	return s + "\n"
 }
 
+// mplSecondaryLicense is MPL-2.0's definition of a Secondary License
+// (section 1.12), the one place its text names GNU licenses, lower-cased
+// and with its spaces collapsed as classify reads it.
+const mplSecondaryLicense = "means either the gnu general public license, version 2.0, the gnu lesser general public license, " +
+	"version 2.1, the gnu affero general public license, version 3.0, or any later versions of those licenses"
+
 // classify names the license of a license text by distinctive phrases, or
 // returns "unknown". Denied licenses are checked first, so a permissive
-// phrase inside a copyleft text never passes it.
+// phrase inside a copyleft text never passes it. An MPL-2.0 text names
+// the GNU licenses only in its Secondary License definition, so that
+// clause is removed before the checks: every MPL-2.0 text would read as
+// AGPL otherwise, while a GNU license text beside it still fails.
 func classify(text string) string {
 	t := strings.Join(strings.Fields(strings.ToLower(text)), " ")
+	if strings.Contains(t, "mozilla public license") {
+		t = strings.ReplaceAll(t, mplSecondaryLicense, "")
+	}
 	has := func(phrases ...string) bool {
 		for _, p := range phrases {
 			if !strings.Contains(t, p) {

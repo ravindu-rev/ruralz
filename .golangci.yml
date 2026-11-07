@@ -49,6 +49,13 @@ linters:
             - golang.org/x/net/http2
             - golang.org/x/sys/unix
             - google.golang.org/grpc
+            # M2 Control Store modules (catalog row "Control Store"),
+            # confined to internal/controlstore/raft by the raft rule.
+            - github.com/hashicorp/go-hclog
+            - github.com/hashicorp/go-metrics
+            - github.com/hashicorp/raft
+            - github.com/hashicorp/raft-boltdb/v2
+            - go.etcd.io/bbolt
         banned:
           list-mode: lax
           files: ["$all"]
@@ -194,6 +201,12 @@ linters:
           deny:
             - pkg: github.com/hashicorp/raft
               desc: the MPL-2.0 exception is scoped to internal/controlstore/raft
+            - pkg: go.etcd.io/bbolt
+              desc: the Control Store's storage is wrapped by internal/controlstore/raft
+            - pkg: github.com/hashicorp/go-hclog
+              desc: raft's logs reach slog in internal/controlstore/raft
+            - pkg: github.com/hashicorp/go-metrics
+              desc: raft's metrics reach internal/telemetry handles in internal/controlstore/raft
         gateway:
           files: ["**/internal/gateway/**"]
           deny:

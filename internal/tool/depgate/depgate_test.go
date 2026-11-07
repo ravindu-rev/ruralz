@@ -39,6 +39,31 @@ func TestClassify(t *testing.T) {
 	}
 }
 
+// mplDefinitions is the opening and section 1.12 of the MPL-2.0 text as
+// hashicorp's modules ship it, curly quotes and line breaks included.
+const mplDefinitions = "Copyright IBM Corp. 2013, 2026\n\nMozilla Public License, version 2.0\n\n1. Definitions\n\n" +
+	"1.12. “Secondary License”\n\n      means either the GNU General Public License, Version 2.0, the GNU Lesser\n" +
+	"      General Public License, Version 2.1, the GNU Affero General Public\n" +
+	"      License, Version 3.0, or any later versions of those licenses.\n"
+
+// TestClassifyMPLText is the regression test of the MPL-2.0 text of
+// raft, raft-boltdb/v2, go-immutable-radix and golang-lru reading as
+// AGPL: its Secondary License definition names the GNU licenses. The text
+// classifies as MPL-2.0, and a GNU license text in the same file still
+// fails.
+func TestClassifyMPLText(t *testing.T) {
+	if got := classify(mplDefinitions); got != "MPL-2.0" {
+		t.Errorf("classify(the MPL-2.0 text) = %s, want MPL-2.0", got)
+	}
+	withAGPL := mplDefinitions + "\nGNU AFFERO GENERAL PUBLIC LICENSE\nVersion 3, 19 November 2007\n"
+	if got := classify(withAGPL); got != "AGPL" {
+		t.Errorf("classify(MPL-2.0 beside an AGPL text) = %s, want AGPL", got)
+	}
+	if got := classify("The GNU Affero General Public License, Version 3.0, or any later versions of those licenses"); got != "AGPL" {
+		t.Errorf("classify(a GNU text quoting the clause without MPL) = %s, want AGPL", got)
+	}
+}
+
 func TestLegalKind(t *testing.T) {
 	cases := map[string]string{
 		"LICENSE": kindLicense, "license.txt": kindLicense, "LICENSE-APACHE": kindLicense, "LICENCE": kindLicense, //nolint:misspell // LICENCE is a real file name spelling.
