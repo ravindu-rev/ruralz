@@ -469,6 +469,60 @@ func TestTestingLinkedThroughItsLinkers(t *testing.T) {
 	}
 }
 
+// TestXCryptoLinkedForExceptions checks the G3 rule for golang.org/x/crypto
+// packages a module with a G3 exception row links: one imported only by
+// such modules, directly or through other x/crypto packages linked that
+// way, passes under that row; one any other package imports too is a
+// finding, as is a "crypto" package of a module without a row.
+func TestXCryptoLinkedForExceptions(t *testing.T) {
+	read := fakeFS(map[string][]legalText{
+		"github.com/youmark/pkcs8":     lic(mitText),
+		"golang.org/x/crypto":          lic(bsdText),
+		"example.com/other":            lic(mitText),
+		"github.com/sigstore/sigstore": lic("Apache License Version 2.0"),
+	})
+	xc := func(path string, imports ...string) goPackage {
+		p := pkg(path, mod("golang.org/x/crypto", "v0.58.0"))
+		p.Imports = imports
+		return p
+	}
+	excepted := pkg("github.com/youmark/pkcs8", mod("github.com/youmark/pkcs8", "v0.0.0-20240726163527-a2c0da244d78"))
+	excepted.Imports = []string{"golang.org/x/crypto/scrypt"}
+	other := pkg("example.com/other", mod("example.com/other", "v1.0.0"))
+	other.Imports = []string{"golang.org/x/crypto/scrypt"}
+	cryptoutils := pkg("github.com/sigstore/sigstore/pkg/cryptoutils", mod("github.com/sigstore/sigstore", "v1.10.8"))
+	scrypt := xc("golang.org/x/crypto/scrypt", "golang.org/x/crypto/pbkdf2")
+	pbkdf2 := xc("golang.org/x/crypto/pbkdf2")
+	unused := xc("golang.org/x/crypto/chacha20")
+	cases := []struct {
+		name   string
+		pkgs   []goPackage
+		denied []string
+	}{
+		{"only an excepted module links them", []goPackage{excepted, scrypt, pbkdf2, cryptoutils}, nil},
+		{"another module links one too", []goPackage{excepted, other, scrypt, pbkdf2}, []string{"golang.org/x/crypto/scrypt", "golang.org/x/crypto/pbkdf2"}},
+		{"nothing imports it", []goPackage{unused}, []string{"golang.org/x/crypto/chacha20"}},
+	}
+	for _, c := range cases {
+		got, err := analyze(target{"ruralzd", "linux", "amd64"}, c.pkgs, read)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var denied []string
+		for _, f := range got.findings {
+			if strings.Contains(f, "FIPS delegation allowlist") || strings.Contains(f, "G3 exception row") {
+				denied = append(denied, strings.Split(strings.TrimPrefix(f, "ruralzd linux/amd64: "), ":")[0])
+			}
+		}
+		slices.Sort(denied)
+		want := slices.Clone(c.denied)
+		slices.Sort(want)
+		if !slices.Equal(denied, want) {
+			t.Errorf("%s: G3 findings for %q, want %q (all findings %q)", c.name, denied, want, got.findings)
+		}
+	}
+}
+
 func TestIsTestSupport(t *testing.T) {
 	cases := map[string]bool{
 		"internal/testkit":                     true,

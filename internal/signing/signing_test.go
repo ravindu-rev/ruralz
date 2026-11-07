@@ -22,8 +22,9 @@ import (
 
 // Tests for digest checks: the full sha256:<64 lowercase hex> is the only
 // accepted expected digest, RZ-CFG-027 for Revisions, RZ-CFG-028 for Plugin
-// artifacts, always on; the M1 call-site contract (DigestOnly as the
-// Verifier); revision.Digest as the only digest type; and VerifyArtifact,
+// artifacts, always on; the call-site contract of content without a
+// signature (DigestOnly as the Verifier); revision.Digest as the only
+// digest type; and VerifyArtifact,
 // streaming SHA-256 with a size limit.
 
 const canonical = `{"apiVersion":"ruralz.io/v1alpha1","kind":"Route","metadata":{"name":"orders"}}`
@@ -159,7 +160,7 @@ func TestVerifier(t *testing.T) {
 	}
 }
 
-// fakeSignature is an M2 signature verifier stand-in.
+// fakeSignature stands in for a check of a signature over content.
 type fakeSignature struct {
 	calls int
 	err   error

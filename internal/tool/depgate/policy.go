@@ -62,7 +62,14 @@ func licenseElections() map[string]string {
 // texts at the module root, or "<module path>/<directory>" for the texts
 // of a nested directory that governs some linked packages.
 func licenseOverrides() map[string]string {
-	return map[string]string{}
+	return map[string]string{
+		// LICENSE is Apache-2.0; license.go is the Go source of the
+		// OpenAPI License object, not a license text.
+		"github.com/go-openapi/spec": "Apache-2.0",
+		// LICENSE is Apache-2.0 and covers the code; LICENSE.docs, the
+		// CC-BY-SA-4.0 of the documentation, covers nothing a binary links.
+		"github.com/opencontainers/go-digest": "Apache-2.0",
+	}
 }
 
 // cryptoDelegation lists golang.org/x/crypto packages that delegate to the
@@ -72,10 +79,17 @@ func cryptoDelegation() []string {
 	return nil
 }
 
-// cryptoExceptions are G3 exception rows by module path.
+// cryptoExceptions are G3 exception rows by module path: a module named
+// here passes with its own packages and the golang.org/x/crypto packages
+// it alone links.
 func cryptoExceptions() map[string]string {
 	return map[string]string{
 		"github.com/quic-go/quic-go": "accepted outside FIPS builds",
+		// sigstore-go's verification links these (ADR-0017).
+		"github.com/sigstore/sigstore":                      "accepted outside FIPS builds",
+		"github.com/secure-systems-lab/go-securesystemslib": "accepted outside FIPS builds",
+		"github.com/youmark/pkcs8":                          "accepted outside FIPS builds",
+		"github.com/google/certificate-transparency-go":     "accepted outside FIPS builds",
 	}
 }
 
@@ -97,7 +111,8 @@ func jwxModules() []string {
 func advisoryFloors() map[string]string {
 	return map[string]string{
 		"github.com/gorilla/websocket":        "v1.5.3",
-		"oras.land/oras-go/v2":                "v2.6.2",
+		"oras.land/oras-go/v2":                "v2.6.4",
+		"github.com/sigstore/sigstore-go":     "v1.2.1",
 		"github.com/lestrrat-go/jwx/v4":       "v4.5.0",
 		"github.com/hashicorp/raft-boltdb/v2": "v2.4.2",
 		"github.com/moby/go-archive":          "v0.3.0",

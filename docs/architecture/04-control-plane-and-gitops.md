@@ -138,7 +138,7 @@ The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-1
 | `RURALZ_CONFIG=oci://REPOSITORY:TAG` or `oci://REPOSITORY@sha256:<64 hex>` | A signed OCI Revision: a tag is polled with jitter and pulled by digest, a digest is pinned | File |
 | `RURALZ_CONFIG` as a path | A source Bundle directory, rendered with the process environment and no overlay, or a rendered one-file Bundle ([Rendered Bundle](02-configuration-model.md#rendered-bundle)) | File |
 | `RURALZ_ENROLLMENT_TOKEN_FILE` | The `ruralz node token` output, or in Kubernetes the pod's projected service account token (fields: OQ-deployment-topologies-24); used until `${RURALZ_DATA_DIR}/identity/` holds a valid identity, and again when Ruralz Control refuses that identity with `RZ-CP-003` | Control |
-| `RURALZ_TRUST_POLICY_FILE` | The OCI Revision and Plugin trust policies; unset means an empty policy, so `enforce` rejects every signed pull | File |
+| `RURALZ_TRUST_POLICY_FILE` | The Node's Environment and its OCI Revision and Plugin trust policies (form: OQ-security-and-identity-41); unset means an empty policy, so `enforce` rejects every signed pull | File |
 | `RURALZ_REGISTRY_AUTH_FILE` | Registry credentials in the container credential file format, each sent only to its host; in Control mode Nodes pull Plugins through Ruralz Control's pull-through relay instead, so each artifact leaves the registry once per deployment ([OCI artifact](05-wasm-plugin-system.md#oci-artifact); interface: OQ-wasm-plugin-system-21) | File |
 
 In Control mode, Plugin trust arrives only in anchor sets, and a set `RURALZ_TRUST_POLICY_FILE` is refused at start.

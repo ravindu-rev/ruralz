@@ -147,7 +147,7 @@ func All() []Code {
 		{ID: "RZ-CFG-030", Area: AreaCFG, Meaning: "Overlay `apiVersion` differs from its base resource"},
 		{ID: "RZ-CFG-031", Area: AreaCFG, Meaning: "More composition steps than `maxCompositionSteps`"},
 		{ID: "RZ-CFG-032", Area: AreaCFG, Meaning: "Step `maxBodyBytes` values exceed `maxResponseBodyBytes` or leave no default share"},
-		{ID: "RZ-CFG-033", Area: AreaCFG, Meaning: "Signature verification failed for a Revision or Plugin artifact"},
+		{ID: "RZ-CFG-033", Area: AreaCFG, Meaning: "Signature verification failed for a Revision or Plugin artifact, an OCI Revision signed for another Environment or at a sequence below the Node's high-water mark included"},
 		{ID: "RZ-CFG-034", Area: AreaCFG, Meaning: "`AIModel` reachable from a Route with an `ai.token-budget` Policy sets no `limits.maxOutputTokens`"},
 		{ID: "RZ-CFG-035", Area: AreaCFG, Meaning: "A `credentials.basic` `username`, or a `credentials.certificates` `subject` or `uriSan`, declared by two Consumers"},
 		{ID: "RZ-CFG-036", Area: AreaCFG, Meaning: "`credentials.basic[].iterations` outside 600,000 to 1,000,000"},

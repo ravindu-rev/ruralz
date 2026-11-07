@@ -71,7 +71,7 @@ github.com/ravindu-rev/ruralz
 │   ├── pluginhost/              wazero host, Host Functions, Capability gate (Planned (M2))
 │   ├── statestore/              State Store API; breaker, keys, memory, redis, manager, postcommit
 │   ├── secret/, identity/       secretRef contracts and resolver; Consumers and credential indexes
-│   ├── signing/                 digest verification; Sigstore and OCI fetch Planned (M2)
+│   ├── signing/                 digests, OCI registry access and credentials, Sigstore verification
 │   ├── telemetry/               catalog, emit handles, aggregates, tracing, logs, OTLP runtime
 │   ├── clock/, phase/, problem/ leaf contracts: clock, Phases and Filter classes, RFC 9457 writer
 │   ├── errcode/                 RZ-<AREA>-<NNN> registry
@@ -293,11 +293,12 @@ formatters:
 | `github.com/goccy/go-yaml`, `go.yaml.in/yaml/v4`, `gopkg.in/yaml` | `internal/config/profile` | The restricted YAML profile is Ruralz code and the only YAML parser and emitter ([ADR-0003](../adr/0003-configuration-format.md)) |
 | `go.yaml.in/yaml/v3` outside `internal/config/profile` tests | `internal/config/profile` | Only the profile's tests use it, as a differential oracle |
 | `github.com/santhosh-tekuri/jsonschema` outside `internal/config/schemaview` and `internal/filter/validation/jsonschema` | Those two packages | S7 wrapping |
+| `github.com/sigstore`, `oras.land/oras-go` and `github.com/opencontainers` outside `internal/signing` | `internal/signing` | S7 wrapping ([ADR-0017](../adr/0017-artifact-signing.md)) |
 | `cel.dev/cel-go`, `cel.dev/expr` outside `internal/cel` | `internal/expr` contracts | Everything else codes against the contracts |
 | `github.com/lestrrat-go/jwx` outside `internal/filter/auth/jwt`; its `jwt`, `jwe` and root packages anywhere | `jwk`, `jws` and `jwa` there | The others link `golang.org/x/crypto` (G3) |
 | `go.opentelemetry.io`, `github.com/prometheus`, `google.golang.org/grpc` outside `internal/telemetry` and `internal/testkit/otlpsink` | `internal/telemetry` handles | [ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md) confinement |
 | `golang.org/x/sys` outside `internal/gateway/reuseport`, `internal/gateway/handover`, `internal/testkit/proc`; `golang.org/x/net` outside `test/conformance/protocol` | Standard library | Socket steering, peer credentials, test namespaces; the HTTP/2 `Framer` in tests |
-| `github.com/testcontainers` outside tests and `internal/statestore/statestoretest/redisserver` | That launcher | Test tooling, never linked |
+| `github.com/testcontainers` outside tests and the launchers `internal/statestore/statestoretest/redisserver` and `internal/testkit/ociregistry` | Those launchers | Test tooling, never linked |
 | `encoding/json/v2`, `encoding/json/jsontext` outside `//go:build go1.27` test oracles | `internal/jsonval` | Standard only from Go 1.27, above the [version floor](01-tech-stack-and-libraries.md#version-floor) |
 | Any module without a catalog row | Add a row in the same pull request | [Dependency admission](01-tech-stack-and-libraries.md#admission) |
 
