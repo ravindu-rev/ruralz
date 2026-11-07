@@ -106,53 +106,50 @@
 // reaches in one queue, so compile time grows with the square of the
 // subschema count: 256 KiB of empty subschemas takes over 2 s. A document
 // therefore holds at most MaxSubschemas schema positions. At that bound
-// a compile takes about 0.3 s (BenchmarkCompileSchemaWorstCase); the
-// evaluation analysis, which also carries the counts of the runtime model
-// and builds the states of the body paths, takes at most about 0.4 s
-// more for 4,000 members against recursive mixins
-// (BenchmarkEvaluationAnalysis). The compile-time work on patterns is
-// bounded by its steps, never by a count of calls: the exploration of a
-// pattern's run queues is charged its steps against patternBudget per
-// pattern and regexpBudget per document (about 3 ms and 25 ms;
-// BenchmarkPatternCost, TestQueueBoundBudget), and matching member names
-// against patterns, a schema's properties against its patternProperties and
-// the names a body path's state declares against the patterns of its other
-// schemas, charges a name's length times each pattern's work per byte
-// against one matchBudget per document (about 34 ms;
-// TestCompileMatchBudget), past which every pattern is assumed to match.
-// Each bound alone keeps a whole compile under about 0.7 s
-// (BenchmarkCompileAnalysisWorstCase, on a shared 4-vCPU 2.8 GHz machine at
-// a load of 1 to 3: 0.54 to 0.7 s for the mixins, 0.39 to 0.57 s for a
-// reference ladder over 3,900 members, 0.31 to 0.42 s for 125 reference
-// targets outside the keywords next to 3,800 properties, 0.29 to 0.6 s for
-// 2,000 properties against 2,000 patterns, 0.24 to 0.38 s for MaxSubschemas
-// positions holding patterns, 0.1 to 0.15 s for the checks a ladder of
-// member maps repeats, 0.14 to 0.17 s for the states of 500 members that
-// each apply a thousand patterns or kinds of length (merged one schema at a
-// time after a sort or a scan of what a state holds, they would take 2.9 s
-// and 1 s), and at most about 0.15 s for documents whose patterns fill
-// MaxDocumentInstructions: the largest programs, repetitions of classes,
-// alternations of thousands of literals, anchored alternations and
-// repetitions, Unicode class escapes merged in a class, case folding, and
-// patterns past the bound). The bounds are separate, so their costs add up
-// in one document: 3,800 properties against recursive mixins, eight
-// case-folded classes of merged Unicode class escapes and 120 reference
-// targets outside the keywords compile in about 0.95 to 1.1 s at a load of
-// up to 1 (the "combined" case), and with property names of slashes, which
-// the library's locations escape to twice their bytes and its quadratic scan
-// of its work queue compares, in 1.1 to 1.2 s ("combined, escaped names").
-// The 1 s a compile is allowed is therefore not met for these combined worst
-// cases (proposed: an Open question with these figures; a joint compile
-// budget, or a bound on the bytes of the positions' locations, would also
-// refuse large ordinary schemas). Such a worst-case compile allocates up to
-// about 330 MB in all (the evaluation analysis reuses the member maps of
-// each level for the next), its heap peaks at about 35 MB, the collector's
-// pacing included, and the compiled Schema keeps up to about 16 MB: the
-// library's compiled schemas, about 2.4 KB a position (10 MB at
-// MaxSubschemas), and the patterns' programs, at most about 6 MB at
-// MaxDocumentInstructions (TestPatternProgramMemory), the states sharing
-// each distinct list of the programs that may match a string; an ordinary
-// schema takes milliseconds and keeps kilobytes.
+// a compile takes about 0.3 s; the evaluation analysis, which also carries
+// the counts of the runtime model and builds the states of the body paths,
+// takes at most about 0.4 s more for 4,000 members against recursive
+// mixins. The compile-time work on patterns is bounded by its steps, never
+// by a count of calls: the exploration of a pattern's run queues is
+// charged its steps against patternBudget per pattern and regexpBudget per
+// document (about 3 ms and 25 ms; TestQueueBoundBudget), and matching
+// member names against patterns, a schema's properties against its
+// patternProperties and the names a body path's state declares against the
+// patterns of its other schemas, charges a name's length times each
+// pattern's work per byte against one matchBudget per document (about
+// 34 ms; TestCompileMatchBudget), past which every pattern is assumed to
+// match. Each bound alone keeps a whole compile under about 0.7 s (on a
+// shared 4-vCPU 2.8 GHz machine at a load of 1 to 3: 0.54 to 0.7 s for the
+// mixins, 0.39 to 0.57 s for a reference ladder over 3,900 members, 0.31
+// to 0.42 s for 125 reference targets outside the keywords next to 3,800
+// properties, 0.29 to 0.6 s for 2,000 properties against 2,000 patterns,
+// 0.24 to 0.38 s for MaxSubschemas positions holding patterns, 0.1 to
+// 0.15 s for the checks a ladder of member maps repeats, 0.14 to 0.17 s
+// for the states of 500 members that each apply a thousand patterns or
+// kinds of length (merged one schema at a time after a sort or a scan of
+// what a state holds, they would take 2.9 s and 1 s), and at most about
+// 0.15 s for documents whose patterns fill MaxDocumentInstructions: the
+// largest programs, repetitions of classes, alternations of thousands of
+// literals, anchored alternations and repetitions, Unicode class escapes
+// merged in a class, case folding, and patterns past the bound). The
+// bounds are separate, so their costs add up in one document: 3,800
+// properties against recursive mixins, eight case-folded classes of merged
+// Unicode class escapes and 120 reference targets outside the keywords
+// compile in about 0.95 to 1.1 s at a load of up to 1, and with property
+// names of slashes, which the library's locations escape to twice their
+// bytes and its quadratic scan of its work queue compares, in 1.1 to
+// 1.2 s. The 1 s a compile is allowed is therefore not met for these
+// combined worst cases (proposed: an Open question with these figures; a
+// joint compile budget, or a bound on the bytes of the positions'
+// locations, would also refuse large ordinary schemas). Such a worst-case
+// compile allocates up to about 330 MB in all (the evaluation analysis
+// reuses the member maps of each level for the next), its heap peaks at
+// about 35 MB, the collector's pacing included, and the compiled Schema
+// keeps up to about 16 MB: the library's compiled schemas, about 2.4 KB a
+// position (10 MB at MaxSubschemas), and the patterns' programs, at most
+// about 6 MB at MaxDocumentInstructions (TestPatternProgramMemory), the
+// states sharing each distinct list of the programs that may match a
+// string; an ordinary schema takes milliseconds and keeps kilobytes.
 //
 // A compiled Schema is immutable and safe for concurrent use, and validating
 // with it never compiles a regular expression: the regexp engine the compile
@@ -701,9 +698,8 @@
 // recursive documents 3.2 to 18 at the sizes above, and up to about 114 for the
 // component tree nested 6 deep.
 //
-// The 1 KiB order of BenchmarkValidate1KiB takes about 90 µs on that machine,
-// above the 25 µs p50 target (an Open question); the library's validation is
-// two thirds of it.
+// Validating a 1 KiB order takes about 90 µs on that machine; the
+// library's validation is two thirds of it.
 //
 // # Work bound
 //
@@ -794,26 +790,26 @@
 // limits.maxRequestBodyBytes is filter.ErrTooLarge (413 RZ-RT-003), and
 // nothing is reserved for it: at the 10 MiB default the limit is about 2.7
 // x 10^9 units, so one request validates for at most about 2.7 s on that
-// machine (BenchmarkWorkModel and BenchmarkPatternModel report the
-// nanoseconds per unit of every term, at most 0.8 on that machine at rest;
-// BenchmarkLocationWalk the walk's). The location pass runs only when both
-// passes and the walk fit the limit together, and the walk stops, refusing
-// with DetailMismatch alone, when the request ends. The limit grows with
-// the raw limit, like the decoded limit. Records, tags and long strings
-// cost 50 to 230 units per byte of body, so the bound does not bind before
-// their decoded values. Unions cost more, every keyword of a failing
-// branch being charged: events under an 8-way and a 20-way oneOf about 490
-// and 1,190 units per byte, GeoJSON features 480, rich text 380 to 1,670,
-// a component tree 1,240, where the decision pass's working set binds
-// first; an array of two-letter codes under a 250-value enum about 740,
-// every comparison being charged, refused above 34% of the limit. It
-// refuses the bodies whose work the schema amplifies, such as a 300 KB
-// object or a 2 MiB string against 4,000 evaluations, a 100 KB array
-// against 200 comparisons with a 20,000-element const, or 2,048 arrays
-// crafted to share one hash under uniqueItems, each of which takes seconds
-// or grows with the square of the array (TestHandleWorkBound,
-// TestUniqueItemsComparisons); so is a valid uniqueItems array of more
-// than about 1,700 to 6,500 objects ("Working set").
+// machine (every term takes at most 0.8 ns per unit there at rest, and the
+// location walk less than 1 ns per unit it is charged). The location pass
+// runs only when both passes and the walk fit the limit together, and the
+// walk stops, refusing with DetailMismatch alone, when the request ends.
+// The limit grows with the raw limit, like the decoded limit. Records,
+// tags and long strings cost 50 to 230 units per byte of body, so the
+// bound does not bind before their decoded values. Unions cost more, every
+// keyword of a failing branch being charged: events under an 8-way and a
+// 20-way oneOf about 490 and 1,190 units per byte, GeoJSON features 480,
+// rich text 380 to 1,670, a component tree 1,240, where the decision
+// pass's working set binds first; an array of two-letter codes under a
+// 250-value enum about 740, every comparison being charged, refused above
+// 34% of the limit. It refuses the bodies whose work the schema amplifies,
+// such as a 300 KB object or a 2 MiB string against 4,000 evaluations, a
+// 100 KB array against 200 comparisons with a 20,000-element const, or
+// 2,048 arrays crafted to share one hash under uniqueItems, each of which
+// takes seconds or grows with the square of the array
+// (TestHandleWorkBound, TestUniqueItemsComparisons); so is a valid
+// uniqueItems array of more than about 1,700 to 6,500 objects
+// ("Working set").
 //
 // # Number bounds
 //

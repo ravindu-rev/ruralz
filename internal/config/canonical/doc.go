@@ -128,13 +128,14 @@
 // value: about 120 to 160 bytes per value, so the trees of realistic
 // content take about 11 to 14 times its bytes and those of content made of
 // short values (a list of zeros) up to some 90 times. The trees and the
-// copy they share of the PBB ladder Revisions measure about 13 times the
-// content (12.8 times for 5,000 Routes: 19.5 MB beside 1.5 MB), against
-// the target of four times the canonical size for the peak validation
-// memory of a Node loading canonical content (configuration model,
-// Validation and diff semantics), which the trees alone miss before stages
-// F to M run: the []tree.Resource that pipeline.FromResources takes fixes
-// this representation. MaxValues and MaxResources bound them: at the
+// copy they share of Revisions of R Routes, R/10 Upstreams, R/20 Policies
+// and one Gateway measure about 13 times the content (12.8 times for
+// 5,000 Routes: 19.5 MB beside 1.5 MB), against the target of four times
+// the canonical size for the peak validation memory of a Node loading
+// canonical content (configuration model, Validation and diff semantics),
+// which the trees alone miss before stages F to M run: the
+// []tree.Resource that pipeline.FromResources takes fixes this
+// representation. MaxValues and MaxResources bound them: at the
 // defaults, which no Revision of this release reaches, the trees would
 // take some 8 to 10 GiB, so a 256 MiB /config/dump (DefaultDumpLimit)
 // whose one resource holds short values reaches the value limit after

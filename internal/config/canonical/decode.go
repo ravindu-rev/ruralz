@@ -832,11 +832,10 @@ func firstDiff(a, b []byte) int {
 // collecting on scratch stacks and then copied once into a slab slice of
 // the exact length and capacity, so a later append reallocates instead of
 // writing into a neighbor. A large Revision thus decodes with a few
-// allocations per thousand nodes (the 25 ms verify budget, target). The
-// trees keep the content string and the slabs alive as long as any of
-// their nodes is. The elements of the top-level resources array go to the
-// sink only: the document tree does not hold them, so an element the
-// checks dropped is garbage at once.
+// allocations per thousand nodes. The trees keep the content string and
+// the slabs alive as long as any of their nodes is. The elements of the
+// top-level resources array go to the sink only: the document tree does
+// not hold them, so an element the checks dropped is garbage at once.
 type parser struct {
 	s       jsonval.Scanner
 	in      *input
