@@ -1,0 +1,5 @@
+[package]
+name = "git-crate"
+version = "0.7.0"
+edition = "2021"
+license = "BSD-3-Clause"

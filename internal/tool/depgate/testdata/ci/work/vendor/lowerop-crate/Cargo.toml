@@ -1,0 +1,5 @@
+[package]
+name = "lowerop-crate"
+version = "0.6.0"
+edition = "2021"
+license = "MIT or Apache-2.0"

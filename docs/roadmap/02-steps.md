@@ -17,7 +17,6 @@ The work left in the current milestone, M2 WASM + Control/GitOps, in build order
 | `ruralz test run` | `internal/cli/` | [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | WASM runtime: wazero host, Plugin ABI v1 Host Functions, Capabilities, limits and failure semantics, with Host Function fuzzing | `internal/pluginhost/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md), [ADR-0004](../adr/0004-wasm-runtime-wazero.md), [ADR-0005](../adr/0005-plugin-abi-v1.md) |
 | `Plugin` kind and `plugin` Policy, hot-swap and `rzplg:` keys | `internal/pluginhost/`, `pkg/config/v1alpha1/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md), [Configuration model](../architecture/02-configuration-model.md) |
-| License gate for non-Go dependencies (Rust crates, npm packages) | `internal/tool/depgate/` | [Tech stack](../engineering/01-tech-stack-and-libraries.md) |
 | Plugin proto, Go (TinyGo) and Rust PDKs, Plugin ABI conformance suite and test harness | `api/proto/ruralz/plugin/v1/`, `sdk/go/`, `sdk/rust/`, `test/conformance/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md) |
 | `ruralz plugin` verbs and signed Plugin artifacts | `internal/cli/` | [WASM plugin system](../architecture/05-wasm-plugin-system.md), [CLI and API surface](../reference/01-cli-and-api-surface.md) |
 | Control Store on Raft, with the fencing test | `internal/controlstore/`, `internal/controlstore/raft/` | [Control plane and GitOps](../architecture/04-control-plane-and-gitops.md), [ADR-0006](../adr/0006-control-store-raft-boltdb.md) |

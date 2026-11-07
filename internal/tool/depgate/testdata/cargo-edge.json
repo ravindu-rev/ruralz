@@ -1,0 +1,1723 @@
+{
+  "packages": [
+    {
+      "name": "and-crate",
+      "version": "3.2.0",
+      "id": "path+file:///ci/work/vendor/and-crate#3.2.0",
+      "license": "MIT AND GPL-2.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "and_crate",
+          "src_path": "/ci/work/vendor/and-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/and-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "badexpr-crate",
+      "version": "1.1.0",
+      "id": "path+file:///ci/work/vendor/badexpr-crate#1.1.0",
+      "license": "Apache 2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "badexpr_crate",
+          "src_path": "/ci/work/vendor/badexpr-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/badexpr-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "edge-plugin-api",
+      "version": "0.1.0",
+      "id": "path+file:///ci/work/edge-workspace/api#edge-plugin-api@0.1.0",
+      "license": "Apache-2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [
+        {
+          "name": "and-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/and-crate"
+        },
+        {
+          "name": "badexpr-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/badexpr-crate"
+        },
+        {
+          "name": "git-crate",
+          "source": "git+https://github.com/example/git-crate",
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null
+        },
+        {
+          "name": "gpl-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/gpl-crate"
+        },
+        {
+          "name": "gpl-derive",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/gpl-derive"
+        },
+        {
+          "name": "licensefile-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/licensefile-crate"
+        },
+        {
+          "name": "lower-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/lower-crate"
+        },
+        {
+          "name": "lowerop-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/lowerop-crate"
+        },
+        {
+          "name": "mpl-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/mpl-crate"
+        },
+        {
+          "name": "nolicense-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/nolicense-crate"
+        },
+        {
+          "name": "or-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/or-crate"
+        },
+        {
+          "name": "plus-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/plus-crate"
+        },
+        {
+          "name": "ref-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/ref-crate"
+        },
+        {
+          "name": "shared-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/shared-crate"
+        },
+        {
+          "name": "twin-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": "twin1",
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/twin-1"
+        },
+        {
+          "name": "twin-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": "twin2",
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/twin-2"
+        },
+        {
+          "name": "with-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/with-crate"
+        },
+        {
+          "name": "gpl-test-helper",
+          "source": null,
+          "req": "*",
+          "kind": "dev",
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/gpl-test-helper"
+        },
+        {
+          "name": "win-only-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": "cfg(windows)",
+          "registry": null,
+          "path": "/ci/work/vendor/win-only-crate"
+        }
+      ],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "edge_plugin_api",
+          "src_path": "/ci/work/edge-workspace/api/src/lib.rs",
+          "edition": "2024",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/edge-workspace/api/Cargo.toml",
+      "metadata": null,
+      "publish": [],
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2024",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "edge-plugin-util",
+      "version": "0.1.0",
+      "id": "path+file:///ci/work/edge-workspace/util#edge-plugin-util@0.1.0",
+      "license": "Apache-2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [
+        {
+          "name": "elect-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/elect-crate"
+        },
+        {
+          "name": "unicode-crate",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/unicode-crate"
+        },
+        {
+          "name": "gpl-build-tool",
+          "source": null,
+          "req": "*",
+          "kind": "build",
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/gpl-build-tool"
+        },
+        {
+          "name": "shared-crate",
+          "source": null,
+          "req": "*",
+          "kind": "build",
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/shared-crate"
+        }
+      ],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "edge_plugin_util",
+          "src_path": "/ci/work/edge-workspace/util/src/lib.rs",
+          "edition": "2024",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/edge-workspace/util/Cargo.toml",
+      "metadata": null,
+      "publish": [],
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2024",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "elect-crate",
+      "version": "0.8.0",
+      "id": "path+file:///ci/work/vendor/elect-crate#0.8.0",
+      "license": "Zlib OR GPL-3.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "elect_crate",
+          "src_path": "/ci/work/vendor/elect-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/elect-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "git-crate",
+      "version": "0.7.0",
+      "id": "git+https://github.com/example/git-crate#0.7.0",
+      "license": "BSD-3-Clause",
+      "license_file": null,
+      "description": null,
+      "source": "git+https://github.com/example/git-crate#00e45b2e4da1b509566f27b78bdda00973c464a1",
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "git_crate",
+          "src_path": "/ci/.cargo/git/checkouts/git-crate-db4ff693e74a8894/00e45b2/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/.cargo/git/checkouts/git-crate-db4ff693e74a8894/00e45b2/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "gpl-build-tool",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/gpl-build-tool#1.0.0",
+      "license": "GPL-3.0-or-later",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "gpl_build_tool",
+          "src_path": "/ci/work/vendor/gpl-build-tool/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/gpl-build-tool/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "gpl-crate",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/gpl-crate#1.0.0",
+      "license": "GPL-3.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "gpl_crate",
+          "src_path": "/ci/work/vendor/gpl-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/gpl-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "gpl-derive",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/gpl-derive#1.0.0",
+      "license": "GPL-2.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [
+        {
+          "name": "gpl-derive-support",
+          "source": null,
+          "req": "*",
+          "kind": null,
+          "rename": null,
+          "optional": false,
+          "uses_default_features": true,
+          "features": [],
+          "target": null,
+          "registry": null,
+          "path": "/ci/work/vendor/gpl-derive-support"
+        }
+      ],
+      "targets": [
+        {
+          "kind": [
+            "proc-macro"
+          ],
+          "crate_types": [
+            "proc-macro"
+          ],
+          "name": "gpl_derive",
+          "src_path": "/ci/work/vendor/gpl-derive/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/gpl-derive/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "gpl-derive-support",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/gpl-derive-support#1.0.0",
+      "license": "GPL-2.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "gpl_derive_support",
+          "src_path": "/ci/work/vendor/gpl-derive-support/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/gpl-derive-support/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "gpl-test-helper",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/gpl-test-helper#1.0.0",
+      "license": "AGPL-3.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "gpl_test_helper",
+          "src_path": "/ci/work/vendor/gpl-test-helper/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/gpl-test-helper/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "licensefile-crate",
+      "version": "0.4.2",
+      "id": "path+file:///ci/work/vendor/licensefile-crate#0.4.2",
+      "license": null,
+      "license_file": "COPYRIGHT.txt",
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "licensefile_crate",
+          "src_path": "/ci/work/vendor/licensefile-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/licensefile-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "lower-crate",
+      "version": "0.5.0",
+      "id": "path+file:///ci/work/vendor/lower-crate#0.5.0",
+      "license": "mit",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "lower_crate",
+          "src_path": "/ci/work/vendor/lower-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/lower-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "lowerop-crate",
+      "version": "0.6.0",
+      "id": "path+file:///ci/work/vendor/lowerop-crate#0.6.0",
+      "license": "MIT or Apache-2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "lowerop_crate",
+          "src_path": "/ci/work/vendor/lowerop-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/lowerop-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "mpl-crate",
+      "version": "2.0.1",
+      "id": "path+file:///ci/work/vendor/mpl-crate#2.0.1",
+      "license": "MPL-2.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "mpl_crate",
+          "src_path": "/ci/work/vendor/mpl-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/mpl-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "nolicense-crate",
+      "version": "0.2.0",
+      "id": "path+file:///ci/work/vendor/nolicense-crate#0.2.0",
+      "license": null,
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "nolicense_crate",
+          "src_path": "/ci/work/vendor/nolicense-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/nolicense-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "or-crate",
+      "version": "1.4.0",
+      "id": "path+file:///ci/work/vendor/or-crate#1.4.0",
+      "license": "MIT OR GPL-3.0-only",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "or_crate",
+          "src_path": "/ci/work/vendor/or-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/or-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "plus-crate",
+      "version": "1.0.3",
+      "id": "path+file:///ci/work/vendor/plus-crate#1.0.3",
+      "license": "Apache-2.0+",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "plus_crate",
+          "src_path": "/ci/work/vendor/plus-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/plus-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "ref-crate",
+      "version": "0.1.0",
+      "id": "path+file:///ci/work/vendor/ref-crate#0.1.0",
+      "license": "LicenseRef-Proprietary",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "ref_crate",
+          "src_path": "/ci/work/vendor/ref-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/ref-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "shared-crate",
+      "version": "1.2.0",
+      "id": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+      "license": "MIT",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "shared_crate",
+          "src_path": "/ci/work/vendor/shared-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/shared-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "twin-crate",
+      "version": "1.0.0",
+      "id": "path+file:///ci/work/vendor/twin-1#twin-crate@1.0.0",
+      "license": "ISC",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "twin_crate",
+          "src_path": "/ci/work/vendor/twin-1/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/twin-1/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "twin-crate",
+      "version": "2.0.0",
+      "id": "path+file:///ci/work/vendor/twin-2#twin-crate@2.0.0",
+      "license": "BSD-2-Clause",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "twin_crate",
+          "src_path": "/ci/work/vendor/twin-2/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/twin-2/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "unicode-crate",
+      "version": "15.1.0",
+      "id": "path+file:///ci/work/vendor/unicode-crate#15.1.0",
+      "license": "Unicode-3.0",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "unicode_crate",
+          "src_path": "/ci/work/vendor/unicode-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/unicode-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    },
+    {
+      "name": "with-crate",
+      "version": "0.9.0",
+      "id": "path+file:///ci/work/vendor/with-crate#0.9.0",
+      "license": "Apache-2.0 WITH LLVM-exception",
+      "license_file": null,
+      "description": null,
+      "source": null,
+      "dependencies": [],
+      "targets": [
+        {
+          "kind": [
+            "lib"
+          ],
+          "crate_types": [
+            "lib"
+          ],
+          "name": "with_crate",
+          "src_path": "/ci/work/vendor/with-crate/src/lib.rs",
+          "edition": "2021",
+          "doc": true,
+          "doctest": true,
+          "test": true
+        }
+      ],
+      "features": {},
+      "manifest_path": "/ci/work/vendor/with-crate/Cargo.toml",
+      "metadata": null,
+      "publish": null,
+      "authors": [],
+      "categories": [],
+      "keywords": [],
+      "readme": null,
+      "repository": null,
+      "homepage": null,
+      "documentation": null,
+      "edition": "2021",
+      "links": null,
+      "default_run": null,
+      "rust_version": null
+    }
+  ],
+  "workspace_members": [
+    "path+file:///ci/work/edge-workspace/api#edge-plugin-api@0.1.0",
+    "path+file:///ci/work/edge-workspace/util#edge-plugin-util@0.1.0"
+  ],
+  "workspace_default_members": [
+    "path+file:///ci/work/edge-workspace/api#edge-plugin-api@0.1.0",
+    "path+file:///ci/work/edge-workspace/util#edge-plugin-util@0.1.0"
+  ],
+  "resolve": {
+    "nodes": [
+      {
+        "id": "path+file:///ci/work/vendor/and-crate#3.2.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/badexpr-crate#1.1.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/edge-workspace/api#edge-plugin-api@0.1.0",
+        "dependencies": [
+          "path+file:///ci/work/vendor/and-crate#3.2.0",
+          "path+file:///ci/work/vendor/badexpr-crate#1.1.0",
+          "git+https://github.com/example/git-crate#0.7.0",
+          "path+file:///ci/work/vendor/gpl-crate#1.0.0",
+          "path+file:///ci/work/vendor/gpl-derive#1.0.0",
+          "path+file:///ci/work/vendor/gpl-test-helper#1.0.0",
+          "path+file:///ci/work/vendor/licensefile-crate#0.4.2",
+          "path+file:///ci/work/vendor/lower-crate#0.5.0",
+          "path+file:///ci/work/vendor/lowerop-crate#0.6.0",
+          "path+file:///ci/work/vendor/mpl-crate#2.0.1",
+          "path+file:///ci/work/vendor/nolicense-crate#0.2.0",
+          "path+file:///ci/work/vendor/or-crate#1.4.0",
+          "path+file:///ci/work/vendor/plus-crate#1.0.3",
+          "path+file:///ci/work/vendor/ref-crate#0.1.0",
+          "path+file:///ci/work/vendor/shared-crate#1.2.0",
+          "path+file:///ci/work/vendor/twin-1#twin-crate@1.0.0",
+          "path+file:///ci/work/vendor/twin-2#twin-crate@2.0.0",
+          "path+file:///ci/work/vendor/with-crate#0.9.0"
+        ],
+        "deps": [
+          {
+            "name": "and_crate",
+            "pkg": "path+file:///ci/work/vendor/and-crate#3.2.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "badexpr_crate",
+            "pkg": "path+file:///ci/work/vendor/badexpr-crate#1.1.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "git_crate",
+            "pkg": "git+https://github.com/example/git-crate#0.7.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "gpl_crate",
+            "pkg": "path+file:///ci/work/vendor/gpl-crate#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "gpl_derive",
+            "pkg": "path+file:///ci/work/vendor/gpl-derive#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "gpl_test_helper",
+            "pkg": "path+file:///ci/work/vendor/gpl-test-helper#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": "dev",
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "licensefile_crate",
+            "pkg": "path+file:///ci/work/vendor/licensefile-crate#0.4.2",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "lower_crate",
+            "pkg": "path+file:///ci/work/vendor/lower-crate#0.5.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "lowerop_crate",
+            "pkg": "path+file:///ci/work/vendor/lowerop-crate#0.6.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "mpl_crate",
+            "pkg": "path+file:///ci/work/vendor/mpl-crate#2.0.1",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "nolicense_crate",
+            "pkg": "path+file:///ci/work/vendor/nolicense-crate#0.2.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "or_crate",
+            "pkg": "path+file:///ci/work/vendor/or-crate#1.4.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "plus_crate",
+            "pkg": "path+file:///ci/work/vendor/plus-crate#1.0.3",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "ref_crate",
+            "pkg": "path+file:///ci/work/vendor/ref-crate#0.1.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "shared_crate",
+            "pkg": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "twin1",
+            "pkg": "path+file:///ci/work/vendor/twin-1#twin-crate@1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "twin2",
+            "pkg": "path+file:///ci/work/vendor/twin-2#twin-crate@2.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "with_crate",
+            "pkg": "path+file:///ci/work/vendor/with-crate#0.9.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          }
+        ],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/edge-workspace/util#edge-plugin-util@0.1.0",
+        "dependencies": [
+          "path+file:///ci/work/vendor/elect-crate#0.8.0",
+          "path+file:///ci/work/vendor/gpl-build-tool#1.0.0",
+          "path+file:///ci/work/vendor/shared-crate#1.2.0",
+          "path+file:///ci/work/vendor/unicode-crate#15.1.0"
+        ],
+        "deps": [
+          {
+            "name": "elect_crate",
+            "pkg": "path+file:///ci/work/vendor/elect-crate#0.8.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "gpl_build_tool",
+            "pkg": "path+file:///ci/work/vendor/gpl-build-tool#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": "build",
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "shared_crate",
+            "pkg": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+            "dep_kinds": [
+              {
+                "kind": "build",
+                "target": null
+              }
+            ]
+          },
+          {
+            "name": "unicode_crate",
+            "pkg": "path+file:///ci/work/vendor/unicode-crate#15.1.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          }
+        ],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/elect-crate#0.8.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "git+https://github.com/example/git-crate#0.7.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/gpl-build-tool#1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/gpl-crate#1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/gpl-derive#1.0.0",
+        "dependencies": [
+          "path+file:///ci/work/vendor/gpl-derive-support#1.0.0"
+        ],
+        "deps": [
+          {
+            "name": "gpl_derive_support",
+            "pkg": "path+file:///ci/work/vendor/gpl-derive-support#1.0.0",
+            "dep_kinds": [
+              {
+                "kind": null,
+                "target": null
+              }
+            ]
+          }
+        ],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/gpl-derive-support#1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/gpl-test-helper#1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/licensefile-crate#0.4.2",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/lower-crate#0.5.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/lowerop-crate#0.6.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/mpl-crate#2.0.1",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/nolicense-crate#0.2.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/or-crate#1.4.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/plus-crate#1.0.3",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/ref-crate#0.1.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/shared-crate#1.2.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/twin-1#twin-crate@1.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/twin-2#twin-crate@2.0.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/unicode-crate#15.1.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      },
+      {
+        "id": "path+file:///ci/work/vendor/with-crate#0.9.0",
+        "dependencies": [],
+        "deps": [],
+        "features": []
+      }
+    ],
+    "root": null
+  },
+  "target_directory": "/ci/work/edge-workspace/target",
+  "build_directory": "/ci/work/edge-workspace/target",
+  "version": 1,
+  "workspace_root": "/ci/work/edge-workspace",
+  "metadata": null
+}

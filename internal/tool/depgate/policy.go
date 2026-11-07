@@ -37,9 +37,24 @@ func allowedLicenses() []string {
 	return []string{"Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC"}
 }
 
-// mplExceptions are the MPL-2.0 modules admitted by name: used unmodified,
-// notices kept, patches to MPL-2.0 files published under MPL-2.0. Keyed by
-// module path, because version selection may raise versions.
+// licenseAddenda are the per-ecosystem addenda to allowedLicenses (ADR-0002,
+// "Non-Go license gate"): license terms that the SPDX expression of a
+// crate a Rust PDK ships ("cargo") or of an npm package Ruralz Console
+// ships ("npm") may resolve to besides the G2 list. An entry is a license
+// identifier, or "<license> WITH <exception>" for that pair; copyleft and
+// source-available licenses never qualify, and MPL-2.0 only through
+// mplExceptions.
+func licenseAddenda() map[string][]string {
+	return map[string][]string{
+		ecosystemCargo: {"Unicode-3.0"},
+		ecosystemNPM:   nil,
+	}
+}
+
+// mplExceptions are the MPL-2.0 components admitted by name: used
+// unmodified, notices kept, patches to MPL-2.0 files published under
+// MPL-2.0. Keyed by module path, or "cargo:<crate>" and "npm:<package>",
+// because version selection may raise versions.
 func mplExceptions() []string {
 	return []string{
 		"github.com/hashicorp/raft",
@@ -49,18 +64,23 @@ func mplExceptions() []string {
 	}
 }
 
-// licenseElections map dual-licensed modules to the license Ruralz elects,
-// recorded in NOTICE.
+// licenseElections map dual-licensed components to the license Ruralz
+// elects, recorded in NOTICE: Go modules by path, crates and npm packages
+// as "cargo:<crate>" and "npm:<package>", whose elected license term must
+// be one the package's SPDX expression offers.
 func licenseElections() map[string]string {
 	return map[string]string{
 		"github.com/eclipse/paho.golang": "EDL-1.0",
 	}
 }
 
-// licenseOverrides map modules whose license text the classifier cannot
-// read to a reviewed SPDX identifier. A key is a module path, for the
-// texts at the module root, or "<module path>/<directory>" for the texts
-// of a nested directory that governs some linked packages.
+// licenseOverrides map components without a readable license to a
+// reviewed license. A Go module's key is its module path, for the texts at
+// the module root, or "<module path>/<directory>" for the texts of a
+// nested directory that governs some linked packages, and its value an
+// SPDX identifier. A crate's key is "cargo:<crate>" and an npm package's
+// "npm:<package>", and the value a reviewed SPDX expression, which the
+// gate reads instead of whatever the manifest declares.
 func licenseOverrides() map[string]string {
 	return map[string]string{}
 }

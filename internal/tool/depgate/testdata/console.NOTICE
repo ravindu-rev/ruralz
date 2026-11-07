@@ -1,0 +1,18 @@
+Ruralz
+Copyright 2026 Revington
+
+================================================================================
+Third-party notices
+
+ruralz-control on linux/amd64 includes third-party software; THIRD_PARTY_LICENSES holds
+the licenses. The notices of the linked modules and of the npm packages of
+the embedded Ruralz Console, and the license elections, follow.
+
+--------------------------------------------------------------------------------
+widget 1.4.0
+--------------------------------------------------------------------------------
+NOTICE:
+
+Widget
+Copyright 2026 Example Widget Authors
+

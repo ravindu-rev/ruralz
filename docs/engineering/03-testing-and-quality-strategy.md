@@ -265,6 +265,7 @@ Static checks run in the `ci` job, block merge and enforce the [tech stack](01-t
 |---|---|---|---|
 | `govulncheck` and `go mod verify` | A reachable vulnerability or checksum mismatch | `ci` | M0 |
 | License gate (G2) | A linked package outside the allowlist and named MPL-2.0 exceptions | `ci`, in depgate | M0 |
+| Non-Go license gate | A crate a PDK ships or an npm package Ruralz Console ships whose SPDX expression does not resolve to the G2 list, its ecosystem's addendum, a named exception or an election, or that declares none without a reviewed override ([License rules](01-tech-stack-and-libraries.md#license-rules)) | The Rust PDK's CI and the Ruralz Console build, in depgate ([CI tooling](01-tech-stack-and-libraries.md#ci-tooling)) | Planned (M2) |
 | Crypto denylist (G3) | A crypto package off the allowlist; a FIPS job adds `GOFIPS140` builds and tests, HTTP/3 cases excepted | `ci`, in depgate | M0; FIPS job Planned (M5) |
 | golangci-lint | A finding; a pinned binary, since it is GPL-3.0 ([source](https://github.com/golangci/golangci-lint/blob/v2.15.0/LICENSE)) | `ci` | M0 |
 | `buf lint` and `buf breaking` | A breaking change to `ruralz.control.v1` or `ruralz.plugin.v1` ([source](https://github.com/bufbuild/buf)) | `ci` | Planned (M2) |

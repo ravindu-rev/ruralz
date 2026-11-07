@@ -3,10 +3,12 @@
 
 // Command depgate runs the dependency gates of `make supply-chain`, which
 // the PR pipeline's ci job runs, over the packages each binary links, per
-// shipped platform (`go list -deps -test=false` with CGO_ENABLED=0), as
+// shipped platform (`go list -deps -test=false` with CGO_ENABLED=0), and
+// the non-Go license gate over the crates a Rust PDK ships and the npm
+// packages Ruralz Console ships, as
 // docs/engineering/01-tech-stack-and-libraries.md fixes:
 //
-//		depgate [-C DIR] [-notices DIR]
+//		depgate [-C DIR] [-notices DIR] [-cargo FILE | -pnpm FILE]
 //
 //	  - G2 license gate: Apache-2.0, MIT, BSD-2-Clause, BSD-3-Clause or ISC;
 //	    MPL-2.0 only for the named modules; EDL-1.0 where elected. A linked
@@ -34,6 +36,25 @@
 // source is available; NOTICE is the repository NOTICE followed by the
 // linked modules' NOTICE texts and the license elections.
 //
+// The non-Go license gate (ADR-0002) reads recorded output, from a file
+// or, for "-", standard input, and never runs cargo or pnpm. It applies G2
+// to the SPDX license expression each package's manifest declares: OR
+// resolves when one operand does, AND when every one does, a license when
+// the G2 list, the ecosystem's addendum, a named MPL-2.0 exception or the
+// package's election admits it, and "<license> WITH <exception>" only when
+// one of them names that pair. A package without an expression, or with
+// one that does not parse, is a finding until a reviewed override names
+// it.
+//
+//   - -cargo FILE reads a Rust PDK's `cargo metadata --format-version 1`
+//     output and gates the crates the PDK ships, its normal dependencies
+//     without proc-macro crates, build-dependencies and dev-dependencies,
+//     instead of the Go binaries; -notices DIR then writes the PDK
+//     package's THIRD_PARTY_LICENSES and NOTICE into DIR.
+//   - -pnpm FILE reads Ruralz Console's `pnpm licenses list --prod --json`
+//     output and gates the packages it reports besides the Go binaries;
+//     ruralz-control, which embeds the Console, lists them in its notices.
+//
 // Exit status: 0 pass, 1 findings, 2 usage or I/O error.
 package main
 
@@ -48,18 +69,20 @@ import (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
-	code := runMain(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	code := runMain(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	stop()
 	os.Exit(code)
 }
 
 // runMain parses the flags, runs the gates and returns the exit status.
-func runMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+func runMain(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("depgate", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var o options
 	fs.StringVar(&o.dir, "C", ".", "module root")
 	fs.StringVar(&o.notices, "notices", "", "write each artifact's THIRD_PARTY_LICENSES and NOTICE under this directory once the gates pass")
+	fs.StringVar(&o.cargo, "cargo", "", "gate the crates a Rust PDK ships, from this file of `cargo metadata --format-version 1` output (- for standard input), instead of the Go binaries")
+	fs.StringVar(&o.pnpm, "pnpm", "", "gate also the npm packages Ruralz Console ships, from this file of `pnpm licenses list --prod --json` output (- for standard input); ruralz-control's notices list them")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -67,7 +90,12 @@ func runMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "depgate: unexpected arguments %q\n", fs.Args())
 		return 2
 	}
-	findings, err := run(ctx, o)
+	if o.cargo != "" && o.pnpm != "" {
+		_, _ = fmt.Fprintln(stderr, "depgate: -cargo and -pnpm gate different artifacts; give one of them")
+		return 2
+	}
+	o.stdin = stdin
+	findings, summary, err := run(ctx, o)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "depgate:", err)
 		return 2
@@ -79,9 +107,8 @@ func runMain(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stderr, "depgate: %d finding(s)\n", len(findings))
 		return 1
 	}
-	_, _ = fmt.Fprintln(stdout, "depgate: G2, G3, the Raft and jwx denylists, advisory floors and test support denial pass")
-	if o.notices != "" {
-		_, _ = fmt.Fprintf(stdout, "depgate: wrote THIRD_PARTY_LICENSES and NOTICE of %d artifacts under %s\n", len(targets()), o.notices)
+	for _, line := range summary {
+		_, _ = fmt.Fprintln(stdout, line)
 	}
 	return 0
 }

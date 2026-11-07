@@ -1,0 +1,18 @@
+Ruralz
+Copyright 2026 Revington
+
+================================================================================
+Third-party notices
+
+A Plugin built with example-pdk 0.1.0 includes third-party software;
+THIRD_PARTY_LICENSES holds the licenses. The notices of the crates it ships
+and the license elections follow.
+
+--------------------------------------------------------------------------------
+vendored-codec 0.3.1
+--------------------------------------------------------------------------------
+NOTICE:
+
+Vendored Codec
+Copyright 2026 Example Codec Authors
+

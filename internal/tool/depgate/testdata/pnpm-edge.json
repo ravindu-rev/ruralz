@@ -1,0 +1,146 @@
+{
+  "(MIT OR Apache-2.0)": [
+    {
+      "name": "array-pkg",
+      "versions": [
+        "file:../vendor/array-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/array-pkg@file+..+vendor+array-pkg/node_modules/array-pkg"
+      ],
+      "license": "(MIT OR Apache-2.0)"
+    }
+  ],
+  "Apache-2.0 WITH Commons-Clause": [
+    {
+      "name": "commons-pkg",
+      "versions": [
+        "file:../vendor/commons-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/commons-pkg@file+..+vendor+commons-pkg/node_modules/commons-pkg"
+      ],
+      "license": "Apache-2.0 WITH Commons-Clause"
+    }
+  ],
+  "GPL-3.0-only": [
+    {
+      "name": "gpl-pkg",
+      "versions": [
+        "file:../vendor/gpl-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/gpl-pkg@file+..+vendor+gpl-pkg/node_modules/gpl-pkg"
+      ],
+      "license": "GPL-3.0-only"
+    }
+  ],
+  "MIT": [
+    {
+      "name": "guess-pkg",
+      "versions": [
+        "file:../vendor/guess-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/guess-pkg@file+..+vendor+guess-pkg/node_modules/guess-pkg"
+      ],
+      "license": "MIT",
+      "description": "Declares no license; its license file only mentions MIT."
+    },
+    {
+      "name": "object-pkg",
+      "versions": [
+        "file:../vendor/object-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/object-pkg@file+..+vendor+object-pkg/node_modules/object-pkg"
+      ],
+      "license": "MIT"
+    }
+  ],
+  "MPL-2.0": [
+    {
+      "name": "mpl-pkg",
+      "versions": [
+        "file:../vendor/mpl-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/mpl-pkg@file+..+vendor+mpl-pkg/node_modules/mpl-pkg"
+      ],
+      "license": "MPL-2.0"
+    }
+  ],
+  "Unknown": [
+    {
+      "name": "none-pkg",
+      "versions": [
+        "file:../vendor/none-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/none-pkg@file+..+vendor+none-pkg/node_modules/none-pkg"
+      ],
+      "license": "Unknown"
+    },
+    {
+      "name": "see-pkg",
+      "versions": [
+        "file:../vendor/see-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/see-pkg@file+..+vendor+see-pkg/node_modules/see-pkg"
+      ],
+      "license": "Unknown"
+    }
+  ],
+  "(MIT OR GPL-2.0-only)": [
+    {
+      "name": "paren-pkg",
+      "versions": [
+        "file:../vendor/paren-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/paren-pkg@file+..+vendor+paren-pkg/node_modules/paren-pkg"
+      ],
+      "license": "(MIT OR GPL-2.0-only)"
+    }
+  ],
+  "MIT/Apache-2.0": [
+    {
+      "name": "slash-pkg",
+      "versions": [
+        "file:../vendor/slash-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/slash-pkg@file+..+vendor+slash-pkg/node_modules/slash-pkg"
+      ],
+      "license": "MIT/Apache-2.0"
+    }
+  ],
+  "0BSD": [
+    {
+      "name": "tslib",
+      "versions": [
+        "2.8.1"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/tslib@2.8.1/node_modules/tslib"
+      ],
+      "license": "0BSD",
+      "author": "Microsoft Corp.",
+      "homepage": "https://www.typescriptlang.org/",
+      "description": "Runtime library for TypeScript helper functions"
+    }
+  ],
+  "UNLICENSED": [
+    {
+      "name": "unl-pkg",
+      "versions": [
+        "file:../vendor/unl-pkg"
+      ],
+      "paths": [
+        "/ci/work/edge/node_modules/.pnpm/unl-pkg@file+..+vendor+unl-pkg/node_modules/unl-pkg"
+      ],
+      "license": "UNLICENSED"
+    }
+  ]
+}
