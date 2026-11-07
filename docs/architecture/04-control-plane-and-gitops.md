@@ -97,7 +97,7 @@ flowchart LR
 
 1. Replicas serve their Nodes from committed assignments, subject to [fencing](#fencing-stale-replicas); Enrollment and renewal go to the leader, or fail with `RZ-CP-004`.
 2. Followers forward `Ack` and `Nack` at once and heartbeat aggregates every 5 s (target) through a bounded queue that drops the oldest.
-3. `clusterNodeCount` counts ready Nodes that ACKed a Revision and stayed connected 10 minutes (target); large decreases publish at once, and increases rise at most 10% per minute, with an alert (target); each published value is committed through Raft.
+3. `clusterNodeCount` counts qualified Nodes: ready Nodes that ACKed a Revision and stayed connected 10 minutes (target), each qualification recorded per `node.id` in committed state. Only a qualified Node missing three heartbeats (target) lowers it, and only once the replica holding its aggregates has been up and fresh for a 5-minute reconnect grace (target), which a replica loss or leader failover restarts, so Ruralz Control restarts, failovers and lost streams never collapse it ([Ruralz Control availability](11-scalability-and-distributed-state.md#ruralz-control-availability)). Large decreases publish at once, and increases rise at most 10% per minute, with an alert (target); each published value is committed through Raft.
 4. 8092 authorizes classes by certificate role, at most 64 MiB/s per peer (target): Raft and write forwarding for Raft members; status forwarding and content replication for replicas; status forwarding, content fetch and the [relay feed](#relay-feed) for relays; and a token `Join` (OQ-control-plane-and-gitops-15). The leader re-authorizes forwarded writes as their original principal.
 
 A new leader restarts open gate windows and evaluates no gate until canary Nodes report or one ACK timeout passes.
@@ -122,13 +122,15 @@ Ruralz Control's own settings are process configuration, never a kind or field, 
 
 Reload means on SIGHUP or file change, validated first: an invalid file keeps the previous settings, logs the error and exports a metric. Every applied change is audited with the file's digest. OTLP settings live in this file, the log level in `RURALZ_LOG_LEVEL` (OQ-observability-11, option (b)).
 
+This file also holds the settings of the [external signer](#revision-signing-and-verification) (names: OQ-control-plane-and-gitops-28), the [timed soak](#finalizing-an-upgrade) (OQ-release-versioning-and-compatibility-14) and the [audit retention](#audit-and-security) (OQ-capacity-planning-10). Whether it also names the [audit sink](10-observability.md#control-plane-observability) and the operator public keys that [backups](#backup-restore-and-postgres) are encrypted to is OQ-observability-23 and OQ-cli-and-api-surface-15.
+
 #### Bootstrap credential
 
 The first `serve` on an empty Control Store stores the credential's hash and audits it. It is a bearer credential for exactly two things: creating the first `admin` and `security-admin` at `POST /api/v1/access`, each enrolling TOTP, and minting join tokens at `POST /api/v1/replicas`. It expires 24 hours after that `serve` (target), or once both users exist and every join token it minted is redeemed; each use is audited as the bootstrap principal. A restore or a later `serve` never imports one.
 
 ### Node process configuration
 
-The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-19). The three `*_FILE` variables, read at start, are proposed additions to pack section 2 (OQ-control-plane-and-gitops-27); the token file lies outside `RURALZ_SECRET_ROOT` ([Security and identity](08-security-and-identity.md)).
+The scheme of `ruralzd`'s `RURALZ_CONFIG` selects the mode (OQ-system-overview-19). The three `*_FILE` variables are process settings of [pack section 2](../_meta/foundation-pack.md#2-canonical-names), each naming a file read at start; the token file lies outside `RURALZ_SECRET_ROOT` ([Security and identity](08-security-and-identity.md)).
 
 | Setting | Holds | Mode |
 |---|---|---|
@@ -197,7 +199,7 @@ With `requireApproval`, an `approver` runs `ruralz rollout approve` once per rec
 
 ### Change detection and pull request validation
 
-Forge webhooks at `/api/v1/hooks/git` need a per-source HMAC, are rate-limited (`RZ-CP-018`) and only trigger an authenticated fetch; otherwise Ruralz Control polls every 60 s (target). The Git client is OQ-control-plane-and-gitops-6.
+Forge webhooks at `/api/v1/hooks/git` need a per-source HMAC, are rate-limited (`RZ-CP-018`) and only trigger an authenticated fetch; otherwise Ruralz Control polls every 60 s (target). The Git client is go-git, pure Go under Apache-2.0 ([source](https://github.com/go-git/go-git/blob/main/README.md)) ([source](https://github.com/go-git/go-git/blob/main/LICENSE)): it authenticates with an HTTPS token or an SSH key from `git.credentialsFile` and fetches each tracked branch shallowly.
 
 Forge CI renders each pull request per Environment exactly as Ruralz Control does ([Configuration model](02-configuration-model.md#environment-substitution)): `ruralz bundle validate --environments control/environments.yaml` and `ruralz bundle build`, Planned (M1); `ruralz bundle diff` against the Environment's Revision, Planned (M2); and `ruralz test run`. Ruralz Control re-validates every commit; commit status needs forge adapters (OQ-control-plane-and-gitops-7).
 
@@ -266,8 +268,8 @@ Signing follows [ADR-0017](../adr/0017-artifact-signing.md) and pack 8.14; diges
 | Step | Rule |
 |---|---|
 | Signed content | Revision: digest, Environment, key ID, time. Assignment: Cluster, Environment, digest, `rolloutId`, `storeEpoch`, `assignmentSeq`. Promotion: Cluster, `promotedDigest`, `storeEpoch`, `promotionSeq`. Anchor set: `version`, `storeEpoch`, online keys, server CA fingerprint, Plugin trust policy, optional `compromisedSince` |
-| Keys | The leader's online key, encrypted under a key-encryption key, signs everything except anchor sets, which only an offline trust-root key signs (OQ-control-plane-and-gitops-8) |
-| Algorithm | ECDSA P-256 with SHA-256 through Go `crypto/ecdsa`, confirmed by the FIPS build's G3 check ([Tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)) |
+| Keys | The leader's online key signs everything except anchor sets, which only an offline trust-root key signs. By default the online key lives in the Control Store, encrypted under a key-encryption key. Optionally an external signer holds it instead, on Vault Transit or a cloud KMS (AWS, Google Cloud or Azure), and signs for the leader, so the key never enters the Control Store or a backup; its process configuration is OQ-control-plane-and-gitops-28 |
+| Algorithm | ECDSA P-256 with SHA-256 through Go `crypto/ecdsa`, confirmed by the FIPS build's G3 check ([Tech stack](../engineering/01-tech-stack-and-libraries.md#fips-build)); an external signer MUST hold an ECDSA P-256 key, so Nodes verify every signature alike |
 | Node verification | Before activation and at Last-Known-Good boot: digest (RZ-CFG-027), both signatures, and the Environment and Cluster from its `EnrollResponse`, else RZ-CFG-033 |
 | Anchor sets | `version` is the root signing time; Nodes persist the highest and reject a lower one, or an equal one with other content. The Control-mode Plugin trust policy comes from `pluginTrustPolicy` in [process configuration](#process-configuration) (pack 8.14); without one, signed-Plugin activation fails under `enforce` |
 | Rotation | (1) Rotate key (Settings or `/api/v1/trust`, `admin`) creates the new key and exports its public half; after offline root signing, a `security-admin` uploads the anchor set that adds it at a higher `version`, and Ruralz Control publishes it. (2) Once connected Nodes ACKed, Ruralz Control signs with it and re-signs retained Revisions, assignments and promotions at the next sequences, sent as a `Delta` with empty `ops`. (3) The old key retires once those Nodes report the new `signingKeyId` |
@@ -298,14 +300,15 @@ With `autoRollback: true`, a deterministic NACK, failed gate or lagging threshol
 
 ### Rollout states
 
-The states match pack 8.3 exactly: `pending`, `canary`, `progressing`, `paused`, `complete`, `rolled-back` and `failed`, which means only that the revert could not finish and pages an operator. A Rollout exists only after approval and stays `pending`, the pack's queued state, until its plan dispatches. Pack 8.3 lacks the transitions to `failed` (OQ-control-plane-and-gitops-15).
+The states match pack 8.3 exactly: `pending`, `canary`, `progressing`, `paused`, `complete`, `rolled-back` and `failed`, which means only that the revert could not finish and pages an operator. A promotion's Rollout exists only after approval, a revert's once it starts; either stays `pending`, the pack's queued state, until its plan dispatches, and a [held revert](#rolling-back-in-three-steps) also until an `approver` releases it. Pack 8.3 lacks the transitions to `failed` (OQ-control-plane-and-gitops-15).
 
 *Figure 3: Rollout states; failures follow `autoRollback`.*
 
 ```mermaid
 stateDiagram-v2
     state "rolled-back" as RolledBack
-    [*] --> pending: promotion approved or not gated, Cluster free
+    [*] --> pending: promotion approved or not gated, or revert started, Cluster free
+    pending --> [*]: held revert rejected, record discarded
     pending --> canary: plan dispatched, strategy canary
     pending --> progressing: plan dispatched, strategy all-at-once
     canary --> progressing: canary ACKs and gates pass after bake
@@ -340,11 +343,11 @@ ruralz rollout status $CONTROL 01J9ZK3M7Q8R2T4V6X8Y0A1B2C      # 3. confirm the 
 
 In Ruralz Console: (1) select the Rollout, (2) choose Roll back, (3) confirm by typing the Cluster name.
 
-A `complete` Rollout is terminal. To revert it, an `operator` passes step-up TOTP and starts a Rollout of the replaced Revision, or chooses Revert in Ruralz Console. The revert skips `promotion.from` and approval but follows `spec.rollout` (OQ-control-plane-and-gitops-18). An older target, or a diff with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves. A revert never delivers a revoked hash. A Revision never `complete` in the Cluster gets `RZ-CP-017`; one for another Environment, `RZ-CP-016`.
+A `complete` Rollout is terminal. To revert it, an `operator` passes step-up TOTP and starts a Rollout of the replaced Revision, or chooses Revert in Ruralz Console. The revert skips `promotion.from` and approval but follows `spec.rollout` (OQ-control-plane-and-gitops-18). An older target, or a diff with `security` impact or a Capability grant, gets `RZ-CP-006` until another `approver` approves: the held revert waits as a `pending` Rollout, the Cluster's active Rollout for `RZ-CP-009`, until `POST /api/v1/rollouts/{id}/approve` releases it or `/reject` discards it. A revert never delivers a revoked hash. A Revision never `complete` in the Cluster gets `RZ-CP-017`; one for another Environment, `RZ-CP-016`.
 
 ## Control Stream
 
-Every Node dials 8091 and speaks `ruralz.control.v1.ControlStream`, a snapshot plus delta protocol with xDS-style ACK/NACK, not xDS ([ADR-0007](../adr/0007-control-stream-protocol.md)), built with `connectrpc.com/connect` in gRPC mode ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)); `buf breaking` gates the protos (OQ-tech-stack-and-libraries-14).
+Every Node dials 8091 and speaks `ruralz.control.v1.ControlStream`, a snapshot plus delta protocol with xDS-style ACK/NACK, not xDS ([ADR-0007](../adr/0007-control-stream-protocol.md)), built with `connectrpc.com/connect` in gRPC mode ([source](https://github.com/connectrpc/connect-go/blob/main/README.md)). Its messages use the `google.golang.org/protobuf` runtime; a pinned buf CLI with version-pinned local protoc-gen-go and protoc-gen-connect-go generates the messages and the connect service code hermetically, CI checks the committed output, and `buf breaking` gates the protos ([buf rules](../engineering/02-repository-layout-and-conventions.md#buf-rules)).
 
 On 8091, `Enroll` needs a valid token and every other RPC a valid, unrevoked Node certificate, the only source of `node.id`.
 
@@ -354,7 +357,7 @@ On 8091, `Enroll` needs a valid token and every other RPC a valid, unrevoked Nod
 | `EnrollResponse` | Ruralz Control to Node | `certificateChain`, `serverCa`, `trustRoot`, `anchorSet`, `cluster`, `environment` | No ACK; the Node checks `trustRoot` against the token |
 | `Hello` | Node to Ruralz Control, first on `Stream` | `activeDigest`, `lkgDigest`, `binaryVersion`, `schemaLevels`, `lastNonce`, `storeEpoch`, `assignmentSeq`, anchor-set `version`, `revocationSeq` | `RZ-CP-002`, `RZ-CP-003`, or anchor updates, then `Delta` or `Snapshot` if needed, and revocation entries after `revocationSeq` |
 | `Snapshot` | Ruralz Control to Node, chunked | `nonce`, `assignment`, `offset`, `totalBytes`, `chunk`, `signature`, `promotion` | Verify, compile, swap, `Ack`; else `Nack`, keeping the active Revision |
-| `Delta` | Ruralz Control to Node | `nonce`, `assignment`, `baseDigest`, `ops`, `signature`, `promotion` | Empty `ops` carries only new signatures; a wrong patched digest is `Nack` RZ-CFG-027; `ops` encoding: OQ-control-plane-and-gitops-26 |
+| `Delta` | Ruralz Control to Node | `nonce`, `assignment`, `baseDigest`, `ops`, `signature`, `promotion` | Each op replaces one resource of the `ruralz.canonical.v1` content, named by kind and name, with its new canonical form, adding it when absent, or deletes one by kind and name; empty `ops` carries only new signatures; a wrong patched digest is `Nack` RZ-CFG-027 |
 | `Ack` | Node to Ruralz Control | `nonce`, `digest`, `storeEpoch`, `assignmentSeq` | Means active, not durable; stale nonces are ignored; counts per (`node.id`, `storeEpoch`, `assignmentSeq`), so a `Hello` matching the pending assignment's digest, `storeEpoch` and `assignmentSeq` is its `Ack` ([ADR-0007](../adr/0007-control-stream-protocol.md)) |
 | `Nack` | Node to Ruralz Control | `nonce`, `digest`, `code`, `class`, `detail` | Deterministic fails the gate once reproduced; transient is retried |
 | `Heartbeat` | Node to Ruralz Control | `activeDigest`, `lkgDigest`, `signingKeyId` per digest, `schemaLevels`, `ready`, `draining`, `revocationSeq`, counters per `rolloutId` | Feeds gates and Drift; three missed (target) mean disconnected |
@@ -406,7 +409,7 @@ Nodes heartbeat every 15 s (target); Ruralz Control MAY raise `heartbeatInterval
 1. One unacknowledged configuration message per Node, `TrustUpdate` included; a newer assignment replaces an unsent one. `RevocationUpdate` has its own window of one, so a pending Snapshot never delays a revocation.
 2. Snapshot chunks of at most 1 MiB (target) and Deltas are encoded once and shared.
 3. At most 32 concurrent Snapshots and 256 MiB in flight per replica (target); a Snapshot larger than that budget is admitted alone, never refused.
-4. Messages cap at 2 MiB (target). Snapshot size check: a Node's `totalBytes` limit derives from the configurable size limit, never below the CLI default (OQ-control-plane-and-gitops-25), and `ruralz bundle build` and the builder reject a larger encoding with RZ-CFG-001, so no Revision that Nodes would refuse passes CI or is recorded.
+4. Messages cap at 2 MiB (target). Snapshot size check: the encoded Snapshot limit has no setting of its own; a Node's `totalBytes` limit derives from its configurable source size limit, never below the CLI default ([Restricted YAML profile](02-configuration-model.md#restricted-yaml-profile)), and `ruralz bundle build` and the builder reject a larger encoding with RZ-CFG-001, so no Revision that Nodes would refuse passes CI or is recorded.
 5. A per-stream send queue of 4 messages (target) keeps only the latest state.
 6. A per-replica token bucket on new streams answers excess with `Reconnect` or `RZ-CP-010`.
 7. Backoff with full jitter, base 1 s, cap 60 s (target).
@@ -486,7 +489,7 @@ Ruralz Console, at `/console` on 8090, calls only the public REST API, so RBAC i
 | Nodes | Digests, version, schema level, readiness | Enrollment token, revoke | viewer | security-admin |
 | Revocations | Entries by type, sequence, mark age, cap use, `kid` still served | Add entry, remove `kid` entry | security-admin | security-admin, step-up |
 | Revisions | Source, signing key, diff impact | Compare | viewer | None |
-| Rollouts | State, batches, ACKs, NACK codes, gates | Start, pause, resume, roll back | viewer | operator |
+| Rollouts | State, batches, ACKs, NACK codes, gates, held reverts | Start, pause, resume, roll back; approve or reject a held revert | viewer | operator; approve: approver, step-up |
 | Drift | Drift and related conditions | Re-deliver, quarantine | viewer | operator |
 | Bundle editor | Files, live diagnostics, diff | Submit write-back | viewer | editor |
 | Plugins | Digest, ABI, Phases, Capabilities, signatures | None | viewer | None |
@@ -550,28 +553,30 @@ Per pack 8.5, `/healthz` means the process responds; `/readyz` returns 200 once 
 
 ### Backup, restore and `postgres`
 
-`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted and signed; downloads are audited. `ruralz control restore` runs only from the host CLI into an empty deployment, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached. A restore keeps committed Node counts, so thin plans stay `pending`; a rebuild from Git has none and still needs the [hold](../operations/04-high-availability-and-disaster-recovery.md#holding-deliveries-during-recovery).
+`ruralz control backup` writes a Raft snapshot plus referenced content, consistent at one index, encrypted to one or more operator public keys and signed; downloads are audited. Where those keys are named, and which key signs, is OQ-cli-and-api-surface-15. `ruralz control restore` runs only from the host CLI into an empty deployment, supplying the operator private key that decrypts the backup, under three rules: a root-signed anchor set with a new online key opens a higher `storeEpoch` before any delivery; sessions and API tokens are invalidated; and without an operator-supplied revocation list, Node certificates issued before the restore are refused until their Nodes re-enroll, so those Nodes serve detached. A restore keeps committed Node counts, so thin plans stay `pending`; a rebuild from Git has none and still needs the [hold](../operations/04-high-availability-and-disaster-recovery.md#holding-deliveries-during-recovery).
 
 The `postgres` implementation, Planned (M4), keeps everything in PostgreSQL, with leadership as a fenced lease row renewed every 2 s and expiring after 10 s (target). Sequences keep their compare-and-swap in a transaction; moving between Raft and `postgres` opens a new `storeEpoch`. Status forwarding and content placement are OQ-control-plane-and-gitops-22; the driver is OQ-tech-stack-and-libraries-20.
 
 ### Finalizing an upgrade
 
-Finalizing is a REST API action, with no timed finalize (OQ-release-versioning-and-compatibility-8, option (a)): `POST /api/v1/control-store/finalize`, or Finalize in Ruralz Console Settings, is `admin` with step-up TOTP, audited. The leader commits the version-advance entry ([Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades)) only if every replica and relay reports N, the 24-hour soak (target) has passed since the last did, and every replica reported its snapshot past the previous version-advance entry; otherwise `RZ-CP-021`. `GET /api/v1/control-store` shows the Control Store version, each reported binary version and snapshot, and the soak start. Under `postgres`, finalize is one transaction.
+Finalizing is a REST API action, `POST /api/v1/control-store/finalize`, which Finalize in Ruralz Console Settings and a `ruralz control` verb also call: `admin` with step-up TOTP, audited. The leader commits the version-advance entry ([Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades)) only if every replica and relay reports N, the 24-hour soak (target) has passed since the last did, and every replica reported its snapshot past the previous version-advance entry; otherwise `RZ-CP-021`. An optional timed soak finalizes without an operator: when process configuration sets its healthy time, the leader commits the entry itself, audited, once those conditions have held without a break for that time (the verb's name and this setting: OQ-release-versioning-and-compatibility-14). `GET /api/v1/control-store` shows the Control Store version, each reported binary version and snapshot, the soak start and, with a timed soak, when it finalizes. Under `postgres`, finalize is one transaction.
 
 ## API summary
 
 The REST API on 8090 is versioned under `/api/v1/` and published as OpenAPI; Ruralz Console, the CLI, CI and provisioning use it. Requests carry a session cookie or API token; errors carry `RZ-CP` or `RZ-CFG` codes. Reads need `viewer`.
 
-Resources are `environments` and `clusters` (read only), `promotions`, `revisions` (content, diff, push by `editor`), `rollouts`, `nodes`, `enrollment-tokens`, `trust`, `revocations`, `drift`, `audit`, `changes` (write-back), `replicas`, `control-store`, `access`, `backup` and `hooks/git` (HMAC). Write roles match the Ruralz Console Act column; `audit`, `access`, `backup` and `revocations` also need that role for reads. Operations the sections above add:
+Resources are `environments` and `clusters` (read only), `promotions`, `revisions` (content, diff, the Bundle resources inside a Revision by kind and name, a `digestPrefix` lookup returning at most 2 matches, push by `editor`), `rollouts`, `nodes`, `enrollment-tokens`, `trust`, `revocations`, `drift`, `audit`, `changes` (write-back), `replicas`, `control-store`, `access`, `backup` and `hooks/git` (HMAC). Write roles match the Ruralz Console Act column; `audit`, `access`, `backup` and `revocations` also need that role for reads. Operations the sections above add:
 
 | Operation | Effect | Role |
 |---|---|---|
 | `POST /api/v1/revocations` | Adds one entry ([Security and identity](08-security-and-identity.md#revocation) types, with `exp` or cut-off and a reason); the leader signs it at the Cluster's next sequence and sends `RevocationUpdate`; at the cap, `RZ-CP-020`, audited | `security-admin` with step-up; audited as `credential.revoked` |
 | `GET /api/v1/revocations` | Entries per Cluster, sequence, high-water mark, cap use | `security-admin` |
 | `DELETE /api/v1/revocations/{entryId}` | Removes a `kid` entry only; other entries expire or are collected | `security-admin` with step-up; audited as `credential.revoked` |
+| `POST /api/v1/rollouts/{id}/approve` | Releases a revert held by `RZ-CP-006` ([Rolling back in three steps](#rolling-back-in-three-steps)) | `approver` with step-up; audited |
+| `POST /api/v1/rollouts/{id}/reject` | Discards a held revert | `operator`; audited |
 | `DELETE /api/v1/replicas/{serverId}` | Removes a voter ([Removing a voter](#removing-a-voter)) | `admin` with step-up; audited |
 | `POST /api/v1/replicas/{serverId}/transfer` | Moves leadership off that replica ([Leadership transfer](#leadership-transfer)) | `admin`; audited |
-| `GET /api/v1/control-store` | Control Store version, reported binary versions and snapshots, soak start | `admin` |
+| `GET /api/v1/control-store` | Control Store version, reported binary versions and snapshots, soak start, timed finalize | `admin` |
 | `POST /api/v1/control-store/finalize` | Commits the version-advance entry ([Finalizing an upgrade](#finalizing-an-upgrade)) | `admin` with step-up; audited |
 | `POST /api/v1/access`, `POST /api/v1/replicas` with the bootstrap credential | First `admin` and `security-admin`; join tokens ([Bootstrap credential](#bootstrap-credential)) | Bootstrap principal; audited |
 
@@ -605,7 +610,7 @@ Ports: 8090 REST API, Ruralz Console and webhooks; 8091 Control Stream; 8092 pee
 
 ## Audit and security
 
-Every state change is audited, including logins, REST API writes, Enrollment, approvals, CRD changes with their Kubernetes user, and key rotations. Entries record actor, role, action, target, digests, source, result and time, and commit through Raft every 250 ms (target) before the write returns; the leader seals them into hash-chained segments of at most 4 MiB (target). Export is OQ-control-plane-and-gitops-12.
+Every state change is audited, including logins, REST API writes, Enrollment, approvals, CRD changes with their Kubernetes user, and key rotations. Entries record actor, role, action, target, digests, source, result and time, and commit through Raft every 250 ms (target) before the write returns; the leader seals them into hash-chained segments of at most 4 MiB (target). Audit retention is configurable in process configuration, 365 days by default (target; setting: OQ-capacity-planning-10): the leader prunes a sealed segment older than it only once a backup holds that segment. Export is OQ-control-plane-and-gitops-12.
 
 [Security and identity](08-security-and-identity.md) owns the full threat model; the sections above mitigate stolen Node certificates, compromised operator or editor accounts, tampered configuration and reconnect storms. Threats specific to Ruralz Control:
 
@@ -629,15 +634,11 @@ New crossings, none unauthenticated, map to [System overview](01-system-overview
 |---|---|---|---|---|
 | OQ-control-plane-and-gitops-3 | Configurable batches and gates? | (a) Fixed (current); (b) `Cluster.spec.rollout` fields | configuration-model | No |
 | OQ-control-plane-and-gitops-4 | Cluster order? | (a) Lexical (current); (b) a field; (c) parallel | configuration-model | No |
-| OQ-control-plane-and-gitops-6 | Which Git client? | (a) A pure-Go library; (b) the `git` binary | tech-stack-and-libraries | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-7 | Forge API integration? | (a) Plain branches (current); (b) GitHub and GitLab adapters | control-plane-and-gitops | No |
-| OQ-control-plane-and-gitops-8 | Where are the online and trust-root keys held? | (a) Control Store, root offline; (b) KMS or Vault | control-plane-and-gitops | Yes, for Planned (M2) |
 | OQ-control-plane-and-gitops-12 | Audit export format? | (a) OpenTelemetry logs; (b) syslog | observability | No |
 | OQ-control-plane-and-gitops-15 | Should pack 8.4 add the 8092 classes, relay feed included, and pack 8.3 transitions to `failed`, plus `resume` from `pending`? | (a) Amend (proposed); (b) a forwarding port | control-plane-and-gitops | No |
 | OQ-control-plane-and-gitops-18 | Should a revert skip `canary.bake`? | (a) No (current); (b) a field | configuration-model | No |
 | OQ-control-plane-and-gitops-21 | Password KDF, and a memory-hard G3 exception? | (a) PBKDF2 (current); (b) argon2id outside FIPS builds | tech-stack-and-libraries | No |
 | OQ-control-plane-and-gitops-22 | Status forwarding and content placement under `postgres`, amending pack section 2? | (a) PostgreSQL tables (proposed); (b) 8092 without Raft | control-plane-and-gitops | Yes, for Planned (M4) |
 | OQ-control-plane-and-gitops-23 | Node cap and minting quota as fields? | (a) Process configuration (current); (b) `Cluster.spec` fields | configuration-model | No |
-| OQ-control-plane-and-gitops-25 | Which setting holds the encoded Snapshot limit? | (a) Derived from the source size limit (proposed); (b) its own setting | configuration-model | Yes, for Planned (M2) |
-| OQ-control-plane-and-gitops-26 | How does `Delta` encode `ops` over `ruralz.canonical.v1`? | (a) JSON Patch (RFC 6902) on the canonical document; (b) per-resource replace and delete | control-plane-and-gitops | Yes, for Planned (M2) |
-| OQ-control-plane-and-gitops-27 | Should pack section 2 list `RURALZ_ENROLLMENT_TOKEN_FILE`, `RURALZ_TRUST_POLICY_FILE` and `RURALZ_REGISTRY_AUTH_FILE`? | (a) Amend it (proposed); (b) keys in a Node file | control-plane-and-gitops | Yes, for Planned (M2) |
+| OQ-control-plane-and-gitops-28 | Which process configuration settings select and configure the external signer of the online key, and how do Rotate key and the CA keys work with it? | (a) `signer.driver`, `local` by default, or `vault-transit`, `aws-kms`, `gcp-kms` or `azure-key-vault`, with per-driver settings such as `signer.vaultTransit.address`, `signer.vaultTransit.keyName` and `signer.vaultTransit.tokenFile`, or `signer.awsKms.keyId` and `signer.awsKms.region`; Rotate key takes a new key the operator created in the signer; CA keys stay encrypted in the Control Store (proposed); (b) one `signer.keyUri` naming the key, such as `vault-transit://HOST/transit/keys/NAME`, with credentials from each provider's own sources, the CA keys in the signer too | control-plane-and-gitops | Yes, for Planned (M2) external signing |

@@ -17,7 +17,7 @@ P10 requires OpenTelemetry signals and a metric for every degraded state; P3 for
 | ID | Rule | Consequence |
 |---|---|---|
 | O1 | OpenTelemetry first: traces and metrics through the OpenTelemetry Go SDK, logs through `log/slog` and the `otelslog` bridge ([ADR-0018](../adr/0018-telemetry-opentelemetry-prometheus-exporter.md)) | One layer feeds OTLP and `/metrics` |
-| O2 | Telemetry never blocks, slows or fails a request | Bounded span and log queues drop with a counter (TB-12); only the audit export lags instead (OQ-observability-19) |
+| O2 | Telemetry never blocks, slows or fails a request | Bounded span and log queues drop with a counter (TB-12); only the audit export, across its own boundary TB-14, lags instead |
 | O3 | Every degraded state is a metric | `ruralz_node_degraded_info` with a fixed `reason` |
 | O4 | No secrets, credentials or payloads in any signal | No resolved secret, credential header, query string (`url.full`, `url.query`) or body reaches a signal or `/tap` (threat T9, [Security and identity](08-security-and-identity.md)) |
 | O5 | Bounded cardinality | Label values are Revision-bounded names or enumerations admitted at compile time, except Plugin guest event names ([Cardinality budget](#cardinality-budget)) |
@@ -551,7 +551,7 @@ Ruralz Control (Planned (M2)) exports signals like a Node, with the same aggrega
 
 The action and operation registries belong to [Control plane and GitOps](04-control-plane-and-gitops.md#drift-detection); these names fill its Drift metric deferral.
 
-The audit export uses OpenTelemetry logs, with the Control Store's committed audit log as the queue (OQ-control-plane-and-gitops-12). The leader exports batches keyed by Raft index and advances a Raft-recorded high-water mark, at most once per second (target), to the highest contiguously acknowledged index; an OTLP partial success counts as failure. Export retries, so it lags and never drops, unlike TB-12 (OQ-observability-19); a new leader resumes from the mark, so delivery is at least once, deduplicated on the Raft index attribute. `/api/v1/audit` stays authoritative.
+The audit export uses OpenTelemetry logs, with the Control Store's committed audit log as the queue (OQ-control-plane-and-gitops-12). It crosses a trust boundary of its own, TB-14 ([System overview](01-system-overview.md#trust-boundaries)): the Ruralz Control leader exports committed audit entries through its dedicated OTLP log exporter to the audit sink, which MAY differ from the telemetry Collector (settings: OQ-observability-23), since entries carry sensitive data. The leader exports batches keyed by Raft index and advances a Raft-recorded high-water mark, at most once per second (target), to the highest contiguously acknowledged index; an OTLP partial success counts as failure. Export retries from the Control Store, so on failure it lags and never drops, unlike TB-12; a new leader resumes from the mark, so delivery is durable and at least once, deduplicated on the Raft index attribute. `/api/v1/audit` stays authoritative.
 
 ## Cardinality and overhead budgets
 
@@ -616,7 +616,7 @@ With the Route histogram at its limit it is about 82,700 (hypothesis): about 8.3
 | OQ-observability-14 | Should heartbeats add latency histograms for Rollout gates, beside the request, 5xx and rejection counters they carry? | (a) No (current); (b) Yes | control-plane-and-gitops | No |
 | OQ-observability-15 | May Go runtime metrics keep SDK names outside pack 2? | (a) No, `ruralz_runtime_*` (current); (b) a pack section 2 change | tech-stack-and-libraries | No |
 | OQ-observability-18 | How is a State Store failover rollback or lost Cell reported? | (a) State Store monitoring (current); (b) Ruralz Control | scalability-and-distributed-state | No |
-| OQ-observability-19 | Should TB-12 in System overview exempt the audit export, which retries from the Control Store and never drops? | (a) Failure column "Drop on failure; audit export lags" (proposed); (b) a separate boundary | system-overview | Yes, for Planned (M2) |
 | OQ-observability-20 | Should TB-12 allow unreported cleartext OTLP to a loopback address or Unix socket, checked on the resolved address? | (a) Yes (proposed; see OQ-security-and-identity-29); (b) No (current) | system-overview | No |
 | OQ-observability-21 | Which cleartext hops should alert, given that Security and identity makes every cleartext hop a degraded state? | (a) Ticket for `state_store`, `telemetry` and `admin`, chart only for `client` and `upstream` (current); (b) no degraded reason for hops the transport table allows | security-and-identity | No |
 | OQ-observability-22 | Should the injected `traceparent` keep a valid parent's random flag (`02`) of Trace Context Level 2, a draft? | (a) No: flags `01` or `00`, Level 1 (current); (b) keep `02` from a valid parent, as Level 2 and the OpenTelemetry Go SDK's propagator do | observability | No |
+| OQ-observability-23 | Which Ruralz Control process configuration settings name the audit sink of TB-14, apart from `telemetry.otlp`? | (a) `audit.otlp.endpoint` and `audit.otlp.caFile`, defaulting to the `telemetry.otlp` values when unset (proposed); (b) no settings of its own: the export uses `telemetry.otlp`, and the operator's Collector routes audit records to the sink | control-plane-and-gitops | Yes, for the Planned (M2) audit export |

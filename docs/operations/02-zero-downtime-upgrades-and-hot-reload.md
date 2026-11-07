@@ -207,7 +207,7 @@ The `integration` job of the [PR pipeline](../engineering/03-testing-and-quality
 
 ### Node count during upgrades
 
-Handovers, Drains and replica replacements restart Control Streams, and `clusterNodeCount` counts only Nodes connected 10 minutes (target) ([Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles)): a `draining` Heartbeat drops a Node at once, and it rejoins only 10 minutes plus a 10%-per-minute ramp later (target), raising derived ceilings and hot-key GCRA calls until breakers open. Until OQ-scalability-and-distributed-state-14 (a) and OQ-zero-downtime-upgrades-and-hot-reload-11 keep qualification per `node.id`, derived-ceiling Clusters MUST upgrade at most 10% of Nodes per 10 minutes (target), about 100 minutes per Cluster (hypothesis); declared ceilings ([T4](01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds)) need no pacing.
+Handovers, Drains and replica replacements restart Control Streams. `clusterNodeCount` records each Node's qualification per `node.id` in committed state, and only a qualified Node missing three heartbeats (target) lowers it ([Replica roles](../architecture/04-control-plane-and-gitops.md#replica-roles)), so a successor that reconnects within three heartbeats keeps its Node counted. Until OQ-zero-downtime-upgrades-and-hot-reload-11 lets the successor's `Hello` supersede the draining stream, a replica still holding that stream answers `RZ-CP-002`, and retries that outlast three heartbeats lower the count, raising derived ceilings and hot-key GCRA calls until breakers open. Derived-ceiling Clusters therefore MUST upgrade at most 10% of Nodes per 10 minutes (target), about 100 minutes per Cluster (hypothesis); declared ceilings ([T4](01-deployment-topologies.md#t4-kubernetes-with-helm-hpa-and-crds)) need no pacing.
 
 ### Drain timeline defaults
 
@@ -345,10 +345,10 @@ Nodes follow the [skew policy](../engineering/04-release-versioning-and-compatib
 
 Upgrades follow [Ruralz Control upgrades](../engineering/04-release-versioning-and-compatibility.md#ruralz-control-upgrades) for the `raft` Control Store ([ADR-0006](../adr/0006-control-store-raft-boltdb.md), proposed), Planned (M2). N is the newest binary minor; until finalize the Control Store version stays N-1, and replicas write N-1 formats at N-1 schema levels. One minor at a time:
 
-1. **Prepare.** Every replica reported a snapshot at the Control Store version, and every Node runs N-1 by its `service.version` (upgrade any N-2 Node to N-1 first); take `ruralz control backup` with `--revocation-list-file` and pause `ruralz bundle push`.
-2. **One replica at a time.** Move leadership off (`POST /api/v1/replicas/{serverId}/transfer`), replace the binary with N, and await `/readyz` on 9902, Raft catch-up, a recovered `ruralz_control_connected_nodes` and, where required below, `ruralz_control_cluster_nodes`; three voters keep a quorum of two. A failing replica returns to N-1 and the upgrade stops.
+1. **Prepare.** Every replica reported a snapshot at the Control Store version, and every Node runs N-1 by the version `ruralz node list` shows from its `Hello` (upgrade any N-2 Node to N-1 first); take `ruralz control backup` with `--revocation-list-file` and pause `ruralz bundle push`.
+2. **One replica at a time.** Move leadership off (`POST /api/v1/replicas/{serverId}/transfer`), replace the binary with N, and await `/readyz` on 9902, Raft catch-up and a recovered `ruralz_control_connected_nodes`; three voters keep a quorum of two. A failing replica returns to N-1 and the upgrade stops.
 3. **Regional Ruralz Control relays**, Planned (M4), one at a time; their Nodes stay on N-1.
-4. **Finalize.** Once `GET /api/v1/control-store` shows every replica and relay at N and a 24-hour soak (target), an `admin` calls `POST /api/v1/control-store/finalize` (step-up; else `RZ-CP-021`); migrations run as log entries and replicas snapshot.
+4. **Finalize.** Once `GET /api/v1/control-store` shows every replica and relay at N and a 24-hour soak (target), an `admin` calls `POST /api/v1/control-store/finalize` or its `ruralz control` verb (step-up; else `RZ-CP-021`), or a configured timed soak finalizes once its healthy time passes ([Finalizing an upgrade](../architecture/04-control-plane-and-gitops.md#finalizing-an-upgrade)); migrations run as log entries and replicas snapshot.
 5. **After finalize.** Apply `ruralz-crds.yaml` if it adds a served version ([ADR-0016](../adr/0016-kubernetes-helm-and-crds.md), proposed), pin the CI CLI to N, resume pushes, then upgrade Nodes one Cluster at a time.
 
 Replicas over one minor above the Control Store version, or meeting unknown entries, stop before serving. With `postgres`, Planned (M4), finalize and migrations are transactions.
@@ -361,7 +361,7 @@ ruralz CLI                  N or N-1; ruralz bundle push at the Control Store ve
 Nodes within one Cluster    any mix of N and N-1, never newer than the Control Store version
 ```
 
-A replaced replica fails `/readyz` and sends `Reconnect` (`drain`); its Nodes redial as in [handover](#in-place-handover) step 7, staying ready (pack 8.5, [ADR-0007](../adr/0007-control-stream-protocol.md)); Rollouts resume from the persisted plan; ceil(Nodes / 5,000) + 1 replicas (hypothesis) avoid shedding. Until OQ-scalability-and-distributed-state-14 (a) closes, each replacement unqualifies its Nodes: for a derived-ceiling Cluster the operator MUST declare per-Node ceilings first or, between replacements, wait until `ruralz_control_cluster_nodes` regains its pre-step value, about 10 minutes plus the ramp, after a drop of about 1 / replicas (hypothesis).
+A replaced replica fails `/readyz` and sends `Reconnect` (`drain`); its Nodes redial as in [handover](#in-place-handover) step 7, staying ready (pack 8.5, [ADR-0007](../adr/0007-control-stream-protocol.md)); Rollouts resume from the persisted plan; ceil(Nodes / 5,000) + 1 replicas (hypothesis) avoid shedding. Each replacement keeps its Nodes counted: their qualification stays per `node.id` in committed state, and the replica loss restarts the 5-minute reconnect grace (target) within which they redial ([Ruralz Control availability](../architecture/11-scalability-and-distributed-state.md#ruralz-control-availability)).
 
 ## State Store upgrades
 
@@ -452,13 +452,13 @@ Commands and milestones: [CLI and API surface](../reference/01-cli-and-api-surfa
 
 | When | Check | Pass |
 |---|---|---|
-| Before a Ruralz Control upgrade | `ruralz version` (the CLI only); `ruralz node list --cluster <name>`; Node versions from `service.version` or inventory until OQ-release-versioning-and-compatibility-4 lets `ruralz node list` show them; `ruralz control backup --output-file <file> --revocation-list-file <file>` | CLI at N or N-1; every Node at N-1; digests equal the promoted digest; backup off the replicas; pushes paused; derived ceilings declared, or replacements paced |
+| Before a Ruralz Control upgrade | `ruralz version` (the CLI only); `ruralz node list --cluster <name>`, which shows each Node's version from the `binaryVersion` of its `Hello`; `ruralz control backup --output-file <file> --revocation-list-file <file>` | CLI at N or N-1; every Node at N-1; digests equal the promoted digest; backup off the replicas; pushes paused |
 | Before a Node upgrade, after finalize | `ruralz node list --cluster <name>`; versions as above | Every Node at N-1 or N; digests equal the promoted digest |
 | Before | `terminationGracePeriodSeconds` or `TimeoutStopSec`; balancer probe interval times unhealthy threshold | 45 s and 40 s; detection within 5 s (target) |
 | During a Hot Reload or Rollout | `ruralz rollout status <cluster> --wait`; `ruralz_config_activation_duration_seconds` | No deterministic NACK; each activation within the 60 s compile deadline (target) |
 | During a handover or Drain | Balancer view of `/readyz`; 5xx, `RZ-RT-014` and `RZ-RT-016` counts; the old process's exit log | 200 throughout a handover; no connection left at the deadline |
 | During any upgrade (Ruralz Control count: next row) | `ruralz_control_cluster_nodes`; `ruralz_node_degraded_info{reason="state_store_breaker_open"}` | No breaker opens; paced derived-ceiling Clusters: count drops at most 10% (target); declared ceilings: count ungated, first-seen GCRA calls within Scalability's per-Cell budget (target) |
-| During a Ruralz Control upgrade | `/readyz` on 9902; `ruralz_control_connected_nodes`; `ruralz_control_cluster_nodes` | Every Node reconnected, none shed; count down at most the replaced replica's share until OQ-scalability-and-distributed-state-14 (a) and, with derived ceilings, regained before the next replica |
+| During a Ruralz Control upgrade | `/readyz` on 9902; `ruralz_control_connected_nodes`; `ruralz_control_cluster_nodes` | Every Node reconnected within the 5-minute reconnect grace (target), none shed; count unchanged |
 | After | `ruralz node list`; `ruralz_control_drift_nodes`; `ruralz_node_degraded_info` | No Drift and no new degraded reason |
 
 ## Open questions
