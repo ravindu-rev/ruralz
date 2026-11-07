@@ -247,7 +247,7 @@ An AI Route resolves a virtual `AIModel` to `AIProvider` candidates in `onRoute`
 
 ## Configuration lifecycle
 
-A Bundle is validated against a published JSON Schema ([ADR-0003](../adr/0003-configuration-format.md)) and built, by Ruralz Control from Git or by `ruralz bundle build`, into a Revision: the SHA-256 digest of the Bundle rendered for one Environment in `ruralz.canonical.v1` form, defaults materialized ([Configuration model](02-configuration-model.md#canonical-form-and-revision), pack 8.1). Output shows `rev-<12 hex>`; every verification uses the full `sha256:<64 hex>`, and a mismatch is `RZ-CFG-027`. Equal digests mean equal effective behavior; only `secretRef` values and `RURALZ_*` process settings differ between Nodes. Ruralz Control signs each Revision it records (ADR-0017).
+A Bundle is validated against a published JSON Schema ([ADR-0003](../adr/0003-configuration-format.md)) and built, by Ruralz Control from Git or by `ruralz bundle build`, into a Revision: the SHA-256 digest of the Bundle rendered for one Environment in `ruralz.canonical.v1` form, defaults materialized ([Configuration model](02-configuration-model.md#canonical-form-and-revision), pack 8.1). Output shows `rev-<12 hex>`; every verification uses the full `sha256:<64 hex>`, and a mismatch is `RZ-CFG-027`. Equal digests mean equal effective behavior; only `secretRef` values, `RURALZ_*` process settings and the signed revocation list, which Nodes apply outside the digest (pack 8.4), differ between Nodes. Ruralz Control signs each Revision it records (ADR-0017).
 
 A Rollout, which exists only in Control mode, delivers one Revision to one Cluster. Promotion moves a source commit, not a digest: `Environment.spec.promotion.from` lets a commit roll out only after its Revision for the source Environment reached `complete`. Branch mapping is OQ-system-overview-11.
 
@@ -368,7 +368,7 @@ Choose Control mode when several teams change configuration, auditors need attri
 
 ### File mode lifecycle
 
-For OCI pull, CI runs `ruralz bundle validate`, `ruralz bundle build --env <env>` and `ruralz bundle push`, which signs with Sigstore. The Node polls a repository reference (OQ-system-overview-19), pulls by digest and verifies the signature (`enforce` by default; `off` is a degraded state) before swapping. A watched directory is unsigned, so the filesystem is the trust root; it SHOULD hold `ruralz bundle render --env <env>` output, since file-mode `ruralzd` applies no overlay. The watcher acts only on atomic replacement or after a settle debounce.
+For OCI pull, CI runs `ruralz bundle validate`, `ruralz bundle build --env <env>` and `ruralz bundle push`, which signs with Sigstore. The Node polls a repository reference (OQ-system-overview-19), pulls by digest and verifies the signature (`enforce` by default; `off` is a degraded state) before swapping. The signature binds the Revision's Environment and a monotonic sequence: the Node refuses another Environment's Revision and any sequence below the high-water mark it keeps under `${RURALZ_DATA_DIR}/lkg/`, so a rollback re-pushes the older Revision with `ruralz bundle push`, which gives it a new sequence ([Signed Revisions and Plugin artifacts](08-security-and-identity.md#signed-revisions-and-plugin-artifacts), pack 8.14). A watched directory is unsigned, so the filesystem is the trust root; it SHOULD hold `ruralz bundle render --env <env>` output, since file-mode `ruralzd` applies no overlay. The watcher acts only on atomic replacement or after a settle debounce.
 
 ### Cells and Regions
 
@@ -383,7 +383,7 @@ The Helm chart and CRDs are Planned (M2) ([ADR-0016](../adr/0016-kubernetes-helm
 | Failure | Blast radius | Node behavior | Owner |
 |---|---|---|---|
 | Ruralz Control unreachable or Raft quorum lost | Management: Rollouts, Ruralz Console, Drift, Enrollment | Keeps active Revision and stays ready; jittered reconnect | [High availability and disaster recovery](../operations/04-high-availability-and-disaster-recovery.md) |
-| Node restart during that outage | One Node | Boots Last-Known-Good after the boot wait; without it, not ready | [Data plane](03-data-plane.md) |
+| Node restart during that outage | One Node | Boots Last-Known-Good after the boot wait, with its persisted revocation list; without Last-Known-Good, not ready | [Data plane](03-data-plane.md) |
 | Revision fails digest or signature check | One Node | Rejected before any swap (NACK in Control mode); active Revision kept | [Security and identity](08-security-and-identity.md) |
 | State Store slow or down | One Cell's global accuracy | At most one deadline per request, then `failureMode`; none once the breaker opens | [Scalability and distributed state](11-scalability-and-distributed-state.md) |
 | Upstream failing | Its Routes | Outlier detection, budgeted retries, breaker | [Traffic management and resilience](09-traffic-management-and-resilience.md) |
@@ -429,6 +429,8 @@ flowchart LR
         rctl["Regional Ruralz Control"]
         ops["Operators and CI"]
         otel["OpenTelemetry collector"]
+        aud["Audit sink"]
+        kapi["Vault and Kubernetes API"]
     end
     subgraph ext["External services"]
         up["Upstreams and AIProviders"]
@@ -439,17 +441,21 @@ flowchart LR
     cl -->|"TB-1 TLS, Consumer credentials"| gw
     gw -->|"TB-2 Capabilities only"| pl
     gw -->|"TB-3 TLS or mTLS, secretRef"| up
+    gw -->|"TB-3 TLS, secrets and discovery"| kapi
     gw -->|"TB-4 TLS, authenticated"| ss
-    gw -->|"TB-5 mTLS, Node dials 8091, signed Revisions"| ctl
+    gw -->|"TB-5 Node dials 8091, mTLS or Enroll token, signed Revisions"| ctl
     ops -->|"TB-6 RBAC and audit, 8090"| ctl
-    ctl -->|"TB-7 repository credentials"| git
+    ctl -->|"TB-7 repository credentials, HMAC webhooks"| git
+    ctl -->|"TB-7 service account, CRD watch"| kapi
     gw -->|"TB-8 pull by digest, Sigstore verified"| oci
+    ctl -->|"TB-8 digest pulls, host credentials"| oci
     ops -->|"TB-9 token or mTLS except health"| adm
     ops -->|"TB-9"| cadm
     gw -->|"TB-10 TLS, pinned issuer"| idp
-    ctl -->|"TB-11 Raft mTLS on 8092 or postgres TLS"| cst
+    ctl -->|"TB-11 Raft mTLS on 8092, token Join, or postgres TLS"| cst
     gw -->|"TB-12 TLS, no secrets"| otel
     ctl -->|"TB-12"| otel
+    ctl -->|"TB-14 audit export, at least once"| aud
     rctl -->|"TB-13 OQ-system-overview-16"| ctl
 ```
 
@@ -457,17 +463,18 @@ flowchart LR
 |---|---|---|---|
 | TB-1 | Client to Ruralz Gateway (8080, 8443) | TLS or QUIC; hashed API keys, JWT, OAuth or mTLS | Authentication fails closed |
 | TB-2 | Filter Chain to Plugin | wazero isolation; declared Capabilities only | Trap fails the call, never the Node |
-| TB-3 | Ruralz Gateway to Upstreams and AIProviders | TLS or mTLS; credentials via `secretRef`, each sent only to its declared destination (pack 5) | Breakers, bounded retries, fallback |
+| TB-3 | Ruralz Gateway to Upstreams, AIProviders, Vault and the Kubernetes API | TLS or mTLS; credentials via `secretRef`, each sent only to its declared destination (pack 5); Vault and the Kubernetes API only over verified TLS, the Node authenticating to Vault by Kubernetes auth, AppRole or a token file and to the Kubernetes API with a namespace-scoped service account | Breakers, bounded retries, fallback; secret providers and discovery keep their last values |
 | TB-4 | Ruralz Gateway to State Store | TLS and authentication; contents are never configuration; with `RURALZ_STATE_STORE_MAC_KEY_FILE` set, cached entries carry an HMAC checked on read (pack 2) | `failureMode` within the deadline |
-| TB-5 | Node to Ruralz Control (8091) | mTLS with a per-Node enrollment certificate; Revisions signed by Ruralz Control, always verified against Enrollment trust anchors ([ADR-0017](../adr/0017-artifact-signing.md)) | NACK; keep active Revision |
+| TB-5 | Node to Ruralz Control (8091) | mTLS with a per-Node enrollment certificate for every RPC but `Enroll`, which redeems a one-time token over server-authenticated TLS with the server CA the token pins; Revisions signed by Ruralz Control, always verified against Enrollment trust anchors ([ADR-0017](../adr/0017-artifact-signing.md)) | NACK; keep active Revision |
 | TB-6 | Operators to Ruralz Control (8090) | Sessions or tokens, RBAC, audit log; Ruralz Console SSO/SAML Planned (M5) | Deny by default |
-| TB-7 | Ruralz Control to Git | Credentials from Ruralz Control's process configuration, never a Bundle | Invalid content never becomes a Revision |
-| TB-8 | Node to OCI registry | Digest-only pulls; Sigstore signatures on Revisions and Plugins, verified offline before activation, `enforce` by default | Mismatch or bad signature rejected |
+| TB-7 | Ruralz Control to Git and the Kubernetes API, and Git webhooks to Ruralz Control | Repository credentials from Ruralz Control's process configuration, never a Bundle; HMAC-signed webhooks; a service account for the CRD watch, over verified TLS | Invalid content never becomes a Revision |
+| TB-8 | Nodes and Ruralz Control to OCI registry | Digest-only pulls, registry credentials sent only to their host; Sigstore signatures on Revisions, Plugins and OCI policy artifacts, verified offline before activation, `enforce` by default | Mismatch or bad signature rejected |
 | TB-9 | Operators to admin ports 9901 and 9902 | Only `/healthz` and `/readyz` MAY be unauthenticated; the rest MUST require a token or mTLS (default bind: OQ-system-overview-6); `/tap` redacts credentials; `/config/dump` omits resolved secrets | Deny by default |
 | TB-10 | Node to IdP and JWKS | TLS with server verification; pinned issuer | Cached keys until expiry, then fail closed |
-| TB-11 | Ruralz Control to Control Store | mTLS between Raft replicas on 8092, Node certificates rejected; TLS for `postgres` | Quorum loss stops writes only |
+| TB-11 | Ruralz Control to Control Store | mTLS between Raft replicas on 8092, Node certificates rejected; a replica without a peer certificate redeems a one-time `admin` join token in `Join` over server-authenticated TLS with a pinned server CA; TLS for `postgres` | Quorum loss stops writes only |
 | TB-12 | Nodes and Ruralz Control to OpenTelemetry collector | TLS; no secrets in telemetry | Drop on failure |
 | TB-13 | Regional Ruralz Control to Ruralz Control | Mutual TLS; role: OQ-system-overview-16 | Region keeps serving |
+| TB-14 | Ruralz Control leader to the audit sink (audit export) | Committed, hash-chained audit entries through the leader's dedicated OTLP log exporter, apart from TB-12's telemetry; durable and at least once, retried from the Control Store ([Observability](10-observability.md#control-plane-observability)) | Lags on failure, never drops |
 
 ## Document map
 

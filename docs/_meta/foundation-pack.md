@@ -31,7 +31,7 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | Configuration a Node serves now | **active Revision** (section 8.2) | the Node's current compiled snapshot | "current config", "live config" |
 | Delivery of a Revision to a Cluster (Control mode only) | **Rollout** | states: `pending`, `canary`, `progressing`, `paused`, `complete`, `rolled-back`, `failed` (section 8.3) | "deploy", "push" |
 | Plugin ABI | **Plugin ABI v1** | `ruralz.plugin.v1` | proxy-wasm (only when discussing the compatibility adapter) |
-| CP-to-DP protocol | **Control Stream** | gRPC `ruralz.control.v1.ControlStream` over mTLS; every Node dials `ruralz-control` on 8091 | xDS, "sync protocol", "config push protocol" |
+| CP-to-DP protocol | **Control Stream** | gRPC `ruralz.control.v1.ControlStream`; every Node dials `ruralz-control` on 8091, over mTLS with its enrollment certificate except for the one-time token `Enroll`, which uses server-authenticated TLS with a pinned server CA (section 8.4) | xDS, "sync protocol", "config push protocol" |
 | Shared runtime state | **State Store** | drivers: `memory` (single Node), `redis` (Redis / Valkey / Dragonfly, RESP3) | "cache cluster", "Redis" as a concept name |
 | Control-plane persistence | **Control Store** | Raft-replicated metadata (embedded `hashicorp/raft` with `raft-boltdb/v2` on bbolt, default; `postgres` optional, Planned (M4)) plus digest-addressed Revision content and audit segments on Ruralz Control replicas; `ruralz control backup` covers all of it | "database", "CP DB" |
 | Gateway instance | **Node** | `node.id` (ULID) | "instance", "replica", "pod" (except in Kubernetes context) |
@@ -62,11 +62,14 @@ This file is **binding** for every document under `docs/` and for the code: use 
 | `RURALZ_ADMIN_TLS_DIR` | Certificate and key the admin port serves TLS with; its client CA also admits client certificates |
 | `RURALZ_ADMIN_URL` | Read by the `ruralz` CLI only, never by a Node: the default `--admin`, a Node's admin base URL, of the commands that call a Node's admin port |
 | `RURALZ_BIND_LOOPBACK` | `true` or `false`, default `false`: binds every client listener and the admin port to loopback, 127.0.0.1 and ::1, instead of every interface; `ruralz dev run` sets it, and any other value refuses start |
-| `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the Enrollment token file or Vault credential |
+| `RURALZ_SECRET_ROOT` | The only directory `file` references resolve under: absolute, default `/etc/ruralz`. A Node refuses to start when it contains `${RURALZ_DATA_DIR}`, `RURALZ_ADMIN_TLS_DIR`, either admin token file, the MAC key file or, Planned (M2), the `RURALZ_ENROLLMENT_TOKEN_FILE` file or Vault credential |
 | `RURALZ_SECRET_*` | The only names `env` references resolve, besides `RURALZ_STATE_STORE_URL` |
 | `RURALZ_FETCH_ALLOW` | Comma-separated addresses and CIDRs that Node connections made for the Bundle may reach although the Node otherwise refuses unspecified, loopback, link-local and cloud metadata addresses; the entry `env-proxy` honors proxy variables, and an unparsable entry refuses start |
 | `RURALZ_ZONE` | The Node's failure-zone name, an operator-set token of 1 to 63 characters from `[a-z0-9-]`, default empty; any other value refuses start. The State client compares it with the zones of `stateStore.zones` and `stateStore.cache.zones` to label each call `same`, `cross` or `unknown` |
 | `RURALZ_STATE_STORE_MAC_KEY_FILE` | Optional State Store entry MAC key: an absolute path, owner-only mode, at least 32 bytes, outside `RURALZ_SECRET_ROOT`. With it, every opaque entry the Node stores for others (Response Cache entries in M1) carries an HMAC-SHA-256 tag (counters carry none), and a missing or wrong tag reads as a miss; every stored entry records whether it is tagged, so a Node without the key reads a tagged entry as a miss; rotating the key needs a restart and turns existing entries into misses |
+| `RURALZ_ENROLLMENT_TOKEN_FILE` | File holding the one-time Enrollment token from `ruralz node token` that a Control-mode Node redeems in `Enroll`; outside `RURALZ_SECRET_ROOT`, and ignored once `${RURALZ_DATA_DIR}/identity/` holds a valid identity. Planned (M2) |
+| `RURALZ_TRUST_POLICY_FILE` | File holding a file-mode Node's OCI Revision and Plugin trust policies (section 8.14); unset means an empty policy, so `enforce` rejects every signed pull, and a Control-mode Node with it set refuses to start, since its Plugin trust arrives in anchor sets. Planned (M2) |
+| `RURALZ_REGISTRY_AUTH_FILE` | File holding the registry credentials of the Node's OCI pulls, in the container credential file format; each credential is sent only to its registry host. Planned (M2) |
 
 ## 3. Resource model (fixed kinds)
 
@@ -144,7 +147,9 @@ plus the streaming hook **`onChunk`**, invoked per SSE event, WebSocket message,
 | Semantic cache | Redis 8 Vector Sets or valkey-search 1.2 on the same State Store deployment through dedicated connections, never the auto-pipelined rate-limit and quota connections. Servers without either (Dragonfly, Valkey below 9.0.1) cannot serve it: the Policy then behaves as a State Store failure under its `failureMode` (default `open`, cache bypassed) and the Node reports a degraded state. | (AI doc) |
 | YAML 1.2 parser | Ruralz code in `internal/config/profile`, written for the YAML 1.2.2 productions: it types plain scalars by the YAML 1.2 core schema, refuses duplicate keys, and rejects anchors, aliases, merge keys and custom tags. No YAML module links into a binary; `go.yaml.in/yaml/v3` (MIT and Apache-2.0) serves only the parser's tests, as a differential oracle. | (tech stack doc; ADR-0003) |
 | JSON Schema validator | `github.com/santhosh-tekuri/jsonschema/v6` (Apache-2.0): claims draft 2020-12 test-suite compliance, offers a `Vocabulary` API for the `x-ruralz-*` keywords and instance locations for the source map, and builds on the Go 1.26 floor. | (tech stack doc; ADR-0003) |
-| Pending selections | Protobuf runtime, SigV4 signer, SAML, `postgres` driver (OQ-tech-stack-and-libraries-14, -17, -19 and -20) and a MaxMind database reader for `authz.geoip`. A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
+| Protobuf | `google.golang.org/protobuf` runtime; the pinned `buf` CLI runs version-pinned local `protoc-gen-go` and `protoc-gen-connect-go` plugins, hermetic, with no network at generate time | (tech stack doc; ADR-0007) |
+| MaxMind database reader | `github.com/oschwald/maxminddb-golang` reads the local MaxMind-format database of `authz.geoip` | (tech stack doc) |
+| Pending selections | SigV4 signer, SAML and `postgres` driver (OQ-tech-stack-and-libraries-17, -19 and -20). A design MAY assume the capability but MUST NOT name a library until the tech stack document adds its catalog row | (tech stack doc) |
 
 Other defaults: State Store drivers are `memory` and `redis` only; another driver needs an ADR. Console is a React/TypeScript SPA embedded in `ruralz-control`. No native Kafka/MQTT wire-protocol proxying before M4. The managed cloud is described only in the vision document's Managed cloud section and one hybrid deployment topology; docs MUST NOT describe cloud-only hooks.
 
@@ -156,7 +161,7 @@ Other defaults: State Store drivers are `memory` and `redis` only; another drive
 |---|---|
 | Bundle | The source: a directory rooted at `ruralz.yaml` holding `Gateway`, `Route`, `Upstream`, `Policy`, `Plugin`, `Consumer`, `AIProvider` and `AIModel` resources plus optional `overlays/<env>/`. One Bundle renders into one Revision per Environment |
 | Rendered Bundle | Output of `ruralz bundle render --env <env>`: one YAML stream with the overlay merged and `${VAR}` substituted; itself a valid one-file Bundle, and the form file-mode Nodes SHOULD load when more than one Node reads it |
-| Revision | The SHA-256 digest of one Bundle rendered for one Environment, serialized as `ruralz.canonical.v1`: each resource decoded under its own apiVersion, every schema and registry default (`slot`, `failureMode`, `filterClass`) materialized, hub form normalized and sorted, then RFC 8785 canonical JSON. Equal digests mean equal effective behavior on every Node that accepts them; only `secretRef` values and `RURALZ_*` process settings differ between Nodes |
+| Revision | The SHA-256 digest of one Bundle rendered for one Environment, serialized as `ruralz.canonical.v1`: each resource decoded under its own apiVersion, every schema and registry default (`slot`, `failureMode`, `filterClass`) materialized, hub form normalized and sorted, then RFC 8785 canonical JSON. Equal digests mean equal effective behavior on every Node that accepts them; only `secretRef` values, `RURALZ_*` process settings and the signed revocation list, which Nodes apply outside the digest (section 8.4), differ between Nodes |
 | Identifier | Display form `rev-<12 hex>`, the first 12 hex characters of the digest (e.g., `rev-162af81f5de4`), in CLI output, Ruralz Console, logs and prose. The Control Stream, OCI pulls, Last-Known-Good and every verification carry and check the full `sha256:<64 hex>`; a mismatch is RZ-CFG-027 |
 | Producers | Ruralz Control builds Revisions from Git, or from a source Bundle and expected digest sent by `ruralz bundle push`, which it re-renders with the Environment's variables (mismatch: RZ-CFG-027). `ruralz bundle build` builds locally. `ruralz bundle push` to an OCI registry publishes a rendered Revision that file-mode Nodes pull by digest |
 | Promotion | Moves a source commit, not a digest: `Environment.spec.promotion.from` lets a commit roll out only after its Revision for the source Environment reached `complete` |
@@ -191,7 +196,7 @@ A deterministic NACK is an `RZ-CFG-<NNN>` error that reproduces from the Revisio
 
 ### 8.4 Control Stream, ports and HTTP/3
 
-Every Node dials `ruralz-control:8091` (gRPC `ruralz.control.v1.ControlStream`, mTLS with its per-Node enrollment certificate); Ruralz Control never dials a Node, so Nodes work behind NAT and egress-only firewalls. Snapshots, deltas and the promoted digest flow down; ACK or NACK (digest and code) and heartbeats (active and Last-Known-Good digests, schema level per apiVersion) flow up. Reconnects use exponential backoff with full jitter and present the active digest; Ruralz Control answers with nothing, a delta or a full snapshot, and MAY shed reconnects.
+Every Node dials `ruralz-control:8091` (gRPC `ruralz.control.v1.ControlStream`: a one-time token `Enroll` over server-authenticated TLS, then mTLS with its per-Node enrollment certificate); Ruralz Control never dials a Node, so Nodes work behind NAT and egress-only firewalls. Snapshots, deltas and the promoted digest flow down; ACK or NACK (digest and code) and heartbeats (active and Last-Known-Good digests, schema level per apiVersion) flow up. The signed revocation list also flows down, as leader-signed entries and high-water marks outside the Revision digest (section 8.1), and each Node answers with an `Ack` it signs; a file-mode Node reads its entries from a watched file. Reconnects use exponential backoff with full jitter and present the active digest; Ruralz Control answers with nothing, a delta or a full snapshot, and MAY shed reconnects.
 
 | Port | Process | Purpose | Authentication |
 |---|---|---|---|
@@ -199,8 +204,8 @@ Every Node dials `ruralz-control:8091` (gRPC `ruralz.control.v1.ControlStream`, 
 | 8443 TCP and UDP | `ruralzd` | TLS listener; UDP carries HTTP/3 when `http3: true`, Planned (M3) | TLS or QUIC; Consumer credentials |
 | 9901 | `ruralzd` | Admin: `/healthz`, `/readyz`, `/metrics`, `/debug/*`, `/config/dump`, `/tap` | Only `/healthz` and `/readyz` MAY be unauthenticated; default bind: OQ-system-overview-6 |
 | 8090 | `ruralz-control` | REST API and Ruralz Console | Sessions or tokens, RBAC, audit log |
-| 8091 | `ruralz-control` | Control Stream server; Nodes dial it | mTLS, per-Node enrollment certificate |
-| 8092 | `ruralz-control` | Raft peer transport (`raft.NetworkTransport` over a Ruralz mTLS stream layer); unused with `postgres` | mTLS with Ruralz Control peer certificates; Node certificates rejected |
+| 8091 | `ruralz-control` | Control Stream server; Nodes dial it | mTLS with the per-Node enrollment certificate for every RPC except `Enroll`, which redeems a one-time Enrollment token over server-authenticated TLS with the server CA the token pins |
+| 8092 | `ruralz-control` | Raft peer transport (`raft.NetworkTransport` over a Ruralz mTLS stream layer); unused with `postgres` | mTLS with Ruralz Control peer certificates; Node certificates rejected; `Join` from a replica without a peer certificate redeems a one-time `admin` join token over server-authenticated TLS with a pinned server CA |
 | 9902 | `ruralz-control` | Admin: `/healthz`, `/readyz`, `/metrics`, `/debug/*` | Same rule as 9901 |
 
 A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traffic in firewall rules. HTTP/3 is Planned (M3) through quic-go, is off in FIPS builds (OQ-tech-stack-and-libraries-9), and loses in-flight QUIC connections on a binary upgrade (OQ-system-overview-18).
@@ -217,7 +222,7 @@ A dedicated Raft port, not ALPN multiplexing on 8091, keeps Nodes off peer traff
 
 | Area | Meaning | Registry owner |
 |---|---|---|
-| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045 in M1 | configuration-model |
+| `CFG` | Configuration parse, validation, render, digest, secret resolution, activation, and Plugin artifact or signature checks, including a feature the running release does not serve (RZ-CFG-040), a compile deadline (RZ-CFG-044) and an internal activation fault (RZ-CFG-045); RZ-CFG-001 to RZ-CFG-045 in M1, and from M2 the `authz.opa` and `authz.cedar` engine limits (RZ-CFG-046) | configuration-model |
 | `RT` | Request and response handling on a Node outside Upstream legs: Route matching and deadline errors, request size limits and hardening, Node buffer budget or overload, CORS, schema-validation rejections, Response Cache rejections (`only-if-cached` misses, unsatisfiable ranges), request- and response-Phase Policy failures, composition failures, streamed-chunk caps, admin `/tap` limits, unknown admin paths and methods, and requests ended by a snapshot's grace period or a Drain | data-plane |
 | `UP` | Upstream legs: connect, TLS, timeout, reset, open breaker, retries exhausted, mid-stream failure | traffic-management-and-resilience |
 | `AUTH` | Authentication and authorization decisions, including `authz.*` denials and upstream credential failures | security-and-identity |
@@ -284,12 +289,13 @@ A Node persists only the following under `${RURALZ_DATA_DIR}`; all other shared 
 | State | Location | Notes |
 |---|---|---|
 | Enrollment identity | `${RURALZ_DATA_DIR}/identity/` | `node.id` (ULID, generated at first boot) and, in Control mode, the per-Node mTLS certificate and key issued at Enrollment; revoked with `ruralz node revoke` |
-| Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only; encrypted secret persistence is OQ-configuration-model-15 |
+| Last-Known-Good and candidate | `${RURALZ_DATA_DIR}/lkg/` | Configuration only, with the high-water mark of the signed sequences of OCI Revisions in file mode (section 8.14), Planned (M2); encrypted secret persistence is OQ-configuration-model-15 |
 | Disposable caches | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | Plugin artifacts and compiled modules; deleting them costs only warm-up |
 | Process lock and handover | `${RURALZ_DATA_DIR}/lock`, `holder.json`, `handover.sock` | The holder's file lock, its PID record (`ruralz.holder.v1`) and the Unix socket of the Zero-Downtime Upgrade handover protocol (`ruralz.handover.v1`, ADR-0015), Planned (M1) |
 | Published Node count | Under `${RURALZ_DATA_DIR}`, layout owned by Data plane | The last count Ruralz Control published, used flagged stale after a restart and handed to a successor (section 8.8); Control mode, Planned (M2) |
+| Revocation list | Under `${RURALZ_DATA_DIR}`, layout owned by Security and identity | The signed revocation entries and high-water mark last received (section 8.4), verified again when read back at boot, so a restart while detached keeps enforcing them; Control mode, Planned (M2) |
 
-- Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good, `holder.json` and the Node count, and holds the Control Stream for its `node.id` (ADR-0015 handover).
+- Only the process holding the file lock on `${RURALZ_DATA_DIR}` writes Last-Known-Good, `holder.json`, the Node count and the revocation list, and holds the Control Stream for its `node.id` (ADR-0015 handover).
 - Enrollment is one-time and off the request path; file mode needs none. In Control mode, a Node without Last-Known-Good stays not ready until it enrolls and receives its first Revision from Ruralz Control; seeding from an OCI-published Revision during an outage is OQ-system-overview-12.
 - Gateway `spec.limits.maxPluginMemoryBytes` caps aggregate Plugin memory per Node; at the cap new instances are refused (`RZ-PLG` under the Policy's `failureMode`) and the Node never crashes. WASM plugin system owns the default; the Configuration model registers the field.
 
@@ -302,6 +308,7 @@ Policies attach by forward reference in `spec.policies`; a Policy never names it
 3. A Gateway Policy with `overridable: false` cannot be excluded or replaced (RZ-CFG-019).
 4. Upstream-scoped Policies form one set per Upstream, run only in that upstream leg's Phases and take no part in slot comparison; a type at a disallowed scope is RZ-CFG-020.
 5. Within a Phase, order is Filter class (cors, auth, authz, admission, validation, cache, upstream-auth, transform, custom), then scope (Gateway, Route, Upstream), then list position; response Phases run in reverse and `onLog` keeps request order.
+6. A request-signing type records its parameters in `onUpstreamRequest`, and the Node signs each attempt at the transport-time signing hook, which runs after the last `onUpstreamRequest` Filter or Plugin and after dialect translation, so no Policy changes a request once it is signed; `auth.upstream-sigv4` signs this way.
 
 ### 8.13 Cells, Regions and regional Ruralz Control
 
@@ -315,11 +322,12 @@ Policies attach by forward reference in `spec.policies`; a Policy never names it
 |---|---|---|---|
 | Every Revision and Plugin artifact | Content addressing | Every fetch checks the full sha256 (RZ-CFG-027, RZ-CFG-028) | Always on; not configurable |
 | Revision in Control mode | Ruralz Control, when it records the Revision; key rotation owned by Control plane and GitOps | Each Node before activation, against trust anchors received at Enrollment | Always verified; failure is a NACK |
-| Revision published to OCI (file mode) | CI, at `ruralz bundle push`, with Sigstore (keyless OIDC or a key), stored as an OCI referrer | Each Node before activation | `enforce`; `off` must be set explicitly and is a degraded state (metric and warning) |
+| Revision published to OCI (file mode) | CI, at `ruralz bundle push`, with Sigstore (keyless OIDC or a key), stored as an OCI referrer; the signature binds the Revision's Environment and a monotonic sequence | Each Node before activation, refusing another Environment's Revision and a sequence below its high-water mark (section 8.11), so a rollback re-pushes the older Revision with a new sequence | `enforce`; `off` must be set explicitly and is a degraded state (metric and warning) |
 | Plugin artifact | Its publisher, at `ruralz plugin push`, with Sigstore | `ruralz bundle build` and `validate --online`, Ruralz Control at ingest, Nodes at activation | `enforce`; `ruralz dev run` uses `warn`; `off` is a degraded state |
+| OCI policy artifact of an `authz.opa` or `authz.cedar` Policy | Its publisher, with Sigstore | As for a Plugin artifact, under the Plugin trust policy | As for a Plugin artifact |
 | Watched Bundle directory (file mode) | Not signed | The operator's filesystem is the trust root | Not applicable |
 
-The trust policy (trusted identities or keys) lives in Ruralz Control's configuration in Control mode, sent to Nodes over the Control Stream, and in the Node's process configuration in file mode; names belong to Security and identity. Verification is offline: trust roots are supplied locally, so air-gapped installs work. Signature failures use an `RZ-CFG` code the Configuration model registers. Release artifact signing (images, SBOM) is separate and owned by Release, versioning and compatibility.
+The trust policy (trusted identities or keys) lives in Ruralz Control's configuration in Control mode, sent to Nodes over the Control Stream, and in the Node's process configuration (`RURALZ_TRUST_POLICY_FILE`, section 2) in file mode; names belong to Security and identity. Verification is offline: trust roots are supplied locally, so air-gapped installs work. Signature failures use an `RZ-CFG` code the Configuration model registers. Release artifact signing (images, SBOM) is separate and owned by Release, versioning and compatibility.
 
 ## 9. CLI command registry
 
@@ -391,7 +399,7 @@ These are the exact `Policy.spec.type` strings of the Configuration model regist
 | `ai.guardrail` | validation | onRequestBody, onChunk, onResponse | G, R | `name` | closed; either | Planned (M3) |
 | `plugin` | `filterClass` | The Plugin's `phases` | Scopes matching those Phases | `name` | closed; closed only for auth and authz classes | Planned (M2) |
 
-IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file and waits for a tech stack catalog row for the reader; header enrichment for Upstreams is an Open question of Security and identity. The `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stand as registered.
+IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR on the client address; deriving that address behind trusted proxies belongs to Security and identity. `authz.geoip` allows or denies by ISO 3166 country from a local MaxMind-format database file, read with `github.com/oschwald/maxminddb-golang` (section 7); header enrichment for Upstreams is an Open question of Security and identity. `auth.upstream-sigv4` records its signing parameters in `onUpstreamRequest`, and the Node signs at the transport-time signing hook after the last `onUpstreamRequest` Filter (section 8.12). JWT signing is a built-in type this table registers once Security and identity names it. The `geo-block` Plugin example stays valid. The MCP Server surface stays OQ-vision-and-positioning-12, and the `quota` and `ai.token-budget` defaults stand as registered.
 
 ## 11. Glossary definitions
 
@@ -420,7 +428,7 @@ IP filtering and GeoIP are built-in types. `authz.ip` allows or denies by CIDR o
 | Host Function | A function the Plugin host exports to Plugins under Plugin ABI v1, callable only with the matching Capability. | wasm-plugin-system |
 | Hot Reload | One Node activating a new Revision without a restart: compile off the request path, then one atomic snapshot swap; in-flight requests keep their snapshot. | zero-downtime-upgrades-and-hot-reload |
 | Last-Known-Good | The persisted Revision under `${RURALZ_DATA_DIR}/lkg/` that a Node boots when it cannot obtain configuration; promoted on activation in file mode, at the promoted digest in Control mode. | system-overview |
-| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good, lock and handover files, the last published Node count and disposable caches. | system-overview |
+| Node | One running `ruralzd` process, identified by `node.id` (a ULID); it persists only its enrollment identity, Last-Known-Good, lock and handover files, the last published Node count, its revocation list and disposable caches. | system-overview |
 | Phase | One fixed hook of the Filter Chain, from `onRequestHeaders` to `onLog`, plus the streaming hook `onChunk`. | data-plane |
 | Plugin | A Bundle kind and the sandboxed WASM artifact it pins by digest, running under Plugin ABI v1 with deny-by-default Capabilities and declared limits. | wasm-plugin-system |
 | Plugin ABI | The guest-host contract `ruralz.plugin.v1` (Plugin ABI v1): Extism-style memory and Host Function conventions with Capability checks. | wasm-plugin-system |

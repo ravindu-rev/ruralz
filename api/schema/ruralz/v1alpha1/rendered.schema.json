@@ -710,7 +710,7 @@
       "type": "object"
     },
     "AuthzCedarConfig": {
-      "description": "AuthzCedarConfig is the config of an authz.cedar Policy; its fields await OQ-security-and-identity-13.",
+      "description": "AuthzCedarConfig is the config of an authz.cedar Policy, Planned (M2): exactly one of inline Cedar policy text or a signed OCI policy artifact pinned by digest, and inline entities beside the policy text. Its fields ship with the authz.cedar Filter.",
       "properties": {},
       "type": "object"
     },
@@ -801,7 +801,7 @@
       "type": "object"
     },
     "AuthzOPAConfig": {
-      "description": "AuthzOPAConfig is the config of an authz.opa Policy; its fields await OQ-security-and-identity-13.",
+      "description": "AuthzOPAConfig is the config of an authz.opa Policy, Planned (M2): exactly one of an inline Rego module or a signed OCI policy artifact pinned by digest, the query that decides, and inline data beside a module. Its fields ship with the authz.opa Filter.",
       "properties": {},
       "type": "object"
     },
